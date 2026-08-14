@@ -10,6 +10,27 @@ namespace TrackZ.Api.Tests.Errors;
 
 public sealed class BusinessExceptionMiddlewareTests
 {
+    [Theory]
+    [InlineData("$.Email", "email")]
+    [InlineData("$.PASSWORD", "password")]
+    [InlineData("$.DeviceName", "deviceName")]
+    [InlineData("$.RefreshToken", "refreshToken")]
+    [InlineData("$.SessionId", "sessionId")]
+    [InlineData(null, "body")]
+    [InlineData("", "body")]
+    [InlineData("email", "body")]
+    [InlineData(".field", "body")]
+    [InlineData("$$..Email", "body")]
+    [InlineData("$.user.email", "body")]
+    [InlineData("$.items[0]", "body")]
+    [InlineData("$.unknown", "body")]
+    public void Json_path_mapping_accepts_only_a_single_whitelisted_root(string? path, string expected)
+    {
+        var endpoints = typeof(Program).Assembly.GetType("TrackZ.Api.Endpoints.IdentityEndpoints")!;
+        var mapper = endpoints.GetMethod("MapJsonPath", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!;
+        Assert.Equal(expected, mapper.Invoke(null, [path]));
+    }
+
     public static TheoryData<BusinessErrorCode, int> PublishedCodes => new()
     {
         { BusinessErrorCode.InvalidCredentials, 10001 },

@@ -196,7 +196,9 @@ public static class IdentityEndpoints
 
     private static string MapJsonPath(string? path)
     {
-        var field = path?.TrimStart('$', '.');
+        if (string.IsNullOrEmpty(path) || !path.StartsWith("$.", StringComparison.Ordinal)) return "body";
+        var field = path[2..];
+        if (field.Length == 0 || field.IndexOfAny(['.', '[', ']', '$']) >= 0) return "body";
         return field switch
         {
             not null when string.Equals(field, "email", StringComparison.OrdinalIgnoreCase) => "email",
