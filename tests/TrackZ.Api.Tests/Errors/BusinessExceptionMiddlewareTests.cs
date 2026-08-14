@@ -27,7 +27,8 @@ public sealed class BusinessExceptionMiddlewareTests
         { BusinessErrorCode.InvalidSetValue, 30004 },
         { BusinessErrorCode.ImageTooLarge, 50002 },
         { BusinessErrorCode.ImageTypeNotSupported, 50003 },
-        { BusinessErrorCode.VersionConflict, 60001 }
+        { BusinessErrorCode.VersionConflict, 60001 },
+        { BusinessErrorCode.InternalServerError, 90001 }
     };
 
     [Theory]

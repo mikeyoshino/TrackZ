@@ -17,5 +17,6 @@ public enum BusinessErrorCode
     InvalidSetValue = 30004,
     ImageTooLarge = 50002,
     ImageTypeNotSupported = 50003,
-    VersionConflict = 60001
+    VersionConflict = 60001,
+    InternalServerError = 90001
 }

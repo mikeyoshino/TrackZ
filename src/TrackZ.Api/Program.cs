@@ -70,6 +70,7 @@ builder.Services.AddRateLimiter(options =>
 var app = builder.Build();
 
 app.UseRequestLocalization();
+app.UseMiddleware<UnhandledExceptionMiddleware>();
 app.UseMiddleware<BusinessExceptionMiddleware>();
 app.UseRateLimiter();
 app.UseAuthentication();

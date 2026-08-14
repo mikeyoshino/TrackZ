@@ -74,3 +74,31 @@ Observed result: 2 failed, 0 passed. The started-response test reported that no 
 ### GREEN
 
 The middleware now rethrows the original exception when `Response.HasStarted`; otherwise it calls `Response.Clear()` before setting the ProblemDetails status/content type and serializing. The same focused command passed: 2 passed, 0 failed, 0 skipped.
+
+## Fix Round 2: Safe Generic Exception Responses
+
+### Summary
+
+Added `UnhandledExceptionMiddleware` outside `BusinessExceptionMiddleware` in the API pipeline. It rethrows business exceptions, rethrows every exception after the response starts, and otherwise clears the pending response before returning safe localized ProblemDetails. `InternalServerError = 90001` is a new immutable server-category code for the shared mobile payload. The handler does not serialize exception details, request bodies, tokens, or other request data.
+
+### RED
+
+Added generic-handler and enum-stability tests, then ran:
+
+```sh
+dotnet test tests/TrackZ.Api.Tests/TrackZ.Api.Tests.csproj --filter "UnhandledExceptionMiddlewareTests|Published_business_error_code_has_its_immutable_numeric_value"
+```
+
+Observed compilation failures: `CS0117` because `BusinessErrorCode.InternalServerError` did not exist, and `CS0246` because `UnhandledExceptionMiddleware` did not exist.
+
+### GREEN
+
+Added the outer middleware, `90001`, localized English/Thai resource entries, and pipeline wiring after request localization and before the business middleware. The same focused command passed: 21 passed, 0 failed, 0 skipped. It verifies English and Thai safe messages, HTTP 500, `application/problem+json`, trace ID, null field errors, no exception/token leakage, started-response propagation without appended JSON, and preservation of a wrapped business exception's 404/30001/message.
+
+### Full API Verification
+
+```sh
+dotnet test tests/TrackZ.Api.Tests/TrackZ.Api.Tests.csproj --no-restore
+```
+
+Passed: 39 passed, 0 failed, 0 skipped.
