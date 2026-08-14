@@ -55,12 +55,13 @@ public static class IdentityEndpoints
 
         auth.MapPost("/refresh", async (RefreshRequest request, HttpContext context, ISender sender, CancellationToken cancellationToken) =>
         {
-            if (string.IsNullOrWhiteSpace(request.RefreshToken) || string.IsNullOrWhiteSpace(request.DeviceName))
+            var fieldErrors = ValidateRefreshRequest(request, context);
+            if (fieldErrors is not null)
             {
-                return ValidationProblem(context, ValidateRefreshRequest(request, context)!);
+                return ValidationProblem(context, fieldErrors);
             }
 
-            return Results.Ok(await sender.Send(new RefreshCommand(request.RefreshToken, request.DeviceName), cancellationToken));
+            return Results.Ok(await sender.Send(new RefreshCommand(request.RefreshToken!, request.DeviceName!), cancellationToken));
         })
         .RequireRateLimiting("identity")
         .Accepts<RefreshRequest>("application/json")
@@ -110,7 +111,7 @@ public static class IdentityEndpoints
         AddRequired(errors, "email", request.Email, context);
         AddRequired(errors, "password", request.Password, context);
         AddRequired(errors, "deviceName", request.DeviceName, context);
-        AddDeviceLength(errors, request.DeviceName);
+        AddDeviceLength(errors, request.DeviceName, context);
         return errors.Count == 0 ? null : errors;
     }
 
@@ -119,7 +120,7 @@ public static class IdentityEndpoints
         var errors = new Dictionary<string, string[]>();
         AddRequired(errors, "refreshToken", request.RefreshToken, context);
         AddRequired(errors, "deviceName", request.DeviceName, context);
-        AddDeviceLength(errors, request.DeviceName);
+        AddDeviceLength(errors, request.DeviceName, context);
         return errors.Count == 0 ? null : errors;
     }
 
@@ -131,9 +132,9 @@ public static class IdentityEndpoints
         }
     }
 
-    private static void AddDeviceLength(IDictionary<string, string[]> errors, string? value)
+    private static void AddDeviceLength(IDictionary<string, string[]> errors, string? value, HttpContext context)
     {
-        if (value?.Trim().Length > 128) errors["deviceName"] = ["Invalid device name."];
+        if (value?.Trim().Length > 128) errors["deviceName"] = [BusinessMessages.Format("InvalidDeviceName", CultureInfo.CurrentUICulture)];
     }
 
     private static IResult ValidationProblem(HttpContext context, IReadOnlyDictionary<string, string[]> errors) => Results.Json(

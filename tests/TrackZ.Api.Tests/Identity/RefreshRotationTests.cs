@@ -150,6 +150,17 @@ public sealed class RefreshRotationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Refresh_with_a_valid_token_and_overlong_device_name_returns_10009_before_rotation()
+    {
+        var token = await RegisterAndLoginAsync("refresh-boundary@example.com");
+        var response = await _client.PostAsJsonAsync("/api/v1/auth/refresh", new { refreshToken = token.RefreshToken, deviceName = new string('x', 129) });
+        var problem = await response.Content.ReadFromJsonAsync<ApiProblemDetails>();
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(10009, (int)problem!.ErrorCode);
+        Assert.True(problem.FieldErrors!.ContainsKey("deviceName"));
+    }
+
+    [Fact]
     public async Task Missing_refresh_field_returns_localized_shared_problem_details()
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/refresh")
