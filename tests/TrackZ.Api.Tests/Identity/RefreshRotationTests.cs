@@ -16,6 +16,13 @@ namespace TrackZ.Api.Tests.Identity;
 
 public sealed class RefreshRotationTests : IAsyncLifetime
 {
+    public static IEnumerable<object[]> ValidationCases =>
+    [
+        ["/api/v1/auth/register", "{", "body", false, false], ["/api/v1/auth/register", "{\"password\":\"ValidPassword!42\"}", "email", false, false], ["/api/v1/auth/register", "{\"email\":\"a@b.com\"}", "password", false, false], ["/api/v1/auth/register", "{\"email\":1,\"password\":\"ValidPassword!42\"}", "email", true, false], ["/api/v1/auth/register", "{\"email\":\"a@b.com\",\"password\":1}", "password", false, false],
+        ["/api/v1/auth/login", "{", "body", false, false], ["/api/v1/auth/login", "{\"password\":\"ValidPassword!42\",\"deviceName\":\"ios\"}", "email", false, false], ["/api/v1/auth/login", "{\"email\":\"a@b.com\",\"deviceName\":\"ios\"}", "password", false, false], ["/api/v1/auth/login", "{\"email\":\"a@b.com\",\"password\":\"ValidPassword!42\"}", "deviceName", false, false], ["/api/v1/auth/login", "{\"email\":1,\"password\":\"ValidPassword!42\",\"deviceName\":\"ios\"}", "email", false, false], ["/api/v1/auth/login", "{\"email\":\"a@b.com\",\"password\":1,\"deviceName\":\"ios\"}", "password", false, false], ["/api/v1/auth/login", "{\"email\":\"a@b.com\",\"password\":\"ValidPassword!42\",\"deviceName\":1}", "deviceName", false, false], ["/api/v1/auth/login", "{\"email\":\"a@b.com\",\"password\":\"ValidPassword!42\",\"deviceName\":\"$LONG\"}", "deviceName", true, false],
+        ["/api/v1/auth/refresh", "{", "body", false, false], ["/api/v1/auth/refresh", "{\"deviceName\":\"ios\"}", "refreshToken", false, false], ["/api/v1/auth/refresh", "{\"refreshToken\":\"$TOKEN\"}", "deviceName", false, false], ["/api/v1/auth/refresh", "{\"refreshToken\":1,\"deviceName\":\"ios\"}", "refreshToken", false, false], ["/api/v1/auth/refresh", "{\"refreshToken\":\"$TOKEN\",\"deviceName\":1}", "deviceName", false, false], ["/api/v1/auth/refresh", "{\"refreshToken\":\"$TOKEN\",\"deviceName\":\"$LONG\"}", "deviceName", true, false],
+        ["/api/v1/auth/logout", "{", "body", false, true], ["/api/v1/auth/logout", "{}", "sessionId", false, true], ["/api/v1/auth/logout", "{\"sessionId\":1}", "sessionId", false, true], ["/api/v1/auth/logout", "{\"sessionId\":\"not-a-guid\"}", "sessionId", false, true]
+    ];
     private PostgreSqlContainer? _container;
     private TrackZApiFactory? _factory;
     private HttpClient _client = null!;
@@ -222,6 +229,35 @@ public sealed class RefreshRotationTests : IAsyncLifetime
         Assert.True(response.StatusCode == HttpStatusCode.BadRequest, $"{response.StatusCode}: {body}");
         var problem = System.Text.Json.JsonSerializer.Deserialize<ApiProblemDetails>(body, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
         Assert.Equal(10009, (int)problem!.ErrorCode);
+    }
+
+    [Theory]
+    [MemberData(nameof(ValidationCases))]
+    public async Task Identity_validation_matrix_returns_one_safe_localized_field_error(string route, string json, string expectedField, bool thai, bool authenticate)
+    {
+        TokenPairResponse? token = null;
+        if (route == "/api/v1/auth/refresh" || authenticate) token = await RegisterAndLoginAsync($"matrix-{Guid.NewGuid():N}@example.com");
+        json = json.Replace("$TOKEN", token?.RefreshToken ?? "token").Replace("$LONG", new string('x', 129));
+        using var request = new HttpRequestMessage(HttpMethod.Post, route) { Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json") };
+        if (authenticate) request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token!.AccessToken);
+        if (thai) request.Headers.AcceptLanguage.ParseAdd("th");
+        var response = await _client.SendAsync(request);
+        var problem = await response.Content.ReadFromJsonAsync<ApiProblemDetails>();
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+        Assert.Equal(10009, (int)problem!.ErrorCode);
+        Assert.False(string.IsNullOrWhiteSpace(problem.TraceId));
+        Assert.Equal([expectedField], problem.FieldErrors!.Keys);
+        Assert.DoesNotContain("Json", problem.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("90001", problem.Message, StringComparison.Ordinal);
+        if (thai) Assert.Contains("ข้อมูล", problem.Message);
+    }
+
+    [Fact]
+    public async Task Unauthenticated_malformed_logout_remains_authorization_first()
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/logout") { Content = new StringContent("{", System.Text.Encoding.UTF8, "application/json") };
+        Assert.Equal(HttpStatusCode.Unauthorized, (await _client.SendAsync(request)).StatusCode);
     }
 
     [Fact]
