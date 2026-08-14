@@ -95,6 +95,36 @@ public sealed class UnhandledExceptionMiddlewareTests
         Assert.Equal("Workout session was not found.", document.RootElement.GetProperty("message").GetString());
     }
 
+    [Theory]
+    [InlineData("json")]
+    [InlineData("bad-request")]
+    public async Task Non_business_parser_exception_reaches_the_outer_safe_problem_handler(string exceptionKind)
+    {
+        Exception expected = exceptionKind switch
+        {
+            "json" => new JsonException("parser secret=do-not-disclose"),
+            "bad-request" => new BadHttpRequestException("parser secret=do-not-disclose"),
+            _ => throw new ArgumentOutOfRangeException(nameof(exceptionKind))
+        };
+        var businessMiddleware = new BusinessExceptionMiddleware(_ => throw expected);
+        var middleware = new UnhandledExceptionMiddleware(businessMiddleware.InvokeAsync);
+        var context = new DefaultHttpContext();
+        context.TraceIdentifier = "trace-parser-123";
+        context.Response.Body = new MemoryStream();
+
+        await middleware.InvokeAsync(context);
+
+        context.Response.Body.Position = 0;
+        using var reader = new StreamReader(context.Response.Body, leaveOpen: true);
+        var payload = await reader.ReadToEndAsync();
+        using var document = JsonDocument.Parse(payload);
+        Assert.Equal(StatusCodes.Status500InternalServerError, context.Response.StatusCode);
+        Assert.Equal("application/problem+json", context.Response.ContentType);
+        Assert.Equal(90001, document.RootElement.GetProperty("errorCode").GetInt32());
+        Assert.Equal("trace-parser-123", document.RootElement.GetProperty("traceId").GetString());
+        Assert.DoesNotContain("parser secret", payload, StringComparison.Ordinal);
+    }
+
     private static async Task<string> GetBodyTextAsync(Stream body)
     {
         body.Position = 0;

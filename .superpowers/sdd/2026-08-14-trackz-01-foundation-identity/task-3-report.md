@@ -102,3 +102,45 @@ dotnet test tests/TrackZ.Api.Tests/TrackZ.Api.Tests.csproj --no-restore
 ```
 
 Passed: 39 passed, 0 failed, 0 skipped.
+
+## Fix Round 3: Business Middleware Handles Only Business Exceptions
+
+### Correction
+
+`BusinessExceptionMiddleware` must handle only `BusinessException`. A later implementation had added `JsonException` and `BadHttpRequestException` catches that converted arbitrary downstream failures into validation responses. Those catches have been removed. Identity endpoints retain their own explicit JSON parsing and normalization, so malformed and wrong-type identity requests continue to return the localized `400`/`10009` validation contract at the endpoint boundary.
+
+### RED
+
+Added outer-pipeline regressions for a downstream `JsonException` and `BadHttpRequestException`, then ran:
+
+```sh
+dotnet test tests/TrackZ.Api.Tests/TrackZ.Api.Tests.csproj --filter Non_business_parser_exception_reaches_the_outer_safe_problem_handler
+```
+
+Observed result: 2 failed, 0 passed. Both failures expected HTTP 500 but received 400, proving the business middleware's broad catches hid the non-business exceptions.
+
+### GREEN
+
+Removed only the two non-business catch clauses and their validation response helper. The targeted middleware regression plus business contract class passed:
+
+```sh
+dotnet test tests/TrackZ.Api.Tests/TrackZ.Api.Tests.csproj --filter "Non_business_parser_exception_reaches_the_outer_safe_problem_handler|BusinessExceptionMiddlewareTests"
+```
+
+Passed: 24 passed, 0 failed, 0 skipped. Both parser exceptions now reach `UnhandledExceptionMiddleware`, which returns the localized safe `500`/`90001` response with trace ID and no parser details.
+
+Identity endpoint-local validation coverage also remained green:
+
+```sh
+dotnet test tests/TrackZ.Api.Tests/TrackZ.Api.Tests.csproj --filter "Identity_boundary_and_binding_failures_use_the_shared_validation_contract|Malformed_body_uses_exact_localized_body_messages|Wrong_type_field_message_is_exactly_localized_and_safe|Identity_routes_reject_unsupported_body_content_types_with_safe_body_error"
+```
+
+Passed: 8 passed, 0 failed, 0 skipped.
+
+### Full API Verification
+
+```sh
+dotnet test tests/TrackZ.Api.Tests/TrackZ.Api.Tests.csproj --no-restore
+```
+
+Passed: 89 passed, 0 failed, 0 skipped (1 minute 44 seconds).
