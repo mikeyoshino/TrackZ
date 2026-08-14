@@ -16,7 +16,10 @@ namespace TrackZ.Infrastructure.Persistence.Migrations
                 type: "character varying(128)",
                 maxLength: 128,
                 nullable: false,
-                defaultValue: "");
+                defaultValue: "LEGACY");
+
+            // Legacy tokens lack a trustworthy device binding; force reauthentication rather than leave active unusable sessions.
+            migrationBuilder.Sql("UPDATE refresh_tokens SET \"RevokedAt\" = NOW() WHERE \"RevokedAt\" IS NULL;");
         }
 
         /// <inheritdoc />

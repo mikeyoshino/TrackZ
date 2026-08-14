@@ -21,6 +21,12 @@
 - `POST /api/v1/auth/logout` accepts an authenticated `{ sessionId }` request; the existing DELETE session route remains compatible. Ownership is taken from the signed JWT subject and unknown/cross-user sessions remain non-disclosing.
 - Request validation now produces localized `ApiProblemDetails` with field-level errors, trace ID, and immutable auth code `10009`.
 
+## Fix Round 2
+
+- The pre-advisory-lock refresh lookup is explicitly `AsNoTracking`; the subsequent `FOR UPDATE` read is authoritative and tracked, so it observes committed revocation/expiry state before rotation.
+- Deterministic PostgreSQL barriers cover refresh-then-logout and refresh-then-refresh serialization. The waiting operation is asserted blocked behind the advisory lock, then is released only after the first transaction commits.
+- Migration V2 assigns legacy rows `DeviceName = LEGACY` and revokes all formerly active rows, forcing safe reauthentication instead of leaving active sessions without a trustworthy device identity.
+
 ## Localization/rate limits
 
 - Supported cultures are only `en` and `th`; negotiation honors quality order, ignores q=0, supports `th-TH` fallback, and continues to Thai after unsupported higher-quality entries.

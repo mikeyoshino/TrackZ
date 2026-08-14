@@ -12,6 +12,37 @@ namespace TrackZ.Infrastructure.Tests.Persistence;
 public sealed class SessionSerializationTests
 {
     [Fact]
+    public async Task Second_refresh_waiting_behind_first_refresh_rejects_after_the_first_commits()
+    {
+        await using var fixture = await PostgreSqlFixture.StartAsync();
+        var user = User.Create("refresh-race@example.com", "password-hash");
+        var sessionId = Guid.NewGuid();
+        await fixture.Db.Users.AddAsync(user);
+        await fixture.Db.RefreshTokens.AddAsync(RefreshToken.Create(user.Id, "hash:original", sessionId, DateTimeOffset.UtcNow.AddDays(1), deviceName: "ios"));
+        await fixture.Db.SaveChangesAsync();
+        var connection = fixture.Db.Database.GetConnectionString()!;
+        await using var firstContext = CreateContext(connection);
+        await using var secondContext = CreateContext(connection);
+        var locked = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondAttempted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var tokens = new TestTokenService();
+        var first = new RefreshHandler(new CoordinatedDb(firstContext, null, async () => { locked.TrySetResult(); await release.Task; }), tokens);
+        var second = new RefreshHandler(new CoordinatedDb(secondContext, () => { secondAttempted.TrySetResult(); return Task.CompletedTask; }, null), tokens);
+
+        var firstTask = first.Handle(new RefreshCommand("original", "ios"), CancellationToken.None);
+        await locked.Task;
+        var secondTask = second.Handle(new RefreshCommand("original", "ios"), CancellationToken.None);
+        await secondAttempted.Task;
+        Assert.False(secondTask.IsCompleted);
+        release.TrySetResult();
+        await firstTask;
+        await Assert.ThrowsAsync<BusinessException>(() => secondTask);
+        await using var verify = CreateContext(connection);
+        Assert.Single(await verify.RefreshTokens.Where(token => token.SessionId == sessionId && token.RevokedAt == null).ToListAsync());
+    }
+
+    [Fact]
     public async Task Logout_waiting_behind_a_locked_refresh_revokes_the_rotated_replacement()
     {
         await using var fixture = await PostgreSqlFixture.StartAsync();
