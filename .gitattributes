@@ -1,0 +1,4 @@
+# Normalize tracked text files to LF while preserving binary assets.
+* text=auto eol=lf
+*.png binary
+*.ttf binary
