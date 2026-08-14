@@ -1,0 +1,17 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/TrackZ.Api/TrackZ.Api.csproj" />
+    <Project Path="src/TrackZ.Application/TrackZ.Application.csproj" />
+    <Project Path="src/TrackZ.Contracts/TrackZ.Contracts.csproj" />
+    <Project Path="src/TrackZ.Domain/TrackZ.Domain.csproj" />
+    <Project Path="src/TrackZ.Infrastructure/TrackZ.Infrastructure.csproj" />
+    <Project Path="src/TrackZ.Mobile/TrackZ.Mobile.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/TrackZ.Api.Tests/TrackZ.Api.Tests.csproj" />
+    <Project Path="tests/TrackZ.Application.Tests/TrackZ.Application.Tests.csproj" />
+    <Project Path="tests/TrackZ.Domain.Tests/TrackZ.Domain.Tests.csproj" />
+    <Project Path="tests/TrackZ.Infrastructure.Tests/TrackZ.Infrastructure.Tests.csproj" />
+    <Project Path="tests/TrackZ.Mobile.Tests/TrackZ.Mobile.Tests.csproj" />
+  </Folder>
+</Solution>

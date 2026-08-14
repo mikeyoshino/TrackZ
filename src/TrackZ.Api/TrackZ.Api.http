@@ -1,0 +1,6 @@
+@TrackZ.Api_HostAddress = http://localhost:0
+
+GET {{TrackZ.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
