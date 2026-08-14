@@ -9,6 +9,8 @@ public interface IAppDbContext
 
     DbSet<RefreshToken> RefreshTokens { get; }
 
+    Task<RefreshToken?> FindRefreshTokenByHashAsync(string tokenHash, CancellationToken cancellationToken = default);
+
     Task<RefreshToken?> FindRefreshTokenForUpdateAsync(string tokenHash, CancellationToken cancellationToken = default);
 
     Task<List<RefreshToken>> FindActiveSessionTokensForUpdateAsync(
@@ -17,6 +19,8 @@ public interface IAppDbContext
         CancellationToken cancellationToken = default);
 
     Task<IAppDbTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default);
+
+    Task AcquireSessionLockAsync(Guid sessionId, CancellationToken cancellationToken = default);
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

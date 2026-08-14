@@ -10,6 +10,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
+    public Task<RefreshToken?> FindRefreshTokenByHashAsync(string tokenHash, CancellationToken cancellationToken = default) =>
+        RefreshTokens.SingleOrDefaultAsync(token => token.TokenHash == tokenHash, cancellationToken);
+
     public Task<RefreshToken?> FindRefreshTokenForUpdateAsync(
         string tokenHash,
         CancellationToken cancellationToken = default) =>
@@ -25,6 +28,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
     public async Task<IAppDbTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default) =>
         new AppDbTransaction(await Database.BeginTransactionAsync(cancellationToken));
+
+    public Task AcquireSessionLockAsync(Guid sessionId, CancellationToken cancellationToken = default) =>
+        Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock({BitConverter.ToInt64(sessionId.ToByteArray(), 0)})", cancellationToken);
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

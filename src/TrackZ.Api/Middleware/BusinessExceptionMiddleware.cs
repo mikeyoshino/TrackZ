@@ -53,4 +53,7 @@ internal static class BusinessMessages
 
     public static string Get(BusinessErrorCode code, CultureInfo? culture, string fallback) =>
         ResourceManager.GetString(code.ToString(), culture ?? CultureInfo.GetCultureInfo("en")) ?? fallback;
+
+    public static string Format(string key, CultureInfo? culture, params object[] arguments) =>
+        string.Format(culture ?? CultureInfo.GetCultureInfo("en"), ResourceManager.GetString(key, culture ?? CultureInfo.GetCultureInfo("en")) ?? key, arguments);
 }

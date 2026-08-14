@@ -54,7 +54,8 @@ public sealed class LoginHandler : IRequestHandler<LoginCommand, AuthTokenPair>
             user.Id,
             _tokenService.HashRefreshToken(tokenPair.RefreshToken),
             sessionId,
-            _tokenService.GetRefreshTokenExpiration());
+            _tokenService.GetRefreshTokenExpiration(),
+            deviceName: request.DeviceName);
 
         await _db.RefreshTokens.AddAsync(refreshToken, cancellationToken);
         await _db.SaveChangesAsync(cancellationToken);

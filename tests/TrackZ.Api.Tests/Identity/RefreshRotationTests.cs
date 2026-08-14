@@ -124,6 +124,53 @@ public sealed class RefreshRotationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Post_logout_revokes_only_the_authenticated_users_requested_device_session()
+    {
+        var token = await RegisterAndLoginAsync("post-logout@example.com");
+        var sessionId = ReadSessionId(token.AccessToken);
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/logout")
+        {
+            Content = JsonContent.Create(new { sessionId })
+        };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token.AccessToken);
+
+        Assert.Equal(HttpStatusCode.NoContent, (await _client.SendAsync(request)).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await PostRefreshAsync(token.RefreshToken)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Refresh_rejects_a_device_name_that_does_not_match_the_session_device()
+    {
+        var token = await RegisterAndLoginAsync("device@example.com");
+        var response = await _client.PostAsJsonAsync("/api/v1/auth/refresh", new { refreshToken = token.RefreshToken, deviceName = "android" });
+        var problem = await response.Content.ReadFromJsonAsync<ApiProblemDetails>();
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal(10003, (int)problem!.ErrorCode);
+    }
+
+    [Fact]
+    public async Task Missing_refresh_field_returns_localized_shared_problem_details()
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/refresh")
+        {
+            Content = JsonContent.Create(new { refreshToken = "", deviceName = "ios" })
+        };
+        request.Headers.AcceptLanguage.ParseAdd("th");
+        var response = await _client.SendAsync(request);
+        var problem = await response.Content.ReadFromJsonAsync<ApiProblemDetails>();
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+        Assert.Equal(10009, (int)problem!.ErrorCode);
+        Assert.Equal("ข้อมูลคำขอไม่ถูกต้อง", problem.Message);
+        Assert.NotNull(problem.FieldErrors);
+        Assert.True(problem.FieldErrors!.ContainsKey("refreshToken"));
+        Assert.False(problem.FieldErrors.ContainsKey("deviceName"));
+        Assert.False(string.IsNullOrWhiteSpace(problem.TraceId));
+    }
+
+    [Fact]
     public async Task Concurrent_logout_and_refresh_do_not_leave_a_usable_session_token()
     {
         var original = await RegisterAndLoginAsync("logout-race@example.com");

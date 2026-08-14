@@ -22,6 +22,10 @@ public sealed class RefreshTokenConfiguration : IEntityTypeConfiguration<Refresh
         builder.Property(token => token.SessionId)
             .IsRequired();
 
+        builder.Property(token => token.DeviceName)
+            .HasMaxLength(128)
+            .IsRequired();
+
         builder.Property(token => token.ExpiresAt)
             .IsRequired();
 

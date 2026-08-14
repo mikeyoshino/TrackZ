@@ -1,10 +1,13 @@
 using MediatR;
+using System.Globalization;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using TrackZ.Application.Identity.Login;
 using TrackZ.Application.Identity.Logout;
 using TrackZ.Application.Identity.Refresh;
 using TrackZ.Application.Identity.Register;
+using TrackZ.Api.Middleware;
+using TrackZ.Contracts.Errors;
 
 namespace TrackZ.Api.Endpoints;
 
@@ -14,12 +17,12 @@ public static class IdentityEndpoints
     {
         var auth = endpoints.MapGroup("/api/v1/auth");
 
-        auth.MapPost("/register", async (RegisterRequest request, ISender sender, CancellationToken cancellationToken) =>
+        auth.MapPost("/register", async (RegisterRequest request, HttpContext context, ISender sender, CancellationToken cancellationToken) =>
         {
-            var fieldErrors = ValidateRegistrationRequest(request);
+            var fieldErrors = ValidateRegistrationRequest(request, context);
             if (fieldErrors is not null)
             {
-                return Results.ValidationProblem(fieldErrors);
+                return ValidationProblem(context, fieldErrors);
             }
 
             var registeredUser = await sender.Send(
@@ -30,14 +33,14 @@ public static class IdentityEndpoints
         .RequireRateLimiting("identity")
         .Accepts<RegisterRequest>("application/json")
         .Produces(StatusCodes.Status201Created)
-        .ProducesValidationProblem();
+        .Produces<ApiProblemDetails>(StatusCodes.Status400BadRequest, "application/problem+json");
 
-        auth.MapPost("/login", async (LoginRequest request, ISender sender, CancellationToken cancellationToken) =>
+        auth.MapPost("/login", async (LoginRequest request, HttpContext context, ISender sender, CancellationToken cancellationToken) =>
         {
-            var fieldErrors = ValidateLoginRequest(request);
+            var fieldErrors = ValidateLoginRequest(request, context);
             if (fieldErrors is not null)
             {
-                return Results.ValidationProblem(fieldErrors);
+                return ValidationProblem(context, fieldErrors);
             }
 
             var tokenPair = await sender.Send(
@@ -48,17 +51,13 @@ public static class IdentityEndpoints
         .RequireRateLimiting("identity")
         .Accepts<LoginRequest>("application/json")
         .Produces(StatusCodes.Status200OK)
-        .ProducesValidationProblem();
+        .Produces<ApiProblemDetails>(StatusCodes.Status400BadRequest, "application/problem+json");
 
-        auth.MapPost("/refresh", async (RefreshRequest request, ISender sender, CancellationToken cancellationToken) =>
+        auth.MapPost("/refresh", async (RefreshRequest request, HttpContext context, ISender sender, CancellationToken cancellationToken) =>
         {
             if (string.IsNullOrWhiteSpace(request.RefreshToken) || string.IsNullOrWhiteSpace(request.DeviceName))
             {
-                return Results.ValidationProblem(new Dictionary<string, string[]>
-                {
-                    ["refreshToken"] = ["The refreshToken field is required."],
-                    ["deviceName"] = ["The deviceName field is required."]
-                });
+                return ValidationProblem(context, ValidateRefreshRequest(request, context)!);
             }
 
             return Results.Ok(await sender.Send(new RefreshCommand(request.RefreshToken, request.DeviceName), cancellationToken));
@@ -66,7 +65,7 @@ public static class IdentityEndpoints
         .RequireRateLimiting("identity")
         .Accepts<RefreshRequest>("application/json")
         .Produces(StatusCodes.Status200OK)
-        .ProducesValidationProblem();
+        .Produces<ApiProblemDetails>(StatusCodes.Status400BadRequest, "application/problem+json");
 
         auth.MapDelete("/sessions/{sessionId:guid}", async (Guid sessionId, ClaimsPrincipal user, ISender sender, CancellationToken cancellationToken) =>
         {
@@ -81,37 +80,69 @@ public static class IdentityEndpoints
         })
         .RequireAuthorization();
 
+        auth.MapPost("/logout", async (LogoutRequest request, ClaimsPrincipal user, HttpContext context, ISender sender, CancellationToken cancellationToken) =>
+        {
+            if (request.SessionId is not { } sessionId || sessionId == Guid.Empty)
+            {
+                return ValidationProblem(context, new Dictionary<string, string[]> { ["sessionId"] = [RequiredMessage(context, "sessionId")] });
+            }
+
+            var subject = user.FindFirstValue(JwtRegisteredClaimNames.Sub) ?? user.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (!Guid.TryParse(subject, out var userId)) return Results.Unauthorized();
+            await sender.Send(new LogoutCommand(userId, sessionId), cancellationToken);
+            return Results.NoContent();
+        }).RequireAuthorization().Produces<ApiProblemDetails>(StatusCodes.Status400BadRequest, "application/problem+json");
+
         return endpoints;
     }
 
-    private static Dictionary<string, string[]>? ValidateRegistrationRequest(RegisterRequest request)
+    private static Dictionary<string, string[]>? ValidateRegistrationRequest(RegisterRequest request, HttpContext context)
     {
         var errors = new Dictionary<string, string[]>();
-        AddRequired(errors, "email", request.Email);
-        AddRequired(errors, "password", request.Password);
+        AddRequired(errors, "email", request.Email, context);
+        AddRequired(errors, "password", request.Password, context);
         return errors.Count == 0 ? null : errors;
     }
 
-    private static Dictionary<string, string[]>? ValidateLoginRequest(LoginRequest request)
+    private static Dictionary<string, string[]>? ValidateLoginRequest(LoginRequest request, HttpContext context)
     {
         var errors = new Dictionary<string, string[]>();
-        AddRequired(errors, "email", request.Email);
-        AddRequired(errors, "password", request.Password);
-        AddRequired(errors, "deviceName", request.DeviceName);
+        AddRequired(errors, "email", request.Email, context);
+        AddRequired(errors, "password", request.Password, context);
+        AddRequired(errors, "deviceName", request.DeviceName, context);
         return errors.Count == 0 ? null : errors;
     }
 
-    private static void AddRequired(IDictionary<string, string[]> errors, string name, string? value)
+    private static Dictionary<string, string[]>? ValidateRefreshRequest(RefreshRequest request, HttpContext context)
+    {
+        var errors = new Dictionary<string, string[]>();
+        AddRequired(errors, "refreshToken", request.RefreshToken, context);
+        AddRequired(errors, "deviceName", request.DeviceName, context);
+        return errors.Count == 0 ? null : errors;
+    }
+
+    private static void AddRequired(IDictionary<string, string[]> errors, string name, string? value, HttpContext context)
     {
         if (string.IsNullOrWhiteSpace(value))
         {
-            errors[name] = [$"The {name} field is required."];
+            errors[name] = [RequiredMessage(context, name)];
         }
     }
+
+    private static IResult ValidationProblem(HttpContext context, IReadOnlyDictionary<string, string[]> errors) => Results.Json(
+        new ApiProblemDetails("https://api.trackz.app/problems/validation", "Validation failed", StatusCodes.Status400BadRequest,
+            BusinessErrorCode.InvalidRequest,
+            BusinessMessages.Get(BusinessErrorCode.InvalidRequest, CultureInfo.CurrentUICulture, "Request data is invalid."),
+            context.TraceIdentifier, errors.ToDictionary(pair => pair.Key, pair => pair.Value)),
+        contentType: "application/problem+json", statusCode: StatusCodes.Status400BadRequest);
+
+    private static string RequiredMessage(HttpContext context, string field) => BusinessMessages.Format("RequiredField", CultureInfo.CurrentUICulture, field);
 
     private sealed record RegisterRequest(string? Email, string? Password);
 
     private sealed record LoginRequest(string? Email, string? Password, string? DeviceName);
 
     private sealed record RefreshRequest(string? RefreshToken, string? DeviceName);
+
+    private sealed record LogoutRequest(Guid? SessionId);
 }

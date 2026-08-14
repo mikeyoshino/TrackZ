@@ -11,6 +11,7 @@ public sealed class LogoutHandler(IAppDbContext db) : IRequestHandler<LogoutComm
     public async Task Handle(LogoutCommand request, CancellationToken cancellationToken)
     {
         await using var transaction = await db.BeginTransactionAsync(cancellationToken);
+        await db.AcquireSessionLockAsync(request.SessionId, cancellationToken);
         var tokens = await db.FindActiveSessionTokensForUpdateAsync(request.UserId, request.SessionId, cancellationToken);
 
         // A session outside the authenticated user's ownership is indistinguishable from a missing session.

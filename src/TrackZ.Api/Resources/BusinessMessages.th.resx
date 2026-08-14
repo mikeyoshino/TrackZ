@@ -6,5 +6,7 @@
   <data name="InvalidRegistrationInput" xml:space="preserve"><value>ข้อมูลการลงทะเบียนไม่ถูกต้อง</value></data>
   <data name="RefreshTokenInvalid" xml:space="preserve"><value>โทเค็นรีเฟรชไม่ถูกต้องหรือหมดอายุ</value></data>
   <data name="RateLimitExceeded" xml:space="preserve"><value>มีคำขอมากเกินไป โปรดลองอีกครั้งในภายหลัง</value></data>
+  <data name="InvalidRequest" xml:space="preserve"><value>ข้อมูลคำขอไม่ถูกต้อง</value></data>
+  <data name="RequiredField" xml:space="preserve"><value>ต้องระบุข้อมูล {0}</value></data>
   <data name="InternalServerError" xml:space="preserve"><value>เกิดข้อผิดพลาดที่ไม่คาดคิด โปรดลองอีกครั้งในภายหลัง</value></data>
 </root>

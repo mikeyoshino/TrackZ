@@ -17,6 +17,7 @@ public sealed class BusinessExceptionMiddlewareTests
         { BusinessErrorCode.PasswordPolicyViolation, 10006 },
         { BusinessErrorCode.InvalidRegistrationInput, 10007 },
         { BusinessErrorCode.RateLimitExceeded, 10008 },
+        { BusinessErrorCode.InvalidRequest, 10009 },
         { BusinessErrorCode.RefreshTokenInvalid, 10003 },
         { BusinessErrorCode.EmailVerificationInvalid, 10004 },
         { BusinessErrorCode.PasswordResetInvalid, 10005 },

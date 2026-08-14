@@ -20,10 +20,19 @@ public sealed class RefreshHandler(IAppDbContext db, ITokenService tokenService)
         // Raw refresh tokens are intentionally never used after this one-way hash calculation.
         var tokenHash = tokenService.HashRefreshToken(request.RefreshToken);
         await using var transaction = await db.BeginTransactionAsync(cancellationToken);
+        var candidate = await db.FindRefreshTokenByHashAsync(tokenHash, cancellationToken);
+        if (candidate is null)
+        {
+            throw InvalidRefreshToken();
+        }
+
+        // Every mutation of a session takes this transaction-scoped PostgreSQL lock first.
+        await db.AcquireSessionLockAsync(candidate.SessionId, cancellationToken);
         var currentToken = await db.FindRefreshTokenForUpdateAsync(tokenHash, cancellationToken);
 
         var now = DateTimeOffset.UtcNow;
-        if (currentToken is null || currentToken.RevokedAt is not null || currentToken.ExpiresAt <= now)
+        if (currentToken is null || currentToken.RevokedAt is not null || currentToken.ExpiresAt <= now
+            || !string.Equals(currentToken.DeviceName, RefreshToken.NormalizeDeviceName(request.DeviceName), StringComparison.Ordinal))
         {
             throw InvalidRefreshToken();
         }
@@ -35,7 +44,8 @@ public sealed class RefreshHandler(IAppDbContext db, ITokenService tokenService)
             tokenService.HashRefreshToken(replacement.RefreshToken),
             currentToken.SessionId,
             tokenService.GetRefreshTokenExpiration(),
-            now), cancellationToken);
+            now,
+            currentToken.DeviceName), cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return replacement;
