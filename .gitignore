@@ -1,0 +1,14 @@
+.DS_Store
+.idea/
+.vscode/
+.vs/
+.superpowers/
+.worktrees/
+bin/
+obj/
+TestResults/
+*.user
+*.suo
+*.userprefs
+*.log
+artifacts/
