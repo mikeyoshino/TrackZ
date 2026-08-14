@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using TrackZ.Application.Common.Interfaces;
 using TrackZ.Domain.Identity;
 
@@ -10,6 +11,30 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
+    public Task<User?> FindUserByNormalizedEmailAsync(
+        string normalizedEmail,
+        CancellationToken cancellationToken = default) =>
+        Users.SingleOrDefaultAsync(user => user.NormalizedEmail == normalizedEmail, cancellationToken);
+
+    public async Task<bool> TryAddUserAsync(User user, CancellationToken cancellationToken = default)
+    {
+        await Users.AddAsync(user, cancellationToken);
+
+        try
+        {
+            await SaveChangesAsync(cancellationToken);
+            return true;
+        }
+        catch (DbUpdateException exception) when (IsNormalizedEmailUniqueConstraintViolation(exception))
+        {
+            Entry(user).State = EntityState.Detached;
+            return false;
+        }
+    }
+
+    public async Task AddRefreshTokenAsync(RefreshToken refreshToken, CancellationToken cancellationToken = default) =>
+        await RefreshTokens.AddAsync(refreshToken, cancellationToken);
+
     public Task<RefreshToken?> FindRefreshTokenByHashAsync(string tokenHash, CancellationToken cancellationToken = default) =>
         RefreshTokens.AsNoTracking().SingleOrDefaultAsync(token => token.TokenHash == tokenHash, cancellationToken);
 
@@ -19,11 +44,11 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         RefreshTokens.FromSqlInterpolated($"SELECT * FROM refresh_tokens WHERE \"TokenHash\" = {tokenHash} FOR UPDATE")
             .SingleOrDefaultAsync(cancellationToken);
 
-    public Task<List<RefreshToken>> FindActiveSessionTokensForUpdateAsync(
+    public async Task<IReadOnlyList<RefreshToken>> FindActiveSessionTokensForUpdateAsync(
         Guid userId,
         Guid sessionId,
         CancellationToken cancellationToken = default) =>
-        RefreshTokens.FromSqlInterpolated($"SELECT * FROM refresh_tokens WHERE \"UserId\" = {userId} AND \"SessionId\" = {sessionId} AND \"RevokedAt\" IS NULL FOR UPDATE")
+        await RefreshTokens.FromSqlInterpolated($"SELECT * FROM refresh_tokens WHERE \"UserId\" = {userId} AND \"SessionId\" = {sessionId} AND \"RevokedAt\" IS NULL FOR UPDATE")
             .ToListAsync(cancellationToken);
 
     public async Task<IAppDbTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default) =>
@@ -36,6 +61,13 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);
     }
+
+    private static bool IsNormalizedEmailUniqueConstraintViolation(DbUpdateException exception) =>
+        exception.InnerException is PostgresException
+        {
+            SqlState: PostgresErrorCodes.UniqueViolation,
+            ConstraintName: "IX_users_NormalizedEmail"
+        };
 
     private sealed class AppDbTransaction(Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction transaction)
         : IAppDbTransaction

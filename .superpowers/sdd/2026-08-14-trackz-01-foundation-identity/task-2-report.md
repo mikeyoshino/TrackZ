@@ -96,3 +96,36 @@ dotnet test tests/TrackZ.Api.Tests/TrackZ.Api.Tests.csproj --no-restore
 ```
 
 Observed results: Application 4 passed, Infrastructure 2 passed, API 1 passed; no warnings or errors. The API run compiles the complete non-mobile production graph.
+
+## Fix Round 2: Framework-Neutral Persistence Port
+
+`IAppDbContext` no longer exposes `DbSet<T>` or any Entity Framework Core type. Application handlers now use domain-oriented persistence operations for user lookup, atomic registration, refresh-token addition, no-tracking hash lookup, row locking, session locking, transactions, and saving changes. EF Core/Npgsql queries and the normalized-email unique-constraint translation now live in `AppDbContext` in Infrastructure.
+
+### RED
+
+```sh
+dotnet test tests/TrackZ.Application.Tests/TrackZ.Application.Tests.csproj --filter DependencyRulesTests
+```
+
+Observed result: 2 failures. `IAppDbContext` exposed `Microsoft.EntityFrameworkCore.DbSet<User>`, and the Application assembly depended on EF Core through `RegisterHandler`, `LoginHandler`, `RefreshHandler`, and the port itself.
+
+### GREEN
+
+The port now has framework-neutral operations: `FindUserByNormalizedEmailAsync`, `TryAddUserAsync`, and `AddRefreshTokenAsync`, alongside the existing locking and transaction operations. `TryAddUserAsync` performs the single registration save in Infrastructure and returns `false` only for PostgreSQL's `IX_users_NormalizedEmail` unique violation; all unrelated `DbUpdateException` values are rethrown.
+
+```sh
+dotnet test tests/TrackZ.Application.Tests/TrackZ.Application.Tests.csproj --no-restore
+dotnet test tests/TrackZ.Infrastructure.Tests/TrackZ.Infrastructure.Tests.csproj --no-restore
+dotnet ef migrations has-pending-model-changes --project src/TrackZ.Infrastructure/TrackZ.Infrastructure.csproj --startup-project src/TrackZ.Api/TrackZ.Api.csproj --no-build
+dotnet build src/TrackZ.Api/TrackZ.Api.csproj --no-restore
+```
+
+Observed results: Application 11 passed; Infrastructure 15 passed; migrations reported no pending model changes; API project build succeeded with 0 warnings and 0 errors. Infrastructure coverage includes the persistence port's duplicate-email translation and an oversized-email database failure, which remains a `DbUpdateException` rather than being mislabeled as a duplicate.
+
+The complete API suite was invoked but exceeds this runner's approximately 30-second foreground execution window. The affected identity/concurrency coverage was run explicitly:
+
+```sh
+dotnet test tests/TrackZ.Api.Tests/TrackZ.Api.Tests.csproj --no-restore --filter 'FullyQualifiedName~Reusing_a_rotated_refresh_token_returns_10003|FullyQualifiedName~Concurrent_refresh_requests_allow_only_one_rotation|FullyQualifiedName~Concurrent_logout_and_refresh_do_not_leave_a_usable_session_token|FullyQualifiedName~Concurrent_duplicate_registration_has_one_success_and_one_10002_response'
+```
+
+Observed result: 4 passed, 0 failed. The API error/localization group also passed 31 tests, and the login endpoint group passed 4 tests.

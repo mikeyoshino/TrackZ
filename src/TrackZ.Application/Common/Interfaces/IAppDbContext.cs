@@ -1,19 +1,20 @@
-using Microsoft.EntityFrameworkCore;
 using TrackZ.Domain.Identity;
 
 namespace TrackZ.Application.Common.Interfaces;
 
 public interface IAppDbContext
 {
-    DbSet<User> Users { get; }
+    Task<User?> FindUserByNormalizedEmailAsync(string normalizedEmail, CancellationToken cancellationToken = default);
 
-    DbSet<RefreshToken> RefreshTokens { get; }
+    Task<bool> TryAddUserAsync(User user, CancellationToken cancellationToken = default);
+
+    Task AddRefreshTokenAsync(RefreshToken refreshToken, CancellationToken cancellationToken = default);
 
     Task<RefreshToken?> FindRefreshTokenByHashAsync(string tokenHash, CancellationToken cancellationToken = default);
 
     Task<RefreshToken?> FindRefreshTokenForUpdateAsync(string tokenHash, CancellationToken cancellationToken = default);
 
-    Task<List<RefreshToken>> FindActiveSessionTokensForUpdateAsync(
+    Task<IReadOnlyList<RefreshToken>> FindActiveSessionTokensForUpdateAsync(
         Guid userId,
         Guid sessionId,
         CancellationToken cancellationToken = default);

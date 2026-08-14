@@ -23,4 +23,36 @@ public sealed class DependencyRulesTests
 
         Assert.True(result.IsSuccessful, string.Join(Environment.NewLine, result.FailingTypeNames ?? []));
     }
+
+    [Fact]
+    public void Application_Must_Not_Depend_On_Entity_Framework_Core()
+    {
+        var result = Types.InAssembly(typeof(TrackZ.Application.AssemblyMarker).Assembly)
+            .ShouldNot().HaveDependencyOn("Microsoft.EntityFrameworkCore")
+            .GetResult();
+
+        Assert.True(result.IsSuccessful, string.Join(Environment.NewLine, result.FailingTypeNames ?? []));
+    }
+
+    [Fact]
+    public void AppDbContext_Port_Must_Not_Expose_Entity_Framework_Core_Types()
+    {
+        var exposedEfType = typeof(TrackZ.Application.Common.Interfaces.IAppDbContext)
+            .GetMembers()
+            .SelectMany(member => member switch
+            {
+                System.Reflection.PropertyInfo property => [property.PropertyType],
+                System.Reflection.MethodInfo method => method.GetParameters()
+                    .Select(parameter => parameter.ParameterType)
+                    .Append(method.ReturnType),
+                _ => [],
+            })
+            .FirstOrDefault(IsEntityFrameworkCoreType);
+
+        Assert.Null(exposedEfType);
+    }
+
+    private static bool IsEntityFrameworkCoreType(Type type) =>
+        type.Namespace?.StartsWith("Microsoft.EntityFrameworkCore", StringComparison.Ordinal) == true
+        || type.GetGenericArguments().Any(IsEntityFrameworkCoreType);
 }

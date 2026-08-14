@@ -1,10 +1,36 @@
 using Microsoft.EntityFrameworkCore;
+using TrackZ.Application.Common.Interfaces;
 using TrackZ.Domain.Identity;
 
 namespace TrackZ.Infrastructure.Tests.Persistence;
 
 public sealed class IdentityPersistenceTests
 {
+    [Fact]
+    public async Task Persistence_port_translates_normalized_email_unique_violations_to_false()
+    {
+        await using var database = await PostgreSqlFixture.StartAsync();
+        IAppDbContext port = database.Db;
+
+        Assert.True(await port.TryAddUserAsync(User.Create("athlete@example.com", "hash-one")));
+
+        var inserted = await port.TryAddUserAsync(User.Create("ATHLETE@example.com", "hash-two"));
+
+        Assert.False(inserted);
+        Assert.Single(await database.Db.Users.ToListAsync());
+    }
+
+    [Fact]
+    public async Task Persistence_port_rethrows_database_failures_that_are_not_normalized_email_duplicates()
+    {
+        await using var database = await PostgreSqlFixture.StartAsync();
+        IAppDbContext port = database.Db;
+        var oversizedEmail = $"{new string('a', 310)}@example.com";
+
+        await Assert.ThrowsAsync<DbUpdateException>(() =>
+            port.TryAddUserAsync(User.Create(oversizedEmail, "hash")));
+    }
+
     [Fact]
     public async Task Device_migration_revokes_active_legacy_refresh_tokens_and_assigns_a_valid_legacy_device()
     {

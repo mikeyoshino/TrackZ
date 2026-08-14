@@ -1,5 +1,4 @@
 using MediatR;
-using Microsoft.EntityFrameworkCore;
 using TrackZ.Application.Common.Exceptions;
 using TrackZ.Application.Common.Interfaces;
 using TrackZ.Contracts.Errors;

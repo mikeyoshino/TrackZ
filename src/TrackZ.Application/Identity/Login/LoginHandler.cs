@@ -1,5 +1,4 @@
 using MediatR;
-using Microsoft.EntityFrameworkCore;
 using TrackZ.Application.Common.Exceptions;
 using TrackZ.Application.Common.Interfaces;
 using TrackZ.Application.Identity.Common;
@@ -26,9 +25,7 @@ public sealed class LoginHandler : IRequestHandler<LoginCommand, AuthTokenPair>
     public async Task<AuthTokenPair> Handle(LoginCommand request, CancellationToken cancellationToken)
     {
         var normalizedEmail = (request.Email?.Trim() ?? string.Empty).ToUpperInvariant();
-        var user = await _db.Users.SingleOrDefaultAsync(
-            candidate => candidate.NormalizedEmail == normalizedEmail,
-            cancellationToken);
+        var user = await _db.FindUserByNormalizedEmailAsync(normalizedEmail, cancellationToken);
 
         // Both unknown-user and wrong-password paths execute an expensive password verification.
         var passwordIsValid = _passwordHasher.VerifyPassword(
@@ -57,7 +54,7 @@ public sealed class LoginHandler : IRequestHandler<LoginCommand, AuthTokenPair>
             _tokenService.GetRefreshTokenExpiration(),
             deviceName: request.DeviceName);
 
-        await _db.RefreshTokens.AddAsync(refreshToken, cancellationToken);
+        await _db.AddRefreshTokenAsync(refreshToken, cancellationToken);
         await _db.SaveChangesAsync(cancellationToken);
 
         return tokenPair;

@@ -121,11 +121,12 @@ public sealed class SessionSerializationTests
 
     private sealed class CoordinatedDb(AppDbContext inner, Func<Task>? beforeSessionLock, Func<Task>? afterSessionLock) : IAppDbContext
     {
-        public DbSet<User> Users => inner.Users;
-        public DbSet<RefreshToken> RefreshTokens => inner.RefreshTokens;
+        public Task<User?> FindUserByNormalizedEmailAsync(string normalizedEmail, CancellationToken cancellationToken = default) => inner.FindUserByNormalizedEmailAsync(normalizedEmail, cancellationToken);
+        public Task<bool> TryAddUserAsync(User user, CancellationToken cancellationToken = default) => inner.TryAddUserAsync(user, cancellationToken);
+        public Task AddRefreshTokenAsync(RefreshToken refreshToken, CancellationToken cancellationToken = default) => inner.AddRefreshTokenAsync(refreshToken, cancellationToken);
         public Task<RefreshToken?> FindRefreshTokenByHashAsync(string hash, CancellationToken cancellationToken = default) => inner.FindRefreshTokenByHashAsync(hash, cancellationToken);
         public Task<RefreshToken?> FindRefreshTokenForUpdateAsync(string hash, CancellationToken cancellationToken = default) => inner.FindRefreshTokenForUpdateAsync(hash, cancellationToken);
-        public Task<List<RefreshToken>> FindActiveSessionTokensForUpdateAsync(Guid userId, Guid sessionId, CancellationToken cancellationToken = default) => inner.FindActiveSessionTokensForUpdateAsync(userId, sessionId, cancellationToken);
+        public Task<IReadOnlyList<RefreshToken>> FindActiveSessionTokensForUpdateAsync(Guid userId, Guid sessionId, CancellationToken cancellationToken = default) => inner.FindActiveSessionTokensForUpdateAsync(userId, sessionId, cancellationToken);
         public Task<IAppDbTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default) => inner.BeginTransactionAsync(cancellationToken);
         public async Task AcquireSessionLockAsync(Guid sessionId, CancellationToken cancellationToken = default)
         {

@@ -1,5 +1,4 @@
 using MediatR;
-using Microsoft.EntityFrameworkCore;
 using TrackZ.Application.Common.Exceptions;
 using TrackZ.Application.Common.Interfaces;
 using TrackZ.Contracts.Errors;
@@ -18,22 +17,14 @@ public sealed class RegisterHandler(IAppDbContext db, IPasswordHasher passwordHa
         ValidatePassword(request.Password);
 
         var normalizedEmail = email.ToUpperInvariant();
-        if (await db.Users.AnyAsync(user => user.NormalizedEmail == normalizedEmail, cancellationToken))
+        if (await db.FindUserByNormalizedEmailAsync(normalizedEmail, cancellationToken) is not null)
         {
             throw EmailAlreadyExists();
         }
 
         var user = User.Create(email, passwordHasher.HashPassword(request.Password));
-        await db.Users.AddAsync(user, cancellationToken);
-
-        try
+        if (!await db.TryAddUserAsync(user, cancellationToken))
         {
-            await db.SaveChangesAsync(cancellationToken);
-        }
-        catch (DbUpdateException exception) when (
-            exception.InnerException?.Message.Contains("IX_users_NormalizedEmail", StringComparison.Ordinal) == true)
-        {
-            // The database unique index is the final authority when concurrent registrations race.
             throw EmailAlreadyExists();
         }
 

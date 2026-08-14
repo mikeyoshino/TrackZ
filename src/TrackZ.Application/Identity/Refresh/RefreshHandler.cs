@@ -39,7 +39,7 @@ public sealed class RefreshHandler(IAppDbContext db, ITokenService tokenService)
 
         var replacement = tokenService.CreateTokenPair(currentToken.UserId, currentToken.SessionId);
         currentToken.Revoke(now);
-        await db.RefreshTokens.AddAsync(RefreshToken.Create(
+        await db.AddRefreshTokenAsync(RefreshToken.Create(
             currentToken.UserId,
             tokenService.HashRefreshToken(replacement.RefreshToken),
             currentToken.SessionId,
