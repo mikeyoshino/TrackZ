@@ -32,6 +32,10 @@
 - Identity routes explicitly parse only JSON/`+json` UTF-8 bodies after authorization, map only whitelisted JSON paths to field names, and return `10009` with safe localized field errors. Unsupported/missing content types map to `body`; unauthenticated logout remains 401.
 - Focused localization checks verify exact English and Thai values for malformed body, required refresh token, and overlong device name; field values contain no parser diagnostics.
 
+## Fix Round 5
+
+- Media types are parsed with ASP.NET's standard parser. Tests cover quoted/whitespace and case-varied unsupported charsets, invalid media syntax, and accepted structured `+json` UTF-8 registration.
+
 ## Localization/rate limits
 
 - Supported cultures are only `en` and `th`; negotiation honors quality order, ignores q=0, supports `th-TH` fallback, and continues to Thai after unsupported higher-quality entries.

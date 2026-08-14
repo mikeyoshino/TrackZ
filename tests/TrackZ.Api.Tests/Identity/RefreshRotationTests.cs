@@ -314,6 +314,33 @@ public sealed class RefreshRotationTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Unauthorized, (await _client.SendAsync(request)).StatusCode);
     }
 
+    [Theory]
+    [InlineData("application/json; charset = \"ISO-8859-1\"")]
+    [InlineData("APPLICATION/JSON; CHARSET=iso-8859-1")]
+    [InlineData("not a media type")]
+    public async Task Parsed_media_type_edge_cases_return_exact_body_validation_message(string contentType)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/register") { Content = new StringContent("{}") };
+        request.Content.Headers.Remove("Content-Type");
+        request.Content.Headers.TryAddWithoutValidation("Content-Type", contentType);
+        var response = await _client.SendAsync(request);
+        var problem = await response.Content.ReadFromJsonAsync<ApiProblemDetails>();
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+        Assert.Equal(10009, (int)problem!.ErrorCode);
+        Assert.Equal(["body"], problem.FieldErrors!.Keys);
+        Assert.Equal("The body field is invalid.", problem.FieldErrors["body"].Single());
+        Assert.DoesNotContain("Json", problem.FieldErrors["body"].Single(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Structured_plus_json_utf8_reaches_normal_register_behavior()
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/register") { Content = new StringContent("{\"email\":\"plusjson@example.com\",\"password\":\"ValidPassword!42\"}") };
+        request.Content.Headers.ContentType = System.Net.Http.Headers.MediaTypeHeaderValue.Parse("application/problem+json; charset=utf-8");
+        Assert.Equal(HttpStatusCode.Created, (await _client.SendAsync(request)).StatusCode);
+    }
+
     [Fact]
     public async Task Concurrent_logout_and_refresh_do_not_leave_a_usable_session_token()
     {
