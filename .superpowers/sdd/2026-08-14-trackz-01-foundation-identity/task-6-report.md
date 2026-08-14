@@ -12,6 +12,7 @@
 2. Original GREEN: focused tests passed 9/9 and final API suite passed 34/34 against PostgreSQL Testcontainers.
 3. Fix Round 1 RED: POST logout returned 404, refresh accepted a mismatched device, and refresh request validation used the framework response instead of the shared error contract.
 4. Fix Round 1 GREEN: targeted endpoint tests cover POST logout, device mismatch rejection, and Thai shared validation details.
+5. Fix Round 1 deterministic concurrency GREEN: `SessionSerializationTests` passed against PostgreSQL Testcontainers. Its coordination barrier holds refresh immediately after advisory-lock acquisition, starts logout and proves it is blocked, releases refresh to commit a replacement, then verifies logout leaves no active token and both original/replacement refresh attempts return `10003`.
 
 ## Fix Round 1 security decisions
 
