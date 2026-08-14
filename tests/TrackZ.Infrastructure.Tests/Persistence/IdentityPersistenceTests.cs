@@ -6,6 +6,31 @@ namespace TrackZ.Infrastructure.Tests.Persistence;
 public sealed class IdentityPersistenceTests
 {
     [Fact]
+    public async Task Device_migration_revokes_active_legacy_refresh_tokens_and_assigns_a_valid_legacy_device()
+    {
+        await using var database = await PostgreSqlFixture.StartAsync();
+        await database.Db.Database.MigrateAsync("20260814175047_InitialIdentity");
+        var userId = Guid.NewGuid();
+        var tokenId = Guid.NewGuid();
+        var sessionId = Guid.NewGuid();
+        var now = DateTimeOffset.UtcNow;
+        const string email = "legacy@example.com";
+        const string normalizedEmail = "LEGACY@EXAMPLE.COM";
+        const string passwordHash = "hash";
+        const string tokenHash = "legacy-hash";
+        DateTimeOffset? revokedAt = null;
+        await database.Db.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO users (\"Id\", \"Email\", \"NormalizedEmail\", \"PasswordHash\", \"CreatedAt\") VALUES ({userId}, {email}, {normalizedEmail}, {passwordHash}, {now})");
+        await database.Db.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO refresh_tokens (\"Id\", \"UserId\", \"TokenHash\", \"SessionId\", \"ExpiresAt\", \"CreatedAt\", \"RevokedAt\") VALUES ({tokenId}, {userId}, {tokenHash}, {sessionId}, {now.AddDays(1)}, {now}, {revokedAt})");
+
+        await database.Db.Database.MigrateAsync();
+        database.Db.ChangeTracker.Clear();
+        var token = await database.Db.RefreshTokens.SingleAsync();
+        Assert.Equal("LEGACY", token.DeviceName);
+        Assert.NotNull(token.RevokedAt);
+        Assert.InRange(token.DeviceName.Length, 1, 128);
+    }
+
+    [Fact]
     public async Task Identity_schema_is_created_from_the_initial_migration()
     {
         await using var database = await PostgreSqlFixture.StartAsync();
