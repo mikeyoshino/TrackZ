@@ -1,5 +1,7 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using TrackZ.Application.Common.Interfaces;
+using TrackZ.Infrastructure.Persistence;
 
 namespace TrackZ.Infrastructure.Tests;
 
@@ -14,5 +16,24 @@ public sealed class DependencyInjectionTests
         var returnedServices = services.AddInfrastructure(configuration);
 
         Assert.Same(services, returnedServices);
+    }
+
+    [Fact]
+    public void AddInfrastructure_Registers_AppDbContext_As_IAppDbContext()
+    {
+        var services = new ServiceCollection();
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ConnectionStrings:TrackZ"] = "Host=localhost;Database=trackz_test;Username=trackz;Password=not-used"
+            })
+            .Build();
+
+        services.AddInfrastructure(configuration);
+
+        using var provider = services.BuildServiceProvider();
+        using var scope = provider.CreateScope();
+
+        Assert.IsType<AppDbContext>(scope.ServiceProvider.GetRequiredService<IAppDbContext>());
     }
 }

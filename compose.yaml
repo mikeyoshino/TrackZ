@@ -1,0 +1,14 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: trackz
+      POSTGRES_USER: trackz
+      POSTGRES_PASSWORD: trackz_local_only
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trackz -d trackz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
