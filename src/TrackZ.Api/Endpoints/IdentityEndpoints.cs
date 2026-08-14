@@ -197,7 +197,15 @@ public static class IdentityEndpoints
     private static string MapJsonPath(string? path)
     {
         var field = path?.TrimStart('$', '.');
-        return field is "email" or "password" or "deviceName" or "refreshToken" or "sessionId" ? field : "body";
+        return field switch
+        {
+            not null when string.Equals(field, "email", StringComparison.OrdinalIgnoreCase) => "email",
+            not null when string.Equals(field, "password", StringComparison.OrdinalIgnoreCase) => "password",
+            not null when string.Equals(field, "deviceName", StringComparison.OrdinalIgnoreCase) => "deviceName",
+            not null when string.Equals(field, "refreshToken", StringComparison.OrdinalIgnoreCase) => "refreshToken",
+            not null when string.Equals(field, "sessionId", StringComparison.OrdinalIgnoreCase) => "sessionId",
+            _ => "body"
+        };
     }
 
     private static string InvalidMessage(HttpContext context, string field) => BusinessMessages.Format("InvalidField", CultureInfo.CurrentUICulture, field);

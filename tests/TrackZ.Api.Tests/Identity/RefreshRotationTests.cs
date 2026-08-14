@@ -321,6 +321,24 @@ public sealed class RefreshRotationTests : IAsyncLifetime
         Assert.DoesNotContain("Exception", value, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Theory]
+    [InlineData("/api/v1/auth/register", "{\"Email\":1,\"password\":\"ValidPassword!42\"}", "email", false)]
+    [InlineData("/api/v1/auth/login", "{\"email\":\"a@b.com\",\"PASSWORD\":1,\"deviceName\":\"ios\"}", "password", false)]
+    [InlineData("/api/v1/auth/login", "{\"email\":\"a@b.com\",\"password\":\"ValidPassword!42\",\"DeviceName\":1}", "deviceName", false)]
+    [InlineData("/api/v1/auth/refresh", "{\"RefreshToken\":1,\"deviceName\":\"ios\"}", "refreshToken", false)]
+    [InlineData("/api/v1/auth/logout", "{\"SessionId\":1}", "sessionId", true)]
+    public async Task Case_variant_json_paths_map_to_canonical_safe_field_keys(string route, string body, string expectedKey, bool authenticate)
+    {
+        TokenPairResponse? token = authenticate ? await RegisterAndLoginAsync($"case-{Guid.NewGuid():N}@example.com") : null;
+        using var request = new HttpRequestMessage(HttpMethod.Post, route) { Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json") };
+        if (authenticate) request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token!.AccessToken);
+        var response = await _client.SendAsync(request);
+        var problem = await response.Content.ReadFromJsonAsync<ApiProblemDetails>();
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal([expectedKey], problem!.FieldErrors!.Keys);
+        Assert.DoesNotContain("Json", problem.FieldErrors[expectedKey].Single(), StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public async Task Unauthenticated_bad_content_type_logout_remains_authorization_first()
     {
