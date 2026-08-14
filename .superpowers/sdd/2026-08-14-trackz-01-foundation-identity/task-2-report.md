@@ -61,3 +61,38 @@ Blocked by the environment, not the Task 2 changes: Android target compilation r
 
 - The full solution cannot be verified here until an Android SDK is installed or `AndroidSdkDirectory` is configured.
 - `AddInfrastructure(IConfiguration)` deliberately has no registrations yet; later persistence and identity work will populate it.
+
+## Fix Round 1: DI Composition Coverage
+
+Added focused composition tests in their owning test projects:
+
+- `TrackZ.Application.Tests.DependencyInjectionTests.AddApplication_Registers_IMediator` builds a real service provider after `AddApplication()` and resolves `IMediator`.
+- `TrackZ.Infrastructure.Tests.DependencyInjectionTests.AddInfrastructure_Returns_The_Provided_Service_Collection` passes a real `IConfiguration` and verifies that the same collection instance is returned.
+
+### RED
+
+```sh
+dotnet test tests/TrackZ.Application.Tests/TrackZ.Application.Tests.csproj --filter FullyQualifiedName~DependencyInjectionTests
+```
+
+Observed result: failed with `InvalidOperationException`: MediatR requires `ILoggerFactory` to be registered. This demonstrated that the existing `AddApplication()` registration could not produce a resolvable mediator.
+
+The Infrastructure API already met the new test's contract, so its sensitivity was proven with an uncommitted temporary mutation of `AddInfrastructure` to return `new ServiceCollection()`:
+
+```sh
+dotnet test tests/TrackZ.Infrastructure.Tests/TrackZ.Infrastructure.Tests.csproj --filter FullyQualifiedName~DependencyInjectionTests
+```
+
+Observed result: failed with `Assert.Same() Failure`; the original `=> services` implementation was restored immediately afterward.
+
+### GREEN
+
+Added `services.AddLogging()` before MediatR registration and added `Microsoft.Extensions.Logging` 10.0.11 to the Application project. Both focused DI tests then passed.
+
+```sh
+dotnet test tests/TrackZ.Application.Tests/TrackZ.Application.Tests.csproj --no-restore
+dotnet test tests/TrackZ.Infrastructure.Tests/TrackZ.Infrastructure.Tests.csproj --no-restore
+dotnet test tests/TrackZ.Api.Tests/TrackZ.Api.Tests.csproj --no-restore
+```
+
+Observed results: Application 4 passed, Infrastructure 2 passed, API 1 passed; no warnings or errors. The API run compiles the complete non-mobile production graph.
