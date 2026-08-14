@@ -2,6 +2,7 @@ using MediatR;
 using System.Globalization;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Microsoft.Net.Http.Headers;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using TrackZ.Application.Identity.Login;
@@ -176,20 +177,15 @@ public static class IdentityEndpoints
             var field = MapJsonPath(exception.Path);
             return (default, ValidationProblem(context, new Dictionary<string, string[]> { [field] = [InvalidMessage(context, field)] }));
         }
-        catch (InvalidOperationException)
-        {
-            return (default, ValidationProblem(context, new Dictionary<string, string[]> { ["body"] = [InvalidMessage(context, "body")] }));
-        }
     }
 
     private static bool HasSupportedJsonContentType(string? contentType)
     {
-        if (string.IsNullOrWhiteSpace(contentType)) return false;
-        var pieces = contentType.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-        var mediaType = pieces[0];
-        if (!string.Equals(mediaType, "application/json", StringComparison.OrdinalIgnoreCase) && !mediaType.EndsWith("+json", StringComparison.OrdinalIgnoreCase)) return false;
-        var charset = pieces.Skip(1).FirstOrDefault(piece => piece.StartsWith("charset=", StringComparison.OrdinalIgnoreCase));
-        return charset is null || string.Equals(charset[8..].Trim('"'), "utf-8", StringComparison.OrdinalIgnoreCase);
+        if (!MediaTypeHeaderValue.TryParse(contentType, out var mediaType)) return false;
+        var type = mediaType.MediaType.Value ?? string.Empty;
+        if (!string.Equals(type, "application/json", StringComparison.OrdinalIgnoreCase) && !type.EndsWith("+json", StringComparison.OrdinalIgnoreCase)) return false;
+        var charset = mediaType.Charset.Value?.Trim('"');
+        return charset is null or "" || string.Equals(charset, "utf-8", StringComparison.OrdinalIgnoreCase) || string.Equals(charset, "utf8", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string MapJsonPath(string? path)
