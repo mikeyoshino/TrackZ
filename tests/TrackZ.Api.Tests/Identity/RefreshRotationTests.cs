@@ -307,6 +307,20 @@ public sealed class RefreshRotationTests : IAsyncLifetime
         Assert.Equal(overlong, second!.FieldErrors!["deviceName"].Single());
     }
 
+    [Theory]
+    [InlineData(null, "The email field is invalid.")]
+    [InlineData("th", "ข้อมูล email ไม่ถูกต้อง")]
+    public async Task Wrong_type_field_message_is_exactly_localized_and_safe(string? language, string expected)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/login") { Content = new StringContent("{\"email\":1,\"password\":\"ValidPassword!42\",\"deviceName\":\"ios\"}", System.Text.Encoding.UTF8, "application/json") };
+        if (language is not null) request.Headers.AcceptLanguage.ParseAdd(language);
+        var problem = await (await _client.SendAsync(request)).Content.ReadFromJsonAsync<ApiProblemDetails>();
+        var value = problem!.FieldErrors!["email"].Single();
+        Assert.Equal(expected, value);
+        Assert.DoesNotContain("Json", value, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Exception", value, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public async Task Unauthenticated_bad_content_type_logout_remains_authorization_first()
     {
@@ -317,6 +331,10 @@ public sealed class RefreshRotationTests : IAsyncLifetime
     [Theory]
     [InlineData("application/json; charset = \"ISO-8859-1\"")]
     [InlineData("APPLICATION/JSON; CHARSET=iso-8859-1")]
+    [InlineData("application/json; charset=\"\"")]
+    [InlineData("application/json; charset=utf-8; charset=iso-8859-1")]
+    [InlineData("application/json; charset=iso-8859-1; charset=utf-8")]
+    [InlineData("application/+json")]
     [InlineData("not a media type")]
     public async Task Parsed_media_type_edge_cases_return_exact_body_validation_message(string contentType)
     {
@@ -337,7 +355,7 @@ public sealed class RefreshRotationTests : IAsyncLifetime
     public async Task Structured_plus_json_utf8_reaches_normal_register_behavior()
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/register") { Content = new StringContent("{\"email\":\"plusjson@example.com\",\"password\":\"ValidPassword!42\"}") };
-        request.Content.Headers.ContentType = System.Net.Http.Headers.MediaTypeHeaderValue.Parse("application/problem+json; charset=utf-8");
+        request.Content.Headers.ContentType = System.Net.Http.Headers.MediaTypeHeaderValue.Parse("application/vnd.trackz+json; charset=utf-8");
         Assert.Equal(HttpStatusCode.Created, (await _client.SendAsync(request)).StatusCode);
     }
 

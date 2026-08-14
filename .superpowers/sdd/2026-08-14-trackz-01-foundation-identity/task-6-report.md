@@ -35,6 +35,7 @@
 ## Fix Round 5
 
 - Media types are parsed with ASP.NET's standard parser. Tests cover quoted/whitespace and case-varied unsupported charsets, invalid media syntax, and accepted structured `+json` UTF-8 registration.
+- Exceptional remediation: charset parameters are inspected as parsed parameters; empty and duplicate charset values are rejected, and only nonempty application subtypes with a valid `+json` prefix are accepted. Exact English/Thai wrong-type field messages are covered.
 
 ## Localization/rate limits
 

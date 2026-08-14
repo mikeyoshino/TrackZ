@@ -183,9 +183,15 @@ public static class IdentityEndpoints
     {
         if (!MediaTypeHeaderValue.TryParse(contentType, out var mediaType)) return false;
         var type = mediaType.MediaType.Value ?? string.Empty;
-        if (!string.Equals(type, "application/json", StringComparison.OrdinalIgnoreCase) && !type.EndsWith("+json", StringComparison.OrdinalIgnoreCase)) return false;
-        var charset = mediaType.Charset.Value?.Trim('"');
-        return charset is null or "" || string.Equals(charset, "utf-8", StringComparison.OrdinalIgnoreCase) || string.Equals(charset, "utf8", StringComparison.OrdinalIgnoreCase);
+        if (!type.StartsWith("application/", StringComparison.OrdinalIgnoreCase)) return false;
+        var subtype = type["application/".Length..];
+        if (!string.Equals(subtype, "json", StringComparison.OrdinalIgnoreCase)
+            && (!subtype.EndsWith("+json", StringComparison.OrdinalIgnoreCase) || subtype.Length == "+json".Length)) return false;
+        var charsets = mediaType.Parameters.Where(parameter => string.Equals(parameter.Name.Value, "charset", StringComparison.OrdinalIgnoreCase)).ToList();
+        if (charsets.Count == 0) return true;
+        if (charsets.Count != 1) return false;
+        var charset = charsets[0].Value.Value?.Trim('"').Trim();
+        return !string.IsNullOrEmpty(charset) && (string.Equals(charset, "utf-8", StringComparison.OrdinalIgnoreCase) || string.Equals(charset, "utf8", StringComparison.OrdinalIgnoreCase));
     }
 
     private static string MapJsonPath(string? path)
