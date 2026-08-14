@@ -14,6 +14,8 @@ public sealed class BusinessExceptionMiddlewareTests
     {
         { BusinessErrorCode.InvalidCredentials, 10001 },
         { BusinessErrorCode.EmailAlreadyExists, 10002 },
+        { BusinessErrorCode.PasswordPolicyViolation, 10006 },
+        { BusinessErrorCode.InvalidRegistrationInput, 10007 },
         { BusinessErrorCode.RefreshTokenInvalid, 10003 },
         { BusinessErrorCode.EmailVerificationInvalid, 10004 },
         { BusinessErrorCode.PasswordResetInvalid, 10005 },

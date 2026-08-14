@@ -27,7 +27,7 @@ public sealed class BusinessExceptionMiddleware(RequestDelegate next)
                 ProblemTitle,
                 exception.StatusCode,
                 exception.Code,
-                exception.Message,
+                LocalizeMessage(context, exception),
                 context.TraceIdentifier,
                 null);
 
@@ -39,5 +39,28 @@ public sealed class BusinessExceptionMiddleware(RequestDelegate next)
                 problem,
                 cancellationToken: context.RequestAborted);
         }
+    }
+
+    private static string LocalizeMessage(HttpContext context, BusinessException exception)
+    {
+        var language = context.Request.GetTypedHeaders().AcceptLanguage?
+            .OrderByDescending(header => header.Quality ?? 1)
+            .Select(header => header.Value.Value)
+            .FirstOrDefault();
+
+        if (language is null || (!string.Equals(language, "th", StringComparison.OrdinalIgnoreCase)
+            && !language.StartsWith("th-", StringComparison.OrdinalIgnoreCase)))
+        {
+            return exception.Message;
+        }
+
+        return exception.Code switch
+        {
+            BusinessErrorCode.InvalidCredentials => "อีเมลหรือรหัสผ่านไม่ถูกต้อง",
+            BusinessErrorCode.EmailAlreadyExists => "มีบัญชีที่ใช้อีเมลนี้อยู่แล้ว",
+            BusinessErrorCode.PasswordPolicyViolation => "รหัสผ่านต้องมีอย่างน้อย 12 อักขระ และประกอบด้วยตัวพิมพ์ใหญ่ ตัวพิมพ์เล็ก ตัวเลข และสัญลักษณ์",
+            BusinessErrorCode.InvalidRegistrationInput => "ข้อมูลการลงทะเบียนไม่ถูกต้อง",
+            _ => exception.Message
+        };
     }
 }

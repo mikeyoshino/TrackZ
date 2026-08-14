@@ -1,7 +1,12 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+using System.Text;
 using Microsoft.EntityFrameworkCore;
 using TrackZ.Application.Common.Interfaces;
+using TrackZ.Infrastructure.Identity;
 using TrackZ.Infrastructure.Persistence;
 
 namespace TrackZ.Infrastructure;
@@ -17,6 +22,35 @@ public static class DependencyInjection
                 ?? throw new InvalidOperationException("The TrackZ database connection string is not configured.")));
 
         services.AddScoped<IAppDbContext>(provider => provider.GetRequiredService<AppDbContext>());
+        services.AddSingleton<IPasswordHasher, PasswordHasher>();
+        services.AddSingleton<ITokenService, JwtTokenService>();
+
+        services.AddOptions<JwtOptions>()
+            .Bind(configuration.GetSection(JwtOptions.SectionName))
+            .Validate(static options => options.IsValid(), "Jwt settings must provide issuer, audience, a 32-character signing key, and valid UTC lifetimes.")
+            .ValidateOnStart();
+
+        var jwt = configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>() ?? new JwtOptions();
+        if (!jwt.IsValid())
+        {
+            throw new InvalidOperationException("Jwt settings must provide issuer, audience, a 32-character signing key, and valid UTC lifetimes.");
+        }
+
+        services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+            .AddJwtBearer(options =>
+            {
+                options.TokenValidationParameters = new TokenValidationParameters
+                {
+                    ValidateIssuer = true,
+                    ValidIssuer = jwt.Issuer,
+                    ValidateAudience = true,
+                    ValidAudience = jwt.Audience,
+                    ValidateIssuerSigningKey = true,
+                    IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt.SigningKey)),
+                    ValidateLifetime = true,
+                    ClockSkew = TimeSpan.Zero
+                };
+            });
 
         return services;
     }

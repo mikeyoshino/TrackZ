@@ -9,14 +9,14 @@ namespace TrackZ.Infrastructure.Tests;
 public sealed class DependencyInjectionTests
 {
     [Fact]
-    public void AddInfrastructure_Returns_The_Provided_Service_Collection()
+    public void AddInfrastructure_Rejects_missing_Jwt_settings()
     {
         var services = new ServiceCollection();
         var configuration = new ConfigurationBuilder().Build();
 
-        var returnedServices = services.AddInfrastructure(configuration);
+        var exception = Assert.Throws<InvalidOperationException>(() => services.AddInfrastructure(configuration));
 
-        Assert.Same(services, returnedServices);
+        Assert.Contains("Jwt settings", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -26,7 +26,12 @@ public sealed class DependencyInjectionTests
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["ConnectionStrings:TrackZ"] = "Host=localhost;Database=trackz_test;Username=trackz;Password=not-used"
+                ["ConnectionStrings:TrackZ"] = "Host=localhost;Database=trackz_test;Username=trackz;Password=not-used",
+                ["Jwt:Issuer"] = "trackz-api",
+                ["Jwt:Audience"] = "trackz-mobile",
+                ["Jwt:SigningKey"] = "test-signing-key-that-is-at-least-thirty-two-bytes-long",
+                ["Jwt:AccessTokenMinutes"] = "15",
+                ["Jwt:RefreshTokenDays"] = "14"
             })
             .Build();
 

@@ -7,6 +7,8 @@ public enum BusinessErrorCode
     RefreshTokenInvalid = 10003,
     EmailVerificationInvalid = 10004,
     PasswordResetInvalid = 10005,
+    PasswordPolicyViolation = 10006,
+    InvalidRegistrationInput = 10007,
     ExerciseNotFound = 20001,
     ExerciseNameDuplicate = 20002,
     WorkoutNotFound = 30001,
