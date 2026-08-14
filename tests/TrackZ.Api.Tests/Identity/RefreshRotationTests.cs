@@ -280,6 +280,40 @@ public sealed class RefreshRotationTests : IAsyncLifetime
         }
     }
 
+    [Theory]
+    [InlineData(null, "Request data is invalid.", "The body field is invalid.")]
+    [InlineData("th", "ข้อมูลคำขอไม่ถูกต้อง", "ข้อมูล body ไม่ถูกต้อง")]
+    public async Task Malformed_body_uses_exact_localized_body_messages(string? language, string message, string fieldMessage)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/register") { Content = new StringContent("{", System.Text.Encoding.UTF8, "application/json") };
+        if (language is not null) request.Headers.AcceptLanguage.ParseAdd(language);
+        var problem = await (await _client.SendAsync(request)).Content.ReadFromJsonAsync<ApiProblemDetails>();
+        Assert.Equal(message, problem!.Message);
+        Assert.Equal(fieldMessage, problem.FieldErrors!["body"].Single());
+    }
+
+    [Theory]
+    [InlineData(null, "The refreshToken field is required.", "The deviceName field is invalid.")]
+    [InlineData("th", "ต้องระบุข้อมูล refreshToken", "ชื่ออุปกรณ์ไม่ถูกต้อง")]
+    public async Task Required_and_overlong_device_messages_are_exactly_localized(string? language, string required, string overlong)
+    {
+        var token = await RegisterAndLoginAsync($"locale-{Guid.NewGuid():N}@example.com");
+        using var missing = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/refresh") { Content = JsonContent.Create(new { deviceName = "ios" }) };
+        using var longDevice = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/refresh") { Content = JsonContent.Create(new { refreshToken = token.RefreshToken, deviceName = new string('x', 129) }) };
+        if (language is not null) { missing.Headers.AcceptLanguage.ParseAdd(language); longDevice.Headers.AcceptLanguage.ParseAdd(language); }
+        var first = await (await _client.SendAsync(missing)).Content.ReadFromJsonAsync<ApiProblemDetails>();
+        var second = await (await _client.SendAsync(longDevice)).Content.ReadFromJsonAsync<ApiProblemDetails>();
+        Assert.Equal(required, first!.FieldErrors!["refreshToken"].Single());
+        Assert.Equal(overlong, second!.FieldErrors!["deviceName"].Single());
+    }
+
+    [Fact]
+    public async Task Unauthenticated_bad_content_type_logout_remains_authorization_first()
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/logout") { Content = new StringContent("{}", System.Text.Encoding.UTF8, "text/plain") };
+        Assert.Equal(HttpStatusCode.Unauthorized, (await _client.SendAsync(request)).StatusCode);
+    }
+
     [Fact]
     public async Task Concurrent_logout_and_refresh_do_not_leave_a_usable_session_token()
     {

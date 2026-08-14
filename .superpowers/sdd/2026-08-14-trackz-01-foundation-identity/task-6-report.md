@@ -27,6 +27,11 @@
 - Deterministic PostgreSQL barriers cover refresh-then-logout and refresh-then-refresh serialization. The waiting operation is asserted blocked behind the advisory lock, then is released only after the first transaction commits.
 - Migration V2 assigns legacy rows `DeviceName = LEGACY` and revokes all formerly active rows, forcing safe reauthentication instead of leaving active sessions without a trustworthy device identity.
 
+## Fix Rounds 3-4 validation evidence
+
+- Identity routes explicitly parse only JSON/`+json` UTF-8 bodies after authorization, map only whitelisted JSON paths to field names, and return `10009` with safe localized field errors. Unsupported/missing content types map to `body`; unauthenticated logout remains 401.
+- Focused localization checks verify exact English and Thai values for malformed body, required refresh token, and overlong device name; field values contain no parser diagnostics.
+
 ## Localization/rate limits
 
 - Supported cultures are only `en` and `th`; negotiation honors quality order, ignores q=0, supports `th-TH` fallback, and continues to Thai after unsupported higher-quality entries.
