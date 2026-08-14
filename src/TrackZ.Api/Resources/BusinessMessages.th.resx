@@ -9,5 +9,6 @@
   <data name="InvalidRequest" xml:space="preserve"><value>ข้อมูลคำขอไม่ถูกต้อง</value></data>
   <data name="RequiredField" xml:space="preserve"><value>ต้องระบุข้อมูล {0}</value></data>
   <data name="InvalidDeviceName" xml:space="preserve"><value>ชื่ออุปกรณ์ไม่ถูกต้อง</value></data>
+  <data name="InvalidField" xml:space="preserve"><value>ข้อมูล {0} ไม่ถูกต้อง</value></data>
   <data name="InternalServerError" xml:space="preserve"><value>เกิดข้อผิดพลาดที่ไม่คาดคิด โปรดลองอีกครั้งในภายหลัง</value></data>
 </root>
