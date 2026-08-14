@@ -46,3 +46,13 @@
 
 - The task verification intentionally exercised the non-mobile graph; MAUI was not built because it is unrelated to persistence and identity storage.
 - Sandboxed `dotnet build` processes stalled while attempting a network connection despite `--no-restore`; rerunning the same build/test commands with normal host network access completed successfully. Initial direct Docker probing was also denied in the sandbox, while Testcontainers PostgreSQL tests completed successfully with host access.
+
+## Fix Round 1: local API database configuration
+
+- Root cause: `Program` registers Infrastructure, but the actual API development configuration did not provide the `ConnectionStrings:TrackZ` value required when `IAppDbContext` is resolved.
+- Added the local-compose connection string only to `src/TrackZ.Api/appsettings.Development.json`; the production base settings remain free of the development database connection.
+- Added tests that copy and load the actual API settings files from the test output using `AppContext.BaseDirectory`, resolve `IAppDbContext` without opening a connection, and verify the base configuration has no `TrackZ` connection string.
+- RED: `dotnet test tests/TrackZ.Infrastructure.Tests --filter Api_development_configuration_resolves_AppDbContext_without_connecting --no-restore --disable-build-servers`
+  - Result: expected `InvalidOperationException`: the TrackZ database connection string was not configured.
+- GREEN: `dotnet test tests/TrackZ.Infrastructure.Tests --filter "Api_development_configuration_resolves_AppDbContext_without_connecting|Api_base_configuration_does_not_embed_the_development_database_connection" --no-restore --disable-build-servers`
+  - Result: 2 passed.
