@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <data name="InvalidCredentials" xml:space="preserve"><value>Invalid email or password.</value></data>
+  <data name="EmailAlreadyExists" xml:space="preserve"><value>An account with this email already exists.</value></data>
+  <data name="PasswordPolicyViolation" xml:space="preserve"><value>Password must be at least 12 characters and contain uppercase, lowercase, digit, and symbol characters.</value></data>
+  <data name="InvalidRegistrationInput" xml:space="preserve"><value>Registration input is invalid.</value></data>
+  <data name="RefreshTokenInvalid" xml:space="preserve"><value>The refresh token is invalid or expired.</value></data>
+  <data name="RateLimitExceeded" xml:space="preserve"><value>Too many requests. Please try again later.</value></data>
+</root>

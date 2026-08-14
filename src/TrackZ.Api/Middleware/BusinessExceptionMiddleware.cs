@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Resources;
 using System.Text.Json;
 using TrackZ.Application.Common.Exceptions;
 using TrackZ.Contracts.Errors;
@@ -41,26 +43,14 @@ public sealed class BusinessExceptionMiddleware(RequestDelegate next)
         }
     }
 
-    private static string LocalizeMessage(HttpContext context, BusinessException exception)
-    {
-        var language = context.Request.GetTypedHeaders().AcceptLanguage?
-            .OrderByDescending(header => header.Quality ?? 1)
-            .Select(header => header.Value.Value)
-            .FirstOrDefault();
+    private static string LocalizeMessage(HttpContext context, BusinessException exception) =>
+        BusinessMessages.Get(exception.Code, context.Features.Get<Microsoft.AspNetCore.Localization.IRequestCultureFeature>()?.RequestCulture.UICulture, exception.Message);
+}
 
-        if (language is null || (!string.Equals(language, "th", StringComparison.OrdinalIgnoreCase)
-            && !language.StartsWith("th-", StringComparison.OrdinalIgnoreCase)))
-        {
-            return exception.Message;
-        }
+internal static class BusinessMessages
+{
+    private static readonly ResourceManager ResourceManager = new("TrackZ.Api.Resources.BusinessMessages", typeof(BusinessMessages).Assembly);
 
-        return exception.Code switch
-        {
-            BusinessErrorCode.InvalidCredentials => "อีเมลหรือรหัสผ่านไม่ถูกต้อง",
-            BusinessErrorCode.EmailAlreadyExists => "มีบัญชีที่ใช้อีเมลนี้อยู่แล้ว",
-            BusinessErrorCode.PasswordPolicyViolation => "รหัสผ่านต้องมีอย่างน้อย 12 อักขระ และประกอบด้วยตัวพิมพ์ใหญ่ ตัวพิมพ์เล็ก ตัวเลข และสัญลักษณ์",
-            BusinessErrorCode.InvalidRegistrationInput => "ข้อมูลการลงทะเบียนไม่ถูกต้อง",
-            _ => exception.Message
-        };
-    }
+    public static string Get(BusinessErrorCode code, CultureInfo? culture, string fallback) =>
+        ResourceManager.GetString(code.ToString(), culture ?? CultureInfo.GetCultureInfo("en")) ?? fallback;
 }

@@ -9,6 +9,7 @@ public enum BusinessErrorCode
     PasswordResetInvalid = 10005,
     PasswordPolicyViolation = 10006,
     InvalidRegistrationInput = 10007,
+    RateLimitExceeded = 10008,
     ExerciseNotFound = 20001,
     ExerciseNameDuplicate = 20002,
     WorkoutNotFound = 30001,

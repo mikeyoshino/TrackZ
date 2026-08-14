@@ -1,5 +1,9 @@
 using MediatR;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
 using TrackZ.Application.Identity.Login;
+using TrackZ.Application.Identity.Logout;
+using TrackZ.Application.Identity.Refresh;
 using TrackZ.Application.Identity.Register;
 
 namespace TrackZ.Api.Endpoints;
@@ -23,6 +27,7 @@ public static class IdentityEndpoints
                 cancellationToken);
             return Results.Created($"/api/v1/users/{registeredUser.UserId:D}", registeredUser);
         })
+        .RequireRateLimiting("identity")
         .Accepts<RegisterRequest>("application/json")
         .Produces(StatusCodes.Status201Created)
         .ProducesValidationProblem();
@@ -40,9 +45,41 @@ public static class IdentityEndpoints
                 cancellationToken);
             return Results.Ok(tokenPair);
         })
+        .RequireRateLimiting("identity")
         .Accepts<LoginRequest>("application/json")
         .Produces(StatusCodes.Status200OK)
         .ProducesValidationProblem();
+
+        auth.MapPost("/refresh", async (RefreshRequest request, ISender sender, CancellationToken cancellationToken) =>
+        {
+            if (string.IsNullOrWhiteSpace(request.RefreshToken) || string.IsNullOrWhiteSpace(request.DeviceName))
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["refreshToken"] = ["The refreshToken field is required."],
+                    ["deviceName"] = ["The deviceName field is required."]
+                });
+            }
+
+            return Results.Ok(await sender.Send(new RefreshCommand(request.RefreshToken, request.DeviceName), cancellationToken));
+        })
+        .RequireRateLimiting("identity")
+        .Accepts<RefreshRequest>("application/json")
+        .Produces(StatusCodes.Status200OK)
+        .ProducesValidationProblem();
+
+        auth.MapDelete("/sessions/{sessionId:guid}", async (Guid sessionId, ClaimsPrincipal user, ISender sender, CancellationToken cancellationToken) =>
+        {
+            var subject = user.FindFirstValue(JwtRegisteredClaimNames.Sub) ?? user.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (!Guid.TryParse(subject, out var userId))
+            {
+                return Results.Unauthorized();
+            }
+
+            await sender.Send(new LogoutCommand(userId, sessionId), cancellationToken);
+            return Results.NoContent();
+        })
+        .RequireAuthorization();
 
         return endpoints;
     }
@@ -75,4 +112,6 @@ public static class IdentityEndpoints
     private sealed record RegisterRequest(string? Email, string? Password);
 
     private sealed record LoginRequest(string? Email, string? Password, string? DeviceName);
+
+    private sealed record RefreshRequest(string? RefreshToken, string? DeviceName);
 }
