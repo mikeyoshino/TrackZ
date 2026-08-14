@@ -1,15 +1,10 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFrameworks>net10.0-android36.0;net10.0-ios26.5</TargetFrameworks>
+    <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
-    <OutputType>Library</OutputType>
-    <DisableResizetizer>true</DisableResizetizer>
-    <ApplicationId>com.trackz.app.tests</ApplicationId>
-    <ApplicationTitle>TrackZ Tests</ApplicationTitle>
-    <RuntimeIdentifier>iossimulator-arm64</RuntimeIdentifier>
   </PropertyGroup>
 
   <ItemGroup>
@@ -21,10 +16,6 @@
 
   <ItemGroup>
     <Using Include="Xunit" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="..\..\src\TrackZ.Mobile\TrackZ.Mobile.csproj" />
   </ItemGroup>
 
 </Project>
