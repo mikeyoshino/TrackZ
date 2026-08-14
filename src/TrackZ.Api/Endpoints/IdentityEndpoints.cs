@@ -36,7 +36,6 @@ public static class IdentityEndpoints
             return Results.Created($"/api/v1/users/{registeredUser.UserId:D}", registeredUser);
         })
         .RequireRateLimiting("identity")
-        .Accepts<RegisterRequest>("application/json")
         .Produces(StatusCodes.Status201Created)
         .Produces<ApiProblemDetails>(StatusCodes.Status400BadRequest, "application/problem+json");
 
@@ -57,7 +56,6 @@ public static class IdentityEndpoints
             return Results.Ok(tokenPair);
         })
         .RequireRateLimiting("identity")
-        .Accepts<LoginRequest>("application/json")
         .Produces(StatusCodes.Status200OK)
         .Produces<ApiProblemDetails>(StatusCodes.Status400BadRequest, "application/problem+json");
 
@@ -75,7 +73,6 @@ public static class IdentityEndpoints
             return Results.Ok(await sender.Send(new RefreshCommand(request.RefreshToken!, request.DeviceName!), cancellationToken));
         })
         .RequireRateLimiting("identity")
-        .Accepts<RefreshRequest>("application/json")
         .Produces(StatusCodes.Status200OK)
         .Produces<ApiProblemDetails>(StatusCodes.Status400BadRequest, "application/problem+json");
 
@@ -162,6 +159,11 @@ public static class IdentityEndpoints
 
     private static async Task<(T? Value, IResult? Error)> ReadIdentityRequestAsync<T>(HttpRequest request, HttpContext context, CancellationToken cancellationToken)
     {
+        if (!HasSupportedJsonContentType(request.ContentType))
+        {
+            return (default, ValidationProblem(context, new Dictionary<string, string[]> { ["body"] = [InvalidMessage(context, "body")] }));
+        }
+
         try
         {
             var value = await request.ReadFromJsonAsync<T>(cancellationToken: cancellationToken);
@@ -174,6 +176,20 @@ public static class IdentityEndpoints
             var field = MapJsonPath(exception.Path);
             return (default, ValidationProblem(context, new Dictionary<string, string[]> { [field] = [InvalidMessage(context, field)] }));
         }
+        catch (InvalidOperationException)
+        {
+            return (default, ValidationProblem(context, new Dictionary<string, string[]> { ["body"] = [InvalidMessage(context, "body")] }));
+        }
+    }
+
+    private static bool HasSupportedJsonContentType(string? contentType)
+    {
+        if (string.IsNullOrWhiteSpace(contentType)) return false;
+        var pieces = contentType.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        var mediaType = pieces[0];
+        if (!string.Equals(mediaType, "application/json", StringComparison.OrdinalIgnoreCase) && !mediaType.EndsWith("+json", StringComparison.OrdinalIgnoreCase)) return false;
+        var charset = pieces.Skip(1).FirstOrDefault(piece => piece.StartsWith("charset=", StringComparison.OrdinalIgnoreCase));
+        return charset is null || string.Equals(charset[8..].Trim('"'), "utf-8", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string MapJsonPath(string? path)

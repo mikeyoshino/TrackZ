@@ -260,6 +260,26 @@ public sealed class RefreshRotationTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Unauthorized, (await _client.SendAsync(request)).StatusCode);
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("text/plain")]
+    [InlineData("application/json; charset=iso-8859-1")]
+    public async Task Identity_routes_reject_unsupported_body_content_types_with_safe_body_error(string? contentType)
+    {
+        var token = await RegisterAndLoginAsync($"content-{Guid.NewGuid():N}@example.com");
+        foreach (var route in new[] { "/api/v1/auth/register", "/api/v1/auth/login", "/api/v1/auth/refresh", "/api/v1/auth/logout" })
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, route) { Content = new StringContent("{}") };
+            if (contentType is null) request.Content.Headers.Remove("Content-Type"); else request.Content.Headers.ContentType = System.Net.Http.Headers.MediaTypeHeaderValue.Parse(contentType);
+            if (route.EndsWith("logout", StringComparison.Ordinal)) request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token.AccessToken);
+            var response = await _client.SendAsync(request);
+            var problem = await response.Content.ReadFromJsonAsync<ApiProblemDetails>();
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            Assert.Equal(10009, (int)problem!.ErrorCode);
+            Assert.Equal(["body"], problem.FieldErrors!.Keys);
+        }
+    }
+
     [Fact]
     public async Task Concurrent_logout_and_refresh_do_not_leave_a_usable_session_token()
     {
