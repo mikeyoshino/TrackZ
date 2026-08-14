@@ -18,4 +18,8 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\TrackZ.Mobile.Core\TrackZ.Mobile.Core.csproj" />
+  </ItemGroup>
+
 </Project>

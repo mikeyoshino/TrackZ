@@ -5,6 +5,7 @@
     <Project Path="src/TrackZ.Contracts/TrackZ.Contracts.csproj" />
     <Project Path="src/TrackZ.Domain/TrackZ.Domain.csproj" />
     <Project Path="src/TrackZ.Infrastructure/TrackZ.Infrastructure.csproj" />
+    <Project Path="src/TrackZ.Mobile.Core/TrackZ.Mobile.Core.csproj" />
     <Project Path="src/TrackZ.Mobile/TrackZ.Mobile.csproj" />
   </Folder>
   <Folder Name="/tests/">

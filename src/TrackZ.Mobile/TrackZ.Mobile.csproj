@@ -69,7 +69,7 @@
 	</ItemGroup>
 
 	<ItemGroup>
-	  <ProjectReference Include="..\TrackZ.Contracts\TrackZ.Contracts.csproj" />
+	  <ProjectReference Include="..\TrackZ.Mobile.Core\TrackZ.Mobile.Core.csproj" />
 	</ItemGroup>
 
 </Project>
