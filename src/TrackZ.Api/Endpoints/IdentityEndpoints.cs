@@ -110,6 +110,7 @@ public static class IdentityEndpoints
         AddRequired(errors, "email", request.Email, context);
         AddRequired(errors, "password", request.Password, context);
         AddRequired(errors, "deviceName", request.DeviceName, context);
+        AddDeviceLength(errors, request.DeviceName);
         return errors.Count == 0 ? null : errors;
     }
 
@@ -118,6 +119,7 @@ public static class IdentityEndpoints
         var errors = new Dictionary<string, string[]>();
         AddRequired(errors, "refreshToken", request.RefreshToken, context);
         AddRequired(errors, "deviceName", request.DeviceName, context);
+        AddDeviceLength(errors, request.DeviceName);
         return errors.Count == 0 ? null : errors;
     }
 
@@ -127,6 +129,11 @@ public static class IdentityEndpoints
         {
             errors[name] = [RequiredMessage(context, name)];
         }
+    }
+
+    private static void AddDeviceLength(IDictionary<string, string[]> errors, string? value)
+    {
+        if (value?.Trim().Length > 128) errors["deviceName"] = ["Invalid device name."];
     }
 
     private static IResult ValidationProblem(HttpContext context, IReadOnlyDictionary<string, string[]> errors) => Results.Json(

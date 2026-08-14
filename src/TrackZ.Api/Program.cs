@@ -72,6 +72,17 @@ var app = builder.Build();
 app.UseRequestLocalization();
 app.UseMiddleware<UnhandledExceptionMiddleware>();
 app.UseMiddleware<BusinessExceptionMiddleware>();
+app.UseStatusCodePages(async statusCodeContext =>
+{
+    var response = statusCodeContext.HttpContext.Response;
+    if (response.StatusCode != StatusCodes.Status400BadRequest) return;
+    response.ContentType = "application/problem+json";
+    await JsonSerializer.SerializeAsync(response.Body, new ApiProblemDetails("https://api.trackz.app/problems/validation", "Validation failed", 400,
+        BusinessErrorCode.InvalidRequest, BusinessMessages.Get(BusinessErrorCode.InvalidRequest, CultureInfo.CurrentUICulture, "Request data is invalid."),
+        statusCodeContext.HttpContext.TraceIdentifier,
+        new Dictionary<string, string[]> { ["body"] = [BusinessMessages.Get(BusinessErrorCode.InvalidRequest, CultureInfo.CurrentUICulture, "Request data is invalid.")] }),
+        cancellationToken: statusCodeContext.HttpContext.RequestAborted);
+});
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();

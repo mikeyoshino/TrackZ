@@ -171,6 +171,49 @@ public sealed class RefreshRotationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Identity_boundary_and_binding_failures_use_the_shared_validation_contract()
+    {
+        var token = await RegisterAndLoginAsync("validation@example.com");
+        var cases = new[]
+        {
+            new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/register") { Content = new StringContent("{", System.Text.Encoding.UTF8, "application/json") },
+            new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/login") { Content = JsonContent.Create(new { email = "x@example.com", password = "ValidPassword!42", deviceName = new string('x', 129) }) },
+            new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/refresh") { Content = new StringContent("{", System.Text.Encoding.UTF8, "application/json") },
+            new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/logout") { Content = JsonContent.Create(new { sessionId = (Guid?)null }) }
+        };
+        cases[3].Headers.Authorization = new AuthenticationHeaderValue("Bearer", token.AccessToken);
+        cases[0].Headers.AcceptLanguage.ParseAdd("th");
+
+        foreach (var request in cases)
+        {
+            using (request)
+            {
+                var response = await _client.SendAsync(request);
+                var problem = await response.Content.ReadFromJsonAsync<ApiProblemDetails>();
+                Assert.True(response.StatusCode == HttpStatusCode.BadRequest, $"{request.RequestUri}: {response.StatusCode}");
+                Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+                Assert.Equal(10009, (int)problem!.ErrorCode);
+                Assert.False(string.IsNullOrWhiteSpace(problem.TraceId));
+                Assert.DoesNotContain("Json", problem.Message, StringComparison.OrdinalIgnoreCase);
+                Assert.NotNull(problem.FieldErrors);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task Authenticated_logout_with_a_missing_session_id_uses_validation_problem_details()
+    {
+        var token = await RegisterAndLoginAsync("logout-validation@example.com");
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/logout") { Content = JsonContent.Create(new { sessionId = (Guid?)null }) };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token.AccessToken);
+        var response = await _client.SendAsync(request);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.True(response.StatusCode == HttpStatusCode.BadRequest, $"{response.StatusCode}: {body}");
+        var problem = System.Text.Json.JsonSerializer.Deserialize<ApiProblemDetails>(body, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+        Assert.Equal(10009, (int)problem!.ErrorCode);
+    }
+
+    [Fact]
     public async Task Concurrent_logout_and_refresh_do_not_leave_a_usable_session_token()
     {
         var original = await RegisterAndLoginAsync("logout-race@example.com");
