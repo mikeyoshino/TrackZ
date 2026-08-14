@@ -17,6 +17,11 @@ public sealed class BusinessExceptionMiddleware(RequestDelegate next)
         }
         catch (BusinessException exception)
         {
+            if (context.Response.HasStarted)
+            {
+                throw;
+            }
+
             var problem = new ApiProblemDetails(
                 ProblemType,
                 ProblemTitle,
@@ -26,6 +31,7 @@ public sealed class BusinessExceptionMiddleware(RequestDelegate next)
                 context.TraceIdentifier,
                 null);
 
+            context.Response.Clear();
             context.Response.StatusCode = exception.StatusCode;
             context.Response.ContentType = "application/problem+json";
             await JsonSerializer.SerializeAsync(

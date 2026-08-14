@@ -54,3 +54,23 @@ All non-mobile test projects passed (Domain 1, Application 4, Infrastructure 2, 
 
 - Full MAUI Android solution verification remains unavailable until an Android SDK is installed or `AndroidSdkDirectory` is configured.
 - Error-code-specific ProblemDetails type URIs and localized messages belong to later endpoint/localization work; this foundational middleware uses the stable generic business-rule type and preserves the supplied business message.
+
+## Fix Round 1: Started and Dirty Responses
+
+### Root Cause
+
+The middleware previously caught a `BusinessException` unconditionally. If downstream code had already started the response, it attempted to change committed headers and append a second JSON document. If the response was still unstarted but had pending state, it retained downstream headers and status. ASP.NET Core documents that headers cannot be changed after `HasStarted`, and `HttpResponse.Clear()` resets an unstarted response's headers, status, and body.
+
+### RED
+
+Added two focused tests and ran:
+
+```sh
+dotnet test tests/TrackZ.Api.Tests/TrackZ.Api.Tests.csproj --filter "FullyQualifiedName~Business_exception_after_response_started|FullyQualifiedName~Business_exception_replaces_a_dirty_unstarted"
+```
+
+Observed result: 2 failed, 0 passed. The started-response test reported that no `BusinessException` was propagated. The dirty-unstarted test reported `Assert.False() Failure` because the pending `X-Downstream` header remained. Test setup uses an explicit started response feature rather than pretending a `MemoryStream` can model clearing bytes already committed to a client.
+
+### GREEN
+
+The middleware now rethrows the original exception when `Response.HasStarted`; otherwise it calls `Response.Clear()` before setting the ProblemDetails status/content type and serializing. The same focused command passed: 2 passed, 0 failed, 0 skipped.
