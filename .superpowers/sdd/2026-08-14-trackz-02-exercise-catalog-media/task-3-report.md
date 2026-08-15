@@ -151,3 +151,18 @@ Although the custom-exercise migration designer exposed the expected entities, i
 
 - The migration parity test serializes every entity's relational table/schema and annotations, every property (CLR type, nullability, generated value, column type, length, precision, scale, annotations), keys, foreign keys, indexes, and check constraints from both the migration target and current snapshot. The prior lambda reconstruction fails this comparison; a target that only has the right entity names or partial-index filter cannot pass.
 - The existing real PostgreSQL migration Down/Up test remains in the focused group, proving the frozen target change did not alter the executable migration or its trigger-backed integrity guarantees.
+
+## Fix Round 4 — model-level migration metadata coverage
+
+The relational metadata parity descriptor now begins with the model default schema and all model-level annotations, before it compares entities. This covers `Relational:MaxIdentifierLength` and Npgsql's model `ValueGenerationStrategy`, which entity-only comparison could not observe.
+
+### RED / sensitivity evidence
+
+Temporarily removing `NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder)` from the frozen designer caused `Custom_exercise_migration_target_matches_current_snapshot_relational_metadata` to fail at descriptor position zero: the migration target lacked the expected `Npgsql:ValueGenerationStrategy` model annotation. The exact frozen line was restored before final verification.
+
+### GREEN / verification evidence
+
+| Command | Result |
+|---|---|
+| `dotnet test tests/TrackZ.Infrastructure.Tests --filter 'FullyQualifiedName~Custom_exercise_migration_designer_contains_the_complete_target_model\|FullyQualifiedName~Custom_exercise_migration_target_matches_current_snapshot_relational_metadata\|FullyQualifiedName~Custom_exercise_migration_round_trip_preserves_valid_history_and_restores_trigger_integrity' --no-restore --disable-build-servers` (outside sandbox) | PASS — 3/3 |
+| `dotnet test tests/TrackZ.Infrastructure.Tests --no-restore --disable-build-servers` (outside sandbox) | PASS — 24/24 |

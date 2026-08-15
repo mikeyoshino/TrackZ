@@ -157,7 +157,10 @@ public sealed class ExerciseCatalogPersistenceTests
 
     private static IReadOnlyList<string> DescribeRelationalModel(IReadOnlyModel model)
     {
-        return model.GetEntityTypes()
+        var modelPrefix = $"model|default-schema={model.GetDefaultSchema()}|{DescribeAnnotations(model)}";
+
+        return new[] { modelPrefix }
+            .Concat(model.GetEntityTypes()
             .OrderBy(entity => entity.Name, StringComparer.Ordinal)
             .SelectMany(entity =>
             {
@@ -184,7 +187,7 @@ public sealed class ExerciseCatalogPersistenceTests
                     .Concat(foreignKeys)
                     .Concat(indexes)
                     .Concat(checks);
-            })
+            }))
             .ToArray();
     }
 
