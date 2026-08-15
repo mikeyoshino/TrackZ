@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using TrackZ.Domain.Exercises;
+using TrackZ.Domain.Progress;
 
 namespace TrackZ.Infrastructure.Persistence.Configurations;
 

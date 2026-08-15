@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using TrackZ.Domain.Exercises;
+using TrackZ.Domain.Progress;
 
 namespace TrackZ.Infrastructure.Tests.Persistence;
 
@@ -33,5 +34,24 @@ public sealed class ExerciseCatalogPersistenceTests
 
         Assert.Empty(await database.Db.Database.GetPendingMigrationsAsync());
         Assert.Contains(await database.Db.Database.GetAppliedMigrationsAsync(), migration => migration.EndsWith("AddExerciseCatalog", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Performance_round_trips_valid_mode_shapes_and_database_rejects_invalid_weighted_shape()
+    {
+        await using var database = await PostgreSqlFixture.StartAsync();
+        var weightedExercise = ExerciseDefinition.CreateSystem("Weighted", BodyPart.Chest, TrackingMode.Weighted);
+        var bodyweightExercise = ExerciseDefinition.CreateSystem("Bodyweight", BodyPart.Core, TrackingMode.Bodyweight);
+        var assistedExercise = ExerciseDefinition.CreateSystem("Assisted", BodyPart.Back, TrackingMode.Assisted);
+        await database.Db.Exercises.AddRangeAsync(weightedExercise, bodyweightExercise, assistedExercise);
+        await database.Db.ExercisePerformances.AddRangeAsync(
+            ExercisePerformance.Create(Guid.NewGuid(), weightedExercise.Id, TrackingMode.Weighted, DateTimeOffset.UtcNow, new ExercisePerformanceSet(70m, null, 8), null),
+            ExercisePerformance.Create(Guid.NewGuid(), bodyweightExercise.Id, TrackingMode.Bodyweight, DateTimeOffset.UtcNow, new ExercisePerformanceSet(null, null, 12), null),
+            ExercisePerformance.Create(Guid.NewGuid(), assistedExercise.Id, TrackingMode.Assisted, DateTimeOffset.UtcNow, new ExercisePerformanceSet(null, 25m, 10), null));
+        await database.Db.SaveChangesAsync();
+        database.Db.ChangeTracker.Clear();
+
+        Assert.Equal(3, await database.Db.ExercisePerformances.CountAsync());
+        await Assert.ThrowsAsync<Npgsql.PostgresException>(() => database.Db.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO exercise_performances (\"Id\", \"UserId\", \"ExerciseDefinitionId\", \"TrackingMode\", \"LastBestReps\") VALUES ({Guid.NewGuid()}, {Guid.NewGuid()}, {weightedExercise.Id}, {1}, {8})"));
     }
 }

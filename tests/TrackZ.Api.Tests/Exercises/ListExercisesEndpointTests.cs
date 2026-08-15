@@ -10,6 +10,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Testcontainers.PostgreSql;
 using TrackZ.Domain.Exercises;
+using TrackZ.Domain.Progress;
 using TrackZ.Infrastructure.Persistence;
 using Xunit.Sdk;
 
@@ -75,8 +76,8 @@ public sealed class ListExercisesEndpointTests : IAsyncLifetime
             var database = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             await database.Exercises.AddRangeAsync(system, mine, other);
             await database.ExercisePerformances.AddAsync(ExercisePerformance.Create(
-                account.UserId, system.Id, new DateTimeOffset(2026, 8, 14, 9, 0, 0, TimeSpan.Zero),
-                70m, null, 8, 75m, null, 5));
+                account.UserId, system.Id, TrackingMode.Weighted, new DateTimeOffset(2026, 8, 14, 9, 0, 0, TimeSpan.Zero),
+                new ExercisePerformanceSet(70m, null, 8), new ExercisePerformanceSet(75m, null, 5)));
             await database.SaveChangesAsync();
         }
 
@@ -129,7 +130,7 @@ public sealed class ListExercisesEndpointTests : IAsyncLifetime
 
     [Theory]
     [InlineData("/api/v1/exercises?bodyPart=Nope")]
-    [InlineData("/api/v1/exercises?pageSize=51")]
+    [InlineData("/api/v1/exercises?pageSize=0")]
     [InlineData("/api/v1/exercises?cursor=not-a-cursor")]
     public async Task Invalid_list_parameters_return_localized_stable_validation_problem(string path)
     {
@@ -144,6 +145,28 @@ public sealed class ListExercisesEndpointTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal(10009, (int)problem!.ErrorCode);
         Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+    }
+
+    [Fact]
+    public async Task Positive_page_size_above_the_limit_is_capped_at_fifty()
+    {
+        var account = await AuthenticateAsync("catalog-page-cap@example.com");
+        await using (var scope = _factory!.Services.CreateAsyncScope())
+        {
+            var database = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await database.Exercises.AddRangeAsync(Enumerable.Range(1, 51)
+                .Select(index => ExerciseDefinition.CreateSystem($"Cap exercise {index:D2}", BodyPart.Chest, TrackingMode.Weighted)));
+            await database.SaveChangesAsync();
+        }
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/exercises?pageSize=999");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", account.Token);
+        var response = await _client.SendAsync(request);
+        var page = await response.Content.ReadFromJsonAsync<JsonDocument>();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(50, page!.RootElement.GetProperty("items").GetArrayLength());
+        Assert.False(string.IsNullOrWhiteSpace(page.RootElement.GetProperty("nextCursor").GetString()));
     }
 
     private async Task<(Guid UserId, string Token)> AuthenticateAsync(string email)

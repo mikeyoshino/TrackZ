@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 using Testcontainers.PostgreSql;
 using TrackZ.Application.Exercises.ListExercises;
 using TrackZ.Domain.Exercises;
+using TrackZ.Domain.Progress;
 using TrackZ.Infrastructure.Persistence;
 using Xunit.Sdk;
 
@@ -22,10 +23,10 @@ public sealed class ListExercisesHandlerTests
         await database.Db.Exercises.AddRangeAsync(press, hidden);
         await database.Db.ExercisePerformances.AddAsync(ExercisePerformance.Create(
             currentUserId,
-            press.Id,
+            press.Id, TrackingMode.Weighted,
             new DateTimeOffset(2026, 8, 14, 9, 0, 0, TimeSpan.Zero),
-            70m, null, 8,
-            75m, null, 5));
+            new ExercisePerformanceSet(70m, null, 8),
+            new ExercisePerformanceSet(75m, null, 5)));
         await database.Db.SaveChangesAsync();
 
         var handler = new ListExercisesHandler(database.Db, new TestCurrentUser(currentUserId), new TestCursorCodec());
@@ -49,7 +50,9 @@ public sealed class ListExercisesHandlerTests
         var exercise = ExerciseDefinition.CreateSystem("Bench Press", BodyPart.Chest, TrackingMode.Weighted);
         await database.Db.Exercises.AddAsync(exercise);
         await database.Db.ExercisePerformances.AddAsync(ExercisePerformance.Create(
-            userId, exercise.Id, DateTimeOffset.UtcNow, 60m, null, 8, 70m, null, 5));
+            userId, exercise.Id, TrackingMode.Weighted, DateTimeOffset.UtcNow,
+            new ExercisePerformanceSet(60m, null, 8),
+            new ExercisePerformanceSet(70m, null, 5)));
         await database.Db.SaveChangesAsync();
         counter.Reset();
 

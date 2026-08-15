@@ -5,6 +5,7 @@ using TrackZ.Application.Exercises.ListExercises;
 using TrackZ.Contracts.Exercises;
 using TrackZ.Domain.Identity;
 using TrackZ.Domain.Exercises;
+using TrackZ.Domain.Progress;
 
 namespace TrackZ.Infrastructure.Persistence;
 
@@ -93,34 +94,17 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
                     exercise.Name,
                     exercise.BodyPart,
                     exercise.TrackingMode,
-                    ExerciseImages.AsNoTracking()
-                        .Where(image => image.ExerciseDefinitionId == exercise.Id
-                            && ((image.Source == ExerciseImageSource.SystemArtwork
-                                    && !image.IsPrivate
-                                    && image.OwnerId == null
-                                    && image.ReviewState == ExerciseImageReviewState.Published
-                                    && image.AnatomyApproved
-                                    && image.MovementApproved
-                                    && image.RightsApproved
-                                    && image.ReviewedByUserId != null
-                                    && image.ReviewedAt != null
-                                    && image.RightsReference != null
-                                    && image.PublishedAt != null)
-                                || (image.Source == ExerciseImageSource.UserUpload
-                                    && image.IsPrivate
-                                    && image.OwnerId == userId
-                                    && image.ReviewState == null)))
-                        .OrderByDescending(image => image.Version)
-                        .Select(image => image.ThumbnailObjectKey)
-                        .FirstOrDefault(),
+                    // Object keys are private implementation details. Task 4 will resolve a reviewed
+                    // system image to a public endpoint or a signed private rendition URL.
+                    null,
                     performance == null ? null : performance.LastPerformedAt,
-                    performance == null || performance.LastBestReps == null
+                    performance == null || performance.TrackingMode != exercise.TrackingMode || performance.LastBestReps == null
                         ? null
                         : new PerformanceSetDto(
                             exercise.TrackingMode == TrackingMode.Weighted ? performance.LastBestWeightKg : null,
                             exercise.TrackingMode == TrackingMode.Assisted ? performance.LastBestAssistedKg : null,
                             performance.LastBestReps.Value),
-                    performance == null || performance.AllTimeBestReps == null
+                    performance == null || performance.TrackingMode != exercise.TrackingMode || performance.AllTimeBestReps == null
                         ? null
                         : new PerformanceSetDto(
                             exercise.TrackingMode == TrackingMode.Weighted ? performance.AllTimeBestWeightKg : null,

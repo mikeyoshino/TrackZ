@@ -136,53 +136,6 @@ namespace TrackZ.Infrastructure.Persistence.Migrations
                     b.ToTable("exercise_images", (string)null);
                 });
 
-            modelBuilder.Entity("TrackZ.Domain.Exercises.ExercisePerformance", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<decimal?>("AllTimeBestAssistedKg")
-                        .HasPrecision(10, 3)
-                        .HasColumnType("numeric(10,3)");
-
-                    b.Property<int?>("AllTimeBestReps")
-                        .HasColumnType("integer");
-
-                    b.Property<decimal?>("AllTimeBestWeightKg")
-                        .HasPrecision(10, 3)
-                        .HasColumnType("numeric(10,3)");
-
-                    b.Property<Guid>("ExerciseDefinitionId")
-                        .HasColumnType("uuid");
-
-                    b.Property<decimal?>("LastBestAssistedKg")
-                        .HasPrecision(10, 3)
-                        .HasColumnType("numeric(10,3)");
-
-                    b.Property<int?>("LastBestReps")
-                        .HasColumnType("integer");
-
-                    b.Property<decimal?>("LastBestWeightKg")
-                        .HasPrecision(10, 3)
-                        .HasColumnType("numeric(10,3)");
-
-                    b.Property<DateTimeOffset?>("LastPerformedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ExerciseDefinitionId");
-
-                    b.HasIndex("UserId", "ExerciseDefinitionId")
-                        .IsUnique();
-
-                    b.ToTable("exercise_performances", (string)null);
-                });
-
             modelBuilder.Entity("TrackZ.Domain.Identity.RefreshToken", b =>
                 {
                     b.Property<Guid>("Id")
@@ -258,16 +211,62 @@ namespace TrackZ.Infrastructure.Persistence.Migrations
                     b.ToTable("users", (string)null);
                 });
 
-            modelBuilder.Entity("TrackZ.Domain.Exercises.ExerciseImage", b =>
+            modelBuilder.Entity("TrackZ.Domain.Progress.ExercisePerformance", b =>
                 {
-                    b.HasOne("TrackZ.Domain.Exercises.ExerciseDefinition", null)
-                        .WithMany()
-                        .HasForeignKey("ExerciseDefinitionId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal?>("AllTimeBestAssistedKg")
+                        .HasPrecision(10, 3)
+                        .HasColumnType("numeric(10,3)");
+
+                    b.Property<int?>("AllTimeBestReps")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal?>("AllTimeBestWeightKg")
+                        .HasPrecision(10, 3)
+                        .HasColumnType("numeric(10,3)");
+
+                    b.Property<Guid>("ExerciseDefinitionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal?>("LastBestAssistedKg")
+                        .HasPrecision(10, 3)
+                        .HasColumnType("numeric(10,3)");
+
+                    b.Property<int?>("LastBestReps")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal?>("LastBestWeightKg")
+                        .HasPrecision(10, 3)
+                        .HasColumnType("numeric(10,3)");
+
+                    b.Property<DateTimeOffset?>("LastPerformedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("TrackingMode")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExerciseDefinitionId");
+
+                    b.HasIndex("UserId", "ExerciseDefinitionId")
+                        .IsUnique();
+
+                    b.ToTable("exercise_performances", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_exercise_performances_all_time_best_shape", "(\"AllTimeBestReps\" IS NULL AND \"AllTimeBestWeightKg\" IS NULL AND \"AllTimeBestAssistedKg\" IS NULL) OR (\"AllTimeBestReps\" IS NOT NULL AND \"AllTimeBestReps\" > 0 AND ((\"TrackingMode\" = 1 AND \"AllTimeBestWeightKg\" IS NOT NULL AND \"AllTimeBestWeightKg\" > 0 AND \"AllTimeBestAssistedKg\" IS NULL) OR (\"TrackingMode\" = 2 AND \"AllTimeBestWeightKg\" IS NULL AND \"AllTimeBestAssistedKg\" IS NULL) OR (\"TrackingMode\" = 3 AND \"AllTimeBestWeightKg\" IS NULL AND \"AllTimeBestAssistedKg\" IS NOT NULL AND \"AllTimeBestAssistedKg\" > 0)))");
+
+                            t.HasCheckConstraint("CK_exercise_performances_last_best_shape", "(\"LastBestReps\" IS NULL AND \"LastBestWeightKg\" IS NULL AND \"LastBestAssistedKg\" IS NULL) OR (\"LastBestReps\" IS NOT NULL AND \"LastBestReps\" > 0 AND ((\"TrackingMode\" = 1 AND \"LastBestWeightKg\" IS NOT NULL AND \"LastBestWeightKg\" > 0 AND \"LastBestAssistedKg\" IS NULL) OR (\"TrackingMode\" = 2 AND \"LastBestWeightKg\" IS NULL AND \"LastBestAssistedKg\" IS NULL) OR (\"TrackingMode\" = 3 AND \"LastBestWeightKg\" IS NULL AND \"LastBestAssistedKg\" IS NOT NULL AND \"LastBestAssistedKg\" > 0)))");
+                        });
                 });
 
-            modelBuilder.Entity("TrackZ.Domain.Exercises.ExercisePerformance", b =>
+            modelBuilder.Entity("TrackZ.Domain.Exercises.ExerciseImage", b =>
                 {
                     b.HasOne("TrackZ.Domain.Exercises.ExerciseDefinition", null)
                         .WithMany()
@@ -285,6 +284,15 @@ namespace TrackZ.Infrastructure.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("TrackZ.Domain.Progress.ExercisePerformance", b =>
+                {
+                    b.HasOne("TrackZ.Domain.Exercises.ExerciseDefinition", null)
+                        .WithMany()
+                        .HasForeignKey("ExerciseDefinitionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("TrackZ.Domain.Identity.User", b =>

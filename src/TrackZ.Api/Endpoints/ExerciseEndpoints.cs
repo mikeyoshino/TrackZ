@@ -54,11 +54,12 @@ public static class ExerciseEndpoints
         {
             if (pageSizeValues.Count != 1
                 || !int.TryParse(pageSizeValues[0], NumberStyles.None, CultureInfo.InvariantCulture, out pageSize)
-                || pageSize is < 1 or > 50)
+                || pageSize < 1)
             {
                 errors["pageSize"] = [InvalidField(context, "pageSize")];
             }
         }
+        pageSize = Math.Min(pageSize, 50);
 
         var search = request.Query.TryGetValue("search", out var searchValues) && searchValues.Count == 1
             ? searchValues[0]?.Trim()

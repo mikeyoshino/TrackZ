@@ -71,6 +71,7 @@ namespace TrackZ.Infrastructure.Persistence.Migrations
                     Id = table.Column<Guid>(type: "uuid", nullable: false),
                     UserId = table.Column<Guid>(type: "uuid", nullable: false),
                     ExerciseDefinitionId = table.Column<Guid>(type: "uuid", nullable: false),
+                    TrackingMode = table.Column<int>(type: "integer", nullable: false),
                     LastPerformedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
                     LastBestWeightKg = table.Column<decimal>(type: "numeric(10,3)", precision: 10, scale: 3, nullable: true),
                     LastBestAssistedKg = table.Column<decimal>(type: "numeric(10,3)", precision: 10, scale: 3, nullable: true),
@@ -82,6 +83,8 @@ namespace TrackZ.Infrastructure.Persistence.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_exercise_performances", x => x.Id);
+                    table.CheckConstraint("CK_exercise_performances_all_time_best_shape", "(\"AllTimeBestReps\" IS NULL AND \"AllTimeBestWeightKg\" IS NULL AND \"AllTimeBestAssistedKg\" IS NULL) OR (\"AllTimeBestReps\" IS NOT NULL AND \"AllTimeBestReps\" > 0 AND ((\"TrackingMode\" = 1 AND \"AllTimeBestWeightKg\" IS NOT NULL AND \"AllTimeBestWeightKg\" > 0 AND \"AllTimeBestAssistedKg\" IS NULL) OR (\"TrackingMode\" = 2 AND \"AllTimeBestWeightKg\" IS NULL AND \"AllTimeBestAssistedKg\" IS NULL) OR (\"TrackingMode\" = 3 AND \"AllTimeBestWeightKg\" IS NULL AND \"AllTimeBestAssistedKg\" IS NOT NULL AND \"AllTimeBestAssistedKg\" > 0)))");
+                    table.CheckConstraint("CK_exercise_performances_last_best_shape", "(\"LastBestReps\" IS NULL AND \"LastBestWeightKg\" IS NULL AND \"LastBestAssistedKg\" IS NULL) OR (\"LastBestReps\" IS NOT NULL AND \"LastBestReps\" > 0 AND ((\"TrackingMode\" = 1 AND \"LastBestWeightKg\" IS NOT NULL AND \"LastBestWeightKg\" > 0 AND \"LastBestAssistedKg\" IS NULL) OR (\"TrackingMode\" = 2 AND \"LastBestWeightKg\" IS NULL AND \"LastBestAssistedKg\" IS NULL) OR (\"TrackingMode\" = 3 AND \"LastBestWeightKg\" IS NULL AND \"LastBestAssistedKg\" IS NOT NULL AND \"LastBestAssistedKg\" > 0)))");
                     table.ForeignKey(
                         name: "FK_exercise_performances_exercise_definitions_ExerciseDefiniti~",
                         column: x => x.ExerciseDefinitionId,
