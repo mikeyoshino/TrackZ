@@ -2,6 +2,8 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Security.Cryptography;
+using System.Text;
 using DotNet.Testcontainers.Builders;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -12,6 +14,7 @@ using Testcontainers.PostgreSql;
 using TrackZ.Domain.Exercises;
 using TrackZ.Domain.Progress;
 using TrackZ.Infrastructure.Persistence;
+using TrackZ.Application.Exercises.ListExercises;
 using Xunit.Sdk;
 
 namespace TrackZ.Api.Tests.Exercises;
@@ -195,6 +198,62 @@ public sealed class ListExercisesEndpointTests : IAsyncLifetime
         Assert.False(string.IsNullOrWhiteSpace(problem.TraceId));
         Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
     }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Tampered_or_unsupported_signed_cursor_returns_cursor_field_problem(bool unsupportedVersion)
+    {
+        var account = await AuthenticateAsync($"catalog-signed-cursor-{unsupportedVersion}@example.com");
+        var cursor = unsupportedVersion
+            ? SignedCursor(2, "Alpha", Guid.NewGuid())
+            : SignedCursor(1, "Alpha", Guid.NewGuid()) + "A";
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"/api/v1/exercises?cursor={Uri.EscapeDataString(cursor)}");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", account.Token);
+        var response = await _client.SendAsync(request);
+        var problem = await response.Content.ReadFromJsonAsync<TrackZ.Contracts.Errors.ApiProblemDetails>();
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(10009, (int)problem!.ErrorCode);
+        Assert.NotNull(problem.FieldErrors);
+        Assert.True(problem.FieldErrors!.ContainsKey("cursor"));
+    }
+
+    [Fact]
+    public async Task Traverses_equal_names_without_duplicates_or_skips()
+    {
+        var account = await AuthenticateAsync("catalog-equal-traversal@example.com");
+        await using (var scope = _factory!.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await db.Exercises.AddRangeAsync(Enumerable.Range(0, 7).Select(_ => ExerciseDefinition.CreateSystem("Equal Name", BodyPart.Chest, TrackingMode.Weighted)));
+            await db.Exercises.AddRangeAsync(ExerciseDefinition.CreateSystem("Before", BodyPart.Chest, TrackingMode.Weighted), ExerciseDefinition.CreateSystem("Zulu", BodyPart.Chest, TrackingMode.Weighted));
+            await db.SaveChangesAsync();
+        }
+        var ids = new List<Guid>();
+        string? cursor = null;
+        do
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/exercises?pageSize=2" + (cursor is null ? string.Empty : $"&cursor={Uri.EscapeDataString(cursor)}"));
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", account.Token);
+            var page = await (await _client.SendAsync(request)).Content.ReadFromJsonAsync<JsonDocument>();
+            ids.AddRange(page!.RootElement.GetProperty("items").EnumerateArray().Select(item => item.GetProperty("id").GetGuid()));
+            cursor = page.RootElement.GetProperty("nextCursor").GetString();
+        } while (cursor is not null);
+
+        Assert.Equal(9, ids.Count);
+        Assert.Equal(9, ids.Distinct().Count());
+    }
+
+    private static string SignedCursor(int version, string orderingName, Guid orderingId)
+    {
+        var payload = JsonSerializer.SerializeToUtf8Bytes(new { Version = version, OrderingName = orderingName, OrderingId = orderingId });
+        var key = SHA256.HashData(Encoding.UTF8.GetBytes("trackz.catalog.cursor.v1:test-signing-key-that-is-at-least-thirty-two-bytes-long"));
+        var signature = HMACSHA256.HashData(key, payload);
+        return $"{Base64Url(payload)}.{Base64Url(signature)}";
+    }
+
+    private static string Base64Url(byte[] bytes) => Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 
     private async Task<(Guid UserId, string Token)> AuthenticateAsync(string email)
     {

@@ -49,6 +49,7 @@ public sealed class ListExercisesHandlerTests
         var userId = Guid.NewGuid();
         var exercise = ExerciseDefinition.CreateSystem("Bench Press", BodyPart.Chest, TrackingMode.Weighted);
         await database.Db.Exercises.AddAsync(exercise);
+        await database.Db.ExerciseImages.AddAsync(ExerciseImage.CreateSystem(exercise, "masters/bench", "thumbnails/bench", 1, "generated"));
         await database.Db.ExercisePerformances.AddAsync(ExercisePerformance.Create(
             userId, exercise.Id, TrackingMode.Weighted, DateTimeOffset.UtcNow,
             new ExercisePerformanceSet(60m, null, 8),

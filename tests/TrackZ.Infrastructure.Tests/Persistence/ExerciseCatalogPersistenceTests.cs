@@ -33,6 +33,7 @@ public sealed class ExerciseCatalogPersistenceTests
         await using var database = await PostgreSqlFixture.StartAsync();
 
         Assert.Empty(await database.Db.Database.GetPendingMigrationsAsync());
+        Assert.False(database.Db.Database.HasPendingModelChanges());
         Assert.Contains(await database.Db.Database.GetAppliedMigrationsAsync(), migration => migration.EndsWith("AddExerciseCatalog", StringComparison.Ordinal));
     }
 
@@ -53,5 +54,7 @@ public sealed class ExerciseCatalogPersistenceTests
 
         Assert.Equal(3, await database.Db.ExercisePerformances.CountAsync());
         await Assert.ThrowsAsync<Npgsql.PostgresException>(() => database.Db.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO exercise_performances (\"Id\", \"UserId\", \"ExerciseDefinitionId\", \"TrackingMode\", \"LastBestReps\") VALUES ({Guid.NewGuid()}, {Guid.NewGuid()}, {weightedExercise.Id}, {1}, {8})"));
+        await Assert.ThrowsAsync<Npgsql.PostgresException>(() => database.Db.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO exercise_performances (\"Id\", \"UserId\", \"ExerciseDefinitionId\", \"TrackingMode\", \"LastPerformedAt\", \"LastBestWeightKg\", \"LastBestReps\", \"AllTimeBestWeightKg\", \"AllTimeBestReps\") VALUES ({Guid.NewGuid()}, {Guid.NewGuid()}, {weightedExercise.Id}, {99}, {DateTimeOffset.UtcNow}, {10m}, {1}, {10m}, {1})"));
+        await Assert.ThrowsAsync<Npgsql.PostgresException>(() => database.Db.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO exercise_performances (\"Id\", \"UserId\", \"ExerciseDefinitionId\", \"TrackingMode\", \"LastPerformedAt\", \"LastBestAssistedKg\", \"LastBestReps\", \"AllTimeBestAssistedKg\", \"AllTimeBestReps\") VALUES ({Guid.NewGuid()}, {Guid.NewGuid()}, {weightedExercise.Id}, {3}, {DateTimeOffset.UtcNow}, {10m}, {1}, {10m}, {1})"));
     }
 }
