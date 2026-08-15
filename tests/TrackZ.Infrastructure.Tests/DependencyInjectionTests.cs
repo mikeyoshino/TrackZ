@@ -2,6 +2,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.EntityFrameworkCore;
 using TrackZ.Application.Common.Interfaces;
 using TrackZ.Infrastructure.Media;
@@ -154,20 +155,69 @@ public sealed class DependencyInjectionTests
     }
 
     [Fact]
-    public async Task Staging_lifecycle_startup_propagates_configuration_failure()
+    public async Task Staging_lifecycle_startup_sanitizes_dependency_failure_and_secret_logs()
     {
-        var failure = new UnauthorizedAccessException("lifecycle permission denied");
-        var service = new StagingObjectLifecycleService(new FailingLifecycle(failure));
+        const string secret = "secret-sentinel-must-never-escape";
+        var failure = new HttpRequestException(
+            $"SDK request failed with credential {secret}",
+            new InvalidOperationException($"inner transport detail {secret}"));
+        var logger = new CapturingLogger<StagingObjectLifecycleService>();
+        using var host = new HostBuilder()
+            .ConfigureServices(services =>
+            {
+                services.AddSingleton<IStagingObjectLifecycle>(new FailingLifecycle(failure));
+                services.AddSingleton<ILogger<StagingObjectLifecycleService>>(logger);
+                services.AddHostedService<StagingObjectLifecycleService>();
+            })
+            .Build();
 
-        var actual = await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
-            service.StartAsync(CancellationToken.None));
+        var actual = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            host.StartAsync(CancellationToken.None));
 
-        Assert.Same(failure, actual);
+        Assert.Equal("Staging object lifecycle configuration failed.", actual.Message);
+        Assert.Null(actual.InnerException);
+        Assert.DoesNotContain(secret, actual.ToString(), StringComparison.Ordinal);
+        var entry = Assert.Single(logger.Entries);
+        Assert.Null(entry.Exception);
+        Assert.Contains(typeof(HttpRequestException).FullName!, entry.Message, StringComparison.Ordinal);
+        Assert.Equal(
+            typeof(HttpRequestException).FullName,
+            entry.Properties["FailureType"]);
+        Assert.DoesNotContain(secret, entry.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(failure.Message, entry.Message, StringComparison.Ordinal);
     }
 
     private sealed class FailingLifecycle(Exception failure) : IStagingObjectLifecycle
     {
         public Task EnsureConfiguredAsync(CancellationToken cancellationToken) =>
             Task.FromException(failure);
+    }
+
+    private sealed class CapturingLogger<T> : ILogger<T>
+    {
+        public List<(
+            string Message,
+            Exception? Exception,
+            IReadOnlyDictionary<string, object?> Properties)> Entries { get; } = [];
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => NullScope.Instance;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            var properties = state is IEnumerable<KeyValuePair<string, object?>> values
+                ? values.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal)
+                : new Dictionary<string, object?>(StringComparer.Ordinal);
+            Entries.Add((formatter(state, exception), exception, properties));
+        }
+
+        private sealed class NullScope : IDisposable
+        {
+            public static NullScope Instance { get; } = new();
+            public void Dispose() { }
+        }
     }
 }

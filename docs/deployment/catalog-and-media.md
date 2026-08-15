@@ -45,7 +45,11 @@ and obtain a fresh URL.
 The object-store principal must also have `s3:GetLifecycleConfiguration` and
 `s3:PutLifecycleConfiguration` on the configured bucket. API startup verifies or installs one
 enabled TrackZ-owned expiration rule scoped exactly to `staging/`, while preserving every unrelated
-bucket lifecycle rule. A TrackZ rule with a conflicting prefix, status, expiration, or other action
+bucket lifecycle rule. The same 1-30 day bound applies to current objects and noncurrent object
+versions, so enabling bucket versioning cannot retain abandoned upload bytes indefinitely. A TrackZ
+rule with a conflicting prefix, status, current expiration, noncurrent expiration, or other action
 causes startup to fail. Authorization failures, connectivity failures, and an unverified write also
-fail startup; the API does not serve traffic without the crash-safe staging cleanup bound. The rule
-does not match `private/` or `system/`, and the bucket remains private.
+fail startup; the API does not serve traffic without the crash-safe staging cleanup bound. Startup
+surfaces a constant sanitized error and logs only the dependency exception type, never SDK messages,
+credentials, endpoints, object keys, or inner exceptions. The rule does not match `private/` or
+`system/`, and the bucket remains private.

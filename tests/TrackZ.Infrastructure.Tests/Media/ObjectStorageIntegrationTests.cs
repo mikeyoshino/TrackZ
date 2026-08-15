@@ -5,6 +5,7 @@ using DotNet.Testcontainers.Builders;
 using DotNet.Testcontainers.Containers;
 using DotNet.Testcontainers.Networks;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Logging.Abstractions;
 using TrackZ.Infrastructure.Media;
 
 namespace TrackZ.Infrastructure.Tests.Media;
@@ -17,6 +18,8 @@ public sealed class ObjectStorageIntegrationTests : IAsyncLifetime
     private readonly string _rootSecret = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
     private readonly string _appAccess = "api" + Guid.NewGuid().ToString("N")[..12];
     private readonly string _appSecret = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
+    private readonly string _objectOnlyAccess = "objects" + Guid.NewGuid().ToString("N")[..10];
+    private readonly string _objectOnlySecret = "secret-sentinel-" + Guid.NewGuid().ToString("N");
     private readonly string _bucket = "trackz-test-" + Guid.NewGuid().ToString("N")[..12];
     private INetwork? _network;
     private IContainer? _minio;
@@ -38,7 +41,7 @@ public sealed class ObjectStorageIntegrationTests : IAsyncLifetime
         await _minio.StartAsync();
         _serviceUrl = $"http://127.0.0.1:{_minio.GetMappedPublicPort(9000)}";
 
-        var script = $"set -eu; mc alias set local http://minio:9000 {_rootAccess} {_rootSecret}; mc mb local/{_bucket}; mc anonymous set none local/{_bucket}; printf '{{\"Version\":\"2012-10-17\",\"Statement\":[{{\"Effect\":\"Allow\",\"Action\":[\"s3:GetObject\",\"s3:PutObject\",\"s3:DeleteObject\"],\"Resource\":[\"arn:aws:s3:::{_bucket}/*\"]}},{{\"Effect\":\"Allow\",\"Action\":[\"s3:GetLifecycleConfiguration\",\"s3:PutLifecycleConfiguration\"],\"Resource\":[\"arn:aws:s3:::{_bucket}\"]}}]}}' >/tmp/policy.json; mc admin policy create local trackz-api /tmp/policy.json; mc admin user add local {_appAccess} {_appSecret}; mc admin policy attach local trackz-api --user {_appAccess}; echo bootstrap-complete; tail -f /dev/null";
+        var script = $"set -eu; mc alias set local http://minio:9000 {_rootAccess} {_rootSecret}; mc mb local/{_bucket}; mc anonymous set none local/{_bucket}; printf '{{\"Version\":\"2012-10-17\",\"Statement\":[{{\"Effect\":\"Allow\",\"Action\":[\"s3:GetObject\",\"s3:PutObject\",\"s3:DeleteObject\"],\"Resource\":[\"arn:aws:s3:::{_bucket}/*\"]}},{{\"Effect\":\"Allow\",\"Action\":[\"s3:GetLifecycleConfiguration\",\"s3:PutLifecycleConfiguration\"],\"Resource\":[\"arn:aws:s3:::{_bucket}\"]}}]}}' >/tmp/policy.json; mc admin policy create local trackz-api /tmp/policy.json; mc admin user add local {_appAccess} {_appSecret}; mc admin policy attach local trackz-api --user {_appAccess}; printf '{{\"Version\":\"2012-10-17\",\"Statement\":[{{\"Effect\":\"Allow\",\"Action\":[\"s3:GetObject\",\"s3:PutObject\",\"s3:DeleteObject\"],\"Resource\":[\"arn:aws:s3:::{_bucket}/*\"]}}]}}' >/tmp/object-policy.json; mc admin policy create local trackz-object-only /tmp/object-policy.json; mc admin user add local {_objectOnlyAccess} {_objectOnlySecret}; mc admin policy attach local trackz-object-only --user {_objectOnlyAccess}; echo bootstrap-complete; tail -f /dev/null";
         _bootstrap = new ContainerBuilder(McImage)
             .WithNetwork(_network)
             .WithEntrypoint("/bin/sh")
@@ -127,6 +130,7 @@ public sealed class ObjectStorageIntegrationTests : IAsyncLifetime
         Assert.Equal(LifecycleRuleStatus.Enabled, trackZ.Status);
         Assert.Equal("staging/", PrefixOf(trackZ));
         Assert.Equal(2, trackZ.Expiration?.Days);
+        Assert.Equal(2, trackZ.NoncurrentVersionExpiration?.NoncurrentDays);
         var preserved = Assert.Single(configuration.Rules, rule => rule.Id == "retain-system");
         Assert.Equal("system/", PrefixOf(preserved));
         Assert.Equal(30, preserved.Expiration?.Days);
@@ -167,6 +171,139 @@ public sealed class ObjectStorageIntegrationTests : IAsyncLifetime
         var configuration = (await root.GetLifecycleConfigurationAsync(_bucket)).Configuration;
         var retained = Assert.Single(configuration.Rules!);
         Assert.Equal("private/", PrefixOf(retained));
+    }
+
+    [Fact]
+    public async Task Staging_lifecycle_bounds_current_and_noncurrent_bytes_in_a_versioned_bucket()
+    {
+        using var root = CreateClient(_rootAccess, _rootSecret);
+        await root.PutBucketVersioningAsync(new PutBucketVersioningRequest
+        {
+            BucketName = _bucket,
+            VersioningConfig = new S3BucketVersioningConfig { Status = VersionStatus.Enabled }
+        });
+        var adapter = CreateAdapter(stagingExpirationDays: 2);
+        var owner = Guid.NewGuid();
+        var prefix = $"staging/{owner:D}/";
+        var key = prefix + "versioned-upload";
+        await adapter.PutAsync(prefix, key, new MemoryStream([1]), "image/png", default);
+        await adapter.PutAsync(prefix, key, new MemoryStream([2]), "image/png", default);
+
+        var versions = (await root.ListVersionsAsync(new ListVersionsRequest
+        {
+            BucketName = _bucket,
+            Prefix = key
+        })).Versions;
+        Assert.NotNull(versions);
+        Assert.Equal(2, versions.Count);
+        Assert.Single(versions, version => version.IsLatest == true);
+        Assert.Single(versions, version => version.IsLatest != true);
+        await root.PutLifecycleConfigurationAsync(new PutLifecycleConfigurationRequest
+        {
+            BucketName = _bucket,
+            Configuration = new LifecycleConfiguration
+            {
+                Rules =
+                [
+                    new LifecycleRule
+                    {
+                        Id = "retain-system-versioned",
+                        Status = LifecycleRuleStatus.Enabled,
+                        Filter = new LifecycleFilter
+                        {
+                            LifecycleFilterPredicate = new LifecyclePrefixPredicate { Prefix = "system/" }
+                        },
+                        Expiration = new LifecycleRuleExpiration { Days = 30 }
+                    }
+                ]
+            }
+        });
+
+        await adapter.EnsureConfiguredAsync(default);
+
+        var configuration = (await root.GetLifecycleConfigurationAsync(_bucket)).Configuration;
+        Assert.Equal(2, configuration.Rules!.Count);
+        var trackZ = Assert.Single(
+            configuration.Rules,
+            rule => rule.Id == ObjectStorage.TrackZStagingLifecycleRuleId);
+        Assert.Equal("staging/", PrefixOf(trackZ));
+        Assert.Equal(2, trackZ.Expiration?.Days);
+        Assert.Equal(2, trackZ.NoncurrentVersionExpiration?.NoncurrentDays);
+        Assert.Null(trackZ.NoncurrentVersionExpiration?.NewerNoncurrentVersions);
+        var preserved = Assert.Single(
+            configuration.Rules,
+            rule => rule.Id == "retain-system-versioned");
+        Assert.Equal("system/", PrefixOf(preserved));
+        Assert.Equal(30, preserved.Expiration?.Days);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(3)]
+    public async Task Staging_lifecycle_fails_closed_when_noncurrent_expiration_is_missing_or_mismatched(
+        int? noncurrentDays)
+    {
+        using var root = CreateClient(_rootAccess, _rootSecret);
+        await root.PutLifecycleConfigurationAsync(new PutLifecycleConfigurationRequest
+        {
+            BucketName = _bucket,
+            Configuration = new LifecycleConfiguration
+            {
+                Rules =
+                [
+                    new LifecycleRule
+                    {
+                        Id = ObjectStorage.TrackZStagingLifecycleRuleId,
+                        Status = LifecycleRuleStatus.Enabled,
+                        Filter = new LifecycleFilter
+                        {
+                            LifecycleFilterPredicate = new LifecyclePrefixPredicate { Prefix = "staging/" }
+                        },
+                        Expiration = new LifecycleRuleExpiration { Days = 2 },
+                        NoncurrentVersionExpiration = noncurrentDays is null
+                            ? null
+                            : new LifecycleRuleNoncurrentVersionExpiration
+                            {
+                                NoncurrentDays = noncurrentDays.Value
+                            }
+                    }
+                ]
+            }
+        });
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            CreateAdapter(stagingExpirationDays: 2).EnsureConfiguredAsync(default));
+
+        Assert.Equal(
+            "The TrackZ staging lifecycle rule conflicts with the required configuration.",
+            exception.Message);
+    }
+
+    [Fact]
+    public async Task Staging_lifecycle_startup_denied_by_real_store_is_sanitized_and_fails_closed()
+    {
+        var lifecycle = new ObjectStorage(Options.Create(new ObjectStorageOptions
+        {
+            ServiceUrl = _serviceUrl,
+            Bucket = _bucket,
+            AccessKey = _objectOnlyAccess,
+            SecretKey = _objectOnlySecret,
+            StagingExpirationDays = 1
+        }));
+        var service = new StagingObjectLifecycleService(
+            lifecycle,
+            NullLogger<StagingObjectLifecycleService>.Instance);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.StartAsync(default));
+
+        Assert.Equal("Staging object lifecycle configuration failed.", exception.Message);
+        Assert.Null(exception.InnerException);
+        Assert.DoesNotContain(_objectOnlySecret, exception.ToString(), StringComparison.Ordinal);
+        using var root = CreateClient(_rootAccess, _rootSecret);
+        var raw = await Assert.ThrowsAsync<AmazonS3Exception>(() =>
+            lifecycle.EnsureConfiguredAsync(default));
+        Assert.Equal(HttpStatusCode.Forbidden, raw.StatusCode);
     }
 
     private ObjectStorage CreateAdapter(int stagingExpirationDays = 1) => new(Options.Create(new ObjectStorageOptions

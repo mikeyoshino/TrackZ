@@ -105,7 +105,11 @@ public sealed class ObjectStorage : IObjectStorage, IStagingObjectLifecycle
         {
             LifecycleFilterPredicate = new LifecyclePrefixPredicate { Prefix = StagingPrefix }
         },
-        Expiration = new LifecycleRuleExpiration { Days = _options.StagingExpirationDays }
+        Expiration = new LifecycleRuleExpiration { Days = _options.StagingExpirationDays },
+        NoncurrentVersionExpiration = new LifecycleRuleNoncurrentVersionExpiration
+        {
+            NoncurrentDays = _options.StagingExpirationDays
+        }
     };
 
     private bool IsRequiredStagingRule(LifecycleRule rule) =>
@@ -117,7 +121,9 @@ public sealed class ObjectStorage : IObjectStorage, IStagingObjectLifecycle
         && rule.Expiration.Date is null
         && rule.Expiration.ExpiredObjectDeleteMarker != true
         && rule.AbortIncompleteMultipartUpload is null
-        && rule.NoncurrentVersionExpiration is null
+        && rule.NoncurrentVersionExpiration is { NoncurrentDays: var noncurrentDays }
+        && noncurrentDays == _options.StagingExpirationDays
+        && rule.NoncurrentVersionExpiration.NewerNoncurrentVersions is null
         && (rule.NoncurrentVersionTransitions is null || rule.NoncurrentVersionTransitions.Count == 0)
         && (rule.Transitions is null || rule.Transitions.Count == 0);
 
