@@ -1,6 +1,6 @@
 namespace TrackZ.Application.Common.Interfaces;
 
-public sealed record ProcessedExerciseImage(byte[] Master, byte[] Thumbnail, string ContentType);
+public sealed record ProcessedExerciseImage(byte[] Master, byte[] Thumbnail, string ContentType, string DetectedContentType);
 
 public interface IImageProcessor
 {

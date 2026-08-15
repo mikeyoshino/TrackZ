@@ -11,54 +11,71 @@ public sealed record ExerciseImageDto(Guid Id, string MasterUrl, string Thumbnai
 
 public sealed class CompleteImageUploadHandler(IExerciseImageUploadStore store, IObjectStorage storage, IImageProcessor processor, ICurrentUser currentUser) : IRequestHandler<CompleteImageUploadCommand, ExerciseImageDto>
 {
+    private static readonly TimeSpan Lease = TimeSpan.FromMinutes(2);
     public async Task<ExerciseImageDto> Handle(CompleteImageUploadCommand request, CancellationToken cancellationToken)
     {
         var owner = currentUser.UserId;
         var ticket = await store.FindOwnedTicketAsync(request.UploadId, owner, cancellationToken) ?? throw Missing();
-        if (ticket.State == ImageUploadState.Completed && ticket.ExerciseImageId is { } existingId)
-        {
-            var existing = await store.FindImageAsync(existingId, cancellationToken) ?? throw Missing();
-            return await Dto(existing, owner, cancellationToken);
-        }
-        if (ticket.IsExpired(DateTimeOffset.UtcNow) || ticket.State != ImageUploadState.Pending) throw Missing();
-        try { ticket.Begin(DateTimeOffset.UtcNow); await store.SaveAsync(cancellationToken); }
-        catch { throw Missing(); }
-        string? masterKey = null;
-        string? thumbKey = null;
+        if (ticket.State == ImageUploadState.Completed && ticket.ExerciseImageId is { } completeId) return Dto(completeId);
+        var now = DateTimeOffset.UtcNow;
+        if (ticket.IsExpired(now)) throw Missing();
+        if (!ticket.TryClaim(now, Lease)) throw Processing();
+        try { await store.SaveAsync(cancellationToken); }
+        catch (OperationCanceledException) { throw; }
+        catch { throw Processing(); }
+
+        string? masterKey = null; string? thumbnailKey = null;
         try
         {
-            var staged = await storage.GetAsync($"staging/{owner:D}/", ticket.StagingObjectKey, cancellationToken);
-            if (staged is null || staged.Length <= 0 || staged.Length > 5_000_000 || staged.ContentType != ticket.DeclaredContentType) throw InvalidImage();
-            await using var stream = staged.Content;
-            var rendered = await processor.ProcessExerciseImageAsync(stream, cancellationToken);
-            var version = await store.NextImageVersionAsync(ticket.ExerciseDefinitionId, cancellationToken);
+            var staged = await storage.GetAsync($"staging/{owner:D}/", ticket.StagingObjectKey, cancellationToken) ?? throw InvalidImage();
+            await using var objectStream = staged.Content;
+            var bytes = await ReadBoundedAsync(objectStream, ticket.DeclaredLength, cancellationToken);
+            await using var bounded = new MemoryStream(bytes, writable: false);
+            var rendered = await processor.ProcessExerciseImageAsync(bounded, cancellationToken);
+            if (!string.Equals(ticket.DeclaredContentType, rendered.DetectedContentType, StringComparison.Ordinal)) throw InvalidImage();
             var root = $"private/{owner:D}/{ticket.ExerciseDefinitionId:D}/{ticket.Id:D}";
-            masterKey = root + "/master.jpg"; thumbKey = root + "/thumbnail.jpg";
-            await using var master = new MemoryStream(rendered.Master); await using var thumbnail = new MemoryStream(rendered.Thumbnail);
+            masterKey = root + "/master.jpg"; thumbnailKey = root + "/thumbnail.jpg";
+            await using var master = new MemoryStream(rendered.Master, writable: false);
             await storage.PutAsync($"private/{owner:D}/", masterKey, master, rendered.ContentType, cancellationToken);
-            await storage.PutAsync($"private/{owner:D}/", thumbKey, thumbnail, rendered.ContentType, cancellationToken);
-            var exercise = await store.FindOwnedActiveExerciseAsync(ticket.ExerciseDefinitionId, owner, cancellationToken) ?? throw Missing();
-            var image = ExerciseImage.CreateCustomUpload(exercise, owner, masterKey, thumbKey, version, "validated-upload");
-            await store.AddImageAsync(image, cancellationToken); ticket.Complete(image.Id); await store.SaveAsync(cancellationToken);
-            await storage.DeleteAsync($"staging/{owner:D}/", ticket.StagingObjectKey, cancellationToken);
-            return await Dto(image, owner, cancellationToken);
+            await using var thumbnail = new MemoryStream(rendered.Thumbnail, writable: false);
+            await storage.PutAsync($"private/{owner:D}/", thumbnailKey, thumbnail, rendered.ContentType, cancellationToken);
+            var image = await store.CommitCompletionAsync(ticket.Id, owner, masterKey, thumbnailKey, cancellationToken);
+            _ = DeleteBestEffortAsync($"staging/{owner:D}/", ticket.StagingObjectKey);
+            return Dto(image.Id);
         }
-        catch (BusinessException) { await FailAndCleanAsync(ticket, owner, masterKey, thumbKey, cancellationToken); throw; }
-        catch { await FailAndCleanAsync(ticket, owner, masterKey, thumbKey, cancellationToken); throw InvalidImage(); }
-    }
-    private async Task<ExerciseImageDto> Dto(ExerciseImage image, Guid owner, CancellationToken cancellationToken) => new(image.Id,
-        (await storage.CreateReadUriAsync($"private/{owner:D}/", image.MasterObjectKey, DateTimeOffset.UtcNow.AddMinutes(5), cancellationToken)).ToString(),
-        (await storage.CreateReadUriAsync($"private/{owner:D}/", image.ThumbnailObjectKey, DateTimeOffset.UtcNow.AddMinutes(5), cancellationToken)).ToString());
-    private static BusinessException Missing() => new(BusinessErrorCode.ExerciseNotFound, "The exercise was not found.", 404);
-    private static BusinessException InvalidImage() => new(BusinessErrorCode.ImageTypeNotSupported, "The image type is not supported.", 400);
-    private async Task FailAndCleanAsync(ImageUploadTicket ticket, Guid owner, string? master, string? thumbnail, CancellationToken cancellationToken)
-    {
-        ticket.Fail();
-        try { await store.SaveAsync(cancellationToken); } finally
+        catch (OperationCanceledException) { await ReleaseAsync(ticket, owner, masterKey, thumbnailKey, cancellationToken); throw; }
+        catch (BusinessException) { await FailAndCleanAsync(ticket, owner, masterKey, thumbnailKey, cancellationToken); throw; }
+        catch (InvalidDataException) { await FailAndCleanAsync(ticket, owner, masterKey, thumbnailKey, cancellationToken); throw InvalidImage(); }
+        catch
         {
-            try { if (master is not null) await storage.DeleteAsync($"private/{owner:D}/", master, cancellationToken); } catch { }
-            try { if (thumbnail is not null) await storage.DeleteAsync($"private/{owner:D}/", thumbnail, cancellationToken); } catch { }
-            try { await storage.DeleteAsync($"staging/{owner:D}/", ticket.StagingObjectKey, cancellationToken); } catch { }
+            await ReleaseAsync(ticket, owner, masterKey, thumbnailKey, cancellationToken);
+            throw;
         }
     }
+    private async Task<byte[]> ReadBoundedAsync(Stream source, long declared, CancellationToken cancellationToken)
+    {
+        await using var buffer = new MemoryStream(capacity: 5_000_001);
+        var bytes = new byte[81920];
+        while (true)
+        {
+            var read = await source.ReadAsync(bytes, cancellationToken);
+            if (read == 0) break;
+            if (buffer.Length + read > 5_000_000) throw TooLarge();
+            await buffer.WriteAsync(bytes.AsMemory(0, read), cancellationToken);
+        }
+        if (buffer.Length != declared) throw InvalidImage();
+        return buffer.ToArray();
+    }
+    private static ExerciseImageDto Dto(Guid id) => new(id, $"/api/v1/media/exercise-images/{id:D}/master", $"/api/v1/media/exercise-images/{id:D}/thumbnail");
+    private static BusinessException Missing() => new(BusinessErrorCode.ExerciseNotFound, "The exercise was not found.", 404);
+    private static BusinessException Processing() => new(BusinessErrorCode.VersionConflict, "The image upload is already being processed.", 409);
+    private static BusinessException InvalidImage() => new(BusinessErrorCode.ImageTypeNotSupported, "The image type is not supported.", 400);
+    private static BusinessException TooLarge() => new(BusinessErrorCode.ImageTooLarge, "The image is too large.", 400);
+    private async Task FailAndCleanAsync(ImageUploadTicket ticket, Guid owner, string? master, string? thumbnail, CancellationToken ct)
+    { ticket.Fail(); try { await store.SaveAsync(ct); } finally { await CleanupAsync(owner, ticket.StagingObjectKey, master, thumbnail, ct); } }
+    private async Task ReleaseAsync(ImageUploadTicket ticket, Guid owner, string? master, string? thumbnail, CancellationToken ct)
+    { ticket.ReleaseForRetry(); try { await store.SaveAsync(ct); } catch { } await CleanupAsync(owner, ticket.StagingObjectKey, master, thumbnail, ct); }
+    private async Task CleanupAsync(Guid owner, string staging, string? master, string? thumbnail, CancellationToken ct)
+    { try { if (master is not null) await storage.DeleteAsync($"private/{owner:D}/", master, ct); } catch { } try { if (thumbnail is not null) await storage.DeleteAsync($"private/{owner:D}/", thumbnail, ct); } catch { } }
+    private async Task DeleteBestEffortAsync(string prefix, string key) { try { await storage.DeleteAsync(prefix, key, CancellationToken.None); } catch { } }
 }

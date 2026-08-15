@@ -8,7 +8,7 @@ public interface IExerciseImageUploadStore
     Task AddTicketAsync(ImageUploadTicket ticket, CancellationToken cancellationToken);
     Task<ImageUploadTicket?> FindOwnedTicketAsync(Guid ticketId, Guid ownerId, CancellationToken cancellationToken);
     Task<ExerciseImage?> FindImageAsync(Guid imageId, CancellationToken cancellationToken);
-    Task<int> NextImageVersionAsync(Guid exerciseId, CancellationToken cancellationToken);
-    Task AddImageAsync(ExerciseImage image, CancellationToken cancellationToken);
+    Task<ExerciseImage?> FindOwnedImageAsync(Guid imageId, Guid ownerId, CancellationToken cancellationToken);
+    Task<ExerciseImage> CommitCompletionAsync(Guid ticketId, Guid ownerId, string masterKey, string thumbnailKey, CancellationToken cancellationToken);
     Task SaveAsync(CancellationToken cancellationToken);
 }

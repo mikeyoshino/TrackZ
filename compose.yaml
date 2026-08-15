@@ -20,15 +20,23 @@ services:
       MINIO_ROOT_PASSWORD: ${TRACKZ_MINIO_SECRET_KEY:-trackz_local_development_secret}
     expose:
       - "9000"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
     volumes:
       - minio-data:/data
   minio-bootstrap:
     image: minio/mc:RELEASE.2025-07-21T05-28-08Z
     depends_on:
-      - minio
+      minio:
+        condition: service_healthy
     environment:
       MINIO_ROOT_USER: ${TRACKZ_MINIO_ACCESS_KEY:-trackz_local}
       MINIO_ROOT_PASSWORD: ${TRACKZ_MINIO_SECRET_KEY:-trackz_local_development_secret}
-    entrypoint: ["/bin/sh", "-c", "mc alias set local http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD && mc mb --ignore-existing local/trackz-private && mc anonymous set none local/trackz-private"]
+      TRACKZ_OBJECT_STORAGE_ACCESS_KEY: ${TRACKZ_OBJECT_STORAGE_ACCESS_KEY:-trackz_api}
+      TRACKZ_OBJECT_STORAGE_SECRET_KEY: ${TRACKZ_OBJECT_STORAGE_SECRET_KEY:-trackz_api_local_development_secret}
+    entrypoint: ["/bin/sh", "-c", "mc alias set local http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD && mc mb --ignore-existing local/trackz-private && mc anonymous set none local/trackz-private && printf '{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"s3:GetObject\",\"s3:PutObject\",\"s3:DeleteObject\"],\"Resource\":[\"arn:aws:s3:::trackz-private/*\"]}]}' > /tmp/trackz-api.json && mc admin policy create local trackz-api /tmp/trackz-api.json || true && mc admin user add local $$TRACKZ_OBJECT_STORAGE_ACCESS_KEY $$TRACKZ_OBJECT_STORAGE_SECRET_KEY && mc admin policy attach local trackz-api --user $$TRACKZ_OBJECT_STORAGE_ACCESS_KEY"]
 volumes:
   minio-data:

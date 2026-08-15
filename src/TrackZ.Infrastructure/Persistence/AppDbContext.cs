@@ -28,8 +28,33 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public Task AddTicketAsync(ImageUploadTicket ticket, CancellationToken cancellationToken) => ImageUploadTickets.AddAsync(ticket, cancellationToken).AsTask();
     public Task<ImageUploadTicket?> FindOwnedTicketAsync(Guid ticketId, Guid ownerId, CancellationToken cancellationToken) => ImageUploadTickets.SingleOrDefaultAsync(x => x.Id == ticketId && x.OwnerId == ownerId, cancellationToken);
     public Task<ExerciseImage?> FindImageAsync(Guid imageId, CancellationToken cancellationToken) => ExerciseImages.SingleOrDefaultAsync(x => x.Id == imageId, cancellationToken);
-    public async Task<int> NextImageVersionAsync(Guid exerciseId, CancellationToken cancellationToken) => (await ExerciseImages.Where(x => x.ExerciseDefinitionId == exerciseId).MaxAsync(x => (int?)x.Version, cancellationToken) ?? 0) + 1;
-    public Task AddImageAsync(ExerciseImage image, CancellationToken cancellationToken) => ExerciseImages.AddAsync(image, cancellationToken).AsTask();
+    public Task<ExerciseImage?> FindOwnedImageAsync(Guid imageId, Guid ownerId, CancellationToken cancellationToken) => ExerciseImages.SingleOrDefaultAsync(x => x.Id == imageId && x.OwnerId == ownerId && x.IsPrivate, cancellationToken);
+    public async Task<ExerciseImage> CommitCompletionAsync(Guid ticketId, Guid ownerId, string masterKey, string thumbnailKey, CancellationToken cancellationToken)
+    {
+        await using var transaction = await Database.BeginTransactionAsync(cancellationToken);
+        var ticket = await ImageUploadTickets.FromSqlInterpolated($"SELECT * FROM image_upload_tickets WHERE \"Id\" = {ticketId} AND \"OwnerId\" = {ownerId} FOR UPDATE")
+            .SingleOrDefaultAsync(cancellationToken) ?? throw new InvalidOperationException("Ticket is unavailable.");
+        await Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock({BitConverter.ToInt64(ticket.ExerciseDefinitionId.ToByteArray(), 0)})", cancellationToken);
+        var exercise = await Exercises.SingleOrDefaultAsync(x => x.Id == ticket.ExerciseDefinitionId && x.OwnerId == ownerId && !x.IsArchived, cancellationToken)
+            ?? throw new InvalidOperationException("Exercise is unavailable.");
+        if (ticket.State != ImageUploadState.Processing || !ticket.HasActiveLease(DateTimeOffset.UtcNow)) throw new InvalidOperationException("Ticket lease is unavailable.");
+        var version = (await ExerciseImages.Where(x => x.ExerciseDefinitionId == exercise.Id).MaxAsync(x => (int?)x.Version, cancellationToken) ?? 0) + 1;
+        var image = ExerciseImage.CreateCustomUpload(exercise, ownerId, masterKey, thumbnailKey, version, "validated-upload");
+        try
+        {
+            await ExerciseImages.AddAsync(image, cancellationToken);
+            ticket.Complete(image.Id);
+            await SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return image;
+        }
+        catch
+        {
+            await transaction.RollbackAsync(CancellationToken.None);
+            ChangeTracker.Clear();
+            throw;
+        }
+    }
     public Task SaveAsync(CancellationToken cancellationToken) => SaveChangesAsync(cancellationToken);
 
     public Task<User?> FindUserByNormalizedEmailAsync(

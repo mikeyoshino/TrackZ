@@ -138,7 +138,8 @@ namespace TrackZ.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ExerciseDefinitionId", "Version");
+                    b.HasIndex("ExerciseDefinitionId", "Version")
+                        .IsUnique();
 
                     b.ToTable("exercise_images", (string)null);
                 });
@@ -171,8 +172,14 @@ namespace TrackZ.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset>("ExpiresAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<DateTimeOffset?>("LeaseExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<Guid>("OwnerId")
                         .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("ProcessingStartedAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("StagingObjectKey")
                         .IsRequired()

@@ -24,3 +24,13 @@ Application owns framework-neutral `IObjectStorage`/`IImageProcessor`; AWS S3 an
 - A focused API filter for newly added endpoint tests reported no matching tests because this task adds the route but the existing API test project has no Media endpoint fixture. The API build succeeded. The full existing API suite was invoked; its runner discovered the project but emitted no final aggregate in this execution environment.
 
 No Task 5 assets or mobile work was started.
+
+## Fix round 1
+
+- Root cause: the first completion flow mapped operational exceptions to invalid-image responses and let post-commit staging deletion/read-URL work enter the same failure path as the durable commit. It also used an S3 presign that exposed service details and could not enforce the declared object length.
+- RED: `dotnet test tests/TrackZ.Domain.Tests --filter ImageUploadTicketTests --no-restore` failed because `ImageUploadTicket.TryClaim` did not exist.
+- GREEN: the same command passed after adding an expiring processing lease: an active lease yields deterministic conflict; an expired lease is reclaimable. Completion now keeps post-commit staging deletion best-effort and returns opaque API rendition paths without S3/MinIO signatures or keys.
+- Sensitive defenses added: authenticated opaque PUT gateway checks exact `Content-Length`, declared MIME, and a bounded 5,000,000-byte stream before private storage; completion buffers/compares observed bytes to the declared length, detects canonical format, identifies dimensions before decode, rejects non-JPEG/PNG/WebP and multi-frame images, then strips metadata and re-encodes bounded JPEG renditions.
+- Durable commit acquires an exercise advisory lock, rechecks active ownership, serializes version allocation and creates a unique `(ExerciseDefinitionId, Version)` image row. Failure before commit releases the lease for retry and removes only attempt-owned final objects; failure after commit cannot fail/delete the ready image.
+- Migration history was squashed into `20260815130000_AddImageUploadTickets`, after Task 3; old empty/earlier Task 4 migrations were removed.
+- Fresh checks: `dotnet test tests/TrackZ.Application.Tests --no-restore` PASS 31/31; `dotnet test tests/TrackZ.Infrastructure.Tests --filter ExerciseCatalogPersistenceTests --no-restore` PASS 7/7; `dotnet build src/TrackZ.Api/TrackZ.Api.csproj --no-restore` PASS 0 warnings/errors; `dotnet ef migrations has-pending-model-changes --project src/TrackZ.Infrastructure --startup-project src/TrackZ.Api --no-build` reports no pending model changes.

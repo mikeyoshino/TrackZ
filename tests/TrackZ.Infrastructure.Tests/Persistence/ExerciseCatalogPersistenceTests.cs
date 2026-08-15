@@ -46,7 +46,7 @@ public sealed class ExerciseCatalogPersistenceTests
         await using var database = await PostgreSqlFixture.StartAsync();
         var migrations = database.Db.GetService<IMigrationsAssembly>();
         var migration = migrations.CreateMigration(
-            migrations.Migrations["20260815051856_AddImageUploadTicketRelationships"],
+            migrations.Migrations["20260815130000_AddImageUploadTickets"],
             database.Db.Database.ProviderName!)!;
 
         var entityNames = migration.TargetModel.GetEntityTypes()
@@ -77,7 +77,7 @@ public sealed class ExerciseCatalogPersistenceTests
         await using var database = await PostgreSqlFixture.StartAsync();
         var migrations = database.Db.GetService<IMigrationsAssembly>();
         var migration = migrations.CreateMigration(
-            migrations.Migrations["20260815051856_AddImageUploadTicketRelationships"],
+            migrations.Migrations["20260815130000_AddImageUploadTickets"],
             database.Db.Database.ProviderName!)!;
 
         Assert.Equal(

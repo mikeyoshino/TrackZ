@@ -12,7 +12,7 @@ using TrackZ.Infrastructure.Persistence;
 namespace TrackZ.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260815051502_AddImageUploadTickets")]
+    [Migration("20260815130000_AddImageUploadTickets")]
     partial class AddImageUploadTickets
     {
         /// <inheritdoc />
@@ -141,7 +141,8 @@ namespace TrackZ.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ExerciseDefinitionId", "Version");
+                    b.HasIndex("ExerciseDefinitionId", "Version")
+                        .IsUnique();
 
                     b.ToTable("exercise_images", (string)null);
                 });
@@ -155,7 +156,6 @@ namespace TrackZ.Infrastructure.Persistence.Migrations
                     b.Property<byte[]>("ConcurrencyToken")
                         .IsConcurrencyToken()
                         .IsRequired()
-                        .ValueGeneratedOnAddOrUpdate()
                         .HasColumnType("bytea");
 
                     b.Property<string>("DeclaredContentType")
@@ -175,8 +175,14 @@ namespace TrackZ.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset>("ExpiresAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<DateTimeOffset?>("LeaseExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<Guid>("OwnerId")
                         .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("ProcessingStartedAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("StagingObjectKey")
                         .IsRequired()
@@ -187,6 +193,10 @@ namespace TrackZ.Infrastructure.Persistence.Migrations
                         .HasColumnType("integer");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("ExerciseDefinitionId");
+
+                    b.HasIndex("ExerciseImageId");
 
                     b.HasIndex("OwnerId", "Id");
 
@@ -332,6 +342,20 @@ namespace TrackZ.Infrastructure.Persistence.Migrations
                         .HasForeignKey("ExerciseDefinitionId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("TrackZ.Domain.Exercises.ImageUploadTicket", b =>
+                {
+                    b.HasOne("TrackZ.Domain.Exercises.ExerciseDefinition", null)
+                        .WithMany()
+                        .HasForeignKey("ExerciseDefinitionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("TrackZ.Domain.Exercises.ExerciseImage", null)
+                        .WithMany()
+                        .HasForeignKey("ExerciseImageId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("TrackZ.Domain.Identity.RefreshToken", b =>

@@ -20,6 +20,6 @@ public sealed class ExerciseImageConfiguration : IEntityTypeConfiguration<Exerci
         builder.Property(image => image.ReviewState).IsRequired(false);
         builder.Property(image => image.CreatedAt).IsRequired();
         builder.Ignore(image => image.IsReadyForUse);
-        builder.HasIndex(image => new { image.ExerciseDefinitionId, image.Version });
+        builder.HasIndex(image => new { image.ExerciseDefinitionId, image.Version }).IsUnique();
     }
 }

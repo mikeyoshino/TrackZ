@@ -32,7 +32,7 @@ public static class DependencyInjection
         services.AddScoped<IExerciseImageUploadStore>(provider => provider.GetRequiredService<AppDbContext>());
         services.AddSingleton<IObjectStorage, ObjectStorage>();
         services.AddSingleton<IImageProcessor, ImageProcessor>();
-        services.AddOptions<ObjectStorageOptions>().Bind(configuration.GetSection(ObjectStorageOptions.SectionName));
+        services.AddOptions<ObjectStorageOptions>().Bind(configuration.GetSection(ObjectStorageOptions.SectionName)).ValidateDataAnnotations().ValidateOnStart();
         services.AddSingleton<IExerciseCursorCodec, HmacExerciseCursorCodec>();
         services.AddSingleton<IPasswordHasher, PasswordHasher>();
         services.AddSingleton<ITokenService, JwtTokenService>();

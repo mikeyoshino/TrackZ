@@ -12,7 +12,7 @@ public sealed class ImageUploadTests
     [InlineData("image/jpeg", 5_000_001, BusinessErrorCode.ImageTooLarge)]
     public async Task Request_rejects_sensitive_invalid_metadata(string contentType, long length, BusinessErrorCode expectedCode)
     {
-        var handler = new RequestImageUploadHandler();
+        var handler = new RequestImageUploadHandler(null!, null!);
 
         var error = await Assert.ThrowsAsync<BusinessException>(() =>
             handler.Handle(new RequestImageUploadCommand(Guid.NewGuid(), contentType, length), CancellationToken.None));
