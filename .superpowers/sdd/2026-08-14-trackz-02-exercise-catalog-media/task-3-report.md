@@ -124,3 +124,30 @@ The unmerged Task 3 mode migration was squashed into `20260815112000_AddCustomEx
 - Direct PostgreSQL mismatched-mode performance inserts and direct principal mode changes with history remain rejected.
 - Frozen migration target metadata asserts entity count, active-owner index uniqueness/filter, simple performance FK/principal key, single-column performance index, and absence of the old mutable composite alternate key.
 - A fresh real PostgreSQL database migrates current -> `AddExerciseCatalog` (Down) -> current (Up), preserves valid history, restores trigger integrity, and has no pending model changes.
+
+## Fix Round 3 — frozen designer metadata remediation
+
+### Root cause
+
+Although the custom-exercise migration designer exposed the expected entities, it was manually rebuilt with CLR lambdas. That omitted scaffolded relational metadata such as column types, Npgsql value-generation strategy, and generated-value annotations, so it was not a faithful frozen migration target.
+
+`20260815112000_AddCustomExerciseNameUniqueness.Designer.cs` now uses the same standard string-based EF/Npgsql target-model shape as the current snapshot. It carries the provider annotations, identifier limit, generated UUID properties, relational column types, precision, checks, indexes, filters, and relationships directly in the frozen model.
+
+### RED evidence
+
+`dotnet test tests/TrackZ.Infrastructure.Tests --filter FullyQualifiedName~Custom_exercise_migration_target_matches_current_snapshot_relational_metadata --no-restore --disable-build-servers`
+
+- Failed as intended against the previous hand-built CLR-lambda designer: the target and snapshot relational metadata collections differed immediately after the entity record, exposing missing property metadata.
+
+### GREEN / verification evidence
+
+| Command | Result |
+|---|---|
+| `dotnet test tests/TrackZ.Infrastructure.Tests --filter 'FullyQualifiedName~Custom_exercise_migration_designer_contains_the_complete_target_model\|FullyQualifiedName~Custom_exercise_migration_target_matches_current_snapshot_relational_metadata\|FullyQualifiedName~Custom_exercise_migration_round_trip_preserves_valid_history_and_restores_trigger_integrity' --no-restore --disable-build-servers` (outside sandbox) | PASS — 3/3, including real PostgreSQL Down/Up integrity |
+| `dotnet test tests/TrackZ.Infrastructure.Tests --no-restore --disable-build-servers` (outside sandbox) | PASS — 24/24 |
+| `dotnet build src/TrackZ.Api/TrackZ.Api.csproj --no-restore --disable-build-servers` (outside sandbox) | PASS — 0 warnings, 0 errors |
+
+### Fix Round 3 sensitivity coverage
+
+- The migration parity test serializes every entity's relational table/schema and annotations, every property (CLR type, nullability, generated value, column type, length, precision, scale, annotations), keys, foreign keys, indexes, and check constraints from both the migration target and current snapshot. The prior lambda reconstruction fails this comparison; a target that only has the right entity names or partial-index filter cannot pass.
+- The existing real PostgreSQL migration Down/Up test remains in the focused group, proving the frozen target change did not alter the executable migration or its trigger-backed integrity guarantees.

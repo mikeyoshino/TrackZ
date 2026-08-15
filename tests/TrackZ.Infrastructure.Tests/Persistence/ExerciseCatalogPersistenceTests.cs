@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Migrations;
 using TrackZ.Domain.Exercises;
 using TrackZ.Domain.Progress;
@@ -48,11 +49,14 @@ public sealed class ExerciseCatalogPersistenceTests
             migrations.Migrations["20260815112000_AddCustomExerciseNameUniqueness"],
             database.Db.Database.ProviderName!)!;
 
-        var entityNames = migration.TargetModel.GetEntityTypes().Select(entity => entity.ClrType.Name).OrderBy(name => name).ToArray();
+        var entityNames = migration.TargetModel.GetEntityTypes()
+            .Select(entity => entity.Name[(entity.Name.LastIndexOf('.') + 1)..])
+            .OrderBy(name => name)
+            .ToArray();
 
         Assert.Equal(["ExerciseDefinition", "ExerciseImage", "ExercisePerformance", "RefreshToken", "User"], entityNames);
-        var exercise = migration.TargetModel.FindEntityType(typeof(ExerciseDefinition))!;
-        var performance = migration.TargetModel.FindEntityType(typeof(ExercisePerformance))!;
+        var exercise = migration.TargetModel.FindEntityType(typeof(ExerciseDefinition).FullName!)!;
+        var performance = migration.TargetModel.FindEntityType(typeof(ExercisePerformance).FullName!)!;
         var uniqueness = Assert.Single(exercise.GetIndexes(), index => index.Properties.Select(property => property.Name)
             .SequenceEqual([nameof(ExerciseDefinition.OwnerId), nameof(ExerciseDefinition.NormalizedName)]));
         var relationship = Assert.Single(performance.GetForeignKeys(), foreignKey => foreignKey.PrincipalEntityType == exercise);
@@ -65,6 +69,20 @@ public sealed class ExerciseCatalogPersistenceTests
             .SequenceEqual([nameof(ExercisePerformance.ExerciseDefinitionId)]));
         Assert.DoesNotContain(exercise.GetKeys(), key => key.Properties.Select(property => property.Name)
             .SequenceEqual([nameof(ExerciseDefinition.Id), nameof(ExerciseDefinition.TrackingMode)]));
+    }
+
+    [Fact]
+    public async Task Custom_exercise_migration_target_matches_current_snapshot_relational_metadata()
+    {
+        await using var database = await PostgreSqlFixture.StartAsync();
+        var migrations = database.Db.GetService<IMigrationsAssembly>();
+        var migration = migrations.CreateMigration(
+            migrations.Migrations["20260815112000_AddCustomExerciseNameUniqueness"],
+            database.Db.Database.ProviderName!)!;
+
+        Assert.Equal(
+            DescribeRelationalModel(migrations.ModelSnapshot!.Model),
+            DescribeRelationalModel(migration.TargetModel));
     }
 
     [Fact]
@@ -136,4 +154,43 @@ public sealed class ExerciseCatalogPersistenceTests
         await Assert.ThrowsAsync<Npgsql.PostgresException>(() => database.Db.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO exercise_performances (\"Id\", \"UserId\", \"ExerciseDefinitionId\", \"TrackingMode\", \"LastPerformedAt\", \"LastBestReps\", \"AllTimeBestReps\") VALUES ({Guid.NewGuid()}, {Guid.NewGuid()}, {weightedExercise.Id}, {2}, {DateTimeOffset.UtcNow}, {8}, {10})"));
         await Assert.ThrowsAsync<Npgsql.PostgresException>(() => database.Db.Database.ExecuteSqlInterpolatedAsync($"UPDATE exercise_definitions SET \"TrackingMode\" = {2} WHERE \"Id\" = {weightedExercise.Id}"));
     }
+
+    private static IReadOnlyList<string> DescribeRelationalModel(IReadOnlyModel model)
+    {
+        return model.GetEntityTypes()
+            .OrderBy(entity => entity.Name, StringComparer.Ordinal)
+            .SelectMany(entity =>
+            {
+                var entityPrefix = $"entity|{entity.Name}|{entity.GetSchema()}|{entity.GetTableName()}|{DescribeAnnotations(entity)}";
+                var properties = entity.GetProperties()
+                    .OrderBy(property => property.Name, StringComparer.Ordinal)
+                    .Select(property => $"property|{entity.Name}|{property.Name}|{property.ClrType.AssemblyQualifiedName}|{property.IsNullable}|{property.ValueGenerated}|{property.GetColumnType()}|{property.GetMaxLength()}|{property.GetPrecision()}|{property.GetScale()}|{DescribeAnnotations(property)}");
+                var keys = entity.GetKeys()
+                    .OrderBy(key => string.Join(',', key.Properties.Select(property => property.Name)), StringComparer.Ordinal)
+                    .Select(key => $"key|{entity.Name}|{key.IsPrimaryKey()}|{string.Join(',', key.Properties.Select(property => property.Name))}|{key.GetName()}|{DescribeAnnotations(key)}");
+                var foreignKeys = entity.GetForeignKeys()
+                    .OrderBy(foreignKey => string.Join(',', foreignKey.Properties.Select(property => property.Name)), StringComparer.Ordinal)
+                    .Select(foreignKey => $"foreign-key|{entity.Name}|{string.Join(',', foreignKey.Properties.Select(property => property.Name))}|{foreignKey.PrincipalEntityType.Name}|{string.Join(',', foreignKey.PrincipalKey.Properties.Select(property => property.Name))}|{foreignKey.DeleteBehavior}|{foreignKey.IsRequired}|{foreignKey.GetConstraintName()}|{DescribeAnnotations(foreignKey)}");
+                var indexes = entity.GetIndexes()
+                    .OrderBy(index => string.Join(',', index.Properties.Select(property => property.Name)), StringComparer.Ordinal)
+                    .Select(index => $"index|{entity.Name}|{string.Join(',', index.Properties.Select(property => property.Name))}|{index.IsUnique}|{index.GetDatabaseName()}|{index.GetFilter()}|{DescribeAnnotations(index)}");
+                var checks = entity.GetCheckConstraints()
+                    .OrderBy(check => check.Name, StringComparer.Ordinal)
+                    .Select(check => $"check|{entity.Name}|{check.Name}|{check.Sql}|{DescribeAnnotations(check)}");
+
+                return new[] { entityPrefix }
+                    .Concat(properties)
+                    .Concat(keys)
+                    .Concat(foreignKeys)
+                    .Concat(indexes)
+                    .Concat(checks);
+            })
+            .ToArray();
+    }
+
+    private static string DescribeAnnotations(IReadOnlyAnnotatable annotatable) => string.Join(
+        ',',
+        annotatable.GetAnnotations()
+            .OrderBy(annotation => annotation.Name, StringComparer.Ordinal)
+            .Select(annotation => $"{annotation.Name}={annotation.Value}"));
 }
