@@ -88,3 +88,39 @@ The relationship now uses `ExerciseDefinitionId` alone as the normal restrictive
 - Five mixed-case malformed request payloads assert exact canonical Thai `fieldErrors` keys and messages.
 - Direct handler tests reject library IDs, ordinary uploaded keys, empty keys, whitespace keys, and the already-covered mutual combination; no untrusted identifier can reach persistence.
 - The deterministic image chronology fixture now explicitly creates the image before its review timestamp; production chronology checks are unchanged.
+
+## Fix Round 2 — serializable trigger and frozen migration remediation
+
+### Root cause
+
+The initial trigger read the parent exercise through an unlocked `EXISTS` query. Under PostgreSQL MVCC that permits the performance insert and principal-mode update to validate against different snapshots and both commit. A foreign-key key-share lock alone is insufficient because non-key principal mode updates may remain compatible.
+
+The performance trigger now selects the parent exercise row `FOR UPDATE` before comparing modes. A principal mode update already owns that row lock before its history trigger checks performance. Thus exactly one writer proceeds first; the second rechecks committed state after the lock and rejects when it would break the invariant. The trigger applies to both performance INSERT and relevant UPDATE operations.
+
+The unmerged Task 3 mode migration was squashed into `20260815112000_AddCustomExerciseNameUniqueness`; the dynamic designers were removed. Its standard frozen target model includes the simple exercise-ID FK, the active-owner partial unique index, and all persisted entities.
+
+### RED evidence
+
+`dotnet test tests/TrackZ.Infrastructure.Tests --filter FullyQualifiedName~ExerciseTrackingModeConcurrencyTests --no-restore`
+
+- Failed before the lock fix: both interleaving tests timed out waiting for their expected blocked statement, proving that neither the concurrent principal update nor concurrent performance insert serialized on the exercise row.
+
+### GREEN / verification evidence
+
+| Command | Result |
+|---|---|
+| `dotnet test tests/TrackZ.Infrastructure.Tests --filter 'FullyQualifiedName~ExerciseTrackingModeConcurrencyTests|FullyQualifiedName~Custom_exercise_migration_designer_contains_the_complete_target_model|FullyQualifiedName~Custom_exercise_migration_round_trip_preserves_valid_history' --no-restore` | PASS — 4/4, real PostgreSQL |
+| `dotnet test tests/TrackZ.Domain.Tests --no-restore` | PASS — 50/50 |
+| `dotnet test tests/TrackZ.Application.Tests --no-restore` | PASS — 28/28 |
+| `dotnet test tests/TrackZ.Infrastructure.Tests --no-restore` | PASS — 23/23 |
+| `dotnet test tests/TrackZ.Api.Tests --filter FullyQualifiedName~Custom_tracking_mode_changes_before_any_history_exists --no-restore` | PASS — 1/1 |
+| `dotnet test tests/TrackZ.Api.Tests --filter FullyQualifiedName~Custom_tracking_mode_is_immutable_after_performance_history_but_other_fields_remain_updatable --no-restore` | PASS — 1/1 |
+| `dotnet test tests/TrackZ.Api.Tests --filter FullyQualifiedName~Custom_json_paths_canonicalize_only_known_root_properties --no-restore` | PASS — 9/9 |
+| `dotnet build src/TrackZ.Api/TrackZ.Api.csproj --no-restore --disable-build-servers` (outside sandbox) | PASS — 0 warnings, 0 errors |
+
+### Fix Round 2 sensitivity coverage
+
+- Two independent DbContexts/transactions use `pg_stat_activity` lock observation with five-second deadlines. In interleaving A, an uncommitted performance insert holds the parent lock, the concurrent principal update is observed blocked, then rejects after the insert commits. In interleaving B, an uncommitted principal mode update holds the parent lock, the old-mode insert is observed blocked, then rejects after the update commits. Both assert final persisted state.
+- Direct PostgreSQL mismatched-mode performance inserts and direct principal mode changes with history remain rejected.
+- Frozen migration target metadata asserts entity count, active-owner index uniqueness/filter, simple performance FK/principal key, single-column performance index, and absence of the old mutable composite alternate key.
+- A fresh real PostgreSQL database migrates current -> `AddExerciseCatalog` (Down) -> current (Up), preserves valid history, restores trigger integrity, and has no pending model changes.

@@ -10,13 +10,20 @@ internal sealed class PostgreSqlFixture : IAsyncDisposable
 {
     private readonly PostgreSqlContainer _container;
 
-    private PostgreSqlFixture(PostgreSqlContainer container, AppDbContext db)
+    private PostgreSqlFixture(PostgreSqlContainer container, AppDbContext db, string connectionString)
     {
         _container = container;
         Db = db;
+        ConnectionString = connectionString;
     }
 
     public AppDbContext Db { get; }
+
+    public string ConnectionString { get; }
+
+    public AppDbContext CreateDbContext() => new(new DbContextOptionsBuilder<AppDbContext>()
+        .UseNpgsql(ConnectionString)
+        .Options);
 
     public static async Task<PostgreSqlFixture> StartAsync()
     {
@@ -30,15 +37,16 @@ internal sealed class PostgreSqlFixture : IAsyncDisposable
         {
             await container.StartAsync();
 
+            var connectionString = container.GetConnectionString();
             var options = new DbContextOptionsBuilder<AppDbContext>()
-                .UseNpgsql(container.GetConnectionString())
+                .UseNpgsql(connectionString)
                 .Options;
             var db = new AppDbContext(options);
 
             try
             {
                 await db.Database.MigrateAsync();
-                return new PostgreSqlFixture(container, db);
+                return new PostgreSqlFixture(container, db, connectionString);
             }
             catch
             {

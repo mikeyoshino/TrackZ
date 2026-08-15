@@ -2,6 +2,9 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
+using TrackZ.Domain.Exercises;
+using TrackZ.Domain.Identity;
+using TrackZ.Domain.Progress;
 using TrackZ.Infrastructure.Persistence;
 
 #nullable disable
@@ -14,6 +17,105 @@ partial class AddCustomExerciseNameUniqueness
 {
     protected override void BuildTargetModel(ModelBuilder modelBuilder)
     {
-        modelBuilder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);
+        modelBuilder.HasAnnotation("ProductVersion", "10.0.10");
+
+        modelBuilder.Entity<ExerciseDefinition>(builder =>
+        {
+            builder.ToTable("exercise_definitions");
+            builder.HasKey(exercise => exercise.Id);
+            builder.Property(exercise => exercise.OwnerId);
+            builder.Property(exercise => exercise.Name).HasMaxLength(100).IsRequired();
+            builder.Property(exercise => exercise.NormalizedName).HasMaxLength(100).IsRequired();
+            builder.Property(exercise => exercise.BodyPart).IsRequired();
+            builder.Property(exercise => exercise.TrackingMode).IsRequired();
+            builder.Property(exercise => exercise.IsArchived).IsRequired();
+            builder.Property(exercise => exercise.HasSetHistory).IsRequired();
+            builder.Property(exercise => exercise.CreatedAt).IsRequired();
+            builder.HasIndex(exercise => new { exercise.Name, exercise.Id });
+            builder.HasIndex(exercise => new { exercise.OwnerId, exercise.IsArchived });
+            builder.HasIndex(exercise => new { exercise.OwnerId, exercise.NormalizedName })
+                .IsUnique()
+                .HasFilter("\"OwnerId\" IS NOT NULL AND NOT \"IsArchived\"");
+            builder.ToTable(table => table.HasCheckConstraint("CK_exercise_definitions_tracking_mode", "\"TrackingMode\" IN (1, 2, 3)"));
+        });
+
+        modelBuilder.Entity<ExerciseImage>(builder =>
+        {
+            builder.ToTable("exercise_images");
+            builder.HasKey(image => image.Id);
+            builder.Property(image => image.ExerciseDefinitionId).IsRequired();
+            builder.Property(image => image.OwnerId);
+            builder.Property(image => image.IsPrivate).IsRequired();
+            builder.Property(image => image.MasterObjectKey).HasMaxLength(512).IsRequired();
+            builder.Property(image => image.ThumbnailObjectKey).HasMaxLength(512).IsRequired();
+            builder.Property(image => image.Version).IsRequired();
+            builder.Property(image => image.Source).IsRequired();
+            builder.Property(image => image.SourceReference).HasMaxLength(512).IsRequired();
+            builder.Property(image => image.RightsReference).HasMaxLength(512);
+            builder.Property(image => image.ReviewState).IsRequired(false);
+            builder.Property(image => image.ReviewedByUserId);
+            builder.Property(image => image.ReviewedAt);
+            builder.Property(image => image.PublishedAt);
+            builder.Property(image => image.AnatomyApproved).IsRequired();
+            builder.Property(image => image.MovementApproved).IsRequired();
+            builder.Property(image => image.RightsApproved).IsRequired();
+            builder.Property(image => image.CreatedAt).IsRequired();
+            builder.Ignore(image => image.IsReadyForUse);
+            builder.HasIndex(image => new { image.ExerciseDefinitionId, image.Version });
+            builder.HasOne<ExerciseDefinition>().WithMany().HasForeignKey(image => image.ExerciseDefinitionId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ExercisePerformance>(builder =>
+        {
+            builder.ToTable("exercise_performances");
+            builder.HasKey(performance => performance.Id);
+            builder.Property(performance => performance.UserId).IsRequired();
+            builder.Property(performance => performance.ExerciseDefinitionId).IsRequired();
+            builder.Property(performance => performance.TrackingMode).IsRequired();
+            builder.Property(performance => performance.LastPerformedAt).IsRequired(false);
+            builder.Property(performance => performance.LastBestWeightKg).HasPrecision(10, 3);
+            builder.Property(performance => performance.LastBestAssistedKg).HasPrecision(10, 3);
+            builder.Property(performance => performance.LastBestReps);
+            builder.Property(performance => performance.AllTimeBestWeightKg).HasPrecision(10, 3);
+            builder.Property(performance => performance.AllTimeBestAssistedKg).HasPrecision(10, 3);
+            builder.Property(performance => performance.AllTimeBestReps);
+            builder.HasIndex(performance => performance.ExerciseDefinitionId);
+            builder.HasIndex(performance => new { performance.UserId, performance.ExerciseDefinitionId }).IsUnique();
+            builder.HasOne<ExerciseDefinition>().WithMany().HasForeignKey(performance => performance.ExerciseDefinitionId).OnDelete(DeleteBehavior.Restrict);
+            builder.ToTable(table =>
+            {
+                table.HasCheckConstraint("CK_exercise_performances_tracking_mode", "\"TrackingMode\" IN (1, 2, 3)");
+                table.HasCheckConstraint("CK_exercise_performances_last_best_shape", "\"LastPerformedAt\" IS NOT NULL AND \"LastBestReps\" IS NOT NULL AND \"LastBestReps\" > 0 AND ((\"TrackingMode\" = 1 AND \"LastBestWeightKg\" IS NOT NULL AND \"LastBestWeightKg\" > 0 AND \"LastBestAssistedKg\" IS NULL) OR (\"TrackingMode\" = 2 AND \"LastBestWeightKg\" IS NULL AND \"LastBestAssistedKg\" IS NULL) OR (\"TrackingMode\" = 3 AND \"LastBestWeightKg\" IS NULL AND \"LastBestAssistedKg\" IS NOT NULL AND \"LastBestAssistedKg\" > 0))");
+                table.HasCheckConstraint("CK_exercise_performances_all_time_best_shape", "\"AllTimeBestReps\" IS NOT NULL AND \"AllTimeBestReps\" > 0 AND ((\"TrackingMode\" = 1 AND \"AllTimeBestWeightKg\" IS NOT NULL AND \"AllTimeBestWeightKg\" > 0 AND \"AllTimeBestAssistedKg\" IS NULL) OR (\"TrackingMode\" = 2 AND \"AllTimeBestWeightKg\" IS NULL AND \"AllTimeBestAssistedKg\" IS NULL) OR (\"TrackingMode\" = 3 AND \"AllTimeBestWeightKg\" IS NULL AND \"AllTimeBestAssistedKg\" IS NOT NULL AND \"AllTimeBestAssistedKg\" > 0))");
+            });
+        });
+
+        modelBuilder.Entity<User>(builder =>
+        {
+            builder.ToTable("users");
+            builder.HasKey(user => user.Id);
+            builder.Property(user => user.Email).HasMaxLength(320).IsRequired();
+            builder.Property(user => user.NormalizedEmail).HasMaxLength(320).IsRequired();
+            builder.Property(user => user.PasswordHash).HasMaxLength(1024).IsRequired();
+            builder.Property(user => user.CreatedAt).IsRequired();
+            builder.HasIndex(user => user.NormalizedEmail).IsUnique();
+            builder.HasMany(user => user.RefreshTokens).WithOne(token => token.User).HasForeignKey(token => token.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<RefreshToken>(builder =>
+        {
+            builder.ToTable("refresh_tokens");
+            builder.HasKey(token => token.Id);
+            builder.Property(token => token.UserId).IsRequired();
+            builder.Property(token => token.TokenHash).HasMaxLength(256).IsRequired();
+            builder.Property(token => token.SessionId).IsRequired();
+            builder.Property(token => token.DeviceName).HasMaxLength(128).IsRequired();
+            builder.Property(token => token.ExpiresAt).IsRequired();
+            builder.Property(token => token.CreatedAt).IsRequired();
+            builder.Property(token => token.RevokedAt);
+            builder.HasIndex(token => token.TokenHash).IsUnique();
+            builder.HasIndex(token => new { token.UserId, token.SessionId });
+            builder.HasIndex(token => token.ExpiresAt);
+        });
     }
 }

@@ -51,6 +51,42 @@ public sealed class ExerciseCatalogPersistenceTests
         var entityNames = migration.TargetModel.GetEntityTypes().Select(entity => entity.ClrType.Name).OrderBy(name => name).ToArray();
 
         Assert.Equal(["ExerciseDefinition", "ExerciseImage", "ExercisePerformance", "RefreshToken", "User"], entityNames);
+        var exercise = migration.TargetModel.FindEntityType(typeof(ExerciseDefinition))!;
+        var performance = migration.TargetModel.FindEntityType(typeof(ExercisePerformance))!;
+        var uniqueness = Assert.Single(exercise.GetIndexes(), index => index.Properties.Select(property => property.Name)
+            .SequenceEqual([nameof(ExerciseDefinition.OwnerId), nameof(ExerciseDefinition.NormalizedName)]));
+        var relationship = Assert.Single(performance.GetForeignKeys(), foreignKey => foreignKey.PrincipalEntityType == exercise);
+
+        Assert.True(uniqueness.IsUnique);
+        Assert.Equal("\"OwnerId\" IS NOT NULL AND NOT \"IsArchived\"", uniqueness.GetFilter());
+        Assert.Equal([nameof(ExercisePerformance.ExerciseDefinitionId)], relationship.Properties.Select(property => property.Name));
+        Assert.Equal([nameof(ExerciseDefinition.Id)], relationship.PrincipalKey.Properties.Select(property => property.Name));
+        Assert.Contains(performance.GetIndexes(), index => index.Properties.Select(property => property.Name)
+            .SequenceEqual([nameof(ExercisePerformance.ExerciseDefinitionId)]));
+        Assert.DoesNotContain(exercise.GetKeys(), key => key.Properties.Select(property => property.Name)
+            .SequenceEqual([nameof(ExerciseDefinition.Id), nameof(ExerciseDefinition.TrackingMode)]));
+    }
+
+    [Fact]
+    public async Task Custom_exercise_migration_round_trip_preserves_valid_history_and_restores_trigger_integrity()
+    {
+        await using var database = await PostgreSqlFixture.StartAsync();
+        var exercise = ExerciseDefinition.CreateCustom(Guid.NewGuid(), "Migration Press", BodyPart.Chest, TrackingMode.Weighted);
+        await database.Db.Exercises.AddAsync(exercise);
+        await database.Db.ExercisePerformances.AddAsync(ExercisePerformance.Create(
+            Guid.NewGuid(), exercise.Id, TrackingMode.Weighted, DateTimeOffset.UtcNow,
+            new ExercisePerformanceSet(60m, null, 8), new ExercisePerformanceSet(70m, null, 5)));
+        await database.Db.SaveChangesAsync();
+
+        var migrator = database.Db.GetService<IMigrator>();
+        await migrator.MigrateAsync("20260815035525_AddExerciseCatalog");
+        await migrator.MigrateAsync();
+
+        database.Db.ChangeTracker.Clear();
+        Assert.Equal(1, await database.Db.ExercisePerformances.CountAsync());
+        await Assert.ThrowsAsync<Npgsql.PostgresException>(() => database.Db.Database.ExecuteSqlInterpolatedAsync(
+            $"UPDATE exercise_definitions SET \"TrackingMode\" = {(int)TrackingMode.Bodyweight} WHERE \"Id\" = {exercise.Id}"));
+        Assert.False(database.Db.Database.HasPendingModelChanges());
     }
 
     [Fact]
