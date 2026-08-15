@@ -6,6 +6,7 @@ using TrackZ.Mobile.Data;
 using TrackZ.Mobile.Data.Models;
 using TrackZ.Mobile.Features.Exercises;
 using TrackZ.Mobile.Features.Exercises.Data;
+using TrackZ.Mobile.Features.History;
 using TrackZ.Mobile.Features.Workout;
 using TrackZ.Mobile.Sync;
 using TrackZ.Mobile.Identity;
@@ -40,6 +41,8 @@ public sealed class MauiCompositionTests
             var secondPage = app.Services.GetRequiredService<SetLoggerPage>();
             var concreteStatus = app.Services.GetRequiredService<OutboxRepository>();
             var interfaceStatus = app.Services.GetRequiredService<IWorkoutOutboxStatusSource>();
+            var firstHistoryPage = app.Services.GetRequiredService<WorkoutHistoryPage>();
+            var secondHistoryPage = app.Services.GetRequiredService<WorkoutHistoryPage>();
 
             Assert.IsType<SetLoggerViewModel>(firstPage.BindingContext);
             Assert.IsType<SetLoggerViewModel>(secondPage.BindingContext);
@@ -47,6 +50,13 @@ public sealed class MauiCompositionTests
             Assert.NotSame(firstPage.BindingContext, secondPage.BindingContext);
             Assert.Same(concreteStatus, interfaceStatus);
             Assert.Same(interfaceStatus, app.Services.GetRequiredService<IWorkoutOutboxStatusSource>());
+            Assert.IsType<WorkoutHistoryViewModel>(firstHistoryPage.BindingContext);
+            Assert.IsType<WorkoutHistoryViewModel>(secondHistoryPage.BindingContext);
+            Assert.NotSame(firstHistoryPage, secondHistoryPage);
+            Assert.NotSame(firstHistoryPage.BindingContext, secondHistoryPage.BindingContext);
+            Assert.Same(concreteStatus, app.Services.GetRequiredService<IHistoryOutboxStatusSource>());
+            firstHistoryPage.Deactivate();
+            secondHistoryPage.Deactivate();
 
             await app.Services.GetRequiredService<ExerciseCache>().ReplaceAllAsync([
                 new ExerciseSummaryDto(

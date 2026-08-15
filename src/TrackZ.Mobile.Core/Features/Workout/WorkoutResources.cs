@@ -62,7 +62,24 @@ public sealed record WorkoutTextSet(
     string AssistedPerformanceFormat,
     string BodyweightPerformanceFormat,
     string RepSingular,
-    string RepPlural);
+    string RepPlural,
+    string FinishWorkout,
+    string HistoryTitle,
+    string NoHistory,
+    string Delete,
+    string Undo,
+    string Confirm,
+    string Cancel,
+    string DeleteSetTitle,
+    string DeleteSetMessage,
+    string DeleteWorkoutTitle,
+    string DeleteWorkoutMessage,
+    string HistoryEditFailed,
+    string HistoryDeleteFailed,
+    string UndoFailed,
+    string KeepServer,
+    string ApplyLocal,
+    string HistoryConflictFailed);
 
 public static class WorkoutResources
 {
@@ -99,7 +116,15 @@ public static class WorkoutResources
             Value("Edit", culture), Value("PendingSync", culture),
             Value("WeightedPerformanceFormat", culture), Value("AssistedPerformanceFormat", culture),
             Value("BodyweightPerformanceFormat", culture), Value("RepSingular", culture),
-            Value("RepPlural", culture));
+            Value("RepPlural", culture), Value("FinishWorkout", culture),
+            Value("HistoryTitle", culture), Value("NoHistory", culture),
+            Value("Delete", culture), Value("Undo", culture), Value("Confirm", culture),
+            Value("Cancel", culture), Value("DeleteSetTitle", culture),
+            Value("DeleteSetMessage", culture), Value("DeleteWorkoutTitle", culture),
+            Value("DeleteWorkoutMessage", culture), Value("HistoryEditFailed", culture),
+            Value("HistoryDeleteFailed", culture), Value("UndoFailed", culture),
+            Value("KeepServer", culture), Value("ApplyLocal", culture),
+            Value("HistoryConflictFailed", culture));
     }
 
     private static string Value(string key, CultureInfo culture) =>

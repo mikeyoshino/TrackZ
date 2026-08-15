@@ -63,4 +63,21 @@
   <data name="BodyweightPerformanceFormat" xml:space="preserve"><value>{0} {1}</value></data>
   <data name="RepSingular" xml:space="preserve"><value>rep</value></data>
   <data name="RepPlural" xml:space="preserve"><value>reps</value></data>
+  <data name="FinishWorkout" xml:space="preserve"><value>Finish workout</value></data>
+  <data name="HistoryTitle" xml:space="preserve"><value>Workout history</value></data>
+  <data name="NoHistory" xml:space="preserve"><value>No completed workouts yet.</value></data>
+  <data name="Delete" xml:space="preserve"><value>Delete</value></data>
+  <data name="Undo" xml:space="preserve"><value>Undo</value></data>
+  <data name="Confirm" xml:space="preserve"><value>Confirm</value></data>
+  <data name="Cancel" xml:space="preserve"><value>Cancel</value></data>
+  <data name="DeleteSetTitle" xml:space="preserve"><value>Delete set?</value></data>
+  <data name="DeleteSetMessage" xml:space="preserve"><value>This set will remain recoverable until sync is acknowledged and cannot disappear silently.</value></data>
+  <data name="DeleteWorkoutTitle" xml:space="preserve"><value>Delete workout?</value></data>
+  <data name="DeleteWorkoutMessage" xml:space="preserve"><value>This workout will remain recoverable until sync is acknowledged and cannot disappear silently.</value></data>
+  <data name="HistoryEditFailed" xml:space="preserve"><value>Could not save this history edit.</value></data>
+  <data name="HistoryDeleteFailed" xml:space="preserve"><value>Could not delete this history item.</value></data>
+  <data name="UndoFailed" xml:space="preserve"><value>This change may already be syncing and cannot be undone yet.</value></data>
+  <data name="KeepServer" xml:space="preserve"><value>Keep server</value></data>
+  <data name="ApplyLocal" xml:space="preserve"><value>Apply local</value></data>
+  <data name="HistoryConflictFailed" xml:space="preserve"><value>Could not resolve this sync conflict.</value></data>
 </root>

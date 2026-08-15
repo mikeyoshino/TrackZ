@@ -218,6 +218,76 @@ public sealed class ActiveWorkoutCoordinator(
         }
     }
 
+    public async Task<LocalWorkout> FinishAsync(
+        Guid? operationId = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (operationId == Guid.Empty)
+            throw new ArgumentException("Operation ID cannot be empty.", nameof(operationId));
+
+        var generation = sessionBoundary.Capture();
+        await _mutationGate.WaitAsync(cancellationToken);
+        try
+        {
+            LocalWorkout? completed = null;
+            var committed = await sessionBoundary.TryCommitAsync(generation, async token =>
+            {
+                if (operationId is { } stableId
+                    && await workouts.GetOperationAsync(stableId, token) is { } existing)
+                {
+                    if (existing.Type != OutboxOperationType.CompleteWorkout
+                        || existing.NeutralizedAt is not null)
+                        throw new InvalidDataException(
+                            "The operation identifier is already bound to another workout intent.");
+                    var payload = existing.DeserializePayload<CompleteWorkoutOutboxPayload>();
+                    var durable = await workouts.GetHistoryWorkoutAsync(payload.WorkoutId, token)
+                        ?? throw new InvalidDataException(
+                            "The completed workout is missing for its durable operation.");
+                    if (existing.EntityId != durable.Id
+                        || payload.WorkoutId != durable.Id
+                        || payload.CompletedAt != durable.CompletedAt)
+                        throw new InvalidDataException(
+                            "The completed workout and outbox operation contracts diverge.");
+                    completed = durable;
+                    return;
+                }
+                var active = await workouts.GetActiveAsync(token)
+                    ?? throw new InvalidOperationException("No active workout exists.");
+                var activeExercises = active.Exercises.Where(item => item.DeletedAt is null).ToArray();
+                if (activeExercises.Length == 0
+                    || activeExercises.Any(exercise => exercise.Sets.All(set => set.DeletedAt is not null)))
+                    throw new InvalidOperationException(
+                        "A workout requires at least one completed set for every active exercise.");
+
+                var latest = LastAggregateMutationAt(active);
+                var latestOperationAt = await workouts.GetLatestOperationCreatedAtAsync(token);
+                if (latestOperationAt is { } operationAt && operationAt > latest) latest = operationAt;
+                var completedAt = AfterCausalWatermark(Utc(clock.UtcNow), latest);
+                completed = active with
+                {
+                    Status = LocalWorkoutStatus.Completed,
+                    CompletedAt = completedAt,
+                    Version = active.Version + 1
+                };
+                var operation = OutboxOperation.Create(
+                    operationId ?? Guid.NewGuid(),
+                    active.Id,
+                    OutboxOperationType.CompleteWorkout,
+                    new CompleteWorkoutOutboxPayload(active.Id, completedAt),
+                    active.Version,
+                    completedAt);
+                await workouts.SaveHistoryMutationAndEnqueueAsync(active, completed, operation, token);
+            }, cancellationToken);
+
+            EnsureCurrent(committed, generation, cancellationToken);
+            return completed ?? throw new InvalidOperationException("The workout was not completed.");
+        }
+        finally
+        {
+            _mutationGate.Release();
+        }
+    }
+
     public async Task<LocalWorkout?> RestoreActiveAsync(CancellationToken cancellationToken = default)
     {
         var generation = sessionBoundary.Capture();

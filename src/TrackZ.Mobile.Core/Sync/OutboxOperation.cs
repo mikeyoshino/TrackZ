@@ -35,7 +35,9 @@ public sealed record OutboxOperation(
     int RetryCount = 0,
     DateTimeOffset? NextAttemptAt = null,
     string? ServerPayload = null,
-    Guid? ReplacesOperationId = null)
+    Guid? ReplacesOperationId = null,
+    DateTimeOffset? SendStartedAt = null,
+    DateTimeOffset? NeutralizedAt = null)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -82,3 +84,26 @@ public sealed record SaveSetOutboxPayload(
     string? AssistedKg,
     int Reps,
     DateTimeOffset CompletedAt);
+
+public sealed record CompleteWorkoutOutboxPayload(
+    Guid WorkoutId,
+    DateTimeOffset CompletedAt);
+
+public sealed record EditSetOutboxPayload(
+    Guid WorkoutId,
+    Guid WorkoutExerciseId,
+    Guid SetId,
+    string? WeightKg,
+    string? AssistedKg,
+    int Reps,
+    DateTimeOffset UpdatedAt);
+
+public sealed record DeleteSetOutboxPayload(
+    Guid WorkoutId,
+    Guid WorkoutExerciseId,
+    Guid SetId,
+    DateTimeOffset DeletedAt);
+
+public sealed record DeleteWorkoutOutboxPayload(
+    Guid WorkoutId,
+    DateTimeOffset DeletedAt);

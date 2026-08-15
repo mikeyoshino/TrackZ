@@ -48,5 +48,12 @@
             <Button Clicked="OnAddExerciseClicked" Text="{Binding Text.AddExercise}" />
             <Button Grid.Column="1" Command="{Binding StartWorkoutCommand}" FontAttributes="Bold" Text="{Binding Text.StartWorkout}" />
         </Grid>
+        <Button
+            Grid.Row="2"
+            Command="{Binding FinishWorkoutCommand}"
+            FontAttributes="Bold"
+            IsVisible="{Binding HasStarted}"
+            SemanticProperties.Description="{Binding Text.FinishWorkout}"
+            Text="{Binding Text.FinishWorkout}" />
     </Grid>
 </ContentPage>

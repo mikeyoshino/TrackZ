@@ -17,7 +17,15 @@ public interface IWorkoutOutboxStatusSource
         CancellationToken cancellationToken = default);
 }
 
-public sealed class OutboxRepository(TrackZLocalDatabase database) : IWorkoutOutboxStatusSource
+public interface IHistoryOutboxStatusSource
+{
+    Task<IReadOnlyList<OutboxOperation>> ForHistoryWorkoutAsync(
+        Guid workoutId,
+        CancellationToken cancellationToken = default);
+}
+
+public sealed class OutboxRepository(TrackZLocalDatabase database)
+    : IWorkoutOutboxStatusSource, IHistoryOutboxStatusSource
 {
     public Task<IReadOnlyList<OutboxOperation>> PendingAsync(
         CancellationToken cancellationToken = default) =>
@@ -50,6 +58,37 @@ public sealed class OutboxRepository(TrackZLocalDatabase database) : IWorkoutOut
             (connection, token) => ReadRejectedAsync(connection, workoutId, token),
             cancellationToken);
 
+    public Task<IReadOnlyList<OutboxOperation>> ForHistoryWorkoutAsync(
+        Guid workoutId,
+        CancellationToken cancellationToken = default)
+    {
+        if (workoutId == Guid.Empty)
+            throw new ArgumentException("Workout ID cannot be empty.", nameof(workoutId));
+        return database.ReadAsync<IReadOnlyList<OutboxOperation>>(async (connection, token) =>
+        {
+            var result = new List<OutboxOperation>();
+            await using var command = connection.CreateCommand();
+            command.CommandText = """
+                SELECT OperationId, EntityId, OperationType, Payload, BaseVersion,
+                       CreatedAt, State, DeletedAt, Version, ServerVersion, RetryCount,
+                       NextAttemptAt, ServerPayload, ReplacesOperationId, SendStartedAt,
+                       NeutralizedAt
+                FROM OutboxOperation
+                WHERE EntityId = $workoutId AND OperationType BETWEEN 3 AND 6
+                  AND NeutralizedAt IS NULL
+                  AND (State != 2 OR EXISTS (
+                      SELECT 1 FROM HistoryUndo
+                      WHERE HistoryUndo.OperationId = OutboxOperation.OperationId
+                  ))
+                ORDER BY CreatedAt, OperationId;
+                """;
+            command.Parameters.AddWithValue("$workoutId", workoutId.ToString("D"));
+            await using var reader = await command.ExecuteReaderAsync(token);
+            while (await reader.ReadAsync(token)) result.Add(ReadOperation(reader));
+            return result;
+        }, cancellationToken);
+    }
+
     private static async Task<IReadOnlyList<OutboxOperation>> ReadRejectedAsync(
         SqliteConnection connection,
         Guid workoutId,
@@ -61,8 +100,10 @@ public sealed class OutboxRepository(TrackZLocalDatabase database) : IWorkoutOut
             SELECT OperationId, EntityId, OperationType, Payload, BaseVersion,
                    CreatedAt, State, DeletedAt, Version, ServerVersion, RetryCount,
                    NextAttemptAt, ServerPayload, ReplacesOperationId
+                   , SendStartedAt, NeutralizedAt
             FROM OutboxOperation
-            WHERE State = $state AND DeletedAt IS NOT NULL AND EntityId = $workoutId
+            WHERE State = $state AND DeletedAt IS NOT NULL AND NeutralizedAt IS NULL
+              AND EntityId = $workoutId
             ORDER BY DeletedAt DESC, CreatedAt DESC, OperationId DESC;
             """;
         command.Parameters.AddWithValue("$state", (int)OutboxOperationState.Rejected);
@@ -94,6 +135,7 @@ public sealed class OutboxRepository(TrackZLocalDatabase database) : IWorkoutOut
             SELECT OperationId, EntityId, OperationType, Payload, BaseVersion,
                    CreatedAt, State, DeletedAt, Version, ServerVersion, RetryCount,
                    NextAttemptAt, ServerPayload, ReplacesOperationId
+                   , SendStartedAt, NeutralizedAt
             FROM OutboxOperation
             WHERE State = $state AND DeletedAt IS NULL
               AND ($workoutId IS NULL OR EntityId = $workoutId)
@@ -120,7 +162,9 @@ public sealed class OutboxRepository(TrackZLocalDatabase database) : IWorkoutOut
                     reader.GetInt32(10),
                     reader.IsDBNull(11) ? null : ParseTimestamp(reader.GetString(11)),
                     reader.IsDBNull(12) ? null : reader.GetString(12),
-                    reader.IsDBNull(13) ? null : ParseGuid(reader.GetString(13))));
+                    reader.IsDBNull(13) ? null : ParseGuid(reader.GetString(13)),
+                    reader.IsDBNull(14) ? null : ParseTimestamp(reader.GetString(14)),
+                    reader.IsDBNull(15) ? null : ParseTimestamp(reader.GetString(15))));
             }
             return result;
         }
@@ -153,7 +197,9 @@ public sealed class OutboxRepository(TrackZLocalDatabase database) : IWorkoutOut
         reader.GetInt32(10),
         reader.IsDBNull(11) ? null : ParseTimestamp(reader.GetString(11)),
         reader.IsDBNull(12) ? null : reader.GetString(12),
-        reader.IsDBNull(13) ? null : ParseGuid(reader.GetString(13)));
+        reader.IsDBNull(13) ? null : ParseGuid(reader.GetString(13)),
+        reader.IsDBNull(14) ? null : ParseTimestamp(reader.GetString(14)),
+        reader.IsDBNull(15) ? null : ParseTimestamp(reader.GetString(15)));
 
     private static T ParseEnum<T>(int value) where T : struct, Enum =>
         Enum.IsDefined(typeof(T), value)

@@ -109,8 +109,7 @@ public sealed class PushSyncHandler(
 
         try
         {
-            if (operation.Action == "StartWorkout" && !HasStartWorkoutContract(operation.Payload)
-                || operation.Action == "SaveSet" && !HasSaveSetContract(operation.Payload))
+            if (!HasActionContract(operation.Action, operation.Payload))
             {
                 return new DispatchResult(Rejected(operation.OperationId), null);
             }
@@ -124,6 +123,22 @@ public sealed class PushSyncHandler(
                 "SaveSet" => await sender.Send(new SaveSetSyncCommand(
                     baseVersion,
                     operation.Payload.Deserialize<SaveSetSyncPayload>(JsonOptions)
+                        ?? throw new JsonException()), cancellationToken),
+                "CompleteWorkout" => await sender.Send(new CompleteWorkoutSyncCommand(
+                    baseVersion,
+                    operation.Payload.Deserialize<CompleteWorkoutSyncPayload>(JsonOptions)
+                        ?? throw new JsonException()), cancellationToken),
+                "EditSet" => await sender.Send(new EditSetSyncCommand(
+                    baseVersion,
+                    operation.Payload.Deserialize<EditSetSyncPayload>(JsonOptions)
+                        ?? throw new JsonException()), cancellationToken),
+                "DeleteSet" => await sender.Send(new DeleteSetSyncCommand(
+                    baseVersion,
+                    operation.Payload.Deserialize<DeleteSetSyncPayload>(JsonOptions)
+                        ?? throw new JsonException()), cancellationToken),
+                "DeleteWorkout" => await sender.Send(new DeleteWorkoutSyncCommand(
+                    baseVersion,
+                    operation.Payload.Deserialize<DeleteWorkoutSyncPayload>(JsonOptions)
                         ?? throw new JsonException()), cancellationToken),
                 _ => SyncMutationResult.Rejected()
             };
@@ -201,6 +216,20 @@ public sealed class PushSyncHandler(
         "assistedKg",
         "reps",
         "completedAt");
+
+    private static bool HasActionContract(string action, JsonElement payload) => action switch
+    {
+        "StartWorkout" => HasStartWorkoutContract(payload),
+        "SaveSet" => HasSaveSetContract(payload),
+        "CompleteWorkout" => HasProperties(payload, "workoutId", "completedAt"),
+        "EditSet" => HasProperties(
+            payload, "workoutId", "workoutExerciseId", "setId",
+            "weightKg", "assistedKg", "reps", "updatedAt"),
+        "DeleteSet" => HasProperties(
+            payload, "workoutId", "workoutExerciseId", "setId", "deletedAt"),
+        "DeleteWorkout" => HasProperties(payload, "workoutId", "deletedAt"),
+        _ => false
+    };
 
     private static bool HasProperties(JsonElement element, params string[] propertyNames) =>
         element.ValueKind == JsonValueKind.Object
@@ -357,6 +386,164 @@ internal sealed class SaveSetSyncHandler(
     }
 
     private static decimal? ParseDecimal(string? value)
+    {
+        if (value is null) return null;
+        return decimal.TryParse(
+            value,
+            NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint,
+            CultureInfo.InvariantCulture,
+            out var parsed)
+            ? parsed
+            : throw new FormatException("The decimal value is invalid.");
+    }
+}
+
+internal sealed class CompleteWorkoutSyncHandler(
+    ISyncPushStore store,
+    ICurrentUser currentUser) : IRequestHandler<CompleteWorkoutSyncCommand, SyncMutationResult>
+{
+    public async Task<SyncMutationResult> Handle(
+        CompleteWorkoutSyncCommand request,
+        CancellationToken cancellationToken)
+    {
+        var payload = request.Payload;
+        if (payload.WorkoutId == Guid.Empty || payload.CompletedAt == default)
+            return SyncMutationResult.Rejected();
+
+        await store.AcquireWorkoutLockAsync(payload.WorkoutId, cancellationToken);
+        var workout = await store.FindOwnedWorkoutAsync(
+            currentUser.UserId, payload.WorkoutId, cancellationToken);
+        if (workout is null) return SyncMutationResult.Rejected();
+        if (workout.Version != request.BaseVersion)
+            return SyncMutationResult.Conflict(workout.Version);
+
+        try
+        {
+            workout.Complete(payload.CompletedAt);
+            return SyncMutationResult.Applied(workout);
+        }
+        catch (Exception exception) when (
+            exception is ArgumentException or InvalidOperationException or WorkoutRuleException)
+        {
+            return SyncMutationResult.Rejected();
+        }
+    }
+}
+
+internal sealed class EditSetSyncHandler(
+    ISyncPushStore store,
+    ICurrentUser currentUser) : IRequestHandler<EditSetSyncCommand, SyncMutationResult>
+{
+    public async Task<SyncMutationResult> Handle(
+        EditSetSyncCommand request,
+        CancellationToken cancellationToken)
+    {
+        var payload = request.Payload;
+        if (payload.WorkoutId == Guid.Empty
+            || payload.WorkoutExerciseId == Guid.Empty
+            || payload.SetId == Guid.Empty
+            || payload.UpdatedAt == default)
+            return SyncMutationResult.Rejected();
+
+        await store.AcquireWorkoutLockAsync(payload.WorkoutId, cancellationToken);
+        var workout = await store.FindOwnedWorkoutAsync(
+            currentUser.UserId, payload.WorkoutId, cancellationToken);
+        if (workout is null) return SyncMutationResult.Rejected();
+        if (workout.Version != request.BaseVersion)
+            return SyncMutationResult.Conflict(workout.Version);
+
+        try
+        {
+            workout.EditSet(
+                payload.WorkoutExerciseId,
+                payload.SetId,
+                new SetMeasurement(
+                    ParseDecimal(payload.WeightKg),
+                    ParseDecimal(payload.AssistedKg),
+                    payload.Reps),
+                payload.UpdatedAt);
+            return SyncMutationResult.Applied(workout);
+        }
+        catch (Exception exception) when (
+            exception is ArgumentException or InvalidOperationException or WorkoutRuleException)
+        {
+            return SyncMutationResult.Rejected();
+        }
+    }
+
+    private static decimal? ParseDecimal(string? value) => DecimalParser.Parse(value);
+}
+
+internal sealed class DeleteSetSyncHandler(
+    ISyncPushStore store,
+    ICurrentUser currentUser) : IRequestHandler<DeleteSetSyncCommand, SyncMutationResult>
+{
+    public async Task<SyncMutationResult> Handle(
+        DeleteSetSyncCommand request,
+        CancellationToken cancellationToken)
+    {
+        var payload = request.Payload;
+        if (payload.WorkoutId == Guid.Empty
+            || payload.WorkoutExerciseId == Guid.Empty
+            || payload.SetId == Guid.Empty
+            || payload.DeletedAt == default)
+            return SyncMutationResult.Rejected();
+
+        await store.AcquireWorkoutLockAsync(payload.WorkoutId, cancellationToken);
+        var workout = await store.FindOwnedWorkoutAsync(
+            currentUser.UserId, payload.WorkoutId, cancellationToken);
+        if (workout is null) return SyncMutationResult.Rejected();
+        if (workout.Version != request.BaseVersion)
+            return SyncMutationResult.Conflict(workout.Version);
+
+        try
+        {
+            workout.DeleteSet(payload.WorkoutExerciseId, payload.SetId, payload.DeletedAt);
+            return SyncMutationResult.Applied(workout);
+        }
+        catch (Exception exception) when (
+            exception is ArgumentException or InvalidOperationException or WorkoutRuleException)
+        {
+            return SyncMutationResult.Rejected();
+        }
+    }
+}
+
+internal sealed class DeleteWorkoutSyncHandler(
+    ISyncPushStore store,
+    ICurrentUser currentUser) : IRequestHandler<DeleteWorkoutSyncCommand, SyncMutationResult>
+{
+    public async Task<SyncMutationResult> Handle(
+        DeleteWorkoutSyncCommand request,
+        CancellationToken cancellationToken)
+    {
+        var payload = request.Payload;
+        if (payload.WorkoutId == Guid.Empty || payload.DeletedAt == default)
+            return SyncMutationResult.Rejected();
+
+        await store.AcquireWorkoutLockAsync(payload.WorkoutId, cancellationToken);
+        var workout = await store.FindOwnedWorkoutAsync(
+            currentUser.UserId, payload.WorkoutId, cancellationToken);
+        if (workout is null) return SyncMutationResult.Rejected();
+        if (workout.Version != request.BaseVersion)
+            return SyncMutationResult.Conflict(workout.Version);
+
+        try
+        {
+            workout.Delete(payload.DeletedAt);
+            return SyncMutationResult.Applied(workout);
+        }
+        catch (Exception exception) when (
+            exception is ArgumentException or InvalidOperationException or WorkoutRuleException)
+        {
+            return SyncMutationResult.Rejected();
+        }
+    }
+}
+
+internal static class DecimalParser
+{
+    public static decimal? Parse(string? value)
     {
         if (value is null) return null;
         return decimal.TryParse(

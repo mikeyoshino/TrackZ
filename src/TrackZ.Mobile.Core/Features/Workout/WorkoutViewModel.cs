@@ -41,6 +41,7 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged
         MoveUpCommand = new RelayCommand(item => Move(item, -1), item => CanMove(item, -1));
         MoveDownCommand = new RelayCommand(item => Move(item, 1), item => CanMove(item, 1));
         StartWorkoutCommand = new AsyncCommand(_ => StartAsync(), _ => Exercises.Count != 0 && !_hasStarted && !IsBusy);
+        FinishWorkoutCommand = new AsyncCommand(_ => FinishAsync(), _ => _hasStarted && !IsBusy);
         _boundary.SessionReset += OnSessionReset;
     }
 
@@ -49,6 +50,7 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged
     public ICommand MoveUpCommand { get; }
     public ICommand MoveDownCommand { get; }
     public AsyncCommand StartWorkoutCommand { get; }
+    public AsyncCommand FinishWorkoutCommand { get; }
     public WorkoutTextSet Text => _text;
 
     public bool IsBusy
@@ -147,6 +149,35 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged
         }
     }
 
+    private async Task FinishAsync()
+    {
+        if (!HasStarted) return;
+        var generation = _boundary.Capture();
+        IsBusy = true;
+        ErrorMessage = null;
+        try
+        {
+            await _coordinator.FinishAsync(cancellationToken: default);
+            if (!_boundary.IsCancellationRequested(generation))
+            {
+                Exercises.Clear();
+                HasStarted = false;
+            }
+        }
+        catch (OperationCanceledException) when (_boundary.IsCancellationRequested(generation))
+        {
+            Clear();
+        }
+        catch (Exception) when (!_boundary.IsCancellationRequested(generation))
+        {
+            ErrorMessage = _text.SaveFailed;
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
     private void RemoveExercise(object? item)
     {
         var id = Id(item);
@@ -202,6 +233,7 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged
     private void RaiseCommands()
     {
         StartWorkoutCommand.RaiseCanExecuteChanged();
+        FinishWorkoutCommand.RaiseCanExecuteChanged();
         (RemoveExerciseCommand as RelayCommand)?.RaiseCanExecuteChanged();
         (MoveUpCommand as RelayCommand)?.RaiseCanExecuteChanged();
         (MoveDownCommand as RelayCommand)?.RaiseCanExecuteChanged();

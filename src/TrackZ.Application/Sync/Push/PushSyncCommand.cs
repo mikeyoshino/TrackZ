@@ -14,6 +14,22 @@ internal sealed record SaveSetSyncCommand(
     long BaseVersion,
     SaveSetSyncPayload Payload) : IRequest<SyncMutationResult>;
 
+internal sealed record CompleteWorkoutSyncCommand(
+    long BaseVersion,
+    CompleteWorkoutSyncPayload Payload) : IRequest<SyncMutationResult>;
+
+internal sealed record EditSetSyncCommand(
+    long BaseVersion,
+    EditSetSyncPayload Payload) : IRequest<SyncMutationResult>;
+
+internal sealed record DeleteSetSyncCommand(
+    long BaseVersion,
+    DeleteSetSyncPayload Payload) : IRequest<SyncMutationResult>;
+
+internal sealed record DeleteWorkoutSyncCommand(
+    long BaseVersion,
+    DeleteWorkoutSyncPayload Payload) : IRequest<SyncMutationResult>;
+
 internal sealed record SyncMutationResult(
     SyncOperationStatus Status,
     long? ServerVersion,
@@ -50,3 +66,26 @@ internal sealed record SaveSetSyncPayload(
     string? AssistedKg,
     int Reps,
     DateTimeOffset CompletedAt);
+
+internal sealed record CompleteWorkoutSyncPayload(
+    Guid WorkoutId,
+    DateTimeOffset CompletedAt);
+
+internal sealed record EditSetSyncPayload(
+    Guid WorkoutId,
+    Guid WorkoutExerciseId,
+    Guid SetId,
+    string? WeightKg,
+    string? AssistedKg,
+    int Reps,
+    DateTimeOffset UpdatedAt);
+
+internal sealed record DeleteSetSyncPayload(
+    Guid WorkoutId,
+    Guid WorkoutExerciseId,
+    Guid SetId,
+    DateTimeOffset DeletedAt);
+
+internal sealed record DeleteWorkoutSyncPayload(
+    Guid WorkoutId,
+    DateTimeOffset DeletedAt);

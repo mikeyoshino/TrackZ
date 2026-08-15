@@ -26,7 +26,7 @@ public sealed class SyncCoordinatorTests
             await connection.OpenAsync();
             await using var command = connection.CreateCommand();
             command.CommandText = "PRAGMA user_version;";
-            Assert.Equal(3L, (long)(await command.ExecuteScalarAsync())!);
+            Assert.Equal(4L, (long)(await command.ExecuteScalarAsync())!);
         }
         finally
         {
@@ -87,6 +87,77 @@ public sealed class SyncCoordinatorTests
         Assert.Null(restored.NextAttemptAt);
         Assert.Null(restored.ServerPayload);
         Assert.Null(restored.ReplacesOperationId);
+    }
+
+    [Fact]
+    public async Task Genuine_v3_rows_upgrade_with_undo_safety_columns_and_table_intact()
+    {
+        await using var context = await SyncContext.CreateAsync();
+        await context.StartAsync();
+        var expected = Assert.Single(await context.Outbox.PendingAsync());
+        await using (var connection = new SqliteConnection($"Data Source={context.Path};Pooling=False"))
+        {
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText = """
+                DROP TABLE HistoryUndo;
+                DROP INDEX IX_OutboxOperation_Pending;
+                ALTER TABLE OutboxOperation RENAME TO OutboxOperationV4;
+                CREATE TABLE OutboxOperation (
+                    OperationId TEXT PRIMARY KEY NOT NULL,
+                    EntityId TEXT NOT NULL,
+                    OperationType INTEGER NOT NULL CHECK (OperationType BETWEEN 1 AND 7),
+                    Payload TEXT NOT NULL CHECK (length(Payload) > 0),
+                    BaseVersion INTEGER NOT NULL CHECK (BaseVersion >= 0),
+                    CreatedAt TEXT NOT NULL,
+                    State INTEGER NOT NULL CHECK (State IN (1, 2, 3, 4)),
+                    DeletedAt TEXT NULL,
+                    Version INTEGER NOT NULL CHECK (Version >= 1),
+                    ServerVersion INTEGER NULL CHECK (ServerVersion IS NULL OR ServerVersion >= 0),
+                    RetryCount INTEGER NOT NULL DEFAULT 0 CHECK (RetryCount >= 0),
+                    NextAttemptAt TEXT NULL,
+                    ServerPayload TEXT NULL CHECK (ServerPayload IS NULL OR json_valid(ServerPayload)),
+                    ReplacesOperationId TEXT NULL,
+                    FOREIGN KEY (EntityId) REFERENCES LocalWorkout(Id) ON DELETE RESTRICT
+                );
+                INSERT INTO OutboxOperation
+                    (OperationId, EntityId, OperationType, Payload, BaseVersion,
+                     CreatedAt, State, DeletedAt, Version, ServerVersion, RetryCount,
+                     NextAttemptAt, ServerPayload, ReplacesOperationId)
+                SELECT OperationId, EntityId, OperationType, Payload, BaseVersion,
+                       CreatedAt, State, DeletedAt, Version, ServerVersion, RetryCount,
+                       NextAttemptAt, ServerPayload, ReplacesOperationId
+                FROM OutboxOperationV4;
+                DROP TABLE OutboxOperationV4;
+                CREATE INDEX IX_OutboxOperation_Pending
+                    ON OutboxOperation(State, CreatedAt, OperationId)
+                    WHERE State = 1 AND DeletedAt IS NULL;
+                PRAGMA user_version = 3;
+                """;
+            await command.ExecuteNonQueryAsync();
+        }
+
+        var restarted = new TrackZLocalDatabase(context.Path);
+        await restarted.InitializeAsync();
+
+        var restored = Assert.Single(await new OutboxRepository(restarted).PendingAsync());
+        Assert.Equal(expected.OperationId, restored.OperationId);
+        Assert.Null(restored.SendStartedAt);
+        Assert.Null(restored.NeutralizedAt);
+        await using var verification = new SqliteConnection($"Data Source={context.Path};Pooling=False");
+        await verification.OpenAsync();
+        await using var schema = verification.CreateCommand();
+        schema.CommandText = """
+            SELECT user_version FROM pragma_user_version;
+            SELECT COUNT(*) FROM sqlite_master
+            WHERE type = 'table' AND name = 'HistoryUndo';
+            """;
+        await using var reader = await schema.ExecuteReaderAsync();
+        Assert.True(await reader.ReadAsync());
+        Assert.Equal(4, reader.GetInt64(0));
+        Assert.True(await reader.NextResultAsync());
+        Assert.True(await reader.ReadAsync());
+        Assert.Equal(1, reader.GetInt64(0));
     }
 
     [Fact]

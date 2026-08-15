@@ -86,6 +86,7 @@ public sealed class SyncCoordinator(
                 while (await ReadNextPendingAsync(
                            generation, clock.UtcNow, cancellationToken) is { } operation)
                 {
+                    await MarkSendingAsync(generation, operation.OperationId, cancellationToken);
                     var request = new SyncPushRequest([ToDto(operation)]);
                     var response = await api.PushAsync(request, lease.Token);
                     ValidateResults([operation], response);
@@ -146,8 +147,7 @@ public sealed class SyncCoordinator(
                         var latest = await ReadLatestCreatedAtAsync(connection, transaction, innerToken);
                         var now = clock.UtcNow.ToUniversalTime();
                         var createdAt = now > latest ? now : latest.AddTicks(1);
-                        if (original.Type != OutboxOperationType.SaveSet
-                            || original.ServerVersion != serverVersion
+                        if (original.ServerVersion != serverVersion
                             || original.ServerPayload is null)
                             throw new InvalidOperationException(
                                 "This conflict cannot be rebased against the selected server version.");
@@ -162,18 +162,10 @@ public sealed class SyncCoordinator(
                         var server = JsonSerializer.Deserialize<SyncWorkoutDto>(
                             original.ServerPayload, JsonOptions)
                             ?? throw new InvalidDataException("The stored server authority is malformed.");
-                        var localPayload = original.DeserializePayload<SaveSetOutboxPayload>();
-                        var serverExercise = server.Exercises.SingleOrDefault(item =>
-                            item.Id == localPayload.WorkoutExerciseId && item.DeletedAt is null)
-                            ?? throw new InvalidOperationException(
-                                "The server exercise no longer accepts the local set.");
-                        if (serverExercise.Sets.Any(set =>
-                                set.Id == localPayload.SetId && set.DeletedAt is null))
-                            throw new InvalidOperationException("The local set identifier already exists on the server.");
-                        var rebasedPayload = localPayload with
-                        {
-                            Order = serverExercise.Sets.Count(set => set.DeletedAt is null)
-                        };
+                        ValidateGraph(server);
+                        var serverMutationAt = LastServerMutationAt(server);
+                        if (createdAt <= serverMutationAt) createdAt = serverMutationAt.AddTicks(1);
+                        var rebasedPayload = RebasePayload(original, server, createdAt);
                         var next = original with
                         {
                             OperationId = Guid.NewGuid(),
@@ -187,7 +179,9 @@ public sealed class SyncCoordinator(
                             RetryCount = 0,
                             NextAttemptAt = null,
                             ServerPayload = null,
-                            ReplacesOperationId = original.OperationId
+                            ReplacesOperationId = original.OperationId,
+                            SendStartedAt = null,
+                            NeutralizedAt = null
                         };
                         await InsertOperationAsync(connection, transaction, next, innerToken);
                         return next;
@@ -200,6 +194,108 @@ public sealed class SyncCoordinator(
         finally
         {
             _runGate.Release();
+        }
+    }
+
+    private static object RebasePayload(
+        OutboxOperation original,
+        SyncWorkoutDto server,
+        DateTimeOffset mutationAt) => original.Type switch
+    {
+        OutboxOperationType.SaveSet => RebaseSaveSet(original, server),
+        OutboxOperationType.CompleteWorkout => RebaseComplete(original, server, mutationAt),
+        OutboxOperationType.EditSet => RebaseEditSet(original, server, mutationAt),
+        OutboxOperationType.DeleteSet => RebaseDeleteSet(original, server, mutationAt),
+        OutboxOperationType.DeleteWorkout => RebaseDeleteWorkout(original, server, mutationAt),
+        _ => throw new InvalidOperationException("This operation cannot be rebased safely.")
+    };
+
+    private static SaveSetOutboxPayload RebaseSaveSet(
+        OutboxOperation original,
+        SyncWorkoutDto server)
+    {
+        var payload = original.DeserializePayload<SaveSetOutboxPayload>();
+        var exercise = RequiredActiveExercise(server, payload.WorkoutExerciseId);
+        if (exercise.Sets.Any(set => set.Id == payload.SetId && set.DeletedAt is null))
+            throw new InvalidOperationException("The local set identifier already exists on the server.");
+        return payload with { Order = exercise.Sets.Count(set => set.DeletedAt is null) };
+    }
+
+    private static CompleteWorkoutOutboxPayload RebaseComplete(
+        OutboxOperation original,
+        SyncWorkoutDto server,
+        DateTimeOffset mutationAt)
+    {
+        var payload = original.DeserializePayload<CompleteWorkoutOutboxPayload>();
+        if (payload.WorkoutId != server.Id || server.Status != 2 || server.DeletedAt is not null)
+            throw new InvalidOperationException("The server workout can no longer be completed.");
+        return payload with { CompletedAt = mutationAt };
+    }
+
+    private static EditSetOutboxPayload RebaseEditSet(
+        OutboxOperation original,
+        SyncWorkoutDto server,
+        DateTimeOffset mutationAt)
+    {
+        var payload = original.DeserializePayload<EditSetOutboxPayload>();
+        var exercise = RequiredActiveExercise(server, payload.WorkoutExerciseId);
+        _ = exercise.Sets.SingleOrDefault(set =>
+                set.Id == payload.SetId && set.DeletedAt is null)
+            ?? throw new InvalidOperationException("The server set can no longer be edited.");
+        return payload with { UpdatedAt = mutationAt };
+    }
+
+    private static DeleteSetOutboxPayload RebaseDeleteSet(
+        OutboxOperation original,
+        SyncWorkoutDto server,
+        DateTimeOffset mutationAt)
+    {
+        var payload = original.DeserializePayload<DeleteSetOutboxPayload>();
+        var exercise = RequiredActiveExercise(server, payload.WorkoutExerciseId);
+        _ = exercise.Sets.SingleOrDefault(set =>
+                set.Id == payload.SetId && set.DeletedAt is null)
+            ?? throw new InvalidOperationException("The server set can no longer be deleted.");
+        return payload with { DeletedAt = mutationAt };
+    }
+
+    private static DeleteWorkoutOutboxPayload RebaseDeleteWorkout(
+        OutboxOperation original,
+        SyncWorkoutDto server,
+        DateTimeOffset mutationAt)
+    {
+        var payload = original.DeserializePayload<DeleteWorkoutOutboxPayload>();
+        if (payload.WorkoutId != server.Id || server.DeletedAt is not null)
+            throw new InvalidOperationException("The server workout is already deleted.");
+        return payload with { DeletedAt = mutationAt };
+    }
+
+    private static SyncWorkoutExerciseDto RequiredActiveExercise(
+        SyncWorkoutDto server,
+        Guid workoutExerciseId) =>
+        server.Exercises.SingleOrDefault(exercise =>
+            exercise.Id == workoutExerciseId && exercise.DeletedAt is null)
+        ?? throw new InvalidOperationException("The server exercise no longer accepts this change.");
+
+    private static DateTimeOffset LastServerMutationAt(SyncWorkoutDto workout)
+    {
+        var latest = workout.StartedAt;
+        Include(workout.CompletedAt);
+        Include(workout.DeletedAt);
+        foreach (var exercise in workout.Exercises)
+        {
+            Include(exercise.DeletedAt);
+            foreach (var set in exercise.Sets)
+            {
+                Include(set.CompletedAt);
+                Include(set.UpdatedAt);
+                Include(set.DeletedAt);
+            }
+        }
+        return latest;
+
+        void Include(DateTimeOffset? timestamp)
+        {
+            if (timestamp > latest) latest = timestamp.Value;
         }
     }
 
@@ -242,6 +338,8 @@ public sealed class SyncCoordinator(
                     await ArchiveReplacementAncestorsAsync(
                         connection, transaction, leaf, clock.UtcNow, innerToken);
                     await ApplyGraphAsync(connection, transaction, graph, innerToken);
+                    await DeleteHistoryUndoAsync(
+                        connection, transaction, chain, innerToken);
                     return true;
                 }, token);
             }, cancellationToken);
@@ -269,6 +367,7 @@ public sealed class SyncCoordinator(
                     SELECT OperationId, EntityId, OperationType, Payload, BaseVersion,
                            CreatedAt, State, DeletedAt, Version, ServerVersion, RetryCount,
                            NextAttemptAt, ServerPayload, ReplacesOperationId
+                           , SendStartedAt, NeutralizedAt
                     FROM OutboxOperation
                     WHERE State IN (1, 4) AND DeletedAt IS NULL
                     ORDER BY CreatedAt, OperationId;
@@ -396,6 +495,9 @@ public sealed class SyncCoordinator(
                     else
                     {
                         await ApplyGraphAsync(connection, transaction, change.Workout, innerToken);
+                        await PurgeAcknowledgedHistoryUndoAsync(
+                            connection, transaction, change.EntityId,
+                            change.ServerVersion, innerToken);
                     }
                 }
                 if (response.NextCursor is not null)
@@ -499,7 +601,8 @@ public sealed class SyncCoordinator(
         command.Transaction = transaction;
         command.CommandText = """
             UPDATE OutboxOperation
-            SET RetryCount = $retryCount, NextAttemptAt = $next, Version = Version + 1
+            SET RetryCount = $retryCount, NextAttemptAt = $next, SendStartedAt = NULL,
+                Version = Version + 1
             WHERE OperationId = $id AND State = 1 AND DeletedAt IS NULL;
             """;
         Add(command, "$retryCount", retryCount);
@@ -507,6 +610,76 @@ public sealed class SyncCoordinator(
         Add(command, "$id", Id(operation.OperationId));
         if (await command.ExecuteNonQueryAsync(cancellationToken) != 1)
             throw new InvalidDataException("The retryable operation changed concurrently.");
+    }
+
+    private async Task MarkSendingAsync(
+        AccountSessionGeneration generation,
+        Guid operationId,
+        CancellationToken cancellationToken)
+    {
+        var committed = await sessionBoundary.TryCommitAsync(generation, async token =>
+        {
+            await database.WriteAsync(async (connection, transaction, innerToken) =>
+            {
+                await using var command = connection.CreateCommand();
+                command.Transaction = transaction;
+                command.CommandText = """
+                    UPDATE OutboxOperation
+                    SET SendStartedAt = $startedAt, Version = Version + 1
+                    WHERE OperationId = $id AND State = 1 AND DeletedAt IS NULL
+                      AND NeutralizedAt IS NULL
+                      AND EXISTS (
+                          SELECT 1 FROM HistoryUndo
+                          WHERE HistoryUndo.OperationId = OutboxOperation.OperationId
+                      );
+                    """;
+                Add(command, "$startedAt", Timestamp(clock.UtcNow));
+                Add(command, "$id", Id(operationId));
+                _ = await command.ExecuteNonQueryAsync(innerToken);
+                return true;
+            }, token);
+        }, cancellationToken);
+        EnsureCurrent(committed, generation, cancellationToken);
+    }
+
+    private static async Task PurgeAcknowledgedHistoryUndoAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        Guid entityId,
+        long serverVersion,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            DELETE FROM HistoryUndo
+            WHERE OperationId IN (
+                SELECT OperationId
+                FROM OutboxOperation
+                WHERE EntityId = $entityId AND State = 2
+                  AND NeutralizedAt IS NULL
+                  AND ServerVersion IS NOT NULL AND ServerVersion <= $serverVersion
+            );
+            """;
+        Add(command, "$entityId", Id(entityId));
+        Add(command, "$serverVersion", serverVersion);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task DeleteHistoryUndoAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        IEnumerable<Guid> operationIds,
+        CancellationToken cancellationToken)
+    {
+        foreach (var operationId in operationIds)
+        {
+            await using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = "DELETE FROM HistoryUndo WHERE OperationId = $id;";
+            Add(command, "$id", Id(operationId));
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
     }
 
     private static async Task UpdateConflictAsync(
@@ -608,6 +781,7 @@ public sealed class SyncCoordinator(
             SELECT OperationId, EntityId, OperationType, Payload, BaseVersion,
                    CreatedAt, State, DeletedAt, Version, ServerVersion, RetryCount,
                    NextAttemptAt, ServerPayload, ReplacesOperationId
+                   , SendStartedAt, NeutralizedAt
             FROM OutboxOperation
             WHERE ReplacesOperationId = $id AND DeletedAt IS NULL AND State IN (1, 4);
             """;
@@ -656,6 +830,7 @@ public sealed class SyncCoordinator(
             SELECT OperationId, EntityId, OperationType, Payload, BaseVersion,
                    CreatedAt, State, DeletedAt, Version, ServerVersion, RetryCount,
                    NextAttemptAt, ServerPayload, ReplacesOperationId
+                   , SendStartedAt, NeutralizedAt
             FROM OutboxOperation
             WHERE EntityId = $entityId AND DeletedAt IS NULL AND State IN (1, 4)
             ORDER BY CreatedAt, OperationId;
@@ -945,6 +1120,7 @@ public sealed class SyncCoordinator(
             SELECT OperationId, EntityId, OperationType, Payload, BaseVersion,
                    CreatedAt, State, DeletedAt, Version, ServerVersion, RetryCount,
                    NextAttemptAt, ServerPayload, ReplacesOperationId
+                   , SendStartedAt, NeutralizedAt
             FROM OutboxOperation WHERE OperationId = $id;
             """;
         Add(command, "$id", Id(operationId));
@@ -963,7 +1139,9 @@ public sealed class SyncCoordinator(
         reader.GetInt64(8), reader.IsDBNull(9) ? null : reader.GetInt64(9), reader.GetInt32(10),
         reader.IsDBNull(11) ? null : DateTimeOffset.ParseExact(reader.GetString(11), "O", CultureInfo.InvariantCulture),
         reader.IsDBNull(12) ? null : reader.GetString(12),
-        reader.IsDBNull(13) ? null : Guid.Parse(reader.GetString(13)));
+        reader.IsDBNull(13) ? null : Guid.Parse(reader.GetString(13)),
+        reader.IsDBNull(14) ? null : DateTimeOffset.ParseExact(reader.GetString(14), "O", CultureInfo.InvariantCulture),
+        reader.IsDBNull(15) ? null : DateTimeOffset.ParseExact(reader.GetString(15), "O", CultureInfo.InvariantCulture));
 
     private static async Task<DateTimeOffset> ReadLatestCreatedAtAsync(
         SqliteConnection connection,

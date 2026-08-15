@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using TrackZ.Domain.Exercises;
 using TrackZ.Mobile.Data.Models;
@@ -14,6 +15,28 @@ public interface ILocalWorkoutRepository
         CancellationToken cancellationToken = default);
 
     Task<LocalWorkout?> GetActiveAsync(CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<LocalWorkout>> GetHistoryAsync(
+        CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("History reads are not supported by this repository.");
+
+    Task<LocalWorkout?> GetHistoryWorkoutAsync(
+        Guid workoutId,
+        CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("History reads are not supported by this repository.");
+
+    Task SaveHistoryMutationAndEnqueueAsync(
+        LocalWorkout previous,
+        LocalWorkout workout,
+        OutboxOperation operation,
+        CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("History mutations are not supported by this repository.");
+
+    Task<LocalWorkout> UndoHistoryMutationAsync(
+        Guid operationId,
+        DateTimeOffset neutralizedAt,
+        CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("History undo is not supported by this repository.");
 
     Task<OutboxOperation?> GetOperationAsync(
         Guid operationId,
@@ -32,6 +55,7 @@ internal interface ILocalWorkoutReadCheckpoint
 
 public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
 {
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly TrackZLocalDatabase _database;
     private readonly ILocalWorkoutReadCheckpoint? _readCheckpoint;
 
@@ -83,6 +107,165 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
     public Task<LocalWorkout?> GetActiveAsync(CancellationToken cancellationToken = default) =>
         _database.ReadTransactionAsync(ReadActiveAsync, cancellationToken);
 
+    public Task<IReadOnlyList<LocalWorkout>> GetHistoryAsync(
+        CancellationToken cancellationToken = default) =>
+        _database.ReadTransactionAsync(ReadHistoryAsync, cancellationToken);
+
+    public async Task<LocalWorkout?> GetHistoryWorkoutAsync(
+        Guid workoutId,
+        CancellationToken cancellationToken = default)
+    {
+        if (workoutId == Guid.Empty)
+            throw new ArgumentException("Workout ID cannot be empty.", nameof(workoutId));
+        return (await GetHistoryAsync(cancellationToken)).SingleOrDefault(item => item.Id == workoutId);
+    }
+
+    public async Task SaveHistoryMutationAndEnqueueAsync(
+        LocalWorkout previous,
+        LocalWorkout workout,
+        OutboxOperation operation,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(previous);
+        ArgumentNullException.ThrowIfNull(workout);
+        ArgumentNullException.ThrowIfNull(operation);
+        ValidateGraph(previous);
+        ValidateGraph(workout);
+        ValidateOperation(workout, operation);
+        var isCompletion = operation.Type == OutboxOperationType.CompleteWorkout
+            && previous.Status == LocalWorkoutStatus.Active
+            && workout.Status == LocalWorkoutStatus.Completed;
+        var isHistoricalMutation = operation.Type is (
+                OutboxOperationType.EditSet
+                or OutboxOperationType.DeleteSet
+                or OutboxOperationType.DeleteWorkout)
+            && previous.Status == LocalWorkoutStatus.Completed
+            && workout.Status == LocalWorkoutStatus.Completed;
+        if (previous.Id != workout.Id
+            || (!isCompletion && !isHistoricalMutation)
+            || workout.Version != previous.Version + 1
+            || operation.BaseVersion != previous.Version)
+            throw new ArgumentException("The history mutation contract is invalid.", nameof(operation));
+
+        var snapshotJson = JsonSerializer.Serialize(ToUndoSnapshot(previous), JsonOptions);
+        _ = await _database.WriteAsync(async (connection, transaction, token) =>
+        {
+            if (await ExistingOperationMatchesOrThrowAsync(
+                    connection, transaction, operation, token)) return true;
+            await EnsureMutationCanFollowReplacementAsync(connection, transaction, operation, token);
+            await ValidateCoverageAndStageOrdersAsync(connection, transaction, workout, token);
+            await UpsertWorkoutAsync(connection, transaction, workout, token);
+            foreach (var exercise in workout.Exercises)
+            {
+                await UpsertExerciseAsync(connection, transaction, exercise, token);
+                foreach (var set in exercise.Sets)
+                    await UpsertSetAsync(connection, transaction, set, token);
+            }
+            await InsertOperationAsync(connection, transaction, operation, token);
+            await using var undo = connection.CreateCommand();
+            undo.Transaction = transaction;
+            undo.CommandText = """
+                INSERT INTO HistoryUndo (OperationId, SnapshotJson, CreatedAt)
+                VALUES ($operationId, $snapshot, $createdAt);
+                """;
+            Add(undo, "$operationId", Id(operation.OperationId));
+            Add(undo, "$snapshot", snapshotJson);
+            Add(undo, "$createdAt", Timestamp(operation.CreatedAt));
+            await undo.ExecuteNonQueryAsync(token);
+            return true;
+        }, cancellationToken);
+    }
+
+    public Task<LocalWorkout> UndoHistoryMutationAsync(
+        Guid operationId,
+        DateTimeOffset neutralizedAt,
+        CancellationToken cancellationToken = default)
+    {
+        if (operationId == Guid.Empty)
+            throw new ArgumentException("Operation ID cannot be empty.", nameof(operationId));
+        RequireTimestamp(neutralizedAt, nameof(neutralizedAt));
+        return _database.WriteAsync(async (connection, transaction, token) =>
+        {
+            var operation = await ReadOperationAsync(connection, transaction, operationId, token);
+            if (operation.Type is not (
+                    OutboxOperationType.CompleteWorkout
+                    or OutboxOperationType.EditSet
+                    or OutboxOperationType.DeleteSet
+                    or OutboxOperationType.DeleteWorkout)
+                || operation.NeutralizedAt is not null)
+                throw new InvalidOperationException("The operation cannot be undone.");
+            var safeState = operation.State is OutboxOperationState.Rejected
+                or OutboxOperationState.Conflicted
+                || operation.State == OutboxOperationState.Pending
+                && operation.SendStartedAt is null;
+            if (!safeState)
+                throw new InvalidOperationException(
+                    "The operation may already have reached the server and cannot be undone yet.");
+
+            await using (var successors = connection.CreateCommand())
+            {
+                successors.Transaction = transaction;
+                successors.CommandText = """
+                    SELECT EXISTS (
+                        SELECT 1 FROM OutboxOperation
+                        WHERE EntityId = $entityId AND NeutralizedAt IS NULL
+                          AND (CreatedAt > $createdAt
+                               OR (CreatedAt = $createdAt AND OperationId > $operationId))
+                    );
+                    """;
+                Add(successors, "$entityId", Id(operation.EntityId));
+                Add(successors, "$createdAt", Timestamp(operation.CreatedAt));
+                Add(successors, "$operationId", Id(operation.OperationId));
+                if (Convert.ToInt64(await successors.ExecuteScalarAsync(token)) != 0)
+                    throw new InvalidOperationException(
+                        "Undo later workout changes before undoing this operation.");
+            }
+
+            string snapshotJson;
+            await using (var snapshot = connection.CreateCommand())
+            {
+                snapshot.Transaction = transaction;
+                snapshot.CommandText = "SELECT SnapshotJson FROM HistoryUndo WHERE OperationId = $id;";
+                Add(snapshot, "$id", Id(operationId));
+                snapshotJson = (string?)await snapshot.ExecuteScalarAsync(token)
+                    ?? throw new InvalidDataException("The durable undo snapshot is missing.");
+            }
+            var durableSnapshot = JsonSerializer.Deserialize<HistoryUndoWorkout>(snapshotJson, JsonOptions)
+                ?? throw new InvalidDataException("The durable undo snapshot is malformed.");
+            var restored = FromUndoSnapshot(durableSnapshot);
+            ValidateGraph(restored);
+            if (restored.Id != operation.EntityId)
+                throw new InvalidDataException("The undo snapshot belongs to another workout.");
+
+            await RestoreSnapshotAsync(connection, transaction, restored, token);
+            await using (var neutralize = connection.CreateCommand())
+            {
+                neutralize.Transaction = transaction;
+                neutralize.CommandText = """
+                    UPDATE OutboxOperation
+                    SET State = $state, DeletedAt = $neutralizedAt,
+                        NeutralizedAt = $neutralizedAt, SendStartedAt = NULL,
+                        NextAttemptAt = NULL, Version = Version + 1
+                    WHERE OperationId = $id AND NeutralizedAt IS NULL;
+                    """;
+                Add(neutralize, "$state", (int)OutboxOperationState.Rejected);
+                Add(neutralize, "$neutralizedAt", Timestamp(neutralizedAt));
+                Add(neutralize, "$id", Id(operationId));
+                if (await neutralize.ExecuteNonQueryAsync(token) != 1)
+                    throw new InvalidDataException("The undo operation changed concurrently.");
+            }
+            await using (var removeUndo = connection.CreateCommand())
+            {
+                removeUndo.Transaction = transaction;
+                removeUndo.CommandText = "DELETE FROM HistoryUndo WHERE OperationId = $id;";
+                Add(removeUndo, "$id", Id(operationId));
+                if (await removeUndo.ExecuteNonQueryAsync(token) != 1)
+                    throw new InvalidDataException("The undo snapshot changed concurrently.");
+            }
+            return restored;
+        }, cancellationToken);
+    }
+
     public Task<OutboxOperation?> GetOperationAsync(
         Guid operationId,
         CancellationToken cancellationToken = default)
@@ -94,7 +277,9 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
             await using var command = connection.CreateCommand();
             command.CommandText = """
                 SELECT OperationId, EntityId, OperationType, Payload, BaseVersion,
-                       CreatedAt, State, DeletedAt, Version
+                       CreatedAt, State, DeletedAt, Version, ServerVersion, RetryCount,
+                       NextAttemptAt, ServerPayload, ReplacesOperationId, SendStartedAt,
+                       NeutralizedAt
                 FROM OutboxOperation WHERE OperationId = $id;
                 """;
             Add(command, "$id", Id(operationId));
@@ -228,6 +413,128 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
         {
             throw new InvalidDataException("The active workout database row is corrupt.", exception);
         }
+    }
+
+    private async Task<IReadOnlyList<LocalWorkout>> ReadHistoryAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        var workouts = new List<LocalWorkout>();
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                SELECT Id, Status, StartedAt, CompletedAt, DeletedAt, Version, BaseVersion
+                FROM LocalWorkout
+                WHERE Status = 3 AND (
+                    DeletedAt IS NULL OR EXISTS (
+                        SELECT 1
+                        FROM OutboxOperation AS operation
+                        INNER JOIN HistoryUndo AS undo
+                            ON undo.OperationId = operation.OperationId
+                        WHERE operation.EntityId = LocalWorkout.Id
+                    )
+                )
+                ORDER BY CompletedAt DESC, Id DESC;
+                """;
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                workouts.Add(new LocalWorkout(
+                    GuidValue(reader, 0),
+                    EnumValue<LocalWorkoutStatus>(reader, 1),
+                    Timestamp(reader, 2)!.Value,
+                    Timestamp(reader, 3),
+                    Timestamp(reader, 4),
+                    NonNegativeInt64(reader, 5),
+                    NonNegativeInt64(reader, 6),
+                    []));
+            }
+        }
+
+        var hydrated = new List<LocalWorkout>(workouts.Count);
+        foreach (var workout in workouts)
+        {
+            var exercises = new List<LocalWorkoutExercise>();
+            await using (var command = connection.CreateCommand())
+            {
+                command.Transaction = transaction;
+                command.CommandText = """
+                    SELECT Id, WorkoutId, ExerciseDefinitionId, TrackingMode, SortOrder,
+                           DeletedAt, Version, BaseVersion
+                    FROM LocalWorkoutExercise
+                    WHERE WorkoutId = $workoutId
+                    ORDER BY SortOrder, Id;
+                    """;
+                Add(command, "$workoutId", Id(workout.Id));
+                await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+                while (await reader.ReadAsync(cancellationToken))
+                {
+                    exercises.Add(new LocalWorkoutExercise(
+                        GuidValue(reader, 0),
+                        GuidValue(reader, 1),
+                        GuidValue(reader, 2),
+                        EnumValue<TrackingMode>(reader, 3),
+                        NonNegativeInt32(reader, 4),
+                        Timestamp(reader, 5),
+                        NonNegativeInt64(reader, 6),
+                        NonNegativeInt64(reader, 7),
+                        []));
+                }
+            }
+
+            var hydratedExercises = new List<LocalWorkoutExercise>(exercises.Count);
+            foreach (var exercise in exercises)
+            {
+                var sets = new List<LocalSet>();
+                await using var command = connection.CreateCommand();
+                command.Transaction = transaction;
+                command.CommandText = """
+                    SELECT Id, OperationId, WorkoutExerciseId, SortOrder, WeightKg, AssistedKg, Reps,
+                           CompletedAt, UpdatedAt, DeletedAt, Version, BaseVersion
+                    FROM LocalSet
+                    WHERE WorkoutExerciseId = $exerciseId AND (
+                        DeletedAt IS NULL OR EXISTS (
+                            SELECT 1
+                            FROM OutboxOperation AS operation
+                            INNER JOIN HistoryUndo AS undo
+                                ON undo.OperationId = operation.OperationId
+                            WHERE operation.EntityId = $workoutId
+                              AND operation.OperationType = 5
+                              AND operation.NeutralizedAt IS NULL
+                              AND json_extract(operation.Payload, '$.setId') = LocalSet.Id
+                        )
+                    )
+                    ORDER BY SortOrder, Id;
+                    """;
+                Add(command, "$exerciseId", Id(exercise.Id));
+                Add(command, "$workoutId", Id(workout.Id));
+                await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+                while (await reader.ReadAsync(cancellationToken))
+                {
+                    sets.Add(new LocalSet(
+                        GuidValue(reader, 0),
+                        GuidValue(reader, 2),
+                        NonNegativeInt32(reader, 3),
+                        DecimalValue(reader, 4),
+                        DecimalValue(reader, 5),
+                        PositiveInt32(reader, 6),
+                        Timestamp(reader, 7)!.Value,
+                        Timestamp(reader, 8),
+                        Timestamp(reader, 9),
+                        NonNegativeInt64(reader, 10),
+                        NonNegativeInt64(reader, 11),
+                        GuidValue(reader, 1)));
+                }
+                hydratedExercises.Add(exercise with { Sets = sets });
+            }
+
+            var result = workout with { Exercises = hydratedExercises };
+            ValidateGraph(result);
+            hydrated.Add(result);
+        }
+        return hydrated;
     }
 
     private static async Task UpsertWorkoutAsync(
@@ -562,6 +869,119 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
         }
     }
 
+    private static async Task<OutboxOperation> ReadOperationAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        Guid operationId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT OperationId, EntityId, OperationType, Payload, BaseVersion,
+                   CreatedAt, State, DeletedAt, Version, ServerVersion, RetryCount,
+                   NextAttemptAt, ServerPayload, ReplacesOperationId, SendStartedAt,
+                   NeutralizedAt
+            FROM OutboxOperation WHERE OperationId = $id;
+            """;
+        Add(command, "$id", Id(operationId));
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+            throw new InvalidOperationException("The history operation does not exist.");
+        return ReadOperation(reader);
+    }
+
+    private static async Task RestoreSnapshotAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        LocalWorkout workout,
+        CancellationToken cancellationToken)
+    {
+        await using (var stage = connection.CreateCommand())
+        {
+            stage.Transaction = transaction;
+            stage.CommandText = """
+                UPDATE LocalWorkoutExercise SET SortOrder = SortOrder + 1000000000
+                WHERE WorkoutId = $workoutId AND DeletedAt IS NULL;
+                UPDATE LocalSet SET SortOrder = SortOrder + 1000000000
+                WHERE DeletedAt IS NULL AND WorkoutExerciseId IN
+                    (SELECT Id FROM LocalWorkoutExercise WHERE WorkoutId = $workoutId);
+                """;
+            Add(stage, "$workoutId", Id(workout.Id));
+            await stage.ExecuteNonQueryAsync(cancellationToken);
+        }
+        await using (var root = connection.CreateCommand())
+        {
+            root.Transaction = transaction;
+            root.CommandText = """
+                UPDATE LocalWorkout
+                SET Status = $status, StartedAt = $startedAt, CompletedAt = $completedAt,
+                    DeletedAt = $deletedAt, Version = $version, BaseVersion = $baseVersion
+                WHERE Id = $id;
+                """;
+            Add(root, "$id", Id(workout.Id));
+            Add(root, "$status", (int)workout.Status);
+            Add(root, "$startedAt", Timestamp(workout.StartedAt));
+            Add(root, "$completedAt", Timestamp(workout.CompletedAt));
+            Add(root, "$deletedAt", Timestamp(workout.DeletedAt));
+            Add(root, "$version", workout.Version);
+            Add(root, "$baseVersion", workout.BaseVersion);
+            if (await root.ExecuteNonQueryAsync(cancellationToken) != 1)
+                throw new InvalidDataException("The undo workout is missing.");
+        }
+        foreach (var exercise in workout.Exercises)
+        {
+            await using (var updateExercise = connection.CreateCommand())
+            {
+                updateExercise.Transaction = transaction;
+                updateExercise.CommandText = """
+                    UPDATE LocalWorkoutExercise
+                    SET SortOrder = $order, DeletedAt = $deletedAt, Version = $version,
+                        BaseVersion = $baseVersion
+                    WHERE Id = $id AND WorkoutId = $workoutId
+                      AND ExerciseDefinitionId = $definitionId AND TrackingMode = $mode;
+                    """;
+                Add(updateExercise, "$id", Id(exercise.Id));
+                Add(updateExercise, "$workoutId", Id(workout.Id));
+                Add(updateExercise, "$definitionId", Id(exercise.ExerciseDefinitionId));
+                Add(updateExercise, "$mode", (int)exercise.TrackingMode);
+                Add(updateExercise, "$order", exercise.Order);
+                Add(updateExercise, "$deletedAt", Timestamp(exercise.DeletedAt));
+                Add(updateExercise, "$version", exercise.Version);
+                Add(updateExercise, "$baseVersion", exercise.BaseVersion);
+                if (await updateExercise.ExecuteNonQueryAsync(cancellationToken) != 1)
+                    throw new InvalidDataException("The undo exercise identity changed.");
+            }
+            foreach (var set in exercise.Sets)
+            {
+                await using var updateSet = connection.CreateCommand();
+                updateSet.Transaction = transaction;
+                updateSet.CommandText = """
+                    UPDATE LocalSet
+                    SET SortOrder = $order, WeightKg = $weight, AssistedKg = $assisted,
+                        Reps = $reps, CompletedAt = $completedAt, UpdatedAt = $updatedAt,
+                        DeletedAt = $deletedAt, Version = $version, BaseVersion = $baseVersion
+                    WHERE Id = $id AND OperationId = $operationId
+                      AND WorkoutExerciseId = $exerciseId;
+                    """;
+                Add(updateSet, "$id", Id(set.Id));
+                Add(updateSet, "$operationId", Id(set.OperationId));
+                Add(updateSet, "$exerciseId", Id(exercise.Id));
+                Add(updateSet, "$order", set.Order);
+                Add(updateSet, "$weight", DecimalText(set.WeightKg));
+                Add(updateSet, "$assisted", DecimalText(set.AssistedKg));
+                Add(updateSet, "$reps", set.Reps);
+                Add(updateSet, "$completedAt", Timestamp(set.CompletedAt));
+                Add(updateSet, "$updatedAt", Timestamp(set.UpdatedAt));
+                Add(updateSet, "$deletedAt", Timestamp(set.DeletedAt));
+                Add(updateSet, "$version", set.Version);
+                Add(updateSet, "$baseVersion", set.BaseVersion);
+                if (await updateSet.ExecuteNonQueryAsync(cancellationToken) != 1)
+                    throw new InvalidDataException("The undo set identity changed.");
+            }
+        }
+    }
+
     private static async Task<bool> ExistingOperationMatchesOrThrowAsync(
         SqliteConnection connection,
         SqliteTransaction transaction,
@@ -708,6 +1128,8 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
             throw new ArgumentException("Outbox operation contract is invalid.", nameof(operation));
         RequireTimestamp(operation.CreatedAt, nameof(operation.CreatedAt));
         OptionalTimestamp(operation.DeletedAt, nameof(operation.DeletedAt));
+        OptionalTimestamp(operation.SendStartedAt, nameof(operation.SendStartedAt));
+        OptionalTimestamp(operation.NeutralizedAt, nameof(operation.NeutralizedAt));
     }
 
     private static void ValidateVersion(long version, long baseVersion, string parameter)
@@ -750,7 +1172,14 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
         Timestamp(reader, 5)!.Value,
         EnumValue<OutboxOperationState>(reader, 6),
         Timestamp(reader, 7),
-        NonNegativeInt64(reader, 8));
+        NonNegativeInt64(reader, 8),
+        reader.IsDBNull(9) ? null : NonNegativeInt64(reader, 9),
+        NonNegativeInt32(reader, 10),
+        Timestamp(reader, 11),
+        reader.IsDBNull(12) ? null : reader.GetString(12),
+        reader.IsDBNull(13) ? null : GuidValue(reader, 13),
+        Timestamp(reader, 14),
+        Timestamp(reader, 15));
 
     private static T EnumValue<T>(SqliteDataReader reader, int ordinal) where T : struct, Enum
     {
@@ -819,4 +1248,101 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
         reader.IsDBNull(ordinal) ? null : reader.GetString(ordinal);
     private static void Add(SqliteCommand command, string name, object? value) =>
         command.Parameters.AddWithValue(name, value ?? DBNull.Value);
+
+    private static HistoryUndoWorkout ToUndoSnapshot(LocalWorkout workout) => new(
+        workout.Id,
+        workout.Status,
+        workout.StartedAt,
+        workout.CompletedAt,
+        workout.DeletedAt,
+        workout.Version,
+        workout.BaseVersion,
+        workout.Exercises.Select(exercise => new HistoryUndoExercise(
+            exercise.Id,
+            exercise.WorkoutId,
+            exercise.ExerciseDefinitionId,
+            exercise.TrackingMode,
+            exercise.Order,
+            exercise.DeletedAt,
+            exercise.Version,
+            exercise.BaseVersion,
+            exercise.Sets.Select(set => new HistoryUndoSet(
+                set.Id,
+                set.WorkoutExerciseId,
+                set.Order,
+                set.WeightKg,
+                set.AssistedKg,
+                set.Reps,
+                set.CompletedAt,
+                set.UpdatedAt,
+                set.DeletedAt,
+                set.Version,
+                set.BaseVersion,
+                set.OperationId)).ToArray())).ToArray());
+
+    private static LocalWorkout FromUndoSnapshot(HistoryUndoWorkout workout) => new(
+        workout.Id,
+        workout.Status,
+        workout.StartedAt,
+        workout.CompletedAt,
+        workout.DeletedAt,
+        workout.Version,
+        workout.BaseVersion,
+        workout.Exercises.Select(exercise => new LocalWorkoutExercise(
+            exercise.Id,
+            exercise.WorkoutId,
+            exercise.ExerciseDefinitionId,
+            exercise.TrackingMode,
+            exercise.Order,
+            exercise.DeletedAt,
+            exercise.Version,
+            exercise.BaseVersion,
+            exercise.Sets.Select(set => new LocalSet(
+                set.Id,
+                set.WorkoutExerciseId,
+                set.Order,
+                set.WeightKg,
+                set.AssistedKg,
+                set.Reps,
+                set.CompletedAt,
+                set.UpdatedAt,
+                set.DeletedAt,
+                set.Version,
+                set.BaseVersion,
+                set.OperationId)).ToArray())).ToArray());
+
+    private sealed record HistoryUndoWorkout(
+        Guid Id,
+        LocalWorkoutStatus Status,
+        DateTimeOffset StartedAt,
+        DateTimeOffset? CompletedAt,
+        DateTimeOffset? DeletedAt,
+        long Version,
+        long BaseVersion,
+        IReadOnlyList<HistoryUndoExercise> Exercises);
+
+    private sealed record HistoryUndoExercise(
+        Guid Id,
+        Guid WorkoutId,
+        Guid ExerciseDefinitionId,
+        TrackingMode TrackingMode,
+        int Order,
+        DateTimeOffset? DeletedAt,
+        long Version,
+        long BaseVersion,
+        IReadOnlyList<HistoryUndoSet> Sets);
+
+    private sealed record HistoryUndoSet(
+        Guid Id,
+        Guid WorkoutExerciseId,
+        int Order,
+        decimal? WeightKg,
+        decimal? AssistedKg,
+        int Reps,
+        DateTimeOffset CompletedAt,
+        DateTimeOffset? UpdatedAt,
+        DateTimeOffset? DeletedAt,
+        long Version,
+        long BaseVersion,
+        Guid OperationId);
 }

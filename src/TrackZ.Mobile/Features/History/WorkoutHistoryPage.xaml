@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage
+    x:Class="TrackZ.Mobile.Features.History.WorkoutHistoryPage"
+    x:Name="Page"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:components="clr-namespace:TrackZ.Mobile.Components"
+    xmlns:history="clr-namespace:TrackZ.Mobile.Features.History;assembly=TrackZ.Mobile.Core"
+    x:DataType="history:WorkoutHistoryViewModel"
+    BackgroundColor="#0D0F12"
+    Title="{Binding Text.HistoryTitle}">
+    <Grid Padding="18,20" RowDefinitions="Auto,*" RowSpacing="16">
+        <Grid ColumnDefinitions="*,Auto">
+            <VerticalStackLayout>
+                <Label FontAttributes="Bold" FontSize="30" Text="{Binding Text.HistoryTitle}" />
+                <Label Text="{Binding ErrorMessage}" TextColor="#FF6B6B" />
+            </VerticalStackLayout>
+            <ActivityIndicator Grid.Column="1" IsRunning="{Binding IsBusy}" IsVisible="{Binding IsBusy}" />
+        </Grid>
+
+        <CollectionView Grid.Row="1" ItemsSource="{Binding Workouts}" SelectionMode="None">
+            <CollectionView.EmptyView>
+                <Label HorizontalTextAlignment="Center" Text="{Binding Source={x:Reference Page}, Path=BindingContext.Text.NoHistory}" TextColor="#8E959F" VerticalTextAlignment="Center" />
+            </CollectionView.EmptyView>
+            <CollectionView.ItemTemplate>
+                <DataTemplate x:DataType="history:HistoryWorkoutItem">
+                    <Border Margin="0,0,0,14" Padding="14" BackgroundColor="#15181D" Stroke="#2C3139" StrokeShape="RoundRectangle 20">
+                        <VerticalStackLayout Spacing="12">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <VerticalStackLayout>
+                                    <Label FontAttributes="Bold" FontSize="18" Text="{Binding CompletedAt, StringFormat='{0:g}'}" />
+                                    <Label FontSize="11" Text="{Binding WorkoutId}" TextColor="#8E959F" />
+                                </VerticalStackLayout>
+                                <components:SyncStatusPill Grid.Column="1" State="{Binding SyncState}" Text="{Binding SyncStatusText}" VerticalOptions="Start" />
+                            </Grid>
+                            <VerticalStackLayout BindableLayout.ItemsSource="{Binding Exercises}" Spacing="10">
+                                <BindableLayout.ItemTemplate>
+                                    <DataTemplate x:DataType="history:HistoryExerciseItem">
+                                        <Border Padding="10" BackgroundColor="#101216" Stroke="#242931" StrokeShape="RoundRectangle 14">
+                                            <VerticalStackLayout Spacing="8">
+                                                <Label FontAttributes="Bold" FontSize="12" Text="{Binding ExerciseDefinitionId}" TextColor="#C8FF3D" />
+                                                <VerticalStackLayout BindableLayout.ItemsSource="{Binding Sets}" Spacing="8">
+                                                    <BindableLayout.ItemTemplate>
+                                                        <DataTemplate x:DataType="history:HistorySetItem">
+                                                            <Grid ColumnDefinitions="Auto,*,*,Auto,Auto" ColumnSpacing="8">
+                                                                <Label VerticalTextAlignment="Center" Text="{Binding SetNumber, StringFormat='#{0}'}" />
+                                                                <Entry Grid.Column="1" IsVisible="{Binding IsWeighted}" Keyboard="Numeric" SemanticProperties.Description="{Binding Source={x:Reference Page}, Path=BindingContext.Text.Weight}" Text="{Binding WeightKg, Mode=TwoWay}" />
+                                                                <Entry Grid.Column="1" IsVisible="{Binding IsAssisted}" Keyboard="Numeric" SemanticProperties.Description="{Binding Source={x:Reference Page}, Path=BindingContext.Text.Assistance}" Text="{Binding AssistedKg, Mode=TwoWay}" />
+                                                                <Entry Grid.Column="1" IsVisible="{Binding IsBodyweight}" IsReadOnly="True" Text="{Binding Source={x:Reference Page}, Path=BindingContext.Text.Bodyweight}" />
+                                                                <Entry Grid.Column="2" Keyboard="Numeric" SemanticProperties.Description="{Binding Source={x:Reference Page}, Path=BindingContext.Text.Reps}" Text="{Binding Reps, Mode=TwoWay}" />
+                                                                <Button Grid.Column="3" Command="{Binding Source={x:Reference Page}, Path=BindingContext.EditSetCommand}" CommandParameter="{Binding .}" SemanticProperties.Description="{Binding Source={x:Reference Page}, Path=BindingContext.Text.Edit}" Text="{Binding Source={x:Reference Page}, Path=BindingContext.Text.Edit}" />
+                                                                <Button Grid.Column="4" Command="{Binding Source={x:Reference Page}, Path=BindingContext.DeleteSetCommand}" CommandParameter="{Binding .}" SemanticProperties.Description="{Binding Source={x:Reference Page}, Path=BindingContext.Text.Delete}" Text="{Binding Source={x:Reference Page}, Path=BindingContext.Text.Delete}" />
+                                                            </Grid>
+                                                        </DataTemplate>
+                                                    </BindableLayout.ItemTemplate>
+                                                </VerticalStackLayout>
+                                            </VerticalStackLayout>
+                                        </Border>
+                                    </DataTemplate>
+                                </BindableLayout.ItemTemplate>
+                            </VerticalStackLayout>
+                            <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+                                <Button Command="{Binding Source={x:Reference Page}, Path=BindingContext.UndoCommand}" CommandParameter="{Binding .}" SemanticProperties.Description="{Binding Source={x:Reference Page}, Path=BindingContext.Text.Undo}" Text="{Binding Source={x:Reference Page}, Path=BindingContext.Text.Undo}" />
+                                <Button Grid.Column="1" Command="{Binding Source={x:Reference Page}, Path=BindingContext.DeleteWorkoutCommand}" CommandParameter="{Binding .}" SemanticProperties.Description="{Binding Source={x:Reference Page}, Path=BindingContext.Text.Delete}" Text="{Binding Source={x:Reference Page}, Path=BindingContext.Text.Delete}" />
+                            </Grid>
+                            <Grid ColumnDefinitions="*,*" ColumnSpacing="8" IsVisible="{Binding HasConflict}">
+                                <Button Command="{Binding Source={x:Reference Page}, Path=BindingContext.KeepServerCommand}" CommandParameter="{Binding .}" SemanticProperties.Description="{Binding Source={x:Reference Page}, Path=BindingContext.Text.KeepServer}" Text="{Binding Source={x:Reference Page}, Path=BindingContext.Text.KeepServer}" />
+                                <Button Grid.Column="1" Command="{Binding Source={x:Reference Page}, Path=BindingContext.ApplyLocalCommand}" CommandParameter="{Binding .}" SemanticProperties.Description="{Binding Source={x:Reference Page}, Path=BindingContext.Text.ApplyLocal}" Text="{Binding Source={x:Reference Page}, Path=BindingContext.Text.ApplyLocal}" />
+                            </Grid>
+                        </VerticalStackLayout>
+                    </Border>
+                </DataTemplate>
+            </CollectionView.ItemTemplate>
+        </CollectionView>
+    </Grid>
+</ContentPage>

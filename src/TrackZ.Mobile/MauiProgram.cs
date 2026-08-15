@@ -3,6 +3,7 @@ using TrackZ.Mobile.Data;
 using TrackZ.Mobile.Features.Exercises;
 using TrackZ.Mobile.Features.Exercises.Data;
 using TrackZ.Mobile.Features.Exercises.Services;
+using TrackZ.Mobile.Features.History;
 using TrackZ.Mobile.Features.Workout;
 using TrackZ.Mobile.Identity;
 using TrackZ.Mobile.Sync;
@@ -78,7 +79,10 @@ public static class MauiProgram
 		builder.Services.AddSingleton<OutboxRepository>();
 		builder.Services.AddSingleton<IWorkoutOutboxStatusSource>(services =>
 			services.GetRequiredService<OutboxRepository>());
+		builder.Services.AddSingleton<IHistoryOutboxStatusSource>(services =>
+			services.GetRequiredService<OutboxRepository>());
 		builder.Services.AddSingleton<ActiveWorkoutCoordinator>();
+		builder.Services.AddSingleton<WorkoutHistoryCoordinator>();
 		builder.Services.AddSingleton<IExerciseHistorySource, CachedExerciseHistorySource>();
 		builder.Services.AddSingleton<IWorkoutSyncRunner, WorkoutSyncRunner>();
 		builder.Services.AddSingleton(WorkoutResources.Current);
@@ -88,6 +92,9 @@ public static class MauiProgram
 		builder.Services.AddSingleton<ISetSavedFeedback>(services => services.GetRequiredService<MauiSetSavedFeedback>());
 		builder.Services.AddSingleton<SyncCoordinator>();
 		builder.Services.AddSingleton<ConflictResolution>();
+		builder.Services.AddSingleton<IConflictResolution>(services =>
+			services.GetRequiredService<ConflictResolution>());
+		builder.Services.AddSingleton<IHistoryConfirmation, MauiHistoryConfirmation>();
 		builder.Services.AddSingleton<CustomExerciseImageService>();
 		builder.Services.AddSingleton<LocalExerciseImageImporter>();
 		builder.Services.AddSingleton<LocalExerciseImageSelectionCoordinator>();
@@ -95,10 +102,12 @@ public static class MauiProgram
 		builder.Services.AddTransient<CustomExerciseViewModel>();
 		builder.Services.AddTransient<WorkoutViewModel>();
 		builder.Services.AddTransient<SetLoggerViewModel>();
+		builder.Services.AddTransient<WorkoutHistoryViewModel>();
 		builder.Services.AddSingleton<ExercisePickerPage>();
 		builder.Services.AddTransient<CustomExercisePage>();
 		builder.Services.AddSingleton<WorkoutPage>();
 		builder.Services.AddTransient<SetLoggerPage>();
+		builder.Services.AddTransient<WorkoutHistoryPage>();
 		builder.Services.AddSingleton<AppShell>();
 		configureTestServices?.Invoke(builder.Services);
 

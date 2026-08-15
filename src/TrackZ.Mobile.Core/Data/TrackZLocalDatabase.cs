@@ -4,7 +4,7 @@ namespace TrackZ.Mobile.Data;
 
 public sealed class TrackZLocalDatabase
 {
-    public const int CurrentSchemaVersion = 3;
+    public const int CurrentSchemaVersion = 4;
     private const int BusyTimeoutMilliseconds = 5_000;
     private readonly string _connectionString;
     private readonly SemaphoreSlim _schemaGate = new(1, 1);
@@ -45,19 +45,19 @@ public sealed class TrackZLocalDatabase
                 _initialized = true;
                 return;
             }
-            if (version is not (0 or 1 or 2))
+            if (version is not (0 or 1 or 2 or 3))
             {
                 throw new InvalidDataException(
                     $"Workout database schema {version} is not supported; expected {CurrentSchemaVersion}.");
             }
 
-            var syncStateUpgrade = version is 1 or 2
+            var syncStateUpgrade = version is 1 or 2 or 3
                 ? await BuildSyncStateUpgradeAsync(connection, cancellationToken)
                 : string.Empty;
             await using var transaction = connection.BeginTransaction(deferred: false);
             await using var schema = connection.CreateCommand();
             schema.Transaction = transaction;
-            schema.CommandText = version == 2
+            schema.CommandText = version is 2 or 3
                 ? syncStateUpgrade
                 : version == 1
                 ? $$"""
@@ -178,12 +178,21 @@ public sealed class TrackZLocalDatabase
                     NextAttemptAt TEXT NULL,
                     ServerPayload TEXT NULL CHECK (ServerPayload IS NULL OR json_valid(ServerPayload)),
                     ReplacesOperationId TEXT NULL,
+                    SendStartedAt TEXT NULL,
+                    NeutralizedAt TEXT NULL,
                     FOREIGN KEY (EntityId) REFERENCES LocalWorkout(Id) ON DELETE RESTRICT
                 );
 
                 CREATE INDEX IF NOT EXISTS IX_OutboxOperation_Pending
                     ON OutboxOperation(State, CreatedAt, OperationId)
                     WHERE State = 1 AND DeletedAt IS NULL;
+
+                CREATE TABLE IF NOT EXISTS HistoryUndo (
+                    OperationId TEXT PRIMARY KEY NOT NULL,
+                    SnapshotJson TEXT NOT NULL CHECK (json_valid(SnapshotJson)),
+                    CreatedAt TEXT NOT NULL,
+                    FOREIGN KEY (OperationId) REFERENCES OutboxOperation(OperationId) ON DELETE CASCADE
+                );
 
                 CREATE TABLE IF NOT EXISTS SyncCursor (
                     Scope TEXT PRIMARY KEY NOT NULL,
@@ -192,7 +201,7 @@ public sealed class TrackZLocalDatabase
                     Version INTEGER NOT NULL CHECK (Version >= 0)
                 );
 
-                PRAGMA user_version = 3;
+                PRAGMA user_version = 4;
                 """;
             await schema.ExecuteNonQueryAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
@@ -210,7 +219,7 @@ public sealed class TrackZLocalDatabase
         {
             foreach (var table in new[]
                      {
-                         "OutboxOperation", "LocalSet", "LocalWorkoutExercise", "LocalWorkout", "SyncCursor"
+                         "HistoryUndo", "OutboxOperation", "LocalSet", "LocalWorkoutExercise", "LocalWorkout", "SyncCursor"
                      })
             {
                 await using var command = connection.CreateCommand();
@@ -311,7 +320,17 @@ public sealed class TrackZLocalDatabase
         Add("NextAttemptAt", "TEXT NULL");
         Add("ServerPayload", "TEXT NULL CHECK (ServerPayload IS NULL OR json_valid(ServerPayload))");
         Add("ReplacesOperationId", "TEXT NULL");
-        statements.Add("PRAGMA user_version = 3;");
+        Add("SendStartedAt", "TEXT NULL");
+        Add("NeutralizedAt", "TEXT NULL");
+        statements.Add("""
+            CREATE TABLE IF NOT EXISTS HistoryUndo (
+                OperationId TEXT PRIMARY KEY NOT NULL,
+                SnapshotJson TEXT NOT NULL CHECK (json_valid(SnapshotJson)),
+                CreatedAt TEXT NOT NULL,
+                FOREIGN KEY (OperationId) REFERENCES OutboxOperation(OperationId) ON DELETE CASCADE
+            );
+            """);
+        statements.Add("PRAGMA user_version = 4;");
         return string.Join(Environment.NewLine, statements);
 
         void Add(string name, string definition)
