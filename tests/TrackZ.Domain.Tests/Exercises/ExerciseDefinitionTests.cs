@@ -176,6 +176,7 @@ public sealed class ExerciseDefinitionTests
         Assert.False(image.IsPrivate);
         Assert.Equal(ExerciseImageSource.SystemArtwork, image.Source);
         Assert.Equal(ExerciseImageReviewState.Draft, image.ReviewState);
+        Assert.False(image.IsReadyForUse);
         Assert.Equal(createdAt.ToUniversalTime(), image.CreatedAt);
     }
 
@@ -192,7 +193,14 @@ public sealed class ExerciseDefinitionTests
         Assert.True(image.IsPrivate);
         Assert.Equal(ExerciseImageSource.UserUpload, image.Source);
         Assert.True(image.IsReadyForUse);
-        Assert.Equal(ExerciseImageReviewState.Published, image.ReviewState);
+        Assert.Null(image.ReviewState);
+        Assert.Null(image.ReviewedByUserId);
+        Assert.Null(image.ReviewedAt);
+        Assert.Null(image.RightsReference);
+        Assert.Null(image.PublishedAt);
+        Assert.False(image.AnatomyApproved);
+        Assert.False(image.MovementApproved);
+        Assert.False(image.RightsApproved);
     }
 
     [Fact]
@@ -247,9 +255,11 @@ public sealed class ExerciseDefinitionTests
         var publishedAt = reviewedAt.AddMinutes(5);
 
         image.Review(reviewerId, "rights-2026", anatomyApproved: true, movementApproved: true, rightsApproved: true, reviewedAt);
+        Assert.False(image.IsReadyForUse);
         image.Publish(publishedAt);
 
         Assert.Equal(ExerciseImageReviewState.Published, image.ReviewState);
+        Assert.True(image.IsReadyForUse);
         Assert.Equal(reviewerId, image.ReviewedByUserId);
         Assert.Equal("rights-2026", image.RightsReference);
         Assert.True(image.AnatomyApproved);
@@ -257,6 +267,30 @@ public sealed class ExerciseDefinitionTests
         Assert.True(image.RightsApproved);
         Assert.Equal(reviewedAt.ToUniversalTime(), image.ReviewedAt);
         Assert.Equal(publishedAt.ToUniversalTime(), image.PublishedAt);
+    }
+
+    [Fact]
+    public void Published_system_image_has_complete_publication_metadata()
+    {
+        var image = CreateDraftSystemImage();
+        var reviewedAt = DateTimeOffset.UtcNow;
+
+        image.Review(Guid.NewGuid(), "rights-2026", anatomyApproved: true, movementApproved: true, rightsApproved: true, reviewedAt);
+        image.Publish(reviewedAt.AddMinutes(1));
+
+        Assert.Equal(ExerciseImageSource.SystemArtwork, image.Source);
+        Assert.Null(image.OwnerId);
+        Assert.False(image.IsPrivate);
+        Assert.Equal(ExerciseImageReviewState.Published, image.ReviewState);
+        Assert.True(image.AnatomyApproved);
+        Assert.True(image.MovementApproved);
+        Assert.True(image.RightsApproved);
+        Assert.NotNull(image.ReviewedByUserId);
+        Assert.NotNull(image.ReviewedAt);
+        Assert.False(string.IsNullOrWhiteSpace(image.RightsReference));
+        Assert.NotNull(image.PublishedAt);
+        Assert.True(image.PublishedAt >= image.ReviewedAt);
+        Assert.True(image.ReviewedAt >= image.CreatedAt);
     }
 
     [Fact]

@@ -20,7 +20,9 @@ public sealed class ExerciseImage
 
     public bool IsPrivate { get; private set; }
 
-    public bool IsReadyForUse { get; private set; }
+    public bool IsReadyForUse => Source == ExerciseImageSource.UserUpload
+        ? IsPrivate && OwnerId is not null && ReviewState is null && ReviewMetadataIsEmpty()
+        : IsCompleteSystemPublication();
 
     public string MasterObjectKey { get; private set; } = null!;
 
@@ -34,7 +36,7 @@ public sealed class ExerciseImage
 
     public string? RightsReference { get; private set; }
 
-    public ExerciseImageReviewState ReviewState { get; private set; }
+    public ExerciseImageReviewState? ReviewState { get; private set; }
 
     public Guid? ReviewedByUserId { get; private set; }
 
@@ -68,7 +70,6 @@ public sealed class ExerciseImage
             exerciseDefinition.Id,
             ownerId: null,
             isPrivate: false,
-            isReadyForUse: false,
             masterObjectKey,
             thumbnailObjectKey,
             version,
@@ -101,14 +102,13 @@ public sealed class ExerciseImage
             exerciseDefinition.Id,
             ownerId,
             isPrivate: true,
-            isReadyForUse: true,
             masterObjectKey,
             thumbnailObjectKey,
             version,
             ExerciseImageSource.UserUpload,
             sourceReference,
             createdAt,
-            ExerciseImageReviewState.Published);
+            initialReviewState: null);
     }
 
     public void Review(
@@ -176,21 +176,19 @@ public sealed class ExerciseImage
 
         PublishedAt = normalizedPublishedAt;
         ReviewState = ExerciseImageReviewState.Published;
-        IsReadyForUse = true;
     }
 
     private static ExerciseImage Create(
         Guid exerciseDefinitionId,
         Guid? ownerId,
         bool isPrivate,
-        bool isReadyForUse,
         string masterObjectKey,
         string thumbnailObjectKey,
         int version,
         ExerciseImageSource source,
         string sourceReference,
         DateTimeOffset? createdAt,
-        ExerciseImageReviewState initialReviewState = ExerciseImageReviewState.Draft)
+        ExerciseImageReviewState? initialReviewState = ExerciseImageReviewState.Draft)
     {
         ArgumentOutOfRangeException.ThrowIfEqual(exerciseDefinitionId, Guid.Empty);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(version);
@@ -200,7 +198,7 @@ public sealed class ExerciseImage
             throw new ArgumentOutOfRangeException(nameof(source));
         }
 
-        if (!Enum.IsDefined(initialReviewState))
+        if (initialReviewState is { } reviewState && !Enum.IsDefined(reviewState))
         {
             throw new ArgumentOutOfRangeException(nameof(initialReviewState));
         }
@@ -213,7 +211,6 @@ public sealed class ExerciseImage
             ExerciseDefinitionId = exerciseDefinitionId,
             OwnerId = ownerId,
             IsPrivate = isPrivate,
-            IsReadyForUse = isReadyForUse,
             MasterObjectKey = NormalizeRequiredMetadata(masterObjectKey, nameof(masterObjectKey)),
             ThumbnailObjectKey = NormalizeRequiredMetadata(thumbnailObjectKey, nameof(thumbnailObjectKey)),
             Version = version,
@@ -223,6 +220,30 @@ public sealed class ExerciseImage
             CreatedAt = normalizedCreatedAt
         };
     }
+
+    private bool ReviewMetadataIsEmpty() =>
+        RightsReference is null &&
+        ReviewedByUserId is null &&
+        ReviewedAt is null &&
+        PublishedAt is null &&
+        !AnatomyApproved &&
+        !MovementApproved &&
+        !RightsApproved;
+
+    private bool IsCompleteSystemPublication() =>
+        Source == ExerciseImageSource.SystemArtwork &&
+        !IsPrivate &&
+        OwnerId is null &&
+        ReviewState == ExerciseImageReviewState.Published &&
+        AnatomyApproved &&
+        MovementApproved &&
+        RightsApproved &&
+        ReviewedByUserId is not null &&
+        ReviewedAt is { } reviewedAt &&
+        !string.IsNullOrWhiteSpace(RightsReference) &&
+        PublishedAt is { } publishedAt &&
+        reviewedAt >= CreatedAt &&
+        publishedAt >= reviewedAt;
 
     private static string NormalizeRequiredMetadata(string value, string parameterName)
     {
