@@ -39,13 +39,37 @@ public sealed class CompleteImageUploadHandler(IExerciseImageUploadStore store, 
             await storage.PutAsync($"private/{owner:D}/", masterKey, master, rendered.ContentType, cancellationToken);
             await using var thumbnail = new MemoryStream(rendered.Thumbnail, writable: false);
             await storage.PutAsync($"private/{owner:D}/", thumbnailKey, thumbnail, rendered.ContentType, cancellationToken);
-            var image = await store.CommitCompletionAsync(ticket.Id, owner, processingLeaseId, masterKey, thumbnailKey, cancellationToken);
+            ExerciseImage image;
+            try
+            {
+                image = await store.CommitCompletionAsync(ticket.Id, owner, processingLeaseId, masterKey, thumbnailKey, cancellationToken);
+            }
+            catch (Exception commitException) when (commitException is not OperationCanceledException)
+            {
+                // Commit acknowledgement can be lost after PostgreSQL has made the row durable.
+                // A fresh store query is the authority; never compensate until it proves no row exists.
+                try
+                {
+                    var completed = await store.FindCompletedByAttemptAsync(ticket.Id, owner, processingLeaseId, masterKey, thumbnailKey, CancellationToken.None);
+                    if (completed is not null)
+                    {
+                        await DeleteBestEffortAsync($"staging/{owner:D}/", ticket.StagingObjectKey);
+                        return Dto(completed.Id);
+                    }
+                }
+                catch (Exception reconciliationException)
+                {
+                    throw new UploadCommitOutcomeUnknownException(reconciliationException);
+                }
+                throw;
+            }
             await DeleteBestEffortAsync($"staging/{owner:D}/", ticket.StagingObjectKey);
             return Dto(image.Id);
         }
         catch (OperationCanceledException) { await ReleaseAsync(ticket, owner, processingLeaseId, masterKey, thumbnailKey, cancellationToken); throw; }
-        catch (BusinessException) { await FailAndCleanAsync(ticket, owner, processingLeaseId, masterKey, thumbnailKey, cancellationToken); throw; }
-        catch (InvalidDataException) { await FailAndCleanAsync(ticket, owner, processingLeaseId, masterKey, thumbnailKey, cancellationToken); throw InvalidImage(); }
+        catch (UploadCommitOutcomeUnknownException) { throw; }
+        catch (BusinessException) { await FailAndCleanAsync(ticket, owner, processingLeaseId, masterKey, thumbnailKey, CancellationToken.None); throw; }
+        catch (InvalidDataException) { await FailAndCleanAsync(ticket, owner, processingLeaseId, masterKey, thumbnailKey, CancellationToken.None); throw InvalidImage(); }
         catch
         {
             await ReleaseAsync(ticket, owner, processingLeaseId, masterKey, thumbnailKey, cancellationToken);
@@ -73,8 +97,8 @@ public sealed class CompleteImageUploadHandler(IExerciseImageUploadStore store, 
     private static BusinessException TooLarge() => new(BusinessErrorCode.ImageTooLarge, "The image is too large.", 400);
     private async Task FailAndCleanAsync(ImageUploadTicket ticket, Guid owner, Guid leaseId, string? master, string? thumbnail, CancellationToken ct)
     {
-        var failed = await store.TryFailClaimAsync(ticket.Id, owner, leaseId, ct);
-        await CleanupAttemptAsync(owner, master, thumbnail, ct);
+        var failed = await store.TryFailClaimAsync(ticket.Id, owner, leaseId, CancellationToken.None);
+        await CleanupAttemptAsync(owner, master, thumbnail, CancellationToken.None);
         if (failed) await DeleteBestEffortAsync($"staging/{owner:D}/", ticket.StagingObjectKey);
     }
     private async Task ReleaseAsync(ImageUploadTicket ticket, Guid owner, Guid leaseId, string? master, string? thumbnail, CancellationToken ct)

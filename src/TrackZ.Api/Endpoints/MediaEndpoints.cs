@@ -43,27 +43,30 @@ public static class MediaEndpoints
     private static async Task<IResult> UploadContentAsync(Guid uploadId, HttpRequest request, HttpContext context, IExerciseImageUploadStore store, IObjectStorage storage, ICurrentUser currentUser, CancellationToken cancellationToken)
     {
         var ticket = await store.FindOwnedTicketAsync(uploadId, currentUser.UserId, cancellationToken);
-        if (ticket is null || ticket.IsExpired(DateTimeOffset.UtcNow) || ticket.State != ImageUploadState.Pending) return Missing(context);
-        if (!string.Equals(request.ContentType, ticket.DeclaredContentType, StringComparison.Ordinal) || request.ContentLength != ticket.DeclaredLength) return Bad(context, request.ContentType is null ? "contentType" : "length");
+        if (ticket is null || ticket.IsExpired(DateTimeOffset.UtcNow)) return Missing(context);
+        if (!string.Equals(request.ContentType, ticket.DeclaredContentType, StringComparison.Ordinal)) return Bad(context, "contentType");
+        if (request.ContentLength != ticket.DeclaredLength) return Bad(context, "length");
+        UploadClaim claim;
+        try { claim = await store.TryClaimUploadAsync(uploadId, currentUser.UserId, TimeSpan.FromMinutes(2), cancellationToken); }
+        catch (InvalidOperationException) { return Missing(context); }
         var bytes = await BufferAsync(request.Body, cancellationToken);
         if (bytes.LongLength != ticket.DeclaredLength) return Bad(context, "length");
         await using var content = new MemoryStream(bytes, writable: false);
-        await storage.PutAsync($"staging/{currentUser.UserId:D}/", ticket.StagingObjectKey, content, ticket.DeclaredContentType, cancellationToken);
+        await storage.PutAsync($"staging/{currentUser.UserId:D}/", claim.StagingObjectKey, content, ticket.DeclaredContentType, cancellationToken);
         StagingUploadTransition transition;
         try
         {
-            transition = await store.TryMarkUploadedAsync(ticket.Id, currentUser.UserId, cancellationToken);
+            transition = await store.TryMarkUploadedAsync(ticket.Id, currentUser.UserId, claim.UploadLeaseId, cancellationToken);
         }
         catch
         {
-            await DeleteStagingBestEffortAsync(storage, currentUser.UserId, ticket.StagingObjectKey);
+            await DeleteStagingBestEffortAsync(storage, currentUser.UserId, claim.StagingObjectKey);
             throw;
         }
         if (transition == StagingUploadTransition.Uploaded) return Results.NoContent();
-        // A concurrent PUT may already have made the ticket durable. Its staging bytes are now
-        // owned by that upload, so a losing request must never delete them.
-        if (transition == StagingUploadTransition.RetainedByAnotherUpload) return Missing(context);
-        await DeleteStagingBestEffortAsync(storage, currentUser.UserId, ticket.StagingObjectKey);
+        // Every admitted request has its own lease-scoped key. A late loser can therefore
+        // delete its own bytes without risking the winner's staged object.
+        await DeleteStagingBestEffortAsync(storage, currentUser.UserId, claim.StagingObjectKey);
         return Missing(context);
     }
     private static async Task<IResult> ReadAsync(Guid imageId, string rendition, HttpContext context, IExerciseImageUploadStore store, IObjectStorage storage, ICurrentUser currentUser, CancellationToken cancellationToken)

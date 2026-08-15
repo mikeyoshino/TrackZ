@@ -32,6 +32,8 @@ public static class DependencyInjection
         services.AddScoped<IExerciseImageUploadStore>(provider => provider.GetRequiredService<AppDbContext>());
         services.AddSingleton<IObjectStorage, ObjectStorage>();
         services.AddSingleton<IImageProcessor, ImageProcessor>();
+        services.AddOptions<ImageUploadCleanupOptions>().Bind(configuration.GetSection(ImageUploadCleanupOptions.SectionName));
+        services.AddHostedService<ImageUploadCleanupService>();
         services.AddOptions<ObjectStorageOptions>()
             .Bind(configuration.GetSection(ObjectStorageOptions.SectionName))
             .ValidateDataAnnotations()

@@ -10,11 +10,20 @@ public interface IExerciseImageUploadStore
     Task<ExerciseImage?> FindImageAsync(Guid imageId, CancellationToken cancellationToken);
     Task<ExerciseImage?> FindOwnedImageAsync(Guid imageId, Guid ownerId, CancellationToken cancellationToken);
     Task<StagingUploadTransition> TryMarkUploadedAsync(Guid ticketId, Guid ownerId, CancellationToken cancellationToken);
+    Task<UploadClaim> TryClaimUploadAsync(Guid ticketId, Guid ownerId, TimeSpan lease, CancellationToken cancellationToken);
+    Task<StagingUploadTransition> TryMarkUploadedAsync(Guid ticketId, Guid ownerId, Guid uploadLeaseId, CancellationToken cancellationToken);
     Task<ExerciseImage> CommitCompletionAsync(Guid ticketId, Guid ownerId, Guid processingLeaseId, string masterKey, string thumbnailKey, CancellationToken cancellationToken);
+    /// <summary>Reads a fresh, durable completion outcome after an ambiguous commit failure.</summary>
+    Task<ExerciseImage?> FindCompletedByAttemptAsync(Guid ticketId, Guid ownerId, Guid processingLeaseId, string masterKey, string thumbnailKey, CancellationToken cancellationToken);
+    Task<IReadOnlyList<ImageUploadCleanupCandidate>> ListCleanupCandidatesAsync(DateTimeOffset now, CancellationToken cancellationToken);
+    Task MarkCleanupCompleteAsync(Guid ticketId, string? stagingKey, Guid? processingLeaseId, CancellationToken cancellationToken);
     Task<bool> TryFailClaimAsync(Guid ticketId, Guid ownerId, Guid processingLeaseId, CancellationToken cancellationToken);
     Task<bool> TryReleaseClaimAsync(Guid ticketId, Guid ownerId, Guid processingLeaseId, CancellationToken cancellationToken);
     Task SaveAsync(CancellationToken cancellationToken);
 }
+
+public sealed record UploadClaim(Guid UploadLeaseId, string StagingObjectKey, DateTimeOffset ExpiresAt);
+public sealed record ImageUploadCleanupCandidate(Guid TicketId, Guid OwnerId, Guid ExerciseId, ImageUploadState State, string? StagingKey, Guid? ProcessingLeaseId);
 
 public enum StagingUploadTransition
 {

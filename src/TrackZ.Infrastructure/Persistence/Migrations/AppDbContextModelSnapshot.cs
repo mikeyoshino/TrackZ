@@ -155,6 +155,13 @@ namespace TrackZ.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("bytea");
 
+                    b.Property<Guid?>("CleanupProcessingLeaseId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CleanupStagingObjectKey")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
                     b.Property<string>("DeclaredContentType")
                         .IsRequired()
                         .HasMaxLength(32)
@@ -184,6 +191,12 @@ namespace TrackZ.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("ProcessingLeaseId")
                         .HasColumnType("uuid");
 
+                    b.Property<DateTimeOffset?>("UploadLeaseExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UploadLeaseId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("StagingObjectKey")
                         .IsRequired()
                         .HasMaxLength(512)
@@ -202,8 +215,8 @@ namespace TrackZ.Infrastructure.Persistence.Migrations
 
                     b.ToTable("image_upload_tickets", (string)null, t =>
                         {
-                            t.HasCheckConstraint("CK_image_upload_tickets_processing_lease", "(\"State\" = 3 AND \"ProcessingStartedAt\" IS NOT NULL AND \"LeaseExpiresAt\" IS NOT NULL AND \"ProcessingLeaseId\" IS NOT NULL) OR (\"State\" <> 3 AND \"ProcessingStartedAt\" IS NULL AND \"LeaseExpiresAt\" IS NULL AND \"ProcessingLeaseId\" IS NULL)");
-                            t.HasCheckConstraint("CK_image_upload_tickets_state", "\"State\" IN (1, 2, 3, 4, 5)");
+                            t.HasCheckConstraint("CK_image_upload_tickets_processing_lease", "(\"State\" = 4 AND \"ProcessingStartedAt\" IS NOT NULL AND \"LeaseExpiresAt\" IS NOT NULL AND \"ProcessingLeaseId\" IS NOT NULL) OR (\"State\" <> 4 AND \"ProcessingStartedAt\" IS NULL AND \"LeaseExpiresAt\" IS NULL AND \"ProcessingLeaseId\" IS NULL)");
+                            t.HasCheckConstraint("CK_image_upload_tickets_state", "\"State\" IN (1, 2, 3, 4, 5, 6)");
                         });
                 });
 

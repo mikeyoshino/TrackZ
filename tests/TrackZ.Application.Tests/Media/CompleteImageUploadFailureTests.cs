@@ -101,6 +101,20 @@ public sealed class CompleteImageUploadFailureTests
     }
 
     [Fact]
+    public async Task Post_commit_acknowledgement_failure_is_reconciled_without_deleting_durable_finals()
+    {
+        var harness = Harness.Create();
+        harness.Store.ThrowAfterDurableCommit = true;
+
+        var dto = await harness.Handler.Handle(new(harness.Ticket.Id), default);
+
+        Assert.Equal(ImageUploadState.Completed, harness.Ticket.State);
+        Assert.Equal(harness.Store.CommittedImageId, dto.Id);
+        Assert.Contains(harness.Storage.FinalKeys, key => key.EndsWith("master.jpg", StringComparison.Ordinal));
+        Assert.Contains(harness.Storage.FinalKeys, key => key.EndsWith("thumbnail.jpg", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task Completed_upload_stays_completed_when_postcommit_staging_delete_fails()
     {
         var harness = Harness.Create();
@@ -322,7 +336,9 @@ public sealed class CompleteImageUploadFailureTests
         public Exception? CommitException { get; set; }
         public bool CancelOnCommit { get; set; }
         public bool LoseLeaseDuringCommit { get; set; }
+        public bool ThrowAfterDurableCommit { get; set; }
         public Guid? CommittedImageId { get; private set; }
+        public ExerciseImage? DurablyCompletedImage { get; private set; }
         public Guid? WinnerLeaseId { get; private set; }
 
         public Task<ExerciseDefinition?> FindOwnedActiveExerciseAsync(Guid id, Guid owner, CancellationToken ct) => Task.FromResult<ExerciseDefinition?>(exercise);
@@ -331,6 +347,8 @@ public sealed class CompleteImageUploadFailureTests
         public Task<ExerciseImage?> FindImageAsync(Guid id, CancellationToken ct) => Task.FromResult<ExerciseImage?>(null);
         public Task<ExerciseImage?> FindOwnedImageAsync(Guid id, Guid owner, CancellationToken ct) => Task.FromResult<ExerciseImage?>(null);
         public Task<StagingUploadTransition> TryMarkUploadedAsync(Guid id, Guid owner, CancellationToken ct) => Task.FromResult(StagingUploadTransition.Uploaded);
+        public Task<UploadClaim> TryClaimUploadAsync(Guid id, Guid owner, TimeSpan lease, CancellationToken ct) => Task.FromResult(new UploadClaim(Guid.NewGuid(), Ticket.StagingObjectKey, DateTimeOffset.UtcNow.Add(lease)));
+        public Task<StagingUploadTransition> TryMarkUploadedAsync(Guid id, Guid owner, Guid uploadLease, CancellationToken ct) => Task.FromResult(StagingUploadTransition.Uploaded);
 
         public Task<ExerciseImage> CommitCompletionAsync(Guid id, Guid owner, Guid lease, string master, string thumb, CancellationToken ct)
         {
@@ -352,8 +370,17 @@ public sealed class CompleteImageUploadFailureTests
             var image = ExerciseImage.CreateCustomUpload(exercise, owner, master, thumb, 1, "test");
             Ticket.Complete(image.Id, lease, DateTimeOffset.UtcNow);
             CommittedImageId = image.Id;
+            DurablyCompletedImage = image;
+            if (ThrowAfterDurableCommit) return Task.FromException<ExerciseImage>(new IOException("commit acknowledgement lost"));
             return Task.FromResult(image);
         }
+
+        public Task<ExerciseImage?> FindCompletedByAttemptAsync(Guid id, Guid owner, Guid lease, string master, string thumb, CancellationToken ct)
+        {
+            return Task.FromResult(DurablyCompletedImage);
+        }
+        public Task<IReadOnlyList<ImageUploadCleanupCandidate>> ListCleanupCandidatesAsync(DateTimeOffset now, CancellationToken ct) => Task.FromResult<IReadOnlyList<ImageUploadCleanupCandidate>>([]);
+        public Task MarkCleanupCompleteAsync(Guid id, string? staging, Guid? lease, CancellationToken ct) => Task.CompletedTask;
 
         public Task<bool> TryFailClaimAsync(Guid id, Guid owner, Guid lease, CancellationToken ct)
         {
