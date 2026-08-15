@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using TrackZ.Contracts.Sync;
 using TrackZ.Domain.Exercises;
@@ -467,6 +468,94 @@ public sealed class WorkoutHistoryCoordinatorTests : IAsyncDisposable
             .GetOperationAsync(replacement.OperationId))!.NeutralizedAt);
     }
 
+    [Fact]
+    public async Task Sent_replacement_blocks_keep_server_and_undo_until_retryable_result_proves_not_committed()
+    {
+        var exerciseId = Guid.NewGuid();
+        var active = Coordinator();
+        await active.StartAsync([new WorkoutExerciseSelection(exerciseId, TrackingMode.Bodyweight)]);
+        _clock.UtcNow = _clock.UtcNow.AddMinutes(1);
+        var set = await active.SaveSetAsync(exerciseId, new LocalSet(null, null, 10));
+        _clock.UtcNow = _clock.UtcNow.AddMinutes(1);
+        var completed = await active.FinishAsync();
+        await new SyncCoordinator(Database(), new AppliedApi(CompletedGraph(completed)), _boundary, _clock)
+            .RunOnceAsync();
+        _clock.UtcNow = _clock.UtcNow.AddMinutes(1);
+        var originalId = Guid.NewGuid();
+        await History().EditSetAsync(
+            completed.Id,
+            Assert.Single(completed.Exercises).Id,
+            set.Id,
+            new HistorySetMeasurement(null, null, 12),
+            originalId);
+        var remoteAt = _clock.UtcNow.AddMinutes(1);
+        var remote = EditedGraph(completed, 8, 4, remoteAt);
+        var conflictApi = new QueueSyncApi();
+        conflictApi.PushResponses.Enqueue(new SyncPushResponse([
+            new SyncOperationResultDto(
+                originalId, SyncOperationStatus.Conflict, 4,
+                TrackZ.Contracts.Errors.BusinessErrorCode.VersionConflict)
+        ]));
+        conflictApi.PullResponses.Enqueue(new SyncPullResponse([
+            new SyncChangeDto(2, "Workout", remote.Id, 4, false, remoteAt, remote)
+        ], "cursor-2", false));
+        var sync = new SyncCoordinator(Database(), conflictApi, _boundary, _clock);
+        await sync.RunOnceAsync();
+        var replacement = await new ConflictResolution(sync)
+            .ApplyLocalAgainstVersionAsync(originalId, 4);
+
+        Assert.Equal(SyncRunStatus.Offline, await new SyncCoordinator(
+            Database(), new ThrowingPushApi(), _boundary, _clock).RunOnceAsync());
+        var restartedBoundary = new AccountSessionBoundary();
+        var restartedDatabase = new TrackZLocalDatabase(_path);
+        var restartedRepository = new LocalWorkoutRepository(restartedDatabase);
+        var ambiguousOriginal = await restartedRepository.GetOperationAsync(originalId);
+        var ambiguousReplacement = await restartedRepository.GetOperationAsync(replacement.OperationId);
+        var ambiguousGraph = Assert.Single(await restartedRepository.GetHistoryAsync());
+        var ambiguousSnapshot = await UndoSnapshotAsync(replacement.OperationId);
+        Assert.NotNull(ambiguousReplacement!.SendStartedAt);
+        Assert.NotNull(ambiguousSnapshot);
+
+        var restartedSync = new SyncCoordinator(
+            restartedDatabase, new ThrowingPushApi(), restartedBoundary, _clock);
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            new ConflictResolution(restartedSync).KeepServerAsync(originalId));
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            new WorkoutHistoryCoordinator(restartedRepository, restartedBoundary, _clock)
+                .UndoAsync(replacement.OperationId));
+
+        Assert.Equal(ambiguousOriginal, await restartedRepository.GetOperationAsync(originalId));
+        Assert.Equal(ambiguousReplacement, await restartedRepository.GetOperationAsync(replacement.OperationId));
+        Assert.Equal(ambiguousSnapshot, await UndoSnapshotAsync(replacement.OperationId));
+        Assert.Equal(
+            JsonSerializer.Serialize(ambiguousGraph),
+            JsonSerializer.Serialize(Assert.Single(await restartedRepository.GetHistoryAsync())));
+
+        var retryableApi = new QueueSyncApi();
+        retryableApi.PushResponses.Enqueue(new SyncPushResponse([
+            new SyncOperationResultDto(
+                replacement.OperationId,
+                SyncOperationStatus.Retryable,
+                null,
+                TrackZ.Contracts.Errors.BusinessErrorCode.InternalServerError)
+        ]));
+        Assert.Equal(SyncRunStatus.Completed, await new SyncCoordinator(
+            restartedDatabase, retryableApi, restartedBoundary, _clock).RunOnceAsync());
+        var retryable = await restartedRepository.GetOperationAsync(replacement.OperationId);
+        Assert.Equal(OutboxOperationState.Pending, retryable!.State);
+        Assert.Null(retryable.SendStartedAt);
+        Assert.Equal(1, retryable.RetryCount);
+
+        await new ConflictResolution(new SyncCoordinator(
+            restartedDatabase, retryableApi, restartedBoundary, _clock))
+            .KeepServerAsync(originalId);
+        var kept = Assert.Single(await restartedRepository.GetHistoryAsync());
+        Assert.Equal(8, Assert.Single(Assert.Single(kept.Exercises).Sets).Reps);
+        Assert.Empty(await new OutboxRepository(restartedDatabase)
+            .ForHistoryWorkoutAsync(completed.Id));
+        Assert.Equal(0, await UndoCountAsync());
+    }
+
     private ActiveWorkoutCoordinator Coordinator() => new(
         new LocalWorkoutRepository(Database()), _boundary, _clock);
 
@@ -484,6 +573,17 @@ public sealed class WorkoutHistoryCoordinatorTests : IAsyncDisposable
         await using var command = connection.CreateCommand();
         command.CommandText = "SELECT COUNT(*) FROM HistoryUndo;";
         return (long)(await command.ExecuteScalarAsync())!;
+    }
+
+    private async Task<string?> UndoSnapshotAsync(Guid operationId)
+    {
+        await Database().InitializeAsync();
+        await using var connection = new SqliteConnection($"Data Source={_path};Pooling=False");
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT SnapshotJson FROM HistoryUndo WHERE OperationId = $id;";
+        command.Parameters.AddWithValue("$id", operationId.ToString("D"));
+        return (string?)await command.ExecuteScalarAsync();
     }
 
     private static SyncWorkoutDto CompletedGraph(LocalWorkout workout) => new(
@@ -616,5 +716,18 @@ public sealed class WorkoutHistoryCoordinatorTests : IAsyncDisposable
             Task.FromResult(PullResponses.Count == 0
                 ? new SyncPullResponse([], cursor, false)
                 : PullResponses.Dequeue());
+    }
+
+    private sealed class ThrowingPushApi : ISyncApi
+    {
+        public Task<SyncPushResponse> PushAsync(
+            SyncPushRequest request,
+            CancellationToken cancellationToken = default) =>
+            throw new HttpRequestException("The push outcome is ambiguous.");
+
+        public Task<SyncPullResponse> PullAsync(
+            string? cursor,
+            CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("Pull is not reached after an ambiguous push.");
     }
 }

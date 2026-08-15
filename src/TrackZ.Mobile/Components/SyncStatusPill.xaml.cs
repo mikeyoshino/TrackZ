@@ -31,6 +31,7 @@ public partial class SyncStatusPill : ContentView
             WorkoutSyncState.Offline => Color.FromArgb("#292D34"),
             WorkoutSyncState.Pending => Color.FromArgb("#31321F"),
             WorkoutSyncState.Syncing => Color.FromArgb("#192A3D"),
+            WorkoutSyncState.Reconciling => Color.FromArgb("#473617"),
             _ => Color.FromArgb("#173126")
         };
     }

@@ -9,6 +9,7 @@ public sealed record WorkoutTextSet(
     string Conflicted,
     string PermanentFailure,
     string Syncing,
+    string Reconciling,
     string Synced,
     string InvalidWeightedSet,
     string InvalidAssistedSet,
@@ -95,7 +96,7 @@ public static class WorkoutResources
         ArgumentNullException.ThrowIfNull(culture);
         return new WorkoutTextSet(
             Value("Offline", culture), Value("Pending", culture), Value("Conflicted", culture), Value("PermanentFailure", culture),
-            Value("Syncing", culture), Value("Synced", culture), Value("InvalidWeightedSet", culture),
+            Value("Syncing", culture), Value("Reconciling", culture), Value("Synced", culture), Value("InvalidWeightedSet", culture),
             Value("InvalidAssistedSet", culture), Value("InvalidBodyweightSet", culture),
             Value("SaveFailed", culture), Value("LoadFailed", culture), Value("WorkoutTitle", culture), Value("SetLoggerTitle", culture),
             Value("Last", culture), Value("Today", culture), Value("MatchLast", culture),

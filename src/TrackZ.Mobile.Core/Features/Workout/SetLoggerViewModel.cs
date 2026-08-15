@@ -20,7 +20,8 @@ public enum WorkoutSyncState
     Pending = 3,
     Conflicted = 4,
     Syncing = 5,
-    PermanentFailure = 6
+    PermanentFailure = 6,
+    Reconciling = 7
 }
 
 public enum WeightDisplayUnit
@@ -316,6 +317,7 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         WorkoutSyncState.Pending => _text.Pending,
         WorkoutSyncState.Conflicted => _text.Conflicted,
         WorkoutSyncState.Syncing => _text.Syncing,
+        WorkoutSyncState.Reconciling => _text.Reconciling,
         WorkoutSyncState.PermanentFailure => _text.PermanentFailure,
         _ => _text.Synced
     };

@@ -9,6 +9,7 @@
   <data name="Conflicted" xml:space="preserve"><value>ต้องตรวจสอบข้อมูลซิงค์</value></data>
   <data name="PermanentFailure" xml:space="preserve"><value>ซิงค์ไม่สำเร็จถาวร</value></data>
   <data name="Syncing" xml:space="preserve"><value>กำลังซิงค์…</value></data>
+  <data name="Reconciling" xml:space="preserve"><value>กำลังตรวจสอบผลการซิงค์ก่อนหน้า…</value></data>
   <data name="Synced" xml:space="preserve"><value>ซิงค์แล้ว</value></data>
   <data name="InvalidWeightedSet" xml:space="preserve"><value>กรอกน้ำหนักและจำนวนครั้งที่ถูกต้อง</value></data>
   <data name="InvalidAssistedSet" xml:space="preserve"><value>กรอกน้ำหนักช่วยและจำนวนครั้งที่ถูกต้อง</value></data>

@@ -40,6 +40,7 @@ public sealed class PushSyncHandler(
     {
         if (operation.OperationId == Guid.Empty) return Rejected(Guid.Empty);
         var fingerprint = Fingerprint(operation);
+        var commitStarted = false;
         try
         {
             await using var transaction = await store.BeginSyncTransactionAsync(cancellationToken);
@@ -51,6 +52,7 @@ public sealed class PushSyncHandler(
                 var replay = processed.RequestFingerprint == fingerprint
                     ? JsonSerializer.Deserialize<SyncOperationResultDto>(processed.ResultJson, JsonOptions)
                     : Rejected(operation.OperationId);
+                commitStarted = true;
                 await transaction.CommitAsync(cancellationToken);
                 return replay ?? Rejected(operation.OperationId);
             }
@@ -89,11 +91,14 @@ public sealed class PushSyncHandler(
                     cancellationToken);
                 await store.SaveSyncChangesAsync(cancellationToken);
             }
+            commitStarted = true;
             await transaction.CommitAsync(cancellationToken);
             return publicResult;
         }
         catch (Exception exception) when (
-            exception is not OperationCanceledException && store.IsTransient(exception))
+            !commitStarted
+            && exception is not OperationCanceledException
+            && store.IsTransient(exception))
         {
             return new SyncOperationResultDto(
                 operation.OperationId,

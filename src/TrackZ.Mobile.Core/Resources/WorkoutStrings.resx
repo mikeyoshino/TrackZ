@@ -9,6 +9,7 @@
   <data name="Conflicted" xml:space="preserve"><value>Sync needs your review</value></data>
   <data name="PermanentFailure" xml:space="preserve"><value>Sync failed permanently</value></data>
   <data name="Syncing" xml:space="preserve"><value>Syncing…</value></data>
+  <data name="Reconciling" xml:space="preserve"><value>Reconciling an earlier sync…</value></data>
   <data name="Synced" xml:space="preserve"><value>Synced</value></data>
   <data name="InvalidWeightedSet" xml:space="preserve"><value>Enter a valid weight and reps</value></data>
   <data name="InvalidAssistedSet" xml:space="preserve"><value>Enter valid assistance and reps</value></data>

@@ -188,7 +188,8 @@ public sealed class WorkoutHistoryViewModelTests : IAsyncDisposable
             _clock.UtcNow.AddMinutes(1)) with
         {
             State = OutboxOperationState.Conflicted,
-            ServerVersion = 9
+            ServerVersion = 9,
+            SendStartedAt = _clock.UtcNow.AddMinutes(1)
         };
         var conflicts = new RecordingConflictResolution();
         var viewModel = new WorkoutHistoryViewModel(
@@ -207,6 +208,7 @@ public sealed class WorkoutHistoryViewModelTests : IAsyncDisposable
         Assert.True(set.IsAssisted);
         Assert.False(set.IsWeighted);
         Assert.Equal(25m, set.AssistedKg);
+        Assert.Equal(WorkoutSyncState.Conflicted, workout.SyncState);
         Assert.True(workout.HasConflict);
         Assert.True(viewModel.ApplyLocalCommand.CanExecute(workout));
         Assert.True(viewModel.KeepServerCommand.CanExecute(workout));
@@ -216,6 +218,68 @@ public sealed class WorkoutHistoryViewModelTests : IAsyncDisposable
 
         Assert.Equal((operationId, 9L), conflicts.Applied);
         Assert.Equal(operationId, conflicts.Kept);
+    }
+
+    [Theory]
+    [InlineData("en-US", "Reconciling an earlier sync…")]
+    [InlineData("th-TH", "กำลังตรวจสอบผลการซิงค์ก่อนหน้า…")]
+    public async Task Ambiguous_sent_replacement_is_localized_and_disables_every_history_action(
+        string cultureName,
+        string expectedStatus)
+    {
+        var completed = await CompletedWorkoutAsync(TrackingMode.Bodyweight, null, null, 10);
+        var originalId = Guid.NewGuid();
+        var original = OutboxOperation.Create(
+            originalId,
+            completed.Id,
+            OutboxOperationType.EditSet,
+            new { value = 1 },
+            completed.Version,
+            _clock.UtcNow.AddMinutes(1)) with
+        {
+            State = OutboxOperationState.Conflicted,
+            ServerVersion = completed.Version + 1
+        };
+        var replacement = OutboxOperation.Create(
+            Guid.NewGuid(),
+            completed.Id,
+            OutboxOperationType.EditSet,
+            new { value = 2 },
+            completed.Version + 1,
+            _clock.UtcNow.AddMinutes(2)) with
+        {
+            ReplacesOperationId = originalId,
+            SendStartedAt = _clock.UtcNow.AddMinutes(3)
+        };
+        var connectivity = new MutableConnectivity(isOnline: true);
+        var text = WorkoutResources.ForCulture(CultureInfo.GetCultureInfo(cultureName));
+        var viewModel = new WorkoutHistoryViewModel(
+            new WorkoutHistoryCoordinator(Repository(), _boundary, _clock),
+            new FixedHistoryStatusSource(original, replacement),
+            new RecordingConfirmation(),
+            _boundary,
+            connectivity,
+            text,
+            new RecordingConflictResolution());
+
+        await viewModel.LoadAsync();
+
+        var workout = Assert.Single(viewModel.Workouts);
+        var set = Assert.Single(Assert.Single(workout.Exercises).Sets);
+        Assert.Equal(WorkoutSyncState.Reconciling, workout.SyncState);
+        Assert.Equal(expectedStatus, workout.SyncStatusText);
+        Assert.Equal(text.Reconciling, workout.SyncStatusText);
+        Assert.True(workout.HasConflict);
+        Assert.False(viewModel.EditSetCommand.CanExecute(set));
+        Assert.False(viewModel.DeleteSetCommand.CanExecute(set));
+        Assert.False(viewModel.DeleteWorkoutCommand.CanExecute(workout));
+        Assert.False(viewModel.UndoCommand.CanExecute(workout));
+        Assert.False(viewModel.KeepServerCommand.CanExecute(workout));
+        Assert.False(viewModel.ApplyLocalCommand.CanExecute(workout));
+
+        connectivity.SetOnline(false);
+        Assert.Equal(WorkoutSyncState.Reconciling, Assert.Single(viewModel.Workouts).SyncState);
+        Assert.Equal(expectedStatus, Assert.Single(viewModel.Workouts).SyncStatusText);
     }
 
     private async Task<LocalWorkout> CompletedWorkoutAsync(

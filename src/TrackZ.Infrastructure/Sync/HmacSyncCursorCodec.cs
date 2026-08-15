@@ -51,7 +51,9 @@ public sealed class HmacSyncCursorCodec(IOptions<JwtOptions> options) : ISyncCur
             || value.Any(character => !(char.IsAsciiLetterOrDigit(character) || character is '-' or '_')))
             throw new FormatException();
         var base64 = value.Replace('-', '+').Replace('_', '/');
-        return Convert.FromBase64String(base64.PadRight(base64.Length + (4 - base64.Length % 4) % 4, '='));
+        var decoded = Convert.FromBase64String(base64.PadRight(base64.Length + (4 - base64.Length % 4) % 4, '='));
+        if (!string.Equals(value, Encode64(decoded), StringComparison.Ordinal)) throw new FormatException();
+        return decoded;
     }
 
     private sealed record Payload(int Version, Guid OwnerId, long Sequence);

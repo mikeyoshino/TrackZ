@@ -567,6 +567,138 @@ public sealed class EditHistoryTests : IAsyncLifetime
         }
     }
 
+    [Fact]
+    public async Task Ambiguous_rebased_edit_commit_blocks_stale_keep_server_until_exact_replay_and_pull()
+    {
+        var owner = await AuthenticateAsync();
+        var exercise = ExerciseDefinition.CreateSystem(
+            $"Ambiguous Conflict Press {Guid.NewGuid():N}", BodyPart.Chest, TrackingMode.Weighted);
+        await SeedAsync(exercise);
+        var sqlitePath = Path.Combine(
+            Path.GetTempPath(), $"trackz-ambiguous-conflict-{Guid.NewGuid():N}.db");
+        try
+        {
+            var clock = new TestClock(Utc(16));
+            var boundary = new AccountSessionBoundary();
+            var database = new TrackZLocalDatabase(sqlitePath);
+            var active = new ActiveWorkoutCoordinator(
+                new LocalWorkoutRepository(database), boundary, clock);
+            await active.StartAsync([
+                new WorkoutExerciseSelection(exercise.Id, TrackingMode.Weighted)
+            ]);
+            clock.UtcNow = clock.UtcNow.AddMinutes(1);
+            var set = await active.SaveSetAsync(exercise.Id, new LocalSet(70m, null, 10));
+            clock.UtcNow = clock.UtcNow.AddMinutes(1);
+            var completed = await active.FinishAsync();
+            var workoutExercise = Assert.Single(completed.Exercises);
+            using var mobileHttp = _factory!.CreateClient();
+            mobileHttp.DefaultRequestHeaders.Authorization =
+                new AuthenticationHeaderValue("Bearer", owner.Token);
+            var api = new TrackZSyncApiClient(mobileHttp);
+            var sync = new SyncCoordinator(database, api, boundary, clock);
+            Assert.Equal(SyncRunStatus.Completed, await sync.RunOnceAsync());
+
+            var remoteUpdatedAt = clock.UtcNow.AddMinutes(1);
+            await AssertAppliedAsync(owner.Token, Operation(
+                Guid.NewGuid(),
+                "EditSet",
+                3,
+                new
+                {
+                    workoutId = completed.Id,
+                    workoutExerciseId = workoutExercise.Id,
+                    setId = set.Id,
+                    weightKg = "65",
+                    assistedKg = (string?)null,
+                    reps = 9,
+                    updatedAt = remoteUpdatedAt
+                }), 4);
+
+            clock.UtcNow = remoteUpdatedAt.AddMinutes(1);
+            var localEdit = await new WorkoutHistoryCoordinator(
+                    new LocalWorkoutRepository(database), boundary, clock)
+                .EditSetAsync(
+                    completed.Id,
+                    workoutExercise.Id,
+                    set.Id,
+                    new HistorySetMeasurement(75m, null, 6));
+            Assert.Equal(SyncRunStatus.Completed, await sync.RunOnceAsync());
+            var conflict = Assert.Single(await new OutboxRepository(database).ConflictedAsync());
+            Assert.Equal(localEdit.OperationId, conflict.OperationId);
+            Assert.Equal(4, conflict.ServerVersion);
+            var replacement = await new ConflictResolution(sync)
+                .ApplyLocalAgainstVersionAsync(conflict.OperationId, 4);
+
+            var commitThenDrop = new CommitThenDropOnActionApi(api, "EditSet");
+            Assert.Equal(SyncRunStatus.Offline, await new SyncCoordinator(
+                database, commitThenDrop, boundary, clock).RunOnceAsync());
+            Assert.Equal(replacement.OperationId, commitThenDrop.DroppedOperationId);
+            var restartedDatabase = new TrackZLocalDatabase(sqlitePath);
+            var restartedRepository = new LocalWorkoutRepository(restartedDatabase);
+            var beforeOperations = await new OutboxRepository(restartedDatabase)
+                .ForHistoryWorkoutAsync(completed.Id);
+            var beforeGraph = Assert.Single(await restartedRepository.GetHistoryAsync());
+            var beforeSnapshot = await ReadHistoryUndoSnapshotAsync(
+                sqlitePath, replacement.OperationId);
+            Assert.NotNull(beforeSnapshot);
+            var ambiguousReplacement = await restartedRepository
+                .GetOperationAsync(replacement.OperationId);
+            Assert.Equal(OutboxOperationState.Pending, ambiguousReplacement!.State);
+            Assert.NotNull(ambiguousReplacement.SendStartedAt);
+            Assert.Equal(6, Assert.Single(Assert.Single(beforeGraph.Exercises).Sets).Reps);
+
+            var restartedBoundary = new AccountSessionBoundary();
+            var restartedSync = new SyncCoordinator(
+                restartedDatabase, api, restartedBoundary, clock);
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                new ConflictResolution(restartedSync).KeepServerAsync(conflict.OperationId));
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                new WorkoutHistoryCoordinator(restartedRepository, restartedBoundary, clock)
+                    .UndoAsync(replacement.OperationId));
+
+            Assert.Equal(beforeOperations, await new OutboxRepository(restartedDatabase)
+                .ForHistoryWorkoutAsync(completed.Id));
+            Assert.Equal(beforeSnapshot, await ReadHistoryUndoSnapshotAsync(
+                sqlitePath, replacement.OperationId));
+            Assert.Equal(
+                JsonSerializer.Serialize(beforeGraph),
+                JsonSerializer.Serialize(Assert.Single(await restartedRepository.GetHistoryAsync())));
+            var serverBeforeReplay = await ReadJsonAsync(owner.Token, "/api/v1/workouts");
+            var committedServerWorkout = Assert.Single(
+                serverBeforeReplay.RootElement.GetProperty("items").EnumerateArray());
+            Assert.Equal(5, committedServerWorkout.GetProperty("version").GetInt64());
+            Assert.Equal(6, committedServerWorkout.GetProperty("exercises")[0]
+                .GetProperty("sets")[0].GetProperty("reps").GetInt32());
+
+            Assert.Equal(SyncRunStatus.Completed, await new SyncCoordinator(
+                new TrackZLocalDatabase(sqlitePath), api,
+                new AccountSessionBoundary(), clock).RunOnceAsync());
+            var reconciledRepository = new LocalWorkoutRepository(
+                new TrackZLocalDatabase(sqlitePath));
+            var reconciled = Assert.Single(await reconciledRepository.GetHistoryAsync());
+            Assert.Equal(5, reconciled.Version);
+            Assert.Equal(6, Assert.Single(Assert.Single(reconciled.Exercises).Sets).Reps);
+            Assert.Empty(await new OutboxRepository(new TrackZLocalDatabase(sqlitePath))
+                .ForHistoryWorkoutAsync(completed.Id));
+            Assert.Null(await ReadHistoryUndoSnapshotAsync(sqlitePath, replacement.OperationId));
+
+            await using var scope = _factory.Services.CreateAsyncScope();
+            var store = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            Assert.Single(await store.ProcessedClientOperations.Where(item =>
+                item.UserId == owner.UserId
+                && item.OperationId == replacement.OperationId).ToListAsync());
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            foreach (var suffix in new[] { string.Empty, "-wal", "-shm" })
+            {
+                var path = sqlitePath + suffix;
+                if (File.Exists(path)) File.Delete(path);
+            }
+        }
+    }
+
     private static object Operation(Guid operationId, string action, long baseVersion, object payload) => new
     {
         operationId,
@@ -724,6 +856,19 @@ public sealed class EditHistoryTests : IAsyncLifetime
         Assert.Equal(lastReps, performance.LastBestReps);
         Assert.Equal(allTimeWeightKg, performance.AllTimeBestWeightKg);
         Assert.Equal(allTimeReps, performance.AllTimeBestReps);
+    }
+
+    private static async Task<string?> ReadHistoryUndoSnapshotAsync(
+        string sqlitePath,
+        Guid operationId)
+    {
+        await using var connection = new Microsoft.Data.Sqlite.SqliteConnection(
+            $"Data Source={sqlitePath};Pooling=False");
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT SnapshotJson FROM HistoryUndo WHERE OperationId = $id;";
+        command.Parameters.AddWithValue("$id", operationId.ToString("D"));
+        return (string?)await command.ExecuteScalarAsync();
     }
 
     private static DateTimeOffset Utc(int hour) =>

@@ -83,3 +83,39 @@ The independent Task 7 review reported one Critical and four Important findings.
 
 - A full `iossimulator-arm64` packaging attempt emitted the application DLL/XAML successfully, then remained silent in a post-compile tool step and was terminated after cancellation did not exit. The deterministic iOS `Compile` target is green, but this particular full packaging invocation is not counted as verified.
 - Whole-solution `dotnet format --verify-no-changes` reports many whitespace diagnostics in unchanged pre-existing files and cannot load the absent Android restore graph. `git diff --check` is clean; unrelated formatting was deliberately not rewritten.
+
+## Fix Round 2
+
+The second independent review found a resolution race in a rebased conflict: after the replacement was marked sent but before any authoritative response was stored, Keep Server could discard that ambiguous replacement and install the older ancestor authority.
+
+- Keep Server now inspects the complete ancestor/descendant replacement chain inside its existing SQLite transaction. A `Pending` operation with `SendStartedAt` is an unresolved server outcome, so resolution fails before changing the graph, outbox rows, or undo snapshot.
+- Existing Undo and Apply Local barriers remain fail-closed for the same chain: Undo of the sent replacement refuses it, Undo of the ancestor sees the later intent, and another Apply Local cannot pass the live-replacement barrier.
+- History projects unresolved sent intent as a dedicated `Reconciling` state before Conflict/Pending precedence. The EN/TH status remains visible even offline, uses a non-success native status color, and disables edit, set/workout delete, Undo, Keep Server, and Apply Local until an exact response is stored.
+- A handler-confirmed pre-commit Retryable response clears `SendStartedAt` and retains the same operation/payload with bounded retry metadata, proving that the server did not apply it; conflict resolution can then safely proceed. Once `CommitAsync` starts, transient commit/disposal failures propagate as an ambiguous transport failure instead of being mislabeled Retryable. Applied/Conflict/Rejected responses retain their existing authoritative paths.
+- A new authenticated TestServer/PostgreSQL acceptance creates a real server version-4 conflict, rebases locally, commits the replacement as server version 5, and drops the response before the mobile acknowledgement. Recreated SQLite/coordinators cannot apply stale version-4 authority or Undo; replay of the identical replacement operation returns the single processed result, pulls version 5, and only then purges the snapshot.
+
+### Fix-round-2 TDD evidence
+
+1. Core RED: the real-SQLite conflict-chain test expected Keep Server to throw, but no exception was raised and stale ancestor authority was installed. The passing test now proves the graph, both operation records, payloads, and transferred snapshot remain exact across restart.
+2. UI RED: the localized history test failed to compile because `Reconciling` did not exist. EN/TH theory cases now prove state text, offline precedence, retained conflict visibility, and disabled commands.
+3. Retryable coverage proves a sent-but-not-committed replacement remains ambiguous before its response, then clears only `SendStartedAt` after the exact Retryable result and can be safely resolved without losing the snapshot prematurely.
+4. Real PostgreSQL acceptance proves the complementary committed case: server version 5 is observable while mobile still holds the sent replacement, stale resolution is blocked, and identical-ID replay plus pull reconciles exactly once.
+5. Commit-acknowledgement RED expected the transient `TimeoutException` to escape after `CommitAsync` began, but the handler returned Retryable. The handler now distinguishes pre-commit failures from commit-started ambiguity; the focused test is green and the existing real-PostgreSQL pre-commit transient test remains green.
+6. The full API regression exposed a noncanonical base64url alias whose decoded HMAC bytes were unchanged, allowing a textually tampered sync cursor. A focused infrastructure test reproduced the acceptance before canonical decode validation; it is green and the owner/tamper API test is now stable.
+
+### Fix-round-2 verification
+
+- Domain workout/performance: PASS, 82/82.
+- Application workout/sync: PASS, 8/8.
+- Infrastructure workout/sync/migration parity: PASS, 27/27 against PostgreSQL.
+- API workout/sync: PASS, 30/30 against PostgreSQL.
+- Mobile workout/sync/history: PASS, 130/130.
+- Application/Domain/Mobile architecture: PASS, 6/6, 2/2, and 3/3.
+- API and Mobile.Core builds: PASS, 0 warnings / 0 errors.
+- iOS MAUI `Compile`: PASS, 0 warnings / 0 errors with XAML source generation.
+- Android: exact external `XA5300` gate because no Android SDK directory is installed; no SDK/emulator was downloaded or started.
+
+### Fix-round-2 concerns
+
+- Android packaging remains unverified until an Android SDK is installed.
+- The earlier full `iossimulator-arm64` post-compile packaging stall remains an environment/tooling concern; deterministic iOS XAML `Compile` is green and is the only iOS result claimed in this round.

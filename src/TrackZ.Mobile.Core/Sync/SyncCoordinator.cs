@@ -323,11 +323,16 @@ public sealed class SyncCoordinator(
                     var authority = operation;
                     var leaf = operation;
                     var chain = new HashSet<Guid> { operation.OperationId };
+                    var chainOperations = new Dictionary<Guid, OutboxOperation>
+                    {
+                        [operation.OperationId] = operation
+                    };
                     while (await ReadLiveReplacementAsync(
                                connection, transaction, leaf.OperationId, innerToken) is { } replacement)
                     {
                         if (!chain.Add(replacement.OperationId))
                             throw new InvalidDataException("The conflict replacement chain is cyclic.");
+                        chainOperations.Add(replacement.OperationId, replacement);
                         leaf = replacement;
                         if (replacement.ServerPayload is not null) authority = replacement;
                     }
@@ -340,8 +345,14 @@ public sealed class SyncCoordinator(
                         chain.Add(id);
                         var ancestor = await ReadOperationAsync(
                             connection, transaction, id, innerToken);
+                        chainOperations.TryAdd(id, ancestor);
                         ancestorId = ancestor.ReplacesOperationId;
                     }
+                    if (chainOperations.Values.Any(candidate =>
+                            candidate.State == OutboxOperationState.Pending
+                            && candidate.SendStartedAt is not null))
+                        throw new InvalidOperationException(
+                            "A replacement operation has an ambiguous server outcome and must be reconciled first.");
                     if (await HasUnrelatedLiveSuccessorAsync(
                             connection, transaction, operation, chain, innerToken))
                         throw new InvalidOperationException(

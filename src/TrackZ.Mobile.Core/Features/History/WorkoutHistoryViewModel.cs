@@ -34,7 +34,7 @@ public sealed class HistorySetItem : INotifyPropertyChanged
     public required DateTimeOffset CompletedAt { get; init; }
     public required bool IsDeleted { get; init; }
     public required bool WorkoutIsDeleted { get; init; }
-    public required bool WorkoutHasPermanentFailure { get; init; }
+    public required bool WorkoutActionsBlocked { get; init; }
     public int SetNumber => Order + 1;
     public bool UsesWeight => TrackingMode is TrackingMode.Weighted or TrackingMode.Assisted;
     public bool IsWeighted => TrackingMode == TrackingMode.Weighted;
@@ -64,7 +64,7 @@ public sealed class HistorySetItem : INotifyPropertyChanged
     internal static HistorySetItem From(
         Guid workoutId,
         bool workoutIsDeleted,
-        bool workoutHasPermanentFailure,
+        bool workoutActionsBlocked,
         LocalWorkoutExercise exercise,
         LocalSet set) => new()
     {
@@ -76,7 +76,7 @@ public sealed class HistorySetItem : INotifyPropertyChanged
         CompletedAt = set.CompletedAt,
         IsDeleted = set.DeletedAt is not null,
         WorkoutIsDeleted = workoutIsDeleted,
-        WorkoutHasPermanentFailure = workoutHasPermanentFailure,
+        WorkoutActionsBlocked = workoutActionsBlocked,
         WeightKg = set.WeightKg,
         AssistedKg = set.AssistedKg,
         Reps = set.Reps
@@ -109,6 +109,8 @@ public sealed record HistoryWorkoutItem(
 {
     public bool HasConflict => ConflictedOperationId is not null && ConflictedServerVersion is not null;
     public bool HasPermanentFailure => SyncState == WorkoutSyncState.PermanentFailure;
+    public bool IsReconciling => SyncState == WorkoutSyncState.Reconciling;
+    public bool ActionsBlocked => HasPermanentFailure || IsReconciling;
 }
 
 public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged
@@ -145,10 +147,14 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged
         DeleteSetCommand = new AsyncCommand(DeleteSetAsync, CanMutateSet);
         DeleteWorkoutCommand = new AsyncCommand(DeleteWorkoutAsync,
             item => !_deactivated && !IsBusy
-                && item is HistoryWorkoutItem { IsDeleted: false, HasPermanentFailure: false });
+                && item is HistoryWorkoutItem { IsDeleted: false, ActionsBlocked: false });
         UndoCommand = new AsyncCommand(UndoAsync,
             item => !_deactivated && !IsBusy
-                && item is HistoryWorkoutItem { LastUndoOperationId: not null });
+                && item is HistoryWorkoutItem
+                {
+                    LastUndoOperationId: not null,
+                    IsReconciling: false
+                });
         KeepServerCommand = new AsyncCommand(KeepServerAsync, CanResolveConflict);
         ApplyLocalCommand = new AsyncCommand(ApplyLocalAsync, CanResolveConflict);
         _boundary.SessionReset += OnSessionReset;
@@ -338,7 +344,8 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged
             var durableState = DurableStatus(operations);
             projectedStates[workout.Id] = durableState;
             var state = DisplayStatus(durableState);
-            var hasPermanentFailure = durableState == WorkoutSyncState.PermanentFailure;
+            var actionsBlocked = durableState is
+                WorkoutSyncState.PermanentFailure or WorkoutSyncState.Reconciling;
             var exercises = workout.Exercises
                 .Where(exercise => exercise.DeletedAt is null)
                 .OrderBy(exercise => exercise.Order)
@@ -350,7 +357,7 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged
                         .Select(set => HistorySetItem.From(
                             workout.Id,
                             workout.DeletedAt is not null,
-                            hasPermanentFailure,
+                            actionsBlocked,
                             exercise,
                             set))
                         .ToArray()))
@@ -384,12 +391,14 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged
 
     private static WorkoutSyncState DurableStatus(IReadOnlyList<OutboxOperation> operations)
     {
+        if (operations.Any(operation => operation.State == OutboxOperationState.Pending
+                && operation.SendStartedAt is not null))
+            return WorkoutSyncState.Reconciling;
         if (operations.Any(operation => operation.State == OutboxOperationState.Rejected))
             return WorkoutSyncState.PermanentFailure;
         if (operations.Any(operation => operation.State == OutboxOperationState.Conflicted))
             return WorkoutSyncState.Conflicted;
-        if (operations.Any(operation => operation.SendStartedAt is not null
-                || operation.State == OutboxOperationState.Applied))
+        if (operations.Any(operation => operation.State == OutboxOperationState.Applied))
             return WorkoutSyncState.Syncing;
         if (operations.Any(operation => operation.State == OutboxOperationState.Pending))
             return WorkoutSyncState.Pending;
@@ -397,7 +406,9 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged
     }
 
     private WorkoutSyncState DisplayStatus(WorkoutSyncState durableState) =>
-        durableState is WorkoutSyncState.PermanentFailure or WorkoutSyncState.Conflicted
+        durableState is WorkoutSyncState.PermanentFailure
+            or WorkoutSyncState.Conflicted
+            or WorkoutSyncState.Reconciling
             ? durableState
             : _connectivity.IsOnline ? durableState : WorkoutSyncState.Offline;
 
@@ -406,6 +417,7 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged
         WorkoutSyncState.Pending => Text.Pending,
         WorkoutSyncState.Conflicted => Text.Conflicted,
         WorkoutSyncState.Syncing => Text.Syncing,
+        WorkoutSyncState.Reconciling => Text.Reconciling,
         WorkoutSyncState.PermanentFailure => Text.PermanentFailure,
         WorkoutSyncState.Offline => Text.Offline,
         _ => Text.Synced
@@ -417,11 +429,12 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged
             {
                 IsDeleted: false,
                 WorkoutIsDeleted: false,
-                WorkoutHasPermanentFailure: false
+                WorkoutActionsBlocked: false
             };
 
     private bool CanResolveConflict(object? parameter) =>
-        !_deactivated && !IsBusy && parameter is HistoryWorkoutItem { HasConflict: true };
+        !_deactivated && !IsBusy
+            && parameter is HistoryWorkoutItem { HasConflict: true, IsReconciling: false };
 
     private void OnSessionReset(object? sender, EventArgs eventArgs)
     {
