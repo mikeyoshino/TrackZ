@@ -25,6 +25,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<IMobilePrivateDataCleaner, MauiPrivateDataCleaner>();
 		builder.Services.AddSingleton<IAccessTokenProvider>(services => services.GetRequiredService<MobileTokenStore>());
 		var apiOrigin = new Uri("https://api.trackz.app");
+		var mediaOrigin = new Uri("https://media.trackz.app");
 		builder.Services.AddSingleton(services => new HttpClient(
 			new BearerTokenHandler(services.GetRequiredService<IAccessTokenProvider>(), apiOrigin)
 			{
@@ -34,6 +35,13 @@ public static class MauiProgram
 			BaseAddress = apiOrigin,
 			Timeout = TimeSpan.FromSeconds(30)
 		});
+		builder.Services.AddSingleton(new SignedMediaDownloadClient(new HttpClient(new HttpClientHandler
+		{
+			AllowAutoRedirect = false
+		})
+		{
+			Timeout = TimeSpan.FromSeconds(30)
+		}));
 		builder.Services.AddSingleton<TrackZExerciseApiClient>();
 		builder.Services.AddSingleton<TrackZIdentityApiClient>();
 		builder.Services.AddSingleton<IExerciseCatalogApi>(services => services.GetRequiredService<TrackZExerciseApiClient>());
@@ -41,10 +49,14 @@ public static class MauiProgram
 		builder.Services.AddSingleton<IExerciseImageApi>(services => services.GetRequiredService<TrackZExerciseApiClient>());
 		builder.Services.AddSingleton<IExerciseThumbnailCache>(services => new AuthenticatedExerciseThumbnailCache(
 			services.GetRequiredService<HttpClient>(),
+			services.GetRequiredService<SignedMediaDownloadClient>().HttpClient,
+			mediaOrigin,
 			Path.Combine(FileSystem.AppDataDirectory, "exercise-thumbnails"),
+			services.GetRequiredService<IClock>(),
 			services.GetRequiredService<IAccountSessionBoundary>()));
 		builder.Services.AddSingleton<IConnectivityService, MauiConnectivityService>();
 		builder.Services.AddSingleton<IClock, SystemClock>();
+		builder.Services.AddSingleton<IRetryDelay, SystemRetryDelay>();
 		builder.Services.AddSingleton<IUiDispatcher, MauiUiDispatcher>();
 		builder.Services.AddSingleton<ILocalExerciseImagePicker, MauiLocalExerciseImagePicker>();
 		builder.Services.AddSingleton<IExerciseFileStore, LocalExerciseFileStore>();

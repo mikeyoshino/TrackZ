@@ -10,9 +10,19 @@ public interface IExerciseImageUploadStore
     Task<ExerciseImage?> FindImageAsync(Guid imageId, CancellationToken cancellationToken);
     Task<ExerciseImage?> FindOwnedImageAsync(Guid imageId, Guid ownerId, CancellationToken cancellationToken);
     Task<ExerciseImage?> FindReadableImageAsync(Guid imageId, Guid ownerId, CancellationToken cancellationToken);
+    /// <summary>Rechecks image eligibility after a signed capability has been validated.</summary>
+    Task<ExerciseImage?> FindSignedReadableImageAsync(Guid imageId, CancellationToken cancellationToken);
     Task<StagingUploadTransition> TryMarkUploadedAsync(Guid ticketId, Guid ownerId, CancellationToken cancellationToken);
     Task<UploadClaim> TryClaimUploadAsync(Guid ticketId, Guid ownerId, TimeSpan lease, CancellationToken cancellationToken);
     Task<StagingUploadTransition> TryMarkUploadedAsync(Guid ticketId, Guid ownerId, Guid uploadLeaseId, CancellationToken cancellationToken);
+    /// <summary>Reconciles a possibly committed content transition against the exact accepted staging contract.</summary>
+    Task<bool> IsUploadedAttemptDurableAsync(
+        Guid ticketId,
+        Guid ownerId,
+        string stagingObjectKey,
+        string contentType,
+        long length,
+        CancellationToken cancellationToken);
     Task<ExerciseImage> CommitCompletionAsync(Guid ticketId, Guid ownerId, Guid processingLeaseId, string masterKey, string thumbnailKey, CancellationToken cancellationToken);
     /// <summary>Reads a fresh, durable completion outcome after an ambiguous commit failure.</summary>
     Task<ExerciseImage?> FindCompletedByAttemptAsync(Guid ticketId, Guid ownerId, Guid processingLeaseId, string masterKey, string thumbnailKey, CancellationToken cancellationToken);

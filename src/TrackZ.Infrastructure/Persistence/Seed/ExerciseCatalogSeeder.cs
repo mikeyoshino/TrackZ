@@ -25,7 +25,8 @@ public sealed class ExerciseCatalogSeeder(AppDbContext database, IExerciseCatalo
             .Where(exercise => ids.Contains(exercise.Id))
             .ToDictionaryAsync(exercise => exercise.Id, cancellationToken);
         var existingByName = await database.Exercises
-            .Where(exercise => normalizedNames.Contains(exercise.NormalizedName))
+            .Where(exercise => exercise.OwnerId == null
+                && normalizedNames.Contains(exercise.NormalizedName))
             .ToListAsync(cancellationToken);
 
         foreach (var item in items)

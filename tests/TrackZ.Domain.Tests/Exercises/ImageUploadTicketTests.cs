@@ -82,4 +82,30 @@ public sealed class ImageUploadTicketTests
         Assert.True(ticket.TryClaimCleanup(now.AddMinutes(8), "staging/a/b", null, out var replacement));
         Assert.NotEqual(first, replacement);
     }
+
+    [Fact]
+    public void Three_expired_upload_claims_each_require_cleanup_before_the_next_reclaim()
+    {
+        var now = DateTimeOffset.Parse("2026-08-15T00:00:00Z");
+        var ticket = ImageUploadTicket.Create(
+            Guid.NewGuid(), Guid.NewGuid(), "staging/initial", "image/jpeg", 100, now.AddMinutes(30));
+        var cleanedKeys = new List<string>();
+
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            var claimTime = now.AddMinutes(attempt * 3);
+            Assert.True(ticket.TryClaimUpload(claimTime, TimeSpan.FromMinutes(1), out _, out var stagingKey));
+
+            Assert.False(ticket.TryClaimUpload(
+                claimTime.AddMinutes(2), TimeSpan.FromMinutes(1), out _, out _));
+            Assert.Equal(stagingKey, ticket.CleanupStagingObjectKey);
+            Assert.True(ticket.TryClaimCleanup(
+                claimTime.AddMinutes(2), stagingKey, null, out var cleanupClaim));
+            Assert.True(ticket.CompleteCleanupClaim(cleanupClaim));
+            cleanedKeys.Add(stagingKey);
+        }
+
+        Assert.Equal(3, cleanedKeys.Distinct(StringComparer.Ordinal).Count());
+        Assert.Null(ticket.CleanupStagingObjectKey);
+    }
 }

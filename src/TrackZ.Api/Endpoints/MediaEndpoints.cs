@@ -23,7 +23,8 @@ public static class MediaEndpoints
         group.MapPut("/{uploadId:guid}/content", UploadContentAsync);
         group.MapPost("/{uploadId:guid}/complete", async (Guid uploadId, ISender sender, CancellationToken cancellationToken) => Results.Ok(await sender.Send(new CompleteImageUploadCommand(uploadId), cancellationToken)));
         var images = endpoints.MapGroup("/api/v1/media/exercise-images").RequireAuthorization();
-        images.MapGet("/{imageId:guid}/{rendition}", ReadAsync);
+        images.MapGet("/{imageId:guid}/{rendition}", AuthorizeReadAsync);
+        endpoints.MapGet("/media/v1/exercise-images/{imageId:guid}/{rendition}", ReadSignedAsync);
         return endpoints;
     }
     private static async Task<IResult> RequestAsync(HttpRequest request, HttpContext context, ISender sender, CancellationToken cancellationToken)
@@ -43,7 +44,24 @@ public static class MediaEndpoints
     private static async Task<IResult> UploadContentAsync(Guid uploadId, HttpRequest request, HttpContext context, IExerciseImageUploadStore store, IObjectStorage storage, ICurrentUser currentUser, CancellationToken cancellationToken)
     {
         var ticket = await store.FindOwnedTicketAsync(uploadId, currentUser.UserId, cancellationToken);
-        if (ticket is null || ticket.IsExpired(DateTimeOffset.UtcNow)) return Missing(context);
+        if (ticket is null) return Missing(context);
+        var matchesDeclaredContract =
+            string.Equals(request.ContentType, ticket.DeclaredContentType, StringComparison.Ordinal)
+            && request.ContentLength == ticket.DeclaredLength;
+        if (ticket.State == ImageUploadState.Uploaded && matchesDeclaredContract)
+        {
+            var accepted = await storage.GetAsync(
+                $"staging/{currentUser.UserId:D}/", ticket.StagingObjectKey, cancellationToken);
+            if (accepted is null) return Missing(context);
+            await using (accepted.Content)
+            {
+                return accepted.Length == ticket.DeclaredLength
+                    && string.Equals(accepted.ContentType, ticket.DeclaredContentType, StringComparison.Ordinal)
+                    ? Results.NoContent()
+                    : Missing(context);
+            }
+        }
+        if (ticket.IsExpired(DateTimeOffset.UtcNow)) return Missing(context);
         if (!string.Equals(request.ContentType, ticket.DeclaredContentType, StringComparison.Ordinal)) return Bad(context, "contentType");
         if (request.ContentLength != ticket.DeclaredLength) return Bad(context, "length");
         UploadClaim claim;
@@ -58,9 +76,27 @@ public static class MediaEndpoints
         {
             transition = await store.TryMarkUploadedAsync(ticket.Id, currentUser.UserId, claim.UploadLeaseId, cancellationToken);
         }
-        catch
+        catch (Exception transitionException)
         {
+            try
+            {
+                if (await store.IsUploadedAttemptDurableAsync(
+                    ticket.Id,
+                    currentUser.UserId,
+                    claim.StagingObjectKey,
+                    ticket.DeclaredContentType,
+                    ticket.DeclaredLength,
+                    CancellationToken.None))
+                    return Results.NoContent();
+            }
+            catch (Exception reconciliationException)
+            {
+                // A failed reconciliation leaves the object untouched: the database may have
+                // accepted it and the cleanup worker must never destroy an indeterminate success.
+                throw new UploadCommitOutcomeUnknownException(reconciliationException);
+            }
             await DeleteStagingBestEffortAsync(storage, currentUser.UserId, claim.StagingObjectKey);
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(transitionException).Throw();
             throw;
         }
         if (transition == StagingUploadTransition.Uploaded) return Results.NoContent();
@@ -69,15 +105,48 @@ public static class MediaEndpoints
         await DeleteStagingBestEffortAsync(storage, currentUser.UserId, claim.StagingObjectKey);
         return Missing(context);
     }
-    private static async Task<IResult> ReadAsync(Guid imageId, string rendition, HttpContext context, IExerciseImageUploadStore store, IObjectStorage storage, ICurrentUser currentUser, CancellationToken cancellationToken)
+    private static async Task<IResult> AuthorizeReadAsync(
+        Guid imageId,
+        string rendition,
+        HttpContext context,
+        IExerciseImageUploadStore store,
+        IMediaAccessUrlSigner signer,
+        ICurrentUser currentUser,
+        CancellationToken cancellationToken)
     {
         if (rendition is not ("master" or "thumbnail")) return Missing(context);
         var image = await store.FindReadableImageAsync(imageId, currentUser.UserId, cancellationToken);
         if (image is null) return Missing(context);
+        var access = signer.Create(image.Id, rendition);
+        context.Response.Headers.CacheControl = "private, no-store";
+        context.Response.Headers.Pragma = "no-cache";
+        return Results.Ok(new SignedMediaAccessDto(access.Url.AbsoluteUri, access.ExpiresAt));
+    }
+
+    private static async Task<IResult> ReadSignedAsync(
+        Guid imageId,
+        string rendition,
+        long expires,
+        string signature,
+        HttpContext context,
+        IExerciseImageUploadStore store,
+        IObjectStorage storage,
+        IMediaAccessUrlSigner signer,
+        CancellationToken cancellationToken)
+    {
+        var validation = signer.Validate(imageId, rendition, expires, signature);
+        if (validation == SignedMediaValidationResult.Expired)
+            return Results.StatusCode(StatusCodes.Status410Gone);
+        if (validation != SignedMediaValidationResult.Valid) return Missing(context);
+        var image = await store.FindSignedReadableImageAsync(imageId, cancellationToken);
+        if (image is null) return Missing(context);
         var key = rendition == "master" ? image.MasterObjectKey : image.ThumbnailObjectKey;
-        var prefix = image.IsPrivate ? $"private/{currentUser.UserId:D}/" : "system/";
+        var prefix = image.IsPrivate ? $"private/{image.OwnerId!.Value:D}/" : "system/";
         var result = await storage.GetAsync(prefix, key, cancellationToken);
-        return result is null ? Missing(context) : Results.Stream(result.Content, result.ContentType);
+        if (result is null) return Missing(context);
+        context.Response.Headers.CacheControl = "private, no-store";
+        context.Response.Headers.Pragma = "no-cache";
+        return Results.Stream(result.Content, result.ContentType);
     }
     private static async Task<byte[]> BufferAsync(Stream source, CancellationToken cancellationToken)
     { await using var buffer = new MemoryStream((int)MaxBytes + 1); var chunk = new byte[81920]; while (true) { var count = await source.ReadAsync(chunk, cancellationToken); if (count == 0) break; if (buffer.Length + count > MaxBytes) throw new TrackZ.Application.Common.Exceptions.BusinessException(BusinessErrorCode.ImageTooLarge, "The image is too large.", 400); await buffer.WriteAsync(chunk.AsMemory(0, count), cancellationToken); } return buffer.ToArray(); }

@@ -10,11 +10,14 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Testcontainers.PostgreSql;
+using TrackZ.Application.Common.Interfaces;
 using TrackZ.Domain.Exercises;
 using TrackZ.Domain.Progress;
 using TrackZ.Infrastructure.Persistence;
 using TrackZ.Application.Exercises.ListExercises;
+using TrackZ.Infrastructure.Persistence.Seed;
 using Xunit.Sdk;
 
 namespace TrackZ.Api.Tests.Exercises;
@@ -65,6 +68,36 @@ public sealed class ListExercisesEndpointTests : IAsyncLifetime
         Environment.SetEnvironmentVariable("Jwt__SigningKey", null);
         Environment.SetEnvironmentVariable("Jwt__AccessTokenMinutes", null);
         Environment.SetEnvironmentVariable("Jwt__RefreshTokenDays", null);
+    }
+
+    [Fact]
+    public async Task Explicit_catalog_deployment_command_makes_all_48_draft_definitions_listable_without_thumbnails()
+    {
+        var account = await AuthenticateAsync($"catalog-deployment-{Guid.NewGuid():N}@example.com");
+        await using (var before = _factory!.Services.CreateAsyncScope())
+        {
+            Assert.Empty(await before.ServiceProvider.GetRequiredService<AppDbContext>()
+                .Exercises.ToArrayAsync());
+        }
+        await new ExerciseCatalogDeploymentCommand(CatalogPath)
+            .ExecuteAsync(_factory!.Services);
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/exercises?pageSize=50");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", account.Token);
+        var response = await _client.SendAsync(request);
+        var page = await response.Content.ReadFromJsonAsync<JsonDocument>();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var items = page!.RootElement.GetProperty("items").EnumerateArray().ToArray();
+        Assert.Equal(48, items.Length);
+        Assert.All(items, item => Assert.Equal(JsonValueKind.Null, item.GetProperty("thumbnailUrl").ValueKind));
+        Assert.Equal(JsonValueKind.Null, page.RootElement.GetProperty("nextCursor").ValueKind);
+        await using var verify = _factory.Services.CreateAsyncScope();
+        var database = verify.ServiceProvider.GetRequiredService<AppDbContext>();
+        Assert.Equal(48, await database.ExerciseImages.CountAsync());
+        Assert.All(await database.ExerciseImages.ToArrayAsync(), image =>
+            Assert.Equal(ExerciseImageReviewState.Draft, image.ReviewState));
+        Assert.Equal(96, verify.ServiceProvider.GetRequiredService<FakeObjectStorage>().Count);
     }
 
     [Fact]
@@ -657,6 +690,19 @@ public sealed class ListExercisesEndpointTests : IAsyncLifetime
 
     private static string Base64Url(byte[] bytes) => Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 
+    private static string CatalogPath => Path.Combine(RepositoryRoot, "assets", "exercises", "catalog.json");
+
+    private static string RepositoryRoot
+    {
+        get
+        {
+            var directory = new DirectoryInfo(AppContext.BaseDirectory);
+            while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "TrackZ.slnx")))
+                directory = directory.Parent;
+            return directory?.FullName ?? throw new DirectoryNotFoundException("Could not locate the TrackZ repository root.");
+        }
+    }
+
     private async Task<(Guid UserId, string Token)> AuthenticateAsync(string email)
     {
         var register = await _client.PostAsJsonAsync("/api/v1/auth/register", new { email, password = "ValidPassword!42" });
@@ -682,6 +728,33 @@ public sealed class ListExercisesEndpointTests : IAsyncLifetime
                 ["Jwt:SigningKey"] = "test-signing-key-that-is-at-least-thirty-two-bytes-long",
                 ["Jwt:AccessTokenMinutes"] = "15",
                 ["Jwt:RefreshTokenDays"] = "14"
-            }));
+            }))
+            .ConfigureServices(services =>
+            {
+                services.RemoveAll<IObjectStorage>();
+                services.AddSingleton<FakeObjectStorage>();
+                services.AddSingleton<IObjectStorage>(provider => provider.GetRequiredService<FakeObjectStorage>());
+            });
+    }
+
+    private sealed class FakeObjectStorage : IObjectStorage
+    {
+        private readonly Dictionary<string, (byte[] Bytes, string ContentType)> _objects = new(StringComparer.Ordinal);
+        public int Count => _objects.Count;
+
+        public Task<ObjectStorageObject?> GetAsync(string ownerPrefix, string key, CancellationToken cancellationToken) =>
+            Task.FromResult(_objects.TryGetValue(key, out var value)
+                ? new ObjectStorageObject(value.Bytes.Length, value.ContentType, new MemoryStream(value.Bytes, writable: false))
+                : null);
+
+        public async Task PutAsync(string ownerPrefix, string key, Stream content, string contentType, CancellationToken cancellationToken)
+        {
+            using var bytes = new MemoryStream();
+            await content.CopyToAsync(bytes, cancellationToken);
+            _objects[key] = (bytes.ToArray(), contentType);
+        }
+
+        public Task DeleteAsync(string ownerPrefix, string key, CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("Catalog list acceptance does not delete storage objects.");
     }
 }

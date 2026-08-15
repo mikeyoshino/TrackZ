@@ -36,8 +36,24 @@ public sealed class ImageUploadTicket
     {
         uploadLeaseId = Guid.Empty;
         stagingKey = string.Empty;
-        if (IsExpired(now) || (State != ImageUploadState.Pending && (State != ImageUploadState.Uploading || UploadLeaseExpiresAt is null || UploadLeaseExpiresAt > now))) return false;
-        if (State == ImageUploadState.Uploading) CleanupStagingObjectKey = StagingObjectKey;
+        if (IsExpired(now)
+            || CleanupStagingObjectKey is not null
+            || CleanupClaimId is not null
+            || State is not (ImageUploadState.Pending or ImageUploadState.Uploading)) return false;
+        if (State == ImageUploadState.Uploading)
+        {
+            if (UploadLeaseExpiresAt is null || UploadLeaseExpiresAt > now) return false;
+
+            // Schedule the abandoned key durably, but do not allocate another key until the
+            // worker has acknowledged its deletion. One slot can therefore never be overwritten
+            // by repeated crashed upload attempts.
+            CleanupStagingObjectKey = StagingObjectKey;
+            State = ImageUploadState.Pending;
+            UploadLeaseId = null;
+            UploadLeaseExpiresAt = null;
+            Touch();
+            return false;
+        }
         uploadLeaseId = Guid.NewGuid();
         stagingKey = $"staging/{OwnerId:D}/{Id:D}/{uploadLeaseId:D}";
         State = ImageUploadState.Uploading;

@@ -13,6 +13,7 @@ using TrackZ.Infrastructure.Exercises;
 using TrackZ.Application.Exercises.Custom;
 using TrackZ.Application.Media;
 using TrackZ.Infrastructure.Media;
+using TrackZ.Infrastructure.Persistence.Seed;
 
 namespace TrackZ.Infrastructure;
 
@@ -32,6 +33,18 @@ public static class DependencyInjection
         services.AddScoped<IExerciseImageUploadStore>(provider => provider.GetRequiredService<AppDbContext>());
         services.AddSingleton<IObjectStorage, ObjectStorage>();
         services.AddSingleton<IImageProcessor, ImageProcessor>();
+        services.AddScoped<ObjectStorageExerciseCatalogAssetDeployment>();
+        services.AddScoped<IExerciseCatalogAssetDeployment>(provider =>
+            provider.GetRequiredService<ObjectStorageExerciseCatalogAssetDeployment>());
+        services.AddScoped<ExerciseCatalogSeeder>();
+        services.AddScoped<ExerciseCatalogDeploymentService>();
+        services.AddSingleton(TimeProvider.System);
+        services.AddOptions<MediaAccessOptions>()
+            .Bind(configuration.GetSection(MediaAccessOptions.SectionName))
+            .ValidateDataAnnotations()
+            .Validate(static options => options.IsValid(), "Media access settings must provide a clean HTTP(S) origin, a 32-character signing key, and a 15-300 second lifetime.")
+            .ValidateOnStart();
+        services.AddSingleton<IMediaAccessUrlSigner, SignedMediaAccessUrlSigner>();
         services.AddOptions<ImageUploadCleanupOptions>().Bind(configuration.GetSection(ImageUploadCleanupOptions.SectionName));
         services.AddHostedService<ImageUploadCleanupService>();
         services.AddOptions<ObjectStorageOptions>()

@@ -176,6 +176,26 @@ public sealed class CustomExerciseViewModelTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Api_version_conflict_is_classified_as_retryable_for_bounded_completion_reconciliation()
+    {
+        var handler = new SingleHttpHandler(new HttpResponseMessage(HttpStatusCode.Conflict)
+        {
+            Content = new StringContent(
+                """{"type":"https://api.trackz.app/problems/business-rule-violation","title":"Business rule violation","status":409,"errorCode":60001,"message":"Conflict","traceId":"trace","fieldErrors":null}""",
+                Encoding.UTF8,
+                "application/problem+json")
+        });
+        var client = new TrackZExerciseApiClient(
+            new HttpClient(handler) { BaseAddress = new Uri("https://trackz.test") });
+
+        var error = await Assert.ThrowsAsync<MobileApiException>(() =>
+            client.CompleteUploadAsync(Guid.NewGuid()));
+
+        Assert.Equal(BusinessErrorCode.VersionConflict, error.ErrorCode);
+        Assert.True(error.IsRetryable);
+    }
+
+    [Fact]
     public async Task Malformed_successful_catalog_json_is_normalized_to_stable_internal_error()
     {
         var client = ClientWithJson("{");
@@ -303,6 +323,29 @@ public sealed class CustomExerciseViewModelTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Image_import_rejects_a_highly_compressed_oversized_dimension_before_preview_decode()
+    {
+        using (var source = new Image<Rgba32>(9_000, 1))
+            await source.SaveAsPngAsync(_imagePath);
+        Assert.True(new FileInfo(_imagePath).Length < 100_000);
+        var destination = Path.Combine(Path.GetTempPath(), $"trackz-dimension-{Guid.NewGuid():N}");
+        try
+        {
+            var error = await Assert.ThrowsAsync<InvalidDataException>(() =>
+                new LocalExerciseImageImporter().ImportAsync(
+                    _imagePath, "image/png", destination));
+
+            Assert.Contains("dimensions", error.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.False(Directory.Exists(Path.Combine(destination, "original")));
+            Assert.False(Directory.Exists(Path.Combine(destination, "preview")));
+        }
+        finally
+        {
+            if (Directory.Exists(destination)) Directory.Delete(destination, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Online_edit_updates_existing_exercise_and_keeps_its_thumbnail()
     {
         var existingId = Guid.Parse("88888888-8888-8888-8888-888888888888");
@@ -394,6 +437,144 @@ public sealed class CustomExerciseViewModelTests : IAsyncLifetime
         Assert.Equal(2, mediaApi.CompleteUploadIds.Count);
         Assert.Single(mediaApi.CompleteUploadIds.Distinct());
         Assert.Equal(0, await _cache.CountPendingAsync());
+    }
+
+    [Fact]
+    public async Task Lost_content_ack_replays_the_same_reservation_without_poisoning_the_outbox()
+    {
+        var clock = new MutableClock(DateTimeOffset.Parse("2026-08-15T10:00:00Z"));
+        var mediaApi = new LostContentAckMediaApi(clock);
+        var customApi = new RecordingCustomApi();
+        using (var firstRun = new CustomExerciseImageService(
+            _cache, new MutableConnectivity(true), customApi, mediaApi,
+            new LocalExerciseFileStore(), clock, new RecordingThumbnailCache()))
+        {
+            await firstRun.SaveAsync(new CustomExerciseDraft(
+                "Lost content ack press", BodyPart.Chest, TrackingMode.Weighted, null,
+                _imagePath, "image/png", LocalPreviewPath: "/local/content-ack-preview.jpg"));
+        }
+        Assert.Equal(PendingCustomSyncPhase.UploadReserved, Assert.Single(await _cache.GetPendingAsync()).Phase);
+
+        using var restarted = new CustomExerciseImageService(
+            new ExerciseCache(_databasePath), new MutableConnectivity(true), customApi, mediaApi,
+            new LocalExerciseFileStore(), clock, new RecordingThumbnailCache());
+        await restarted.SynchronizePendingAsync();
+
+        Assert.Equal(1, mediaApi.RequestCount);
+        Assert.Equal(2, mediaApi.ContentUploadIds.Count);
+        Assert.Single(mediaApi.ContentUploadIds.Distinct());
+        Assert.Equal(1, mediaApi.CompleteCount);
+        Assert.Empty(await _cache.GetPendingAsync());
+        Assert.Empty(await _cache.GetFailedAsync());
+    }
+
+    [Fact]
+    public async Task Restart_after_reservation_expiry_resets_atomically_before_requesting_a_replacement()
+    {
+        var clock = new MutableClock(DateTimeOffset.Parse("2026-08-15T10:00:00Z"));
+        var mediaApi = new ExpiringReservationMediaApi(clock);
+        var customApi = new RecordingCustomApi();
+        var connectivity = new MutableConnectivity(true);
+        using (var firstRun = new CustomExerciseImageService(
+            _cache, connectivity, customApi, mediaApi,
+            new LocalExerciseFileStore(), clock, new RecordingThumbnailCache()))
+        {
+            await firstRun.SaveAsync(new CustomExerciseDraft(
+                "Expiry press", BodyPart.Chest, TrackingMode.Weighted, null,
+                _imagePath, "image/png", LocalPreviewPath: "/local/expiry-preview.jpg"));
+        }
+        var reserved = Assert.Single(await _cache.GetPendingAsync());
+        Assert.Equal(PendingCustomSyncPhase.UploadReserved, reserved.Phase);
+        Assert.NotNull(reserved.UploadExpiresAt);
+        var serverId = Assert.IsType<Guid>(reserved.ServerExerciseId);
+
+        clock.UtcNow = clock.UtcNow.AddMinutes(6);
+        using var restarted = new CustomExerciseImageService(
+            new ExerciseCache(_databasePath), connectivity, customApi, mediaApi,
+            new LocalExerciseFileStore(), clock, new RecordingThumbnailCache());
+
+        await Assert.ThrowsAsync<HttpRequestException>(() => restarted.SynchronizePendingAsync());
+
+        var reset = Assert.Single(await new ExerciseCache(_databasePath).GetPendingAsync());
+        Assert.Equal(PendingCustomSyncPhase.DetailsSaved, reset.Phase);
+        Assert.Null(reset.UploadId);
+        Assert.Null(reset.UploadUri);
+        Assert.Null(reset.UploadExpiresAt);
+        Assert.Equal(serverId, reset.ServerExerciseId);
+        Assert.Equal(_imagePath, reset.LocalImagePath);
+        Assert.Equal("/local/expiry-preview.jpg", reset.LocalPreviewPath);
+        Assert.Equal(2, mediaApi.RequestCount);
+        Assert.Equal(1, mediaApi.ContentCount);
+        Assert.Equal(1, customApi.CreateCount);
+    }
+
+    [Fact]
+    public async Task Completion_version_conflict_retries_with_bounded_backoff_and_same_upload_identity()
+    {
+        var clock = new MutableClock(DateTimeOffset.Parse("2026-08-15T10:00:00Z"));
+        var mediaApi = new TransientCompletionConflictMediaApi(clock, succeedOnAttempt: 3);
+        var retryDelay = new RecordingRetryDelay();
+        using var service = new CustomExerciseImageService(
+            _cache, new MutableConnectivity(true), new RecordingCustomApi(), mediaApi,
+            new LocalExerciseFileStore(), clock, new RecordingThumbnailCache(),
+            retryDelay: retryDelay);
+
+        var saved = await service.SaveAsync(new CustomExerciseDraft(
+            "Conflict press", BodyPart.Chest, TrackingMode.Weighted, null,
+            _imagePath, "image/png", LocalPreviewPath: "/local/conflict-preview.jpg"));
+
+        Assert.Equal(RecordingCustomApi.ServerId, saved);
+        Assert.Equal(3, mediaApi.CompleteUploadIds.Count);
+        Assert.Single(mediaApi.CompleteUploadIds.Distinct());
+        Assert.Equal([TimeSpan.FromMilliseconds(100), TimeSpan.FromMilliseconds(250)], retryDelay.Delays);
+        Assert.Empty(await _cache.GetPendingAsync());
+    }
+
+    [Fact]
+    public async Task Completion_version_conflict_stops_after_three_attempts_and_remains_retryable()
+    {
+        var clock = new MutableClock(DateTimeOffset.Parse("2026-08-15T10:00:00Z"));
+        var mediaApi = new TransientCompletionConflictMediaApi(clock, succeedOnAttempt: null);
+        var retryDelay = new RecordingRetryDelay();
+        using var service = new CustomExerciseImageService(
+            _cache, new MutableConnectivity(true), new RecordingCustomApi(), mediaApi,
+            new LocalExerciseFileStore(), clock, new RecordingThumbnailCache(),
+            retryDelay: retryDelay);
+
+        var error = await Assert.ThrowsAsync<MobileApiException>(() => service.SaveAsync(
+            new CustomExerciseDraft(
+                "Bounded conflict press", BodyPart.Chest, TrackingMode.Weighted, null,
+                _imagePath, "image/png", LocalPreviewPath: "/local/bounded-preview.jpg")));
+
+        Assert.Equal(BusinessErrorCode.VersionConflict, error.ErrorCode);
+        Assert.True(error.IsRetryable);
+        Assert.Equal(3, mediaApi.CompleteUploadIds.Count);
+        Assert.Equal(2, retryDelay.Delays.Count);
+        Assert.Equal(PendingCustomSyncPhase.ContentUploaded, Assert.Single(await _cache.GetPendingAsync()).Phase);
+        Assert.Empty(await _cache.GetFailedAsync());
+    }
+
+    [Fact]
+    public async Task Missing_completion_reservation_is_replaced_once_without_losing_server_identity()
+    {
+        var clock = new MutableClock(DateTimeOffset.Parse("2026-08-15T10:00:00Z"));
+        var customApi = new RecordingCustomApi();
+        var mediaApi = new MissingFirstCompletionReservationMediaApi(clock);
+        using var service = new CustomExerciseImageService(
+            _cache, new MutableConnectivity(true), customApi, mediaApi,
+            new LocalExerciseFileStore(), clock, new RecordingThumbnailCache());
+
+        var saved = await service.SaveAsync(new CustomExerciseDraft(
+            "Missing reservation press", BodyPart.Chest, TrackingMode.Weighted, null,
+            _imagePath, "image/png", LocalPreviewPath: "/local/missing-preview.jpg"));
+
+        Assert.Equal(RecordingCustomApi.ServerId, saved);
+        Assert.Equal(1, customApi.CreateCount);
+        Assert.Equal(2, mediaApi.RequestCount);
+        Assert.Equal(2, mediaApi.ContentCount);
+        Assert.Equal(2, mediaApi.CompleteCount);
+        Assert.Empty(await _cache.GetPendingAsync());
+        Assert.Empty(await _cache.GetFailedAsync());
     }
 
     [Fact]
@@ -724,9 +905,199 @@ public sealed class CustomExerciseViewModelTests : IAsyncLifetime
         }
     }
 
+    private sealed class ExpiringReservationMediaApi(MutableClock clock) : IExerciseImageApi
+    {
+        public int RequestCount { get; private set; }
+        public int ContentCount { get; private set; }
+
+        public Task<ImageUploadReservation> RequestUploadAsync(
+            Guid exerciseId,
+            string contentType,
+            long length,
+            CancellationToken cancellationToken = default)
+        {
+            RequestCount++;
+            if (RequestCount == 2) throw new HttpRequestException("Replacement reservation outage.");
+            var id = Guid.Parse("56565656-5656-5656-5656-565656565656");
+            return Task.FromResult(new ImageUploadReservation(
+                id,
+                new Uri($"/api/v1/media/exercise-images/uploads/{id:D}/content", UriKind.Relative),
+                clock.UtcNow.AddMinutes(5)));
+        }
+
+        public Task UploadContentAsync(
+            Uri uploadUri,
+            Stream original,
+            string contentType,
+            long length,
+            CancellationToken cancellationToken = default)
+        {
+            ContentCount++;
+            if (ContentCount == 1) throw new IOException("Outage after reservation.");
+            throw new InvalidOperationException("Expired reservation content was reused.");
+        }
+
+        public Task<UploadedExerciseImage> CompleteUploadAsync(
+            Guid uploadId,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    }
+
+    private sealed class LostContentAckMediaApi(MutableClock clock) : IExerciseImageApi
+    {
+        private static readonly Guid UploadId = Guid.Parse("67676767-6767-6767-6767-676767676767");
+        private bool _lost;
+        public int RequestCount { get; private set; }
+        public List<Guid> ContentUploadIds { get; } = [];
+        public int CompleteCount { get; private set; }
+
+        public Task<ImageUploadReservation> RequestUploadAsync(
+            Guid exerciseId,
+            string contentType,
+            long length,
+            CancellationToken cancellationToken = default)
+        {
+            RequestCount++;
+            return Task.FromResult(new ImageUploadReservation(
+                UploadId,
+                new Uri($"/api/v1/media/exercise-images/uploads/{UploadId:D}/content", UriKind.Relative),
+                clock.UtcNow.AddMinutes(5)));
+        }
+
+        public Task UploadContentAsync(
+            Uri uploadUri,
+            Stream original,
+            string contentType,
+            long length,
+            CancellationToken cancellationToken = default)
+        {
+            ContentUploadIds.Add(Guid.Parse(uploadUri.OriginalString.Split('/')[^2]));
+            if (!_lost)
+            {
+                _lost = true;
+                throw new IOException("The accepted 204 response was lost.");
+            }
+            return Task.CompletedTask;
+        }
+
+        public Task<UploadedExerciseImage> CompleteUploadAsync(
+            Guid uploadId,
+            CancellationToken cancellationToken = default)
+        {
+            CompleteCount++;
+            return Task.FromResult(new UploadedExerciseImage(
+                RecordingMediaApi.ImageId,
+                $"/api/v1/media/exercise-images/{RecordingMediaApi.ImageId:D}/master",
+                $"/api/v1/media/exercise-images/{RecordingMediaApi.ImageId:D}/thumbnail"));
+        }
+    }
+
+    private sealed class TransientCompletionConflictMediaApi(
+        MutableClock clock,
+        int? succeedOnAttempt) : IExerciseImageApi
+    {
+        private static readonly Guid UploadId = Guid.Parse("78787878-7878-7878-7878-787878787878");
+        public List<Guid> CompleteUploadIds { get; } = [];
+
+        public Task<ImageUploadReservation> RequestUploadAsync(
+            Guid exerciseId,
+            string contentType,
+            long length,
+            CancellationToken cancellationToken = default) => Task.FromResult(new ImageUploadReservation(
+                UploadId,
+                new Uri($"/api/v1/media/exercise-images/uploads/{UploadId:D}/content", UriKind.Relative),
+                clock.UtcNow.AddMinutes(5)));
+
+        public Task UploadContentAsync(
+            Uri uploadUri,
+            Stream original,
+            string contentType,
+            long length,
+            CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task<UploadedExerciseImage> CompleteUploadAsync(
+            Guid uploadId,
+            CancellationToken cancellationToken = default)
+        {
+            CompleteUploadIds.Add(uploadId);
+            if (succeedOnAttempt != CompleteUploadIds.Count)
+                throw new MobileApiException(
+                    BusinessErrorCode.VersionConflict,
+                    "The upload is still being reconciled.",
+                    isRetryable: true);
+            return Task.FromResult(new UploadedExerciseImage(
+                RecordingMediaApi.ImageId,
+                $"/api/v1/media/exercise-images/{RecordingMediaApi.ImageId:D}/master",
+                $"/api/v1/media/exercise-images/{RecordingMediaApi.ImageId:D}/thumbnail"));
+        }
+    }
+
+    private sealed class MissingFirstCompletionReservationMediaApi(MutableClock clock) : IExerciseImageApi
+    {
+        public int RequestCount { get; private set; }
+        public int ContentCount { get; private set; }
+        public int CompleteCount { get; private set; }
+
+        public Task<ImageUploadReservation> RequestUploadAsync(
+            Guid exerciseId,
+            string contentType,
+            long length,
+            CancellationToken cancellationToken = default)
+        {
+            RequestCount++;
+            var id = RequestCount == 1
+                ? Guid.Parse("89898989-8989-8989-8989-898989898989")
+                : Guid.Parse("90909090-9090-9090-9090-909090909090");
+            return Task.FromResult(new ImageUploadReservation(
+                id,
+                new Uri($"/api/v1/media/exercise-images/uploads/{id:D}/content", UriKind.Relative),
+                clock.UtcNow.AddMinutes(5)));
+        }
+
+        public Task UploadContentAsync(
+            Uri uploadUri,
+            Stream original,
+            string contentType,
+            long length,
+            CancellationToken cancellationToken = default)
+        {
+            ContentCount++;
+            return Task.CompletedTask;
+        }
+
+        public Task<UploadedExerciseImage> CompleteUploadAsync(
+            Guid uploadId,
+            CancellationToken cancellationToken = default)
+        {
+            CompleteCount++;
+            if (CompleteCount == 1)
+                throw new MobileApiException(
+                    BusinessErrorCode.ExerciseNotFound,
+                    "The exercise was not found.");
+            return Task.FromResult(new UploadedExerciseImage(
+                RecordingMediaApi.ImageId,
+                $"/api/v1/media/exercise-images/{RecordingMediaApi.ImageId:D}/master",
+                $"/api/v1/media/exercise-images/{RecordingMediaApi.ImageId:D}/thumbnail"));
+        }
+    }
+
+    private sealed class RecordingRetryDelay : IRetryDelay
+    {
+        public List<TimeSpan> Delays { get; } = [];
+        public Task DelayAsync(TimeSpan delay, CancellationToken cancellationToken = default)
+        {
+            Delays.Add(delay);
+            return Task.CompletedTask;
+        }
+    }
+
     private sealed class FixedClock : IClock
     {
         public DateTimeOffset UtcNow => new(2026, 8, 15, 3, 4, 5, TimeSpan.Zero);
+    }
+
+    private sealed class MutableClock(DateTimeOffset utcNow) : IClock
+    {
+        public DateTimeOffset UtcNow { get; set; } = utcNow;
     }
 
     private sealed class SingleHttpHandler(HttpResponseMessage response) : HttpMessageHandler

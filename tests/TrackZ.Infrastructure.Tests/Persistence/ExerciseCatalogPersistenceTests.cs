@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Migrations;
+using TrackZ.Application.Common.Interfaces;
 using TrackZ.Application.Media;
 using TrackZ.Domain.Exercises;
 using TrackZ.Domain.Progress;
@@ -10,6 +11,58 @@ namespace TrackZ.Infrastructure.Tests.Persistence;
 
 public sealed class ExerciseCatalogPersistenceTests
 {
+    [Fact]
+    public async Task Three_expired_upload_claim_crashes_are_each_cleaned_before_the_next_reclaim()
+    {
+        await using var database = await PostgreSqlFixture.StartAsync();
+        var storage = new RecordingObjectStorage();
+        var ownerId = Guid.NewGuid();
+        var exercise = ExerciseDefinition.CreateCustom(ownerId, "Crash Loop Press", BodyPart.Chest, TrackingMode.Weighted);
+        var ticket = ImageUploadTicket.Create(
+            ownerId,
+            exercise.Id,
+            $"staging/{ownerId:D}/initial",
+            "image/jpeg",
+            4,
+            DateTimeOffset.UtcNow.AddMinutes(5));
+        await database.Db.Exercises.AddAsync(exercise);
+        await database.Db.AddTicketAsync(ticket, default);
+        await database.Db.SaveAsync(default);
+
+        var crashedKeys = new List<string>();
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            UploadClaim claim;
+            await using (var claiming = database.CreateDbContext())
+                claim = await claiming.TryClaimUploadAsync(ticket.Id, ownerId, TimeSpan.Zero, default);
+            crashedKeys.Add(claim.StagingObjectKey);
+            await storage.PutAsync($"staging/{ownerId:D}/", claim.StagingObjectKey, new MemoryStream([1, 2, 3, 4]), "image/jpeg", default);
+
+            await using (var recovering = database.CreateDbContext())
+            {
+                await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                    recovering.TryClaimUploadAsync(ticket.Id, ownerId, TimeSpan.FromMinutes(1), default));
+            }
+
+            await using (var cleanup = database.CreateDbContext())
+            {
+                var candidate = Assert.Single(await cleanup.ListCleanupCandidatesAsync(DateTimeOffset.UtcNow, default));
+                Assert.Equal(claim.StagingObjectKey, candidate.StagingKey);
+                var cleanupClaim = await cleanup.TryClaimCleanupAsync(candidate, DateTimeOffset.UtcNow, default);
+                Assert.NotNull(cleanupClaim);
+                await storage.DeleteAsync($"staging/{ownerId:D}/", cleanupClaim!.StagingKey!, default);
+                Assert.True(await cleanup.CompleteCleanupClaimAsync(ticket.Id, cleanupClaim.CleanupClaimId!.Value, default));
+            }
+        }
+
+        await using var final = database.CreateDbContext();
+        var next = await final.TryClaimUploadAsync(ticket.Id, ownerId, TimeSpan.FromMinutes(1), default);
+        Assert.DoesNotContain(next.StagingObjectKey, crashedKeys);
+        Assert.Empty(storage.Keys);
+        Assert.Equal(3, storage.DeletedKeys.Count);
+        Assert.Equal(crashedKeys, storage.DeletedKeys);
+    }
+
     [Fact]
     public async Task Custom_image_keeps_nullable_review_state_and_does_not_persist_derived_readiness()
     {
@@ -29,6 +82,32 @@ public sealed class ExerciseCatalogPersistenceTests
         Assert.True(persisted.IsReadyForUse);
         Assert.True(entity!.FindProperty(nameof(ExerciseImage.ReviewState))!.IsNullable);
         Assert.Null(entity.FindProperty(nameof(ExerciseImage.IsReadyForUse)));
+    }
+
+    private sealed class RecordingObjectStorage : IObjectStorage
+    {
+        public HashSet<string> Keys { get; } = [];
+        public List<string> DeletedKeys { get; } = [];
+
+        public Task<ObjectStorageObject?> GetAsync(string ownerPrefix, string key, CancellationToken cancellationToken) =>
+            Task.FromResult<ObjectStorageObject?>(Keys.Contains(key)
+                ? new ObjectStorageObject(4, "image/jpeg", new MemoryStream([1, 2, 3, 4]))
+                : null);
+
+        public Task PutAsync(string ownerPrefix, string key, Stream content, string contentType, CancellationToken cancellationToken)
+        {
+            Assert.StartsWith(ownerPrefix, key, StringComparison.Ordinal);
+            Keys.Add(key);
+            return Task.CompletedTask;
+        }
+
+        public Task DeleteAsync(string ownerPrefix, string key, CancellationToken cancellationToken)
+        {
+            Assert.StartsWith(ownerPrefix, key, StringComparison.Ordinal);
+            Assert.True(Keys.Remove(key));
+            DeletedKeys.Add(key);
+            return Task.CompletedTask;
+        }
     }
 
     [Fact]

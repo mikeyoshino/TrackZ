@@ -20,6 +20,17 @@ public sealed class SystemClock : IClock
     public DateTimeOffset UtcNow => DateTimeOffset.UtcNow;
 }
 
+public interface IRetryDelay
+{
+    Task DelayAsync(TimeSpan delay, CancellationToken cancellationToken = default);
+}
+
+public sealed class SystemRetryDelay : IRetryDelay
+{
+    public Task DelayAsync(TimeSpan delay, CancellationToken cancellationToken = default) =>
+        Task.Delay(delay, cancellationToken);
+}
+
 public interface IUiDispatcher
 {
     Task InvokeAsync(Action action);
@@ -62,7 +73,13 @@ public interface ICustomExerciseApi
     Task UpdateAsync(Guid exerciseId, CustomExerciseDraft exercise, CancellationToken cancellationToken = default);
 }
 
-public sealed record ImageUploadReservation(Guid UploadId, Uri UploadUri);
+public sealed record ImageUploadReservation(Guid UploadId, Uri UploadUri, DateTimeOffset ExpiresAt)
+{
+    public ImageUploadReservation(Guid uploadId, Uri uploadUri)
+        : this(uploadId, uploadUri, DateTimeOffset.MaxValue)
+    {
+    }
+}
 
 public sealed record UploadedExerciseImage(Guid Id, string MasterUrl, string ThumbnailUrl);
 

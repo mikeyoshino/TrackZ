@@ -45,6 +45,32 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
                 && image.RightsReference != null && image.RightsReference != ""
                 && image.PublishedAt != null
                 && image.PublishedAt >= image.ReviewedAt)), cancellationToken);
+    public Task<ExerciseImage?> FindSignedReadableImageAsync(Guid imageId, CancellationToken cancellationToken) =>
+        ExerciseImages.SingleOrDefaultAsync(image => image.Id == imageId && (
+            (image.OwnerId != null
+                && image.IsPrivate
+                && image.Source == ExerciseImageSource.UserUpload
+                && image.ReviewState == null
+                && image.RightsReference == null
+                && image.ReviewedByUserId == null
+                && image.ReviewedAt == null
+                && image.PublishedAt == null
+                && !image.AnatomyApproved
+                && !image.MovementApproved
+                && !image.RightsApproved)
+            || (image.OwnerId == null
+                && !image.IsPrivate
+                && image.Source == ExerciseImageSource.SystemArtwork
+                && image.ReviewState == ExerciseImageReviewState.Published
+                && image.AnatomyApproved
+                && image.MovementApproved
+                && image.RightsApproved
+                && image.ReviewedByUserId != null
+                && image.ReviewedAt != null
+                && image.ReviewedAt >= image.CreatedAt
+                && image.RightsReference != null && image.RightsReference != ""
+                && image.PublishedAt != null
+                && image.PublishedAt >= image.ReviewedAt)), cancellationToken);
     public async Task<StagingUploadTransition> TryMarkUploadedAsync(Guid ticketId, Guid ownerId, CancellationToken cancellationToken)
     {
         await using var transaction = await Database.BeginTransactionAsync(cancellationToken);
@@ -71,9 +97,21 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     {
         await using var transaction = await Database.BeginTransactionAsync(cancellationToken);
         var ticket = await LockTicketAsync(ticketId, ownerId, cancellationToken) ?? throw new InvalidOperationException("Ticket is unavailable.");
+        var originalConcurrencyToken = ticket.ConcurrencyToken;
         if (!ticket.TryClaimUpload(DateTimeOffset.UtcNow, lease, out var leaseId, out var key))
         {
-            await transaction.RollbackAsync(CancellationToken.None);
+            // An expired Uploading lease transitions back to Pending while scheduling its
+            // exact staging key for cleanup. That rejection is stateful and must survive the
+            // failed reclaim; otherwise the object is orphaned and a later claim overwrites it.
+            if (!ReferenceEquals(originalConcurrencyToken, ticket.ConcurrencyToken))
+            {
+                await SaveChangesAsync(cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
+            }
+            else
+            {
+                await transaction.RollbackAsync(CancellationToken.None);
+            }
             throw new InvalidOperationException("Upload is unavailable.");
         }
         await SaveChangesAsync(cancellationToken);
@@ -102,6 +140,26 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         await SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return StagingUploadTransition.Uploaded;
+    }
+    public async Task<bool> IsUploadedAttemptDurableAsync(
+        Guid ticketId,
+        Guid ownerId,
+        string stagingObjectKey,
+        string contentType,
+        long length,
+        CancellationToken cancellationToken)
+    {
+        ChangeTracker.Clear();
+        return await ImageUploadTickets.AsNoTracking().AnyAsync(ticket =>
+            ticket.Id == ticketId
+            && ticket.OwnerId == ownerId
+            && ticket.State == ImageUploadState.Uploaded
+            && ticket.StagingObjectKey == stagingObjectKey
+            && ticket.DeclaredContentType == contentType
+            && ticket.DeclaredLength == length
+            && ticket.UploadLeaseId == null
+            && ticket.UploadLeaseExpiresAt == null,
+            cancellationToken);
     }
     public async Task<ExerciseImage> CommitCompletionAsync(Guid ticketId, Guid ownerId, Guid processingLeaseId, string masterKey, string thumbnailKey, CancellationToken cancellationToken)
     {

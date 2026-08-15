@@ -16,6 +16,7 @@ public sealed class CustomExerciseImageService : IDisposable
     private readonly IClock _clock;
     private readonly IExerciseThumbnailCache _thumbnailCache;
     private readonly IAccountSessionBoundary _boundary;
+    private readonly IRetryDelay _retryDelay;
     private readonly SemaphoreSlim _synchronizationLock = new(1, 1);
     private Task _pendingSynchronization = Task.CompletedTask;
     private bool _disposed;
@@ -28,7 +29,8 @@ public sealed class CustomExerciseImageService : IDisposable
         IExerciseFileStore files,
         IClock clock,
         IExerciseThumbnailCache thumbnailCache,
-        IAccountSessionBoundary? boundary = null)
+        IAccountSessionBoundary? boundary = null,
+        IRetryDelay? retryDelay = null)
     {
         _cache = cache;
         _connectivity = connectivity;
@@ -38,6 +40,7 @@ public sealed class CustomExerciseImageService : IDisposable
         _clock = clock;
         _thumbnailCache = thumbnailCache;
         _boundary = boundary ?? new AccountSessionBoundary();
+        _retryDelay = retryDelay ?? new SystemRetryDelay();
         _connectivity.ConnectivityChanged += OnConnectivityChanged;
     }
 
@@ -211,7 +214,8 @@ public sealed class CustomExerciseImageService : IDisposable
                     : PendingCustomOperationKind.Update),
             resumePhase,
             imageChanged ? null : existingPending?.UploadId,
-            imageChanged ? null : existingPending?.UploadUri);
+            imageChanged ? null : existingPending?.UploadUri,
+            UploadExpiresAt: imageChanged ? null : existingPending?.UploadExpiresAt);
         await _cache.QueueAsync(pending, cancellationToken);
         return pending;
     }
@@ -276,54 +280,122 @@ public sealed class CustomExerciseImageService : IDisposable
                 throw new OperationCanceledException("The account session changed.");
             return saved;
         }
+        var originalPath = current.LocalImagePath;
+        var originalContentType = current.LocalImageContentType;
 
-        if (current.Phase == PendingCustomSyncPhase.DetailsSaved)
+        for (var reservationAttempt = 0; reservationAttempt < 2; reservationAttempt++)
         {
-            var reservation = await _imageApi.RequestUploadAsync(
-                saved,
-                current.LocalImageContentType,
-                _files.GetLength(current.LocalImagePath),
-                cancellationToken);
-            current = current with
-            {
-                Phase = PendingCustomSyncPhase.UploadReserved,
-                UploadId = reservation.UploadId,
-                UploadUri = reservation.UploadUri.OriginalString
-            };
-            if (!await _boundary.TryCommitAsync(generation, token => _cache.QueueAsync(current, token), cancellationToken))
-                throw new OperationCanceledException("The account session changed.");
-        }
+            if (ReservationNeedsReset(current))
+                current = await ResetReservationAsync(current, generation, cancellationToken);
 
-        if (current.Phase == PendingCustomSyncPhase.UploadReserved)
-        {
-            var uploadUri = current.UploadUri is null
-                ? throw new InvalidOperationException("A reserved upload must have a content URI.")
-                : new Uri(current.UploadUri, UriKind.RelativeOrAbsolute);
-            await using (var original = _files.OpenRead(current.LocalImagePath))
+            if (current.Phase == PendingCustomSyncPhase.DetailsSaved)
             {
-                await _imageApi.UploadContentAsync(
-                    uploadUri,
-                    original,
-                    current.LocalImageContentType,
-                    _files.GetLength(current.LocalImagePath),
+                var reservation = await _imageApi.RequestUploadAsync(
+                    saved,
+                    originalContentType,
+                    _files.GetLength(originalPath),
                     cancellationToken);
+                current = current with
+                {
+                    Phase = PendingCustomSyncPhase.UploadReserved,
+                    UploadId = reservation.UploadId,
+                    UploadUri = reservation.UploadUri.OriginalString,
+                    UploadExpiresAt = reservation.ExpiresAt
+                };
+                if (!await _boundary.TryCommitAsync(generation, token => _cache.QueueAsync(current, token), cancellationToken))
+                    throw new OperationCanceledException("The account session changed.");
             }
-            current = current with { Phase = PendingCustomSyncPhase.ContentUploaded };
-            if (!await _boundary.TryCommitAsync(generation, token => _cache.QueueAsync(current, token), cancellationToken))
-                throw new OperationCanceledException("The account session changed.");
+
+            try
+            {
+                if (current.Phase == PendingCustomSyncPhase.UploadReserved)
+                {
+                    var uploadUri = current.UploadUri is null
+                        ? throw new InvalidOperationException("A reserved upload must have a content URI.")
+                        : new Uri(current.UploadUri, UriKind.RelativeOrAbsolute);
+                    await using (var original = _files.OpenRead(originalPath))
+                    {
+                        await _imageApi.UploadContentAsync(
+                            uploadUri,
+                            original,
+                            originalContentType,
+                            _files.GetLength(originalPath),
+                            cancellationToken);
+                    }
+                    current = current with { Phase = PendingCustomSyncPhase.ContentUploaded };
+                    if (!await _boundary.TryCommitAsync(generation, token => _cache.QueueAsync(current, token), cancellationToken))
+                        throw new OperationCanceledException("The account session changed.");
+                }
+
+                var uploadId = current.UploadId ?? throw new InvalidOperationException(
+                    "An uploaded image must retain its reservation identity.");
+                var uploaded = await CompleteWithRetryAsync(uploadId, cancellationToken);
+                var localizedThumbnail = await CacheUploadedThumbnailAsync(uploaded, cancellationToken);
+                if (!await _boundary.TryCommitAsync(generation, token =>
+                {
+                    return _cache.CompletePendingAsync(
+                        current.OperationId, current.LocalExerciseId,
+                        ToCached(saved, currentDraft, localizedThumbnail), token);
+                }, cancellationToken)) throw new OperationCanceledException("The account session changed.");
+                return saved;
+            }
+            catch (MobileApiException exception) when (
+                exception.ErrorCode == BusinessErrorCode.ExerciseNotFound
+                && reservationAttempt == 0)
+            {
+                current = await ResetReservationAsync(current, generation, cancellationToken);
+            }
         }
 
-        var uploadId = current.UploadId ?? throw new InvalidOperationException(
-            "An uploaded image must retain its reservation identity.");
-        var uploaded = await _imageApi.CompleteUploadAsync(uploadId, cancellationToken);
-        var localizedThumbnail = await CacheUploadedThumbnailAsync(uploaded, cancellationToken);
-        if (!await _boundary.TryCommitAsync(generation, token =>
+        throw new InvalidOperationException("The image reservation retry bound was exceeded.");
+    }
+
+    private bool ReservationNeedsReset(PendingCustomExercise pending) =>
+        pending.Phase is PendingCustomSyncPhase.UploadReserved or PendingCustomSyncPhase.ContentUploaded
+        && (pending.UploadId is null
+            || string.IsNullOrWhiteSpace(pending.UploadUri)
+            || pending.UploadExpiresAt is null
+            || pending.UploadExpiresAt <= _clock.UtcNow);
+
+    private async Task<PendingCustomExercise> ResetReservationAsync(
+        PendingCustomExercise pending,
+        AccountSessionGeneration generation,
+        CancellationToken cancellationToken)
+    {
+        var reset = pending with
         {
-            return _cache.CompletePendingAsync(
-                current.OperationId, current.LocalExerciseId,
-                ToCached(saved, currentDraft, localizedThumbnail), token);
-        }, cancellationToken)) throw new OperationCanceledException("The account session changed.");
-        return saved;
+            Phase = PendingCustomSyncPhase.DetailsSaved,
+            UploadId = null,
+            UploadUri = null,
+            UploadExpiresAt = null
+        };
+        if (!await _boundary.TryCommitAsync(
+            generation,
+            token => _cache.QueueAsync(reset, token),
+            cancellationToken))
+            throw new OperationCanceledException("The account session changed.");
+        return reset;
+    }
+
+    private async Task<UploadedExerciseImage> CompleteWithRetryAsync(
+        Guid uploadId,
+        CancellationToken cancellationToken)
+    {
+        TimeSpan[] delays = [TimeSpan.FromMilliseconds(100), TimeSpan.FromMilliseconds(250)];
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                return await _imageApi.CompleteUploadAsync(uploadId, cancellationToken);
+            }
+            catch (MobileApiException exception) when (
+                exception.ErrorCode == BusinessErrorCode.VersionConflict
+                && exception.IsRetryable
+                && attempt < delays.Length)
+            {
+                await _retryDelay.DelayAsync(delays[attempt], cancellationToken);
+            }
+        }
     }
 
     private static CustomExerciseDraft ToDraft(PendingCustomExercise pending) => new(

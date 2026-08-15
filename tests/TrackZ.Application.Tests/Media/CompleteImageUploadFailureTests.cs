@@ -362,9 +362,15 @@ public sealed class CompleteImageUploadFailureTests
         public Task<ExerciseImage?> FindImageAsync(Guid id, CancellationToken ct) => Task.FromResult<ExerciseImage?>(null);
         public Task<ExerciseImage?> FindOwnedImageAsync(Guid id, Guid owner, CancellationToken ct) => Task.FromResult<ExerciseImage?>(null);
         public Task<ExerciseImage?> FindReadableImageAsync(Guid id, Guid owner, CancellationToken ct) => Task.FromResult<ExerciseImage?>(null);
+        public Task<ExerciseImage?> FindSignedReadableImageAsync(Guid id, CancellationToken ct) => Task.FromResult<ExerciseImage?>(null);
         public Task<StagingUploadTransition> TryMarkUploadedAsync(Guid id, Guid owner, CancellationToken ct) => Task.FromResult(StagingUploadTransition.Uploaded);
         public Task<UploadClaim> TryClaimUploadAsync(Guid id, Guid owner, TimeSpan lease, CancellationToken ct) => Task.FromResult(new UploadClaim(Guid.NewGuid(), Ticket.StagingObjectKey, DateTimeOffset.UtcNow.Add(lease)));
         public Task<StagingUploadTransition> TryMarkUploadedAsync(Guid id, Guid owner, Guid uploadLease, CancellationToken ct) => Task.FromResult(StagingUploadTransition.Uploaded);
+        public Task<bool> IsUploadedAttemptDurableAsync(Guid id, Guid owner, string stagingKey, string contentType, long length, CancellationToken ct) =>
+            Task.FromResult(Ticket.State == ImageUploadState.Uploaded
+                && Ticket.StagingObjectKey == stagingKey
+                && Ticket.DeclaredContentType == contentType
+                && Ticket.DeclaredLength == length);
 
         public Task<ExerciseImage> CommitCompletionAsync(Guid id, Guid owner, Guid lease, string master, string thumb, CancellationToken ct)
         {

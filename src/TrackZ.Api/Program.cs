@@ -7,8 +7,10 @@ using System.Text.Json;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Localization;
 using TrackZ.Contracts.Errors;
+using TrackZ.Api;
 
-var builder = WebApplication.CreateBuilder(args);
+var catalogDeploymentCommand = ExerciseCatalogDeploymentCommand.Parse(args);
+var builder = WebApplication.CreateBuilder(catalogDeploymentCommand is null ? args : []);
 
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
@@ -70,6 +72,12 @@ builder.Services.AddRateLimiter(options =>
 });
 
 var app = builder.Build();
+
+if (catalogDeploymentCommand is not null)
+{
+    await catalogDeploymentCommand.ExecuteAsync(app.Services);
+    return;
+}
 
 app.UseRequestLocalization();
 app.UseMiddleware<UnhandledExceptionMiddleware>();

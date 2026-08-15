@@ -151,6 +151,33 @@ public sealed class ExerciseCatalogSeederTests
         Assert.Equal(before, after);
     }
 
+    [Fact]
+    public async Task Reseed_allows_an_owned_custom_exercise_with_the_same_name_as_a_system_definition()
+    {
+        await using var database = await PostgreSqlFixture.StartAsync();
+        var seeder = new ExerciseCatalogSeeder(database.Db, new UndeployedAssets());
+        await seeder.SeedAsync(CatalogPath, default);
+        var manifestItem = ExerciseManifest.Load(CatalogPath)[0];
+        var custom = ExerciseDefinition.CreateCustom(
+            Guid.NewGuid(),
+            manifestItem.Name,
+            BodyPart.Back,
+            TrackingMode.Bodyweight);
+        await database.Db.Exercises.AddAsync(custom);
+        await database.Db.SaveChangesAsync();
+
+        await seeder.SeedAsync(CatalogPath, default);
+
+        var sameName = await database.Db.Exercises
+            .Where(exercise => exercise.NormalizedName == manifestItem.Name.ToUpperInvariant())
+            .OrderBy(exercise => exercise.OwnerId)
+            .ToArrayAsync();
+        Assert.Equal(2, sameName.Length);
+        Assert.Contains(sameName, exercise => exercise.Id == manifestItem.Id && exercise.OwnerId == null);
+        Assert.Contains(sameName, exercise => exercise.Id == custom.Id && exercise.OwnerId == custom.OwnerId);
+        Assert.Equal(49, await database.Db.Exercises.CountAsync());
+    }
+
     private static string CatalogPath => Path.Combine(RepositoryRoot, "assets", "exercises", "catalog.json");
 
     private static string RepositoryRoot

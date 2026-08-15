@@ -49,7 +49,8 @@ public sealed record PendingCustomExercise(
     string? UploadUri = null,
     PendingCustomSyncStatus SyncStatus = PendingCustomSyncStatus.Pending,
     BusinessErrorCode? FailureCode = null,
-    string? FailureMessage = null);
+    string? FailureMessage = null,
+    DateTimeOffset? UploadExpiresAt = null);
 
 public sealed class ExerciseCache
 {
@@ -138,11 +139,13 @@ public sealed class ExerciseCache
             INSERT INTO pending_custom_exercises
                 (OperationId, LocalExerciseId, ServerExerciseId, Name, BodyPart, TrackingMode,
                  LibraryImageId, LocalImagePath, LocalImageContentType, CreatedAt, LocalPreviewPath,
-                 OperationKind, Phase, UploadId, UploadUri, SyncStatus, FailureCode, FailureMessage)
+                 OperationKind, Phase, UploadId, UploadUri, SyncStatus, FailureCode, FailureMessage,
+                 UploadExpiresAt)
             VALUES
                 ($operationId, $localExerciseId, $serverExerciseId, $name, $bodyPart, $trackingMode,
                  $libraryImageId, $localImagePath, $localImageContentType, $createdAt, $localPreviewPath,
-                 $operationKind, $phase, $uploadId, $uploadUri, $syncStatus, $failureCode, $failureMessage)
+                 $operationKind, $phase, $uploadId, $uploadUri, $syncStatus, $failureCode, $failureMessage,
+                 $uploadExpiresAt)
             ON CONFLICT(OperationId) DO UPDATE SET
                 ServerExerciseId = excluded.ServerExerciseId,
                 Name = excluded.Name,
@@ -158,7 +161,8 @@ public sealed class ExerciseCache
                 UploadUri = excluded.UploadUri,
                 SyncStatus = excluded.SyncStatus,
                 FailureCode = excluded.FailureCode,
-                FailureMessage = excluded.FailureMessage;
+                FailureMessage = excluded.FailureMessage,
+                UploadExpiresAt = excluded.UploadExpiresAt;
             """;
         Add(command, "$operationId", pending.OperationId.ToString("D"));
         Add(command, "$localExerciseId", pending.LocalExerciseId.ToString("D"));
@@ -178,6 +182,7 @@ public sealed class ExerciseCache
         Add(command, "$syncStatus", (int)pending.SyncStatus);
         Add(command, "$failureCode", pending.FailureCode is null ? null : (int)pending.FailureCode.Value);
         Add(command, "$failureMessage", pending.FailureMessage);
+        Add(command, "$uploadExpiresAt", pending.UploadExpiresAt is null ? null : Format(pending.UploadExpiresAt.Value));
         await command.ExecuteNonQueryAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
     }
@@ -198,7 +203,8 @@ public sealed class ExerciseCache
         command.CommandText = """
             SELECT OperationId, LocalExerciseId, ServerExerciseId, Name, BodyPart, TrackingMode,
                    LibraryImageId, LocalImagePath, LocalImageContentType, CreatedAt, LocalPreviewPath,
-                   OperationKind, Phase, UploadId, UploadUri, SyncStatus, FailureCode, FailureMessage
+                   OperationKind, Phase, UploadId, UploadUri, SyncStatus, FailureCode, FailureMessage,
+                   UploadExpiresAt
             FROM pending_custom_exercises
             WHERE SyncStatus = $syncStatus
             ORDER BY CreatedAt, OperationId;
@@ -226,7 +232,8 @@ public sealed class ExerciseCache
                 reader.IsDBNull(14) ? null : reader.GetString(14),
                 (PendingCustomSyncStatus)reader.GetInt32(15),
                 reader.IsDBNull(16) ? null : (BusinessErrorCode)reader.GetInt32(16),
-                reader.IsDBNull(17) ? null : reader.GetString(17)));
+                reader.IsDBNull(17) ? null : reader.GetString(17),
+                reader.IsDBNull(18) ? null : Parse(reader.GetString(18))));
         }
         return result;
     }
@@ -507,7 +514,8 @@ public sealed class ExerciseCache
                     UploadUri TEXT NULL,
                     SyncStatus INTEGER NOT NULL DEFAULT 0,
                     FailureCode INTEGER NULL,
-                    FailureMessage TEXT NULL
+                    FailureMessage TEXT NULL,
+                    UploadExpiresAt TEXT NULL
                 );
                 CREATE TABLE IF NOT EXISTS cached_library_images (
                     ImageId TEXT PRIMARY KEY NOT NULL,
@@ -525,6 +533,7 @@ public sealed class ExerciseCache
             await EnsureColumnAsync(connection, "pending_custom_exercises", "SyncStatus", "INTEGER NOT NULL DEFAULT 0", cancellationToken);
             await EnsureColumnAsync(connection, "pending_custom_exercises", "FailureCode", "INTEGER NULL", cancellationToken);
             await EnsureColumnAsync(connection, "pending_custom_exercises", "FailureMessage", "TEXT NULL", cancellationToken);
+            await EnsureColumnAsync(connection, "pending_custom_exercises", "UploadExpiresAt", "TEXT NULL", cancellationToken);
             await using (var normalizeLegacy = connection.CreateCommand())
             {
                 normalizeLegacy.CommandText = """

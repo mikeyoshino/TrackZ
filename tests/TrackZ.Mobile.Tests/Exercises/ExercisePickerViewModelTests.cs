@@ -243,7 +243,12 @@ public sealed class ExercisePickerViewModelTests : IAsyncLifetime
         try
         {
             var cache = new AuthenticatedExerciseThumbnailCache(
-                new HttpClient(handler) { BaseAddress = new Uri("https://trackz.test") }, directory);
+                new HttpClient(handler) { BaseAddress = new Uri("https://api.trackz.test") },
+                new HttpClient(new NeverCalledHandler()),
+                new Uri("https://media.trackz.test"),
+                directory,
+                new FixedClock(),
+                new AccountSessionBoundary());
 
             await Assert.ThrowsAsync<InvalidDataException>(() => cache.CacheAsync(route));
             Assert.Equal(0, handler.CallCount);
@@ -255,19 +260,34 @@ public sealed class ExercisePickerViewModelTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Thumbnail_cache_accepts_canonical_private_media_route()
+    public async Task Thumbnail_cache_gets_authorization_then_downloads_without_forwarding_the_api_bearer()
     {
-        var handler = new ImageResponseHandler();
+        var clock = new FixedClock();
+        var signedUrl = SignedThumbnailUrl(clock.UtcNow.AddMinutes(1));
+        var authorization = new AuthorizationResponseHandler(signedUrl, clock.UtcNow.AddMinutes(1));
+        var media = new ImageResponseHandler();
         var directory = Path.Combine(Path.GetTempPath(), $"trackz-thumbnails-{Guid.NewGuid():N}");
         try
         {
+            var apiClient = new HttpClient(authorization) { BaseAddress = new Uri("https://api.trackz.test") };
+            apiClient.DefaultRequestHeaders.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "private-api-token");
             var cache = new AuthenticatedExerciseThumbnailCache(
-                new HttpClient(handler) { BaseAddress = new Uri("https://trackz.test") }, directory);
+                apiClient,
+                new HttpClient(media),
+                new Uri("https://media.trackz.test"),
+                directory,
+                clock,
+                new AccountSessionBoundary());
 
             var local = await cache.CacheAsync(
                 "/api/v1/media/exercise-images/99999999-9999-9999-9999-999999999999/thumbnail");
 
-            Assert.Equal(1, handler.CallCount);
+            Assert.Equal(1, authorization.CallCount);
+            Assert.Equal("Bearer private-api-token", authorization.Authorization);
+            Assert.Equal(1, media.CallCount);
+            Assert.Null(media.Authorization);
+            Assert.EndsWith(".jpg", local, StringComparison.Ordinal);
             Assert.Equal([1, 2, 3], await File.ReadAllBytesAsync(local!));
         }
         finally
@@ -276,16 +296,104 @@ public sealed class ExercisePickerViewModelTests : IAsyncLifetime
         }
     }
 
+    [Theory]
+    [InlineData("//evil.example/media/v1/exercise-images/99999999-9999-9999-9999-999999999999/thumbnail?expires=1786759444&signature=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")]
+    [InlineData("https://evil.example/media/v1/exercise-images/99999999-9999-9999-9999-999999999999/thumbnail?expires=1786759444&signature=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")]
+    [InlineData("https://media.trackz.test.evil.example/media/v1/exercise-images/99999999-9999-9999-9999-999999999999/thumbnail?expires=1786759444&signature=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")]
+    [InlineData("https://media.trackz.test@evil.example/media/v1/exercise-images/99999999-9999-9999-9999-999999999999/thumbnail?expires=1786759444&signature=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")]
+    [InlineData("https://media.trackz.test:444/media/v1/exercise-images/99999999-9999-9999-9999-999999999999/thumbnail?expires=1786759444&signature=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")]
+    [InlineData("https://media.trackz.test/media/v1/exercise-images/88888888-8888-8888-8888-888888888888/thumbnail?expires=1786759444&signature=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")]
+    [InlineData("https://media.trackz.test/media/v1/%2e%2e/exercise-images/99999999-9999-9999-9999-999999999999/thumbnail?expires=1786759444&signature=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")]
+    [InlineData("https://media.trackz.test/media/v1/exercise-images/99999999-9999-9999-9999-999999999999/thumbnail?expires=1786759444&signature=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&next=https://evil.example")]
+    public async Task Thumbnail_cache_rejects_off_origin_or_confused_signed_urls_without_contacting_them(string signedUrl)
+    {
+        var clock = new FixedClock();
+        var media = new NeverCalledHandler();
+        var directory = Path.Combine(Path.GetTempPath(), $"trackz-thumbnails-{Guid.NewGuid():N}");
+        try
+        {
+            var cache = new AuthenticatedExerciseThumbnailCache(
+                new HttpClient(new AuthorizationResponseHandler(signedUrl, DateTimeOffset.FromUnixTimeSeconds(1786759444)))
+                { BaseAddress = new Uri("https://api.trackz.test") },
+                new HttpClient(media),
+                new Uri("https://media.trackz.test"),
+                directory,
+                clock,
+                new AccountSessionBoundary());
+
+            await Assert.ThrowsAsync<InvalidDataException>(() => cache.CacheAsync(
+                "/api/v1/media/exercise-images/99999999-9999-9999-9999-999999999999/thumbnail"));
+
+            Assert.Equal(0, media.CallCount);
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Expired_signed_download_reauthorizes_once_then_caches_the_bytes()
+    {
+        var clock = new FixedClock();
+        var expiry = clock.UtcNow.AddMinutes(1);
+        var signedUrl = SignedThumbnailUrl(expiry);
+        var authorizations = new QueueHttpHandler(
+            SignedAccessResponse(signedUrl, expiry),
+            SignedAccessResponse(signedUrl, expiry));
+        var media = new QueueHttpHandler(
+            new HttpResponseMessage(HttpStatusCode.Gone),
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = ImageResponseHandler.ImageContent("image/png") });
+        var directory = Path.Combine(Path.GetTempPath(), $"trackz-thumbnails-{Guid.NewGuid():N}");
+        try
+        {
+            var cache = new AuthenticatedExerciseThumbnailCache(
+                new HttpClient(authorizations) { BaseAddress = new Uri("https://api.trackz.test") },
+                new HttpClient(media),
+                new Uri("https://media.trackz.test"),
+                directory,
+                clock,
+                new AccountSessionBoundary());
+
+            var local = await cache.CacheAsync(
+                "/api/v1/media/exercise-images/99999999-9999-9999-9999-999999999999/thumbnail");
+
+            Assert.Equal(2, authorizations.Requests.Count);
+            Assert.Equal(2, media.Requests.Count);
+            Assert.EndsWith(".png", local, StringComparison.Ordinal);
+            Assert.Equal([1, 2, 3], await File.ReadAllBytesAsync(local!));
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private static string SignedThumbnailUrl(DateTimeOffset expiresAt) =>
+        $"https://media.trackz.test/media/v1/exercise-images/99999999-9999-9999-9999-999999999999/thumbnail" +
+        $"?expires={expiresAt.ToUnixTimeSeconds()}&signature={new string('a', 43)}";
+
+    private static HttpResponseMessage SignedAccessResponse(string url, DateTimeOffset expiresAt) =>
+        Json(HttpStatusCode.OK, $$"""{"url":"{{url}}","expiresAt":"{{expiresAt:O}}"}""");
+
     [Fact]
     public async Task Thumbnail_response_from_reset_generation_is_never_promoted_to_account_cache()
     {
         var handler = new DelayedImageResponseHandler();
+        var clock = new FixedClock();
         var directory = Path.Combine(Path.GetTempPath(), $"trackz-thumbnails-{Guid.NewGuid():N}");
         var boundary = new AccountSessionBoundary();
         try
         {
             var cache = new AuthenticatedExerciseThumbnailCache(
-                new HttpClient(handler) { BaseAddress = new Uri("https://trackz.test") }, directory, boundary);
+                new HttpClient(new AuthorizationResponseHandler(
+                    SignedThumbnailUrl(clock.UtcNow.AddMinutes(1)),
+                    clock.UtcNow.AddMinutes(1))) { BaseAddress = new Uri("https://api.trackz.test") },
+                new HttpClient(handler),
+                new Uri("https://media.trackz.test"),
+                directory,
+                clock,
+                boundary);
             var caching = cache.CacheAsync(
                 "/api/v1/media/exercise-images/99999999-9999-9999-9999-999999999999/thumbnail");
             await handler.Entered;
@@ -464,13 +572,37 @@ public sealed class ExercisePickerViewModelTests : IAsyncLifetime
     private sealed class ImageResponseHandler : HttpMessageHandler
     {
         public int CallCount { get; private set; }
+        public string? Authorization { get; private set; }
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             CallCount++;
+            Authorization = request.Headers.Authorization?.ToString();
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {
-                Content = new ByteArrayContent([1, 2, 3])
+                Content = ImageContent()
             });
+        }
+
+        public static ByteArrayContent ImageContent(string contentType = "image/jpeg")
+        {
+            var content = new ByteArrayContent([1, 2, 3]);
+            content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(contentType);
+            return content;
+        }
+    }
+
+    private sealed class AuthorizationResponseHandler(string url, DateTimeOffset expiresAt) : HttpMessageHandler
+    {
+        public int CallCount { get; private set; }
+        public string? Authorization { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            CallCount++;
+            Authorization = request.Headers.Authorization?.ToString();
+            return Task.FromResult(Json(
+                HttpStatusCode.OK,
+                $$"""{"url":"{{url}}","expiresAt":"{{expiresAt:O}}"}"""));
         }
     }
 
@@ -488,7 +620,7 @@ public sealed class ExercisePickerViewModelTests : IAsyncLifetime
             await _release.Task;
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
-                Content = new ByteArrayContent([1, 2, 3])
+                Content = ImageResponseHandler.ImageContent()
             };
         }
     }

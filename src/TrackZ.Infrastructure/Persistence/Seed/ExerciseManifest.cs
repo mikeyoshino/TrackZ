@@ -91,19 +91,28 @@ public static partial class ExerciseManifest
     public static void ValidateAssets(string catalogPath, IEnumerable<ExerciseManifestItem>? items = null)
     {
         var manifestItems = items?.ToArray() ?? Load(catalogPath).ToArray();
-        var catalogDirectory = Path.GetDirectoryName(Path.GetFullPath(catalogPath))
-            ?? throw new InvalidDataException("Exercise catalog manifest has no directory.");
-        var repositoryRoot = Path.GetFullPath(Path.Combine(catalogDirectory, "..", ".."));
 
         foreach (var item in manifestItems)
         {
-            var assetPath = Path.GetFullPath(Path.Combine(repositoryRoot, item.ImagePath));
-            if (!assetPath.StartsWith(repositoryRoot + Path.DirectorySeparatorChar, StringComparison.Ordinal)
-                || !File.Exists(assetPath))
+            var assetPath = ResolveAssetPath(catalogPath, item);
+            if (!File.Exists(assetPath))
             {
                 throw new FileNotFoundException($"Exercise artwork is missing for '{item.Name}'.", assetPath);
             }
         }
+    }
+
+    public static string ResolveAssetPath(string catalogPath, ExerciseManifestItem item)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(catalogPath);
+        ArgumentNullException.ThrowIfNull(item);
+        var catalogDirectory = Path.GetDirectoryName(Path.GetFullPath(catalogPath))
+            ?? throw new InvalidDataException("Exercise catalog manifest has no directory.");
+        var repositoryRoot = Path.GetFullPath(Path.Combine(catalogDirectory, "..", ".."));
+        var assetPath = Path.GetFullPath(Path.Combine(repositoryRoot, item.ImagePath));
+        if (!assetPath.StartsWith(repositoryRoot + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+            throw new InvalidDataException($"Exercise catalog manifest has an unsafe image path for '{item.Name}'.");
+        return assetPath;
     }
 
     private static void Validate(IReadOnlyList<ExerciseManifestItem> items)

@@ -86,9 +86,13 @@ public sealed class TrackZExerciseApiClient(HttpClient httpClient) :
             response,
             value => value.UploadId != Guid.Empty
                 && value.UploadUri is not null
-                && IsUploadContentRoute(value.UploadUri, value.UploadId),
+                && IsUploadContentRoute(value.UploadUri, value.UploadId)
+                && value.ExpiresAt > DateTimeOffset.UnixEpoch,
             cancellationToken);
-        return new ImageUploadReservation(reservation.UploadId, reservation.UploadUri);
+        return new ImageUploadReservation(
+            reservation.UploadId,
+            reservation.UploadUri,
+            reservation.ExpiresAt.ToUniversalTime());
     }
 
     public async Task UploadContentAsync(
@@ -132,7 +136,8 @@ public sealed class TrackZExerciseApiClient(HttpClient httpClient) :
                     problem.ErrorCode,
                     problem.Message,
                     problem.FieldErrors,
-                    isRetryable: (int)response.StatusCode >= 500
+                    isRetryable: problem.ErrorCode == BusinessErrorCode.VersionConflict
+                        || (int)response.StatusCode >= 500
                         || response.StatusCode is System.Net.HttpStatusCode.RequestTimeout
                         or System.Net.HttpStatusCode.TooManyRequests);
         }
