@@ -40,3 +40,25 @@ The existing catalog API query returns no thumbnail for Draft system artwork, an
 | Command | Result |
 | --- | --- |
 | `dotnet test tests/TrackZ.Infrastructure.Tests --filter "FullyQualifiedName~ExerciseCatalogManifestTests&Category=Asset" --no-restore --verbosity minimal` | PASS — 1 passed |
+
+## Round 1/5 fixes — lifecycle safety, provenance, grouping, and targeted Draft replacements
+
+### RED/GREEN evidence
+
+- **RED:** `dotnet test tests/TrackZ.Infrastructure.Tests --filter "FullyQualifiedName~ExerciseCatalogManifestTests&Category!=Asset" --no-restore --verbosity minimal` reported 2 failures / 8 passes: an unsupported `sourceReference` and a Barbell Bench Press/Lat Pulldown body-part swap that preserved the 8-per-group count were both accepted.
+- **GREEN:** the same manifest command passed 10 / 10 after adding the canonical source-provenance literal and exact 48 name-to-body-part validation.
+- **RED:** `dotnet test tests/TrackZ.Infrastructure.Tests --filter FullyQualifiedName~ExerciseCatalogSeederTests --no-restore --verbosity minimal` reported 2 failures / 5 passes: reseeding valid Reviewed and Published version-1 system images raised a Draft conflict.
+- **GREEN:** the same seeder command passed 7 / 7 after accepting only state-consistent Draft, Reviewed, or Published lifecycle metadata while retaining system ownership, version, key, and provenance checks. The deployed-assets repeat-run acceptance test was already green against the existing idempotent path; it is mutation-sensitive to any duplicate image, regenerated ID, changed version, or changed master/thumbnail key.
+- **GREEN:** `dotnet test tests/TrackZ.Infrastructure.Tests --filter "FullyQualifiedName~ExerciseCatalogManifestTests&Category=Asset" --no-restore --verbosity minimal` passed 1 / 1 after the three replacements; it verifies every manifest PNG exists, decodes as RGBA PNG at 1024×1024, and has a unique SHA-256 hash.
+
+### Targeted Draft image provenance
+
+All three are original, built-in `imagegen` Draft outputs. The original generated files remain retained under `/Users/mikeyoshino/.codex/generated_images/01a00440-d8c1-7961-b4d6-2be3f8faa8d8`; `sips -z 1024 1024` wrote only their stable repository counterparts.
+
+| Asset | Original generated file | Stable Draft file | Actual prompt focus |
+| --- | --- | --- | --- |
+| Lat Pulldown | `/Users/mikeyoshino/.codex/generated_images/01a00440-d8c1-7961-b4d6-2be3f8faa8d8/exec-00c58ab8-0541-416e-a257-8156e4a6407a.png` | `assets/exercises/images/lat-pulldown.png` | Grayscale scientific anatomy illustration; wide-overhand bar is pulled **in front of the face to the upper chest/clavicle**, never behind the neck; lats muted red; no text/glyphs/logos/watermarks. |
+| Face Pull | `/Users/mikeyoshino/.codex/generated_images/01a00440-d8c1-7961-b4d6-2be3f8faa8d8/exec-789f33eb-bdf4-4a3b-a3ee-cf7e4d839bb5.png` | `assets/exercises/images/face-pull.png` | Grayscale scientific anatomy illustration; rope finishes at forehead/temples with elbows high and external rotation; **only posterior deltoids** muted red, all traps/upper arms/other anatomy grayscale; no text/glyphs/logos/watermarks. |
+| Front Squat | `/Users/mikeyoshino/.codex/generated_images/01a00440-d8c1-7961-b4d6-2be3f8faa8d8/exec-4177da00-a46c-446a-b243-b6b9208e9f62.png` | `assets/exercises/images/front-squat.png` | Grayscale scientific anatomy illustration; clean front rack and elbows high; every plate completely plain and unbranded with no embossed glyphs, letters, numbers, markings, or logos; no text/glyphs/watermarks. |
+
+`assets/exercises/contact-sheet.png` was rebuilt from manifest-order source files as eight columns by six body-part rows (1024×768). It is a Draft review aid only. No artwork was marked Reviewed or Published, and no product-owner, anatomy, or rights decision was recorded.

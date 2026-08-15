@@ -25,13 +25,12 @@ public sealed class ExerciseCatalogManifestTests
 
         Assert.Equal(ExpectedNames, items.Select(item => item.Name));
         Assert.Equal(ExpectedIds, items.Select(item => item.Id));
-        Assert.Equal(
-            [BodyPart.Chest, BodyPart.Back, BodyPart.Shoulders, BodyPart.Arms, BodyPart.Legs, BodyPart.Core],
-            items.Chunk(8).Select(group => group.First().BodyPart));
+        Assert.Equal(ExpectedBodyParts, items.Select(item => item.BodyPart));
         Assert.Equal(7, items.Count(item => item.TrackingMode == TrackingMode.Bodyweight));
         Assert.Equal(TrackingMode.Assisted, Assert.Single(items, item => item.Name == "Assisted Pull-Up").TrackingMode);
         Assert.All(items.Where(item => item.Name != "Assisted Pull-Up" && !BodyweightNames.Contains(item.Name)), item => Assert.Equal(TrackingMode.Weighted, item.TrackingMode));
         Assert.All(items, item => Assert.Equal(ExerciseImageReviewState.Draft, item.ReviewState));
+        Assert.All(items, item => Assert.Equal(ExerciseManifest.AiGeneratedProjectOwnedDraftSourceReference, item.SourceReference));
     }
 
     [Theory]
@@ -58,6 +57,39 @@ public sealed class ExerciseCatalogManifestTests
         var path = WriteModifiedCatalog(source => source.Replace(
             "\"slug\": \"incline-barbell-bench-press\", \"imagePath\": \"assets/exercises/images/incline-barbell-bench-press.png\"",
             "\"slug\": \"barbell-bench-press\", \"imagePath\": \"assets/exercises/images/barbell-bench-press.png\"",
+            StringComparison.Ordinal));
+        try
+        {
+            Assert.Throws<InvalidDataException>(() => ExerciseManifest.Load(path));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Loader_rejects_a_name_to_body_part_swap_that_preserves_group_counts()
+    {
+        var path = WriteModifiedCatalog(source => source
+            .Replace("\"name\": \"Barbell Bench Press\", \"bodyPart\": \"Chest\"", "\"name\": \"Barbell Bench Press\", \"bodyPart\": \"Back\"", StringComparison.Ordinal)
+            .Replace("\"name\": \"Lat Pulldown\", \"bodyPart\": \"Back\"", "\"name\": \"Lat Pulldown\", \"bodyPart\": \"Chest\"", StringComparison.Ordinal));
+        try
+        {
+            Assert.Throws<InvalidDataException>(() => ExerciseManifest.Load(path));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Loader_rejects_an_unsupported_artwork_provenance()
+    {
+        var path = WriteModifiedCatalog(source => source.Replace(
+            "\"sourceReference\": \"ai-generated-project-owned-draft\"",
+            "\"sourceReference\": \"unverified-third-party-image\"",
             StringComparison.Ordinal));
         try
         {
@@ -140,6 +172,16 @@ public sealed class ExerciseCatalogManifestTests
         Guid.Parse("2af9cf0e-7441-58bf-9cea-da3b9e9611d1"), Guid.Parse("3810d1d8-a57a-5803-a110-fdaa4f6641af"), Guid.Parse("bb745a4b-5f47-5b42-afff-31116187ce98"), Guid.Parse("422ff241-deb5-583b-93c1-81e21745baac"), Guid.Parse("5151ef3b-cc64-54f6-a880-7f343fe4c997"), Guid.Parse("1dd57614-9adc-5fec-ac8d-f7aaa324cd58"), Guid.Parse("56c72ada-593c-584b-979e-0250ef0ad5a6"), Guid.Parse("e4ac3fe2-a2e4-5de1-9134-10d56159788e"),
         Guid.Parse("6adac5f8-1e71-5aeb-83ce-4105c7a00b8a"), Guid.Parse("0e50233c-482c-58ff-a58d-5a8516590ba9"), Guid.Parse("dc104673-de77-536b-9284-d707e13aa4fb"), Guid.Parse("884b9d13-1577-5fe1-bdc4-2b69cd281380"), Guid.Parse("b11d97ff-e793-50b3-b8a7-4ade5e74b11c"), Guid.Parse("5f70df5c-ebd2-5414-947d-b98e4e23c95e"), Guid.Parse("84473551-deb5-542d-afea-11b17a01b7f4"), Guid.Parse("cb8a6255-4e72-5fa1-8fe7-6d89ae60544d"),
         Guid.Parse("915932ce-b948-5d5f-becd-de0bf5f4a9a2"), Guid.Parse("f8a24551-0cbe-5509-af38-05ff3131db94"), Guid.Parse("e272e64a-bd32-5287-b207-155bd1dea34f"), Guid.Parse("1cd9d8ae-cb7b-57b7-9445-db5952712354"), Guid.Parse("f321c70a-023a-51e8-a85d-cdaa87d51f20"), Guid.Parse("41ff5bf8-2a64-5d50-96ae-b9c5216b7126"), Guid.Parse("73bfc117-c21e-5789-be65-073126c57180"), Guid.Parse("33a08f1f-4dbf-592b-97e3-901d7f006cec")
+    ];
+
+    private static readonly BodyPart[] ExpectedBodyParts =
+    [
+        BodyPart.Chest, BodyPart.Chest, BodyPart.Chest, BodyPart.Chest, BodyPart.Chest, BodyPart.Chest, BodyPart.Chest, BodyPart.Chest,
+        BodyPart.Back, BodyPart.Back, BodyPart.Back, BodyPart.Back, BodyPart.Back, BodyPart.Back, BodyPart.Back, BodyPart.Back,
+        BodyPart.Shoulders, BodyPart.Shoulders, BodyPart.Shoulders, BodyPart.Shoulders, BodyPart.Shoulders, BodyPart.Shoulders, BodyPart.Shoulders, BodyPart.Shoulders,
+        BodyPart.Arms, BodyPart.Arms, BodyPart.Arms, BodyPart.Arms, BodyPart.Arms, BodyPart.Arms, BodyPart.Arms, BodyPart.Arms,
+        BodyPart.Legs, BodyPart.Legs, BodyPart.Legs, BodyPart.Legs, BodyPart.Legs, BodyPart.Legs, BodyPart.Legs, BodyPart.Legs,
+        BodyPart.Core, BodyPart.Core, BodyPart.Core, BodyPart.Core, BodyPart.Core, BodyPart.Core, BodyPart.Core, BodyPart.Core
     ];
 
     private static readonly HashSet<string> BodyweightNames = new(StringComparer.Ordinal)

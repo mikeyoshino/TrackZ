@@ -90,6 +90,67 @@ public sealed class ExerciseCatalogSeederTests
         });
     }
 
+    [Fact]
+    public async Task Seeder_preserves_a_valid_reviewed_v1_system_image_on_reseed()
+    {
+        await using var database = await PostgreSqlFixture.StartAsync();
+        var seeder = new ExerciseCatalogSeeder(database.Db, new DeployedAssets());
+        await seeder.SeedAsync(CatalogPath, default);
+        var image = await database.Db.ExerciseImages.OrderBy(image => image.ExerciseDefinitionId).FirstAsync();
+        var reviewerId = Guid.NewGuid();
+        var reviewedAt = DateTimeOffset.UtcNow.AddMinutes(1);
+        image.Review(reviewerId, "human-rights-record-001", true, true, true, reviewedAt);
+        await database.Db.SaveChangesAsync();
+        var snapshot = (image.Id, image.Version, image.MasterObjectKey, image.ThumbnailObjectKey, image.ReviewState, image.ReviewedByUserId, image.ReviewedAt, image.PublishedAt);
+
+        await seeder.SeedAsync(CatalogPath, default);
+
+        var persisted = await database.Db.ExerciseImages.SingleAsync(item => item.Id == image.Id);
+        Assert.Equal(snapshot, (persisted.Id, persisted.Version, persisted.MasterObjectKey, persisted.ThumbnailObjectKey, persisted.ReviewState, persisted.ReviewedByUserId, persisted.ReviewedAt, persisted.PublishedAt));
+    }
+
+    [Fact]
+    public async Task Seeder_preserves_a_valid_published_v1_system_image_on_reseed()
+    {
+        await using var database = await PostgreSqlFixture.StartAsync();
+        var seeder = new ExerciseCatalogSeeder(database.Db, new DeployedAssets());
+        await seeder.SeedAsync(CatalogPath, default);
+        var image = await database.Db.ExerciseImages.OrderBy(image => image.ExerciseDefinitionId).FirstAsync();
+        var reviewerId = Guid.NewGuid();
+        var reviewedAt = DateTimeOffset.UtcNow.AddMinutes(1);
+        var publishedAt = reviewedAt.AddMinutes(1);
+        image.Review(reviewerId, "human-rights-record-002", true, true, true, reviewedAt);
+        image.Publish(publishedAt);
+        await database.Db.SaveChangesAsync();
+        var snapshot = (image.Id, image.Version, image.MasterObjectKey, image.ThumbnailObjectKey, image.ReviewState, image.ReviewedByUserId, image.ReviewedAt, image.PublishedAt);
+
+        await seeder.SeedAsync(CatalogPath, default);
+
+        var persisted = await database.Db.ExerciseImages.SingleAsync(item => item.Id == image.Id);
+        Assert.Equal(snapshot, (persisted.Id, persisted.Version, persisted.MasterObjectKey, persisted.ThumbnailObjectKey, persisted.ReviewState, persisted.ReviewedByUserId, persisted.ReviewedAt, persisted.PublishedAt));
+    }
+
+    [Fact]
+    public async Task Seeder_repeats_deployed_assets_without_changing_image_identity_or_keys()
+    {
+        await using var database = await PostgreSqlFixture.StartAsync();
+        var seeder = new ExerciseCatalogSeeder(database.Db, new DeployedAssets());
+        await seeder.SeedAsync(CatalogPath, default);
+        var before = await database.Db.ExerciseImages
+            .OrderBy(image => image.ExerciseDefinitionId)
+            .Select(image => new { image.Id, image.Version, image.MasterObjectKey, image.ThumbnailObjectKey })
+            .ToArrayAsync();
+
+        await seeder.SeedAsync(CatalogPath, default);
+
+        var after = await database.Db.ExerciseImages
+            .OrderBy(image => image.ExerciseDefinitionId)
+            .Select(image => new { image.Id, image.Version, image.MasterObjectKey, image.ThumbnailObjectKey })
+            .ToArrayAsync();
+        Assert.Equal(48, after.Length);
+        Assert.Equal(before, after);
+    }
+
     private static string CatalogPath => Path.Combine(RepositoryRoot, "assets", "exercises", "catalog.json");
 
     private static string RepositoryRoot

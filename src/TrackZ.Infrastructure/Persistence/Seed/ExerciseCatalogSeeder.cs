@@ -61,7 +61,7 @@ public sealed class ExerciseCatalogSeeder(AppDbContext database, IExerciseCatalo
             var image = existingImages.SingleOrDefault(existing => existing.ExerciseDefinitionId == item.Id && existing.Version == 1);
             if (image is not null)
             {
-                EnsureMatchingDraftImage(image, item);
+                EnsureMatchingSystemImage(image, item);
                 continue;
             }
 
@@ -106,24 +106,50 @@ public sealed class ExerciseCatalogSeeder(AppDbContext database, IExerciseCatalo
         }
     }
 
-    private static void EnsureMatchingDraftImage(ExerciseImage image, ExerciseManifestItem item)
+    private static void EnsureMatchingSystemImage(ExerciseImage image, ExerciseManifestItem item)
     {
         if (image.Source != ExerciseImageSource.SystemArtwork
             || image.IsPrivate
             || image.OwnerId is not null
-            || image.ReviewState != ExerciseImageReviewState.Draft
-            || image.ReviewedByUserId is not null
-            || image.ReviewedAt is not null
-            || image.PublishedAt is not null
-            || image.RightsReference is not null
-            || image.AnatomyApproved
-            || image.MovementApproved
-            || image.RightsApproved
+            || image.Version != 1
             || !string.Equals(image.MasterObjectKey, MasterKey(item.Id), StringComparison.Ordinal)
             || !string.Equals(image.ThumbnailObjectKey, ThumbnailKey(item.Id), StringComparison.Ordinal)
-            || !string.Equals(image.SourceReference, item.SourceReference, StringComparison.Ordinal))
+            || !string.Equals(image.SourceReference, item.SourceReference, StringComparison.Ordinal)
+            || !HasConsistentLifecycleMetadata(image))
         {
             throw new InvalidOperationException($"Exercise catalog artwork for '{item.Name}' conflicts with the Draft manifest.");
         }
     }
+
+    private static bool HasConsistentLifecycleMetadata(ExerciseImage image) => image.ReviewState switch
+    {
+        ExerciseImageReviewState.Draft =>
+            image.ReviewedByUserId is null
+            && image.ReviewedAt is null
+            && image.PublishedAt is null
+            && image.RightsReference is null
+            && !image.AnatomyApproved
+            && !image.MovementApproved
+            && !image.RightsApproved,
+        ExerciseImageReviewState.Reviewed =>
+            image.ReviewedByUserId is not null
+            && image.ReviewedAt is not null
+            && image.PublishedAt is null
+            && !string.IsNullOrWhiteSpace(image.RightsReference)
+            && image.AnatomyApproved
+            && image.MovementApproved
+            && image.RightsApproved
+            && image.ReviewedAt >= image.CreatedAt,
+        ExerciseImageReviewState.Published =>
+            image.ReviewedByUserId is not null
+            && image.ReviewedAt is not null
+            && image.PublishedAt is not null
+            && !string.IsNullOrWhiteSpace(image.RightsReference)
+            && image.AnatomyApproved
+            && image.MovementApproved
+            && image.RightsApproved
+            && image.ReviewedAt >= image.CreatedAt
+            && image.PublishedAt >= image.ReviewedAt,
+        _ => false
+    };
 }
