@@ -155,10 +155,7 @@ public sealed class ActiveWorkoutCoordinator(
                 }
                 else
                 {
-                    var lastMutation = exercise.Sets
-                        .Select(item => item.CompletedAt)
-                        .Append(active.StartedAt)
-                        .Max();
+                    var lastMutation = LastAggregateMutationAt(active);
                     var requestedAt = set.CompletedAt == default ? Utc(clock.UtcNow) : Utc(set.CompletedAt);
                     var completedAt = requestedAt <= lastMutation ? lastMutation.AddTicks(1) : requestedAt;
                     saved = set with
@@ -242,6 +239,29 @@ public sealed class ActiveWorkoutCoordinator(
 
     private static DateTimeOffset Utc(DateTimeOffset value) => value.ToUniversalTime();
     private static string? DecimalText(decimal? value) => value?.ToString(CultureInfo.InvariantCulture);
+
+    private static DateTimeOffset LastAggregateMutationAt(LocalWorkout workout)
+    {
+        var latest = workout.StartedAt;
+        Include(workout.CompletedAt);
+        Include(workout.DeletedAt);
+        foreach (var exercise in workout.Exercises)
+        {
+            Include(exercise.DeletedAt);
+            foreach (var set in exercise.Sets)
+            {
+                Include(set.CompletedAt);
+                Include(set.UpdatedAt);
+                Include(set.DeletedAt);
+            }
+        }
+        return latest;
+
+        void Include(DateTimeOffset? timestamp)
+        {
+            if (timestamp > latest) latest = timestamp.Value;
+        }
+    }
 
     private async Task<LocalWorkout> ReconcileStartReplayAsync(
         LocalWorkout active,

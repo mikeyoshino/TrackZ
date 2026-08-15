@@ -204,6 +204,41 @@ public sealed class ActiveWorkoutCoordinatorTests : IDisposable
     }
 
     [Fact]
+    public async Task Pending_operations_follow_causal_versions_across_exercises_when_clock_does_not_advance()
+    {
+        var secondExerciseId = Guid.Parse("22222222-2222-2222-2222-222222222222");
+        var highOperationId = Guid.Parse("ffffffff-ffff-ffff-ffff-ffffffffffff");
+        var lowOperationId = Guid.Parse("00000000-0000-0000-0000-000000000001");
+        var fixture = CreateFixture();
+        await fixture.Coordinator.StartAsync([
+            new WorkoutExerciseSelection(_exerciseId, TrackingMode.Weighted),
+            new WorkoutExerciseSelection(secondExerciseId, TrackingMode.Bodyweight)
+        ]);
+        await fixture.Coordinator.SaveSetAsync(
+            _exerciseId,
+            new LocalSet(60m, null, 12) with { OperationId = highOperationId });
+
+        var recreated = CreateFixture(Now.AddDays(-1));
+        await recreated.Coordinator.SaveSetAsync(
+            secondExerciseId,
+            new LocalSet(null, null, 15) with { OperationId = lowOperationId });
+
+        var pending = await recreated.Outbox.PendingAsync();
+        Assert.Equal([0L, 2L, 3L], pending.Select(operation => operation.BaseVersion));
+        Assert.Equal(
+            [highOperationId, lowOperationId],
+            pending.Where(operation => operation.Type == OutboxOperationType.SaveSet)
+                .Select(operation => operation.OperationId));
+        Assert.True(pending[0].CreatedAt < pending[1].CreatedAt);
+        Assert.True(pending[1].CreatedAt < pending[2].CreatedAt);
+
+        var restoredSets = (await recreated.Repository.GetActiveAsync(default))!
+            .Exercises.SelectMany(exercise => exercise.Sets).ToDictionary(set => set.OperationId);
+        Assert.Equal(pending[1].CreatedAt, restoredSets[highOperationId].CompletedAt);
+        Assert.Equal(pending[2].CreatedAt, restoredSets[lowOperationId].CompletedAt);
+    }
+
+    [Fact]
     public async Task Database_rejects_a_second_active_workout()
     {
         var fixture = CreateFixture();
@@ -274,15 +309,21 @@ public sealed class ActiveWorkoutCoordinatorTests : IDisposable
         await fixture.Coordinator.StartAsync([new WorkoutExerciseSelection(_exerciseId, TrackingMode.Weighted)]);
         var saved = await fixture.Coordinator.SaveSetAsync(_exerciseId, new LocalSet(75m, null, 5));
 
-        var recreated = CreateFixture();
+        var recreated = CreateFixture(Now.AddDays(1));
         var restoredSet = Assert.Single(Assert.Single(
             (await recreated.Coordinator.RestoreActiveAsync())!.Exercises).Sets);
         Assert.Equal(saved.OperationId, restoredSet.OperationId);
+        var priorOperation = await recreated.Repository.GetOperationAsync(saved.OperationId, default);
 
         await recreated.Coordinator.SaveSetAsync(_exerciseId, saved);
         var differentOperation = saved with { OperationId = Guid.NewGuid() };
         await Assert.ThrowsAsync<InvalidDataException>(() =>
             recreated.Coordinator.SaveSetAsync(_exerciseId, differentOperation));
+        var afterReplay = Assert.Single(Assert.Single(
+            (await recreated.Coordinator.RestoreActiveAsync())!.Exercises).Sets);
+        Assert.Equal(saved.CompletedAt, afterReplay.CompletedAt);
+        Assert.Equal(priorOperation,
+            await recreated.Repository.GetOperationAsync(saved.OperationId, default));
         Assert.Equal(2, (await recreated.Outbox.PendingAsync()).Count);
     }
 
@@ -648,7 +689,7 @@ public sealed class ActiveWorkoutCoordinatorTests : IDisposable
         Assert.Equal(deletedAt, restoredSets.Single(item => item.Id == insertedSet.Id).DeletedAt);
     }
 
-    private Fixture CreateFixture()
+    private Fixture CreateFixture(DateTimeOffset? clockNow = null)
     {
         var database = new TrackZLocalDatabase(_databasePath);
         var repository = new LocalWorkoutRepository(database);
@@ -658,7 +699,7 @@ public sealed class ActiveWorkoutCoordinatorTests : IDisposable
             repository,
             new OutboxRepository(database),
             boundary,
-            new ActiveWorkoutCoordinator(repository, boundary, new FixedClock(Now)));
+            new ActiveWorkoutCoordinator(repository, boundary, new FixedClock(clockNow ?? Now)));
     }
 
     private static LocalWorkout ActiveWorkout(Guid workoutId, Guid workoutExerciseId) => new(
