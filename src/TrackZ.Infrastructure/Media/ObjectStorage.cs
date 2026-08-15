@@ -9,10 +9,23 @@ namespace TrackZ.Infrastructure.Media;
 public sealed class ObjectStorageOptions
 {
     public const string SectionName = "ObjectStorage";
-    [Required, Url] public string ServiceUrl { get; init; } = "http://localhost:9000";
-    [Required] public string Bucket { get; init; } = "trackz-private";
-    [Required] public string AccessKey { get; init; } = "trackz_api";
-    [Required, MinLength(16)] public string SecretKey { get; init; } = "trackz_api_development_secret";
+    [Required] public string? ServiceUrl { get; init; }
+    [Required] public string? Bucket { get; init; }
+    [Required] public string? AccessKey { get; init; }
+    [Required, MinLength(8)] public string? SecretKey { get; init; }
+
+    public bool IsValid() =>
+        Uri.TryCreate(ServiceUrl, UriKind.Absolute, out var serviceUrl)
+        && (string.Equals(serviceUrl.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(serviceUrl.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+        && !string.IsNullOrWhiteSpace(serviceUrl.Host)
+        && Bucket is { Length: >= 3 and <= 63 } bucket
+        && bucket.All(character => char.IsLower(character) || char.IsDigit(character) || character is '.' or '-')
+        && !bucket.StartsWith(".", StringComparison.Ordinal)
+        && !bucket.EndsWith(".", StringComparison.Ordinal)
+        && !bucket.Contains("..", StringComparison.Ordinal)
+        && AccessKey is { Length: >= 3 }
+        && SecretKey is { Length: >= 8 };
 }
 public sealed class ObjectStorage : IObjectStorage
 {
@@ -29,5 +42,16 @@ public sealed class ObjectStorage : IObjectStorage
     }
     public Task PutAsync(string prefix, string key, Stream content, string contentType, CancellationToken cancellationToken) { Validate(prefix, key); return _s3.PutObjectAsync(new PutObjectRequest { BucketName = _options.Bucket, Key = key, InputStream = content, ContentType = contentType }, cancellationToken); }
     public Task DeleteAsync(string prefix, string key, CancellationToken cancellationToken) { Validate(prefix, key); return _s3.DeleteObjectAsync(_options.Bucket, key, cancellationToken); }
-    private static void Validate(string prefix, string key) { if (!key.StartsWith(prefix, StringComparison.Ordinal) || key.Contains("..", StringComparison.Ordinal)) throw new InvalidOperationException("Object key scope violation."); }
+    private static void Validate(string prefix, string key)
+    {
+        if (string.IsNullOrWhiteSpace(prefix)
+            || !prefix.EndsWith("/", StringComparison.Ordinal)
+            || prefix.Contains("..", StringComparison.Ordinal)
+            || string.IsNullOrWhiteSpace(key)
+            || !key.StartsWith(prefix, StringComparison.Ordinal)
+            || key.Contains("..", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("Object key scope violation.");
+        }
+    }
 }

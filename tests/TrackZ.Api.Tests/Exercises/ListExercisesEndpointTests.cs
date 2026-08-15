@@ -100,6 +100,34 @@ public sealed class ListExercisesEndpointTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task List_exposes_only_the_latest_ready_custom_thumbnail_as_an_opaque_media_route()
+    {
+        var account = await AuthenticateAsync("catalog-thumbnail@example.com");
+        var custom = ExerciseDefinition.CreateCustom(account.UserId, "My image exercise", BodyPart.Chest, TrackingMode.Weighted);
+        var first = ExerciseImage.CreateCustomUpload(custom, account.UserId, "private/not-for-client/first-master.jpg", "private/not-for-client/first-thumbnail.jpg", 1, "validated-upload");
+        var latest = ExerciseImage.CreateCustomUpload(custom, account.UserId, "private/not-for-client/latest-master.jpg", "private/not-for-client/latest-thumbnail.jpg", 2, "validated-upload");
+        var system = ExerciseDefinition.CreateSystem("Draft artwork", BodyPart.Chest, TrackingMode.Weighted);
+        var draft = ExerciseImage.CreateSystem(system, "system/master.jpg", "system/thumbnail.jpg", 1, "generated");
+        await using (var scope = _factory!.Services.CreateAsyncScope())
+        {
+            var database = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await database.Exercises.AddRangeAsync(custom, system);
+            await database.ExerciseImages.AddRangeAsync(first, latest, draft);
+            await database.SaveChangesAsync();
+        }
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/exercises");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", account.Token);
+        var page = await (await _client.SendAsync(request)).Content.ReadFromJsonAsync<JsonDocument>();
+
+        var customItem = Assert.Single(page!.RootElement.GetProperty("items").EnumerateArray(), item => item.GetProperty("id").GetGuid() == custom.Id);
+        Assert.Equal($"/api/v1/media/exercise-images/{latest.Id:D}/thumbnail", customItem.GetProperty("thumbnailUrl").GetString());
+        Assert.DoesNotContain("private/", customItem.GetRawText(), StringComparison.Ordinal);
+        var systemItem = Assert.Single(page.RootElement.GetProperty("items").EnumerateArray(), item => item.GetProperty("id").GetGuid() == system.Id);
+        Assert.Equal(JsonValueKind.Null, systemItem.GetProperty("thumbnailUrl").ValueKind);
+    }
+
+    [Fact]
     public async Task List_normalizes_search_applies_filters_and_uses_an_opaque_cursor_without_duplicate_equal_names()
     {
         var account = await AuthenticateAsync("catalog-pagination@example.com");

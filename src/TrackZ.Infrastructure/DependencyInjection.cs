@@ -32,7 +32,11 @@ public static class DependencyInjection
         services.AddScoped<IExerciseImageUploadStore>(provider => provider.GetRequiredService<AppDbContext>());
         services.AddSingleton<IObjectStorage, ObjectStorage>();
         services.AddSingleton<IImageProcessor, ImageProcessor>();
-        services.AddOptions<ObjectStorageOptions>().Bind(configuration.GetSection(ObjectStorageOptions.SectionName)).ValidateDataAnnotations().ValidateOnStart();
+        services.AddOptions<ObjectStorageOptions>()
+            .Bind(configuration.GetSection(ObjectStorageOptions.SectionName))
+            .ValidateDataAnnotations()
+            .Validate(static options => options.IsValid(), "Object storage settings must provide an HTTP(S) service URL, DNS-compatible bucket, access key, and secret key.")
+            .ValidateOnStart();
         services.AddSingleton<IExerciseCursorCodec, HmacExerciseCursorCodec>();
         services.AddSingleton<IPasswordHasher, PasswordHasher>();
         services.AddSingleton<ITokenService, JwtTokenService>();

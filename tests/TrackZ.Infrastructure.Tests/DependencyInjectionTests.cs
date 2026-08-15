@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Microsoft.EntityFrameworkCore;
 using TrackZ.Application.Common.Interfaces;
 using TrackZ.Infrastructure.Persistence;
@@ -8,6 +9,28 @@ namespace TrackZ.Infrastructure.Tests;
 
 public sealed class DependencyInjectionTests
 {
+    [Fact]
+    public void Object_storage_options_require_explicit_production_values()
+    {
+        var services = new ServiceCollection();
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ConnectionStrings:TrackZ"] = "Host=localhost;Database=trackz_test;Username=trackz;Password=not-used",
+                ["Jwt:Issuer"] = "trackz-api",
+                ["Jwt:Audience"] = "trackz-mobile",
+                ["Jwt:SigningKey"] = "test-signing-key-that-is-at-least-thirty-two-bytes-long",
+                ["Jwt:AccessTokenMinutes"] = "15",
+                ["Jwt:RefreshTokenDays"] = "14"
+            })
+            .Build();
+
+        services.AddInfrastructure(configuration);
+
+        using var provider = services.BuildServiceProvider();
+        Assert.Throws<OptionsValidationException>(() => provider.GetRequiredService<IOptions<TrackZ.Infrastructure.Media.ObjectStorageOptions>>().Value);
+    }
+
     [Fact]
     public void AddInfrastructure_Rejects_missing_Jwt_settings()
     {

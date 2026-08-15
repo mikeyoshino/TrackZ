@@ -183,6 +183,19 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             join performance in ExercisePerformances.AsNoTracking().Where(item => item.UserId == userId)
                 on exercise.Id equals performance.ExerciseDefinitionId into performanceRows
             from performance in performanceRows.DefaultIfEmpty()
+            join image in ExerciseImages.AsNoTracking().Where(image =>
+                    image.OwnerId == userId
+                    && image.IsPrivate
+                    && image.Source == ExerciseImageSource.UserUpload
+                    && image.ReviewState == null
+                    && image.RightsReference == null
+                    && image.ReviewedByUserId == null
+                    && image.ReviewedAt == null
+                    && image.PublishedAt == null
+                    && !image.AnatomyApproved
+                    && !image.MovementApproved
+                    && !image.RightsApproved)
+                on exercise.Id equals image.ExerciseDefinitionId into images
             where !exercise.IsArchived
                 && (exercise.OwnerId == null || exercise.OwnerId == userId)
                 && (!bodyPart.HasValue || exercise.BodyPart == bodyPart.Value)
@@ -190,6 +203,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
                 && (after == null
                     || string.Compare(exercise.Name, after.OrderingName) > 0
                     || (exercise.Name == after.OrderingName && exercise.Id.CompareTo(after.OrderingId) > 0))
+            let latestImageId = images.OrderByDescending(image => image.Version).ThenByDescending(image => image.Id).Select(image => (Guid?)image.Id).FirstOrDefault()
             orderby exercise.Name, exercise.Id
             select new CatalogExerciseReadItem(
                 new ExerciseSummaryDto(
@@ -197,9 +211,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
                     exercise.Name,
                     exercise.BodyPart,
                     exercise.TrackingMode,
-                    // Object keys are private implementation details. Task 4 will resolve a reviewed
-                    // system image to a public endpoint or a signed private rendition URL.
-                    null,
+                    latestImageId != null
+                        ? "/api/v1/media/exercise-images/" + latestImageId.Value.ToString() + "/thumbnail"
+                        : null,
                     performance == null ? null : performance.LastPerformedAt,
                     performance == null || performance.TrackingMode != exercise.TrackingMode || performance.LastBestReps == null
                         ? null

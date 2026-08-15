@@ -43,7 +43,7 @@ public static class MediaEndpoints
     private static async Task<IResult> UploadContentAsync(Guid uploadId, HttpRequest request, HttpContext context, IExerciseImageUploadStore store, IObjectStorage storage, ICurrentUser currentUser, CancellationToken cancellationToken)
     {
         var ticket = await store.FindOwnedTicketAsync(uploadId, currentUser.UserId, cancellationToken);
-        if (ticket is null || ticket.IsExpired(DateTimeOffset.UtcNow) || ticket.State != ImageUploadState.Pending) return Missing();
+        if (ticket is null || ticket.IsExpired(DateTimeOffset.UtcNow) || ticket.State != ImageUploadState.Pending) return Missing(context);
         if (!string.Equals(request.ContentType, ticket.DeclaredContentType, StringComparison.Ordinal) || request.ContentLength != ticket.DeclaredLength) return Bad(context, request.ContentType is null ? "contentType" : "length");
         var bytes = await BufferAsync(request.Body, cancellationToken);
         if (bytes.LongLength != ticket.DeclaredLength) return Bad(context, "length");
@@ -62,24 +62,31 @@ public static class MediaEndpoints
         if (transition == StagingUploadTransition.Uploaded) return Results.NoContent();
         // A concurrent PUT may already have made the ticket durable. Its staging bytes are now
         // owned by that upload, so a losing request must never delete them.
-        if (transition == StagingUploadTransition.RetainedByAnotherUpload) return Missing();
+        if (transition == StagingUploadTransition.RetainedByAnotherUpload) return Missing(context);
         await DeleteStagingBestEffortAsync(storage, currentUser.UserId, ticket.StagingObjectKey);
-        return Missing();
+        return Missing(context);
     }
-    private static async Task<IResult> ReadAsync(Guid imageId, string rendition, IExerciseImageUploadStore store, IObjectStorage storage, ICurrentUser currentUser, CancellationToken cancellationToken)
+    private static async Task<IResult> ReadAsync(Guid imageId, string rendition, HttpContext context, IExerciseImageUploadStore store, IObjectStorage storage, ICurrentUser currentUser, CancellationToken cancellationToken)
     {
-        if (rendition is not ("master" or "thumbnail")) return Missing();
+        if (rendition is not ("master" or "thumbnail")) return Missing(context);
         var image = await store.FindOwnedImageAsync(imageId, currentUser.UserId, cancellationToken);
-        if (image is null) return Missing();
+        if (image is null) return Missing(context);
         var key = rendition == "master" ? image.MasterObjectKey : image.ThumbnailObjectKey;
         var result = await storage.GetAsync($"private/{currentUser.UserId:D}/", key, cancellationToken);
-        return result is null ? Missing() : Results.Stream(result.Content, result.ContentType);
+        return result is null ? Missing(context) : Results.Stream(result.Content, result.ContentType);
     }
     private static async Task<byte[]> BufferAsync(Stream source, CancellationToken cancellationToken)
     { await using var buffer = new MemoryStream((int)MaxBytes + 1); var chunk = new byte[81920]; while (true) { var count = await source.ReadAsync(chunk, cancellationToken); if (count == 0) break; if (buffer.Length + count > MaxBytes) throw new TrackZ.Application.Common.Exceptions.BusinessException(BusinessErrorCode.ImageTooLarge, "The image is too large.", 400); await buffer.WriteAsync(chunk.AsMemory(0, count), cancellationToken); } return buffer.ToArray(); }
     private static async Task DeleteStagingBestEffortAsync(IObjectStorage storage, Guid ownerId, string stagingKey)
     { try { await storage.DeleteAsync($"staging/{ownerId:D}/", stagingKey, CancellationToken.None); } catch { } }
-    private static IResult Missing() => Results.Problem(statusCode: 404, title: "The exercise was not found.");
+    private static IResult Missing(HttpContext context) => Results.Json(new ApiProblemDetails(
+        "https://api.trackz.app/problems/business-rule-violation",
+        "Business rule violation",
+        StatusCodes.Status404NotFound,
+        BusinessErrorCode.ExerciseNotFound,
+        BusinessMessages.Get(BusinessErrorCode.ExerciseNotFound, CultureInfo.CurrentUICulture, "The exercise was not found."),
+        context.TraceIdentifier,
+        null), contentType: "application/problem+json", statusCode: StatusCodes.Status404NotFound);
     private static bool IsJson(string? contentType)
     { if (!MediaTypeHeaderValue.TryParse(contentType, out var media)) return false; var type = media.MediaType.Value ?? string.Empty; if (!type.Equals("application/json", StringComparison.OrdinalIgnoreCase) && !type.EndsWith("+json", StringComparison.OrdinalIgnoreCase)) return false; var charsets = media.Parameters.Where(x => string.Equals(x.Name.Value, "charset", StringComparison.OrdinalIgnoreCase)).ToList(); return charsets.Count is 0 || (charsets.Count == 1 && (string.Equals(charsets[0].Value.Value?.Trim('\"'), "utf-8", StringComparison.OrdinalIgnoreCase) || string.Equals(charsets[0].Value.Value?.Trim('\"'), "utf8", StringComparison.OrdinalIgnoreCase))); }
     private static string MapPath(string? path) { if (string.IsNullOrEmpty(path) || !path.StartsWith("$.", StringComparison.Ordinal)) return "body"; var property = path[2..]; if (property.IndexOfAny(['.', '[', ']', '$']) >= 0) return "body"; return property.ToLowerInvariant() switch { "exerciseid" => "exerciseId", "contenttype" => "contentType", "length" => "length", _ => "body" }; }
