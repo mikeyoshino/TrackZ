@@ -169,6 +169,33 @@ public sealed class ListExercisesEndpointTests : IAsyncLifetime
         Assert.False(string.IsNullOrWhiteSpace(page.RootElement.GetProperty("nextCursor").GetString()));
     }
 
+    [Fact]
+    public async Task Unauthenticated_list_is_rejected()
+    {
+        var response = await _client.GetAsync("/api/v1/exercises");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Invalid_cursor_returns_thai_validation_field_error_without_internal_details()
+    {
+        var account = await AuthenticateAsync("catalog-cursor-thai@example.com");
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/exercises?cursor=not-a-cursor");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", account.Token);
+        request.Headers.AcceptLanguage.ParseAdd("th-TH");
+
+        var response = await _client.SendAsync(request);
+        var problem = await response.Content.ReadFromJsonAsync<TrackZ.Contracts.Errors.ApiProblemDetails>();
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(10009, (int)problem!.ErrorCode);
+        Assert.Equal("ข้อมูลคำขอไม่ถูกต้อง", problem.Message);
+        Assert.Equal("ข้อมูล cursor ไม่ถูกต้อง", Assert.Single(problem.FieldErrors!["cursor"]));
+        Assert.False(string.IsNullOrWhiteSpace(problem.TraceId));
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+    }
+
     private async Task<(Guid UserId, string Token)> AuthenticateAsync(string email)
     {
         var register = await _client.PostAsJsonAsync("/api/v1/auth/register", new { email, password = "ValidPassword!42" });

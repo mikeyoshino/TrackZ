@@ -19,3 +19,10 @@
 ## Deliberate Scope Boundary
 
 `ExercisePerformance` is a persisted read projection only in this task. Workout completion/edit/delete recomputation remains for the workout plan; this task does not introduce workout mutation behavior or custom-exercise CRUD.
+
+## Fix Round 2
+
+- **RED:** lifecycle test showed a persisted row could omit all-time best; PostgreSQL test showed null-valued comparisons could bypass a check constraint.
+- **GREEN:** every projection row now requires UTC last-performed time plus coherent LAST and all-time-best sets. Tracking mode is restricted to published values and participates in a composite foreign key to the exercise definition, preventing mode mismatch or changing an exercise mode while performance exists.
+- **Cursor contract:** endpoint-level validation converts malformed/tampered/version-incompatible cursors into localized `10009` validation ProblemDetails with a `cursor` field error, trace ID, and no internals.
+- **Commands:** `dotnet test ...ExercisePerformanceTests` (11 passed); `dotnet test ...Invalid_cursor_returns_thai` (1 passed); `dotnet ef migrations has-pending-model-changes` (clean).

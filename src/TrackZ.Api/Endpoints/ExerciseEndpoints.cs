@@ -5,6 +5,7 @@ using MediatR;
 using Microsoft.AspNetCore.Http;
 using TrackZ.Api.Middleware;
 using TrackZ.Application.Exercises.ListExercises;
+using TrackZ.Application.Common.Exceptions;
 using TrackZ.Contracts.Errors;
 using TrackZ.Domain.Exercises;
 
@@ -14,10 +15,15 @@ public static class ExerciseEndpoints
 {
     public static IEndpointRouteBuilder MapExerciseEndpoints(this IEndpointRouteBuilder endpoints)
     {
-        endpoints.MapGet("/api/v1/exercises", async (HttpRequest request, HttpContext context, ISender sender, CancellationToken cancellationToken) =>
+        endpoints.MapGet("/api/v1/exercises", async (HttpRequest request, HttpContext context, ISender sender, IExerciseCursorCodec cursorCodec, CancellationToken cancellationToken) =>
         {
             var parsed = ParseRequest(request, context);
             if (parsed.Error is not null) return parsed.Error;
+            if (parsed.Cursor is not null)
+            {
+                try { _ = cursorCodec.Decode(parsed.Cursor); }
+                catch (BusinessException) { return ValidationProblem(context, new Dictionary<string, string[]> { ["cursor"] = [InvalidField(context, "cursor")] }); }
+            }
 
             var page = await sender.Send(new ListExercisesQuery(
                 parsed.BodyPart,
