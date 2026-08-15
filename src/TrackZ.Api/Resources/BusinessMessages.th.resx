@@ -7,6 +7,8 @@
   <data name="RefreshTokenInvalid" xml:space="preserve"><value>โทเค็นรีเฟรชไม่ถูกต้องหรือหมดอายุ</value></data>
   <data name="RateLimitExceeded" xml:space="preserve"><value>มีคำขอมากเกินไป โปรดลองอีกครั้งในภายหลัง</value></data>
   <data name="InvalidRequest" xml:space="preserve"><value>ข้อมูลคำขอไม่ถูกต้อง</value></data>
+  <data name="ExerciseNotFound" xml:space="preserve"><value>ไม่พบรายการท่าออกกำลังกาย</value></data>
+  <data name="ExerciseNameDuplicate" xml:space="preserve"><value>มีท่าออกกำลังกายแบบกำหนดเองที่ใช้งานอยู่ชื่อนี้แล้ว</value></data>
   <data name="RequiredField" xml:space="preserve"><value>ต้องระบุข้อมูล {0}</value></data>
   <data name="InvalidDeviceName" xml:space="preserve"><value>ชื่ออุปกรณ์ไม่ถูกต้อง</value></data>
   <data name="InvalidField" xml:space="preserve"><value>ข้อมูล {0} ไม่ถูกต้อง</value></data>

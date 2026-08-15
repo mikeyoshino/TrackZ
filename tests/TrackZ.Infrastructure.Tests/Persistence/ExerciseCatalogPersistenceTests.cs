@@ -38,6 +38,31 @@ public sealed class ExerciseCatalogPersistenceTests
     }
 
     [Fact]
+    public async Task Active_custom_names_are_case_insensitively_unique_per_owner_but_can_be_reused_after_archive()
+    {
+        await using var database = await PostgreSqlFixture.StartAsync();
+        var ownerId = Guid.NewGuid();
+        var original = ExerciseDefinition.CreateCustom(ownerId, "My Press", BodyPart.Chest, TrackingMode.Weighted);
+        var differentOwner = ExerciseDefinition.CreateCustom(Guid.NewGuid(), "my press", BodyPart.Chest, TrackingMode.Weighted);
+        await database.Db.Exercises.AddRangeAsync(original, differentOwner);
+        await database.Db.SaveChangesAsync();
+
+        var duplicate = ExerciseDefinition.CreateCustom(ownerId, "MY PRESS", BodyPart.Chest, TrackingMode.Weighted);
+        await database.Db.Exercises.AddAsync(duplicate);
+        await Assert.ThrowsAsync<DbUpdateException>(() => database.Db.SaveChangesAsync());
+        database.Db.Entry(duplicate).State = EntityState.Detached;
+
+        original.Archive();
+        await database.Db.SaveChangesAsync();
+        var replacement = ExerciseDefinition.CreateCustom(ownerId, "my press", BodyPart.Chest, TrackingMode.Weighted);
+        await database.Db.Exercises.AddAsync(replacement);
+        await database.Db.SaveChangesAsync();
+
+        Assert.Equal(3, await database.Db.Exercises.CountAsync());
+        Assert.True((await database.Db.Exercises.FindAsync(original.Id))!.IsArchived);
+    }
+
+    [Fact]
     public async Task Performance_round_trips_valid_mode_shapes_and_database_rejects_invalid_weighted_shape()
     {
         await using var database = await PostgreSqlFixture.StartAsync();

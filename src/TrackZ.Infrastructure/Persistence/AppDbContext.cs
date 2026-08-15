@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using TrackZ.Application.Common.Interfaces;
 using TrackZ.Application.Exercises.ListExercises;
+using TrackZ.Application.Exercises.Custom;
 using TrackZ.Contracts.Exercises;
 using TrackZ.Domain.Identity;
 using TrackZ.Domain.Exercises;
@@ -9,7 +10,7 @@ using TrackZ.Domain.Progress;
 
 namespace TrackZ.Infrastructure.Persistence;
 
-public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options), IAppDbContext, IExerciseCatalogReadStore
+public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options), IAppDbContext, IExerciseCatalogReadStore, ICustomExerciseStore
 {
     public DbSet<User> Users => Set<User>();
 
@@ -44,6 +45,27 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
     public async Task AddRefreshTokenAsync(RefreshToken refreshToken, CancellationToken cancellationToken = default) =>
         await RefreshTokens.AddAsync(refreshToken, cancellationToken);
+
+    public async Task<bool> TryCreateCustomAsync(ExerciseDefinition exercise, CancellationToken cancellationToken)
+    {
+        await Exercises.AddAsync(exercise, cancellationToken);
+        return await TrySaveCustomAsync(cancellationToken, exercise);
+    }
+
+    public async Task<ExerciseDefinition?> FindActiveCustomOwnedAsync(Guid exerciseId, Guid ownerId, CancellationToken cancellationToken)
+    {
+        var exercise = await Exercises.SingleOrDefaultAsync(item =>
+            item.Id == exerciseId && item.OwnerId == ownerId && !item.IsArchived, cancellationToken);
+
+        if (exercise is not null && await ExercisePerformances.AnyAsync(item => item.ExerciseDefinitionId == exerciseId, cancellationToken))
+        {
+            exercise.RecordSetHistory();
+        }
+
+        return exercise;
+    }
+
+    public Task<bool> TrySaveCustomAsync(CancellationToken cancellationToken) => TrySaveCustomAsync(cancellationToken, null);
 
     public Task<RefreshToken?> FindRefreshTokenByHashAsync(string tokenHash, CancellationToken cancellationToken = default) =>
         RefreshTokens.AsNoTracking().SingleOrDefaultAsync(token => token.TokenHash == tokenHash, cancellationToken);
@@ -127,6 +149,31 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         {
             SqlState: PostgresErrorCodes.UniqueViolation,
             ConstraintName: "IX_users_NormalizedEmail"
+        };
+
+    private async Task<bool> TrySaveCustomAsync(CancellationToken cancellationToken, ExerciseDefinition? addedExercise)
+    {
+        try
+        {
+            await SaveChangesAsync(cancellationToken);
+            return true;
+        }
+        catch (DbUpdateException exception) when (IsActiveCustomNameUniqueConstraintViolation(exception))
+        {
+            if (addedExercise is not null)
+            {
+                Entry(addedExercise).State = EntityState.Detached;
+            }
+
+            return false;
+        }
+    }
+
+    private static bool IsActiveCustomNameUniqueConstraintViolation(DbUpdateException exception) =>
+        exception.InnerException is PostgresException
+        {
+            SqlState: PostgresErrorCodes.UniqueViolation,
+            ConstraintName: "IX_exercise_definitions_OwnerId_NormalizedName"
         };
 
     private sealed class AppDbTransaction(Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction transaction)

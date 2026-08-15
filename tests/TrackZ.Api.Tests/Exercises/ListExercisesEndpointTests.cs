@@ -315,6 +315,166 @@ public sealed class ListExercisesEndpointTests : IAsyncLifetime
         Assert.DoesNotContain("master-draft-secret", raw); Assert.DoesNotContain("thumb-draft-secret", raw); Assert.DoesNotContain("master-published-secret", raw); Assert.DoesNotContain("thumb-published-secret", raw); Assert.DoesNotContain("master-private-secret", raw); Assert.DoesNotContain("thumb-private-secret", raw);
     }
 
+    [Fact]
+    public async Task Create_custom_exercise_returns_created_and_is_visible_only_to_its_owner()
+    {
+        var owner = await AuthenticateAsync("custom-owner@example.com");
+        var other = await AuthenticateAsync("custom-other@example.com");
+        using var create = new HttpRequestMessage(HttpMethod.Post, "/api/v1/exercises/custom")
+        {
+            Content = JsonContent.Create(new { name = "  My Press  ", bodyPart = 1, trackingMode = 1, ownerId = other.UserId })
+        };
+        create.Headers.Authorization = new AuthenticationHeaderValue("Bearer", owner.Token);
+
+        var created = await _client.SendAsync(create);
+        var createdBody = await created.Content.ReadFromJsonAsync<JsonDocument>();
+        var id = createdBody!.RootElement.GetProperty("id").GetGuid();
+
+        using var ownerList = new HttpRequestMessage(HttpMethod.Get, "/api/v1/exercises?search=My%20Press");
+        ownerList.Headers.Authorization = new AuthenticationHeaderValue("Bearer", owner.Token);
+        using var otherList = new HttpRequestMessage(HttpMethod.Get, "/api/v1/exercises?search=My%20Press");
+        otherList.Headers.Authorization = new AuthenticationHeaderValue("Bearer", other.Token);
+        var ownerPage = await (await _client.SendAsync(ownerList)).Content.ReadFromJsonAsync<JsonDocument>();
+        var otherPage = await (await _client.SendAsync(otherList)).Content.ReadFromJsonAsync<JsonDocument>();
+
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        Assert.Equal($"/api/v1/exercises/custom/{id:D}", created.Headers.Location!.OriginalString);
+        Assert.Contains(ownerPage!.RootElement.GetProperty("items").EnumerateArray(), item => item.GetProperty("id").GetGuid() == id && item.GetProperty("name").GetString() == "My Press");
+        Assert.DoesNotContain(otherPage!.RootElement.GetProperty("items").EnumerateArray(), item => item.GetProperty("id").GetGuid() == id);
+    }
+
+    [Fact]
+    public async Task Custom_requests_validate_canonical_fields_and_are_authorization_first_for_malformed_bodies()
+    {
+        using var unauthenticatedMalformed = new HttpRequestMessage(HttpMethod.Post, "/api/v1/exercises/custom")
+        {
+            Content = new StringContent("{", Encoding.UTF8, "application/json")
+        };
+        var unauthorized = await _client.SendAsync(unauthenticatedMalformed);
+
+        var account = await AuthenticateAsync("custom-validation@example.com");
+        using var invalid = new HttpRequestMessage(HttpMethod.Post, "/api/v1/exercises/custom")
+        {
+            Content = JsonContent.Create(new { name = "", bodyPart = 99, trackingMode = 99 })
+        };
+        invalid.Headers.Authorization = new AuthenticationHeaderValue("Bearer", account.Token);
+        invalid.Headers.AcceptLanguage.ParseAdd("th-TH");
+        var invalidResponse = await _client.SendAsync(invalid);
+        var problem = await invalidResponse.Content.ReadFromJsonAsync<TrackZ.Contracts.Errors.ApiProblemDetails>();
+
+        Assert.Equal(HttpStatusCode.Unauthorized, unauthorized.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, invalidResponse.StatusCode);
+        Assert.Equal("application/problem+json", invalidResponse.Content.Headers.ContentType!.MediaType);
+        Assert.Equal(10009, (int)problem!.ErrorCode);
+        Assert.Equal("ข้อมูลคำขอไม่ถูกต้อง", problem.Message);
+        Assert.Equal(["bodyPart", "name", "trackingMode"], problem.FieldErrors!.Keys.OrderBy(key => key));
+        Assert.All(problem.FieldErrors.Values, value => Assert.Single(value));
+    }
+
+    [Fact]
+    public async Task Custom_routes_hide_foreign_and_archived_exercises_and_keep_archived_rows_persisted()
+    {
+        var owner = await AuthenticateAsync("custom-route-owner@example.com");
+        var other = await AuthenticateAsync("custom-route-other@example.com");
+        var exercise = ExerciseDefinition.CreateCustom(owner.UserId, "My Press", BodyPart.Chest, TrackingMode.Weighted);
+        await using (var scope = _factory!.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await db.Exercises.AddAsync(exercise);
+            await db.SaveChangesAsync();
+        }
+
+        using var foreignUpdate = new HttpRequestMessage(HttpMethod.Put, $"/api/v1/exercises/custom/{exercise.Id:D}")
+        {
+            Content = JsonContent.Create(new { name = "Nope", bodyPart = 2 })
+        };
+        foreignUpdate.Headers.Authorization = new AuthenticationHeaderValue("Bearer", other.Token);
+        using var delete = new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/exercises/custom/{exercise.Id:D}");
+        delete.Headers.Authorization = new AuthenticationHeaderValue("Bearer", owner.Token);
+        var foreign = await _client.SendAsync(foreignUpdate);
+        var archived = await _client.SendAsync(delete);
+        using var repeatDelete = new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/exercises/custom/{exercise.Id:D}");
+        repeatDelete.Headers.Authorization = new AuthenticationHeaderValue("Bearer", owner.Token);
+        var repeated = await _client.SendAsync(repeatDelete);
+
+        await using var verifyScope = _factory.Services.CreateAsyncScope();
+        var persisted = await verifyScope.ServiceProvider.GetRequiredService<AppDbContext>().Exercises.FindAsync(exercise.Id);
+        Assert.Equal(HttpStatusCode.NotFound, foreign.StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, archived.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, repeated.StatusCode);
+        Assert.NotNull(persisted);
+        Assert.True(persisted!.IsArchived);
+    }
+
+    [Fact]
+    public async Task Custom_tracking_mode_is_immutable_after_performance_history_but_other_fields_remain_updatable()
+    {
+        var owner = await AuthenticateAsync("custom-history@example.com");
+        var exercise = ExerciseDefinition.CreateCustom(owner.UserId, "History Press", BodyPart.Chest, TrackingMode.Weighted);
+        await using (var scope = _factory!.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await db.Exercises.AddAsync(exercise);
+            await db.ExercisePerformances.AddAsync(ExercisePerformance.Create(
+                owner.UserId, exercise.Id, TrackingMode.Weighted, DateTimeOffset.UtcNow,
+                new ExercisePerformanceSet(60m, null, 8), new ExercisePerformanceSet(70m, null, 5)));
+            await db.SaveChangesAsync();
+        }
+
+        using var rejected = new HttpRequestMessage(HttpMethod.Put, $"/api/v1/exercises/custom/{exercise.Id:D}")
+        {
+            Content = JsonContent.Create(new { name = "Rejected", bodyPart = 2, trackingMode = 2 })
+        };
+        rejected.Headers.Authorization = new AuthenticationHeaderValue("Bearer", owner.Token);
+        var rejection = await _client.SendAsync(rejected);
+        var rejectionProblem = await rejection.Content.ReadFromJsonAsync<TrackZ.Contracts.Errors.ApiProblemDetails>();
+
+        using var allowed = new HttpRequestMessage(HttpMethod.Put, $"/api/v1/exercises/custom/{exercise.Id:D}")
+        {
+            Content = JsonContent.Create(new { name = "  Renamed After History  ", bodyPart = 2 })
+        };
+        allowed.Headers.Authorization = new AuthenticationHeaderValue("Bearer", owner.Token);
+        var success = await _client.SendAsync(allowed);
+
+        await using var verifyScope = _factory.Services.CreateAsyncScope();
+        var persisted = await verifyScope.ServiceProvider.GetRequiredService<AppDbContext>().Exercises.FindAsync(exercise.Id);
+        Assert.Equal(HttpStatusCode.BadRequest, rejection.StatusCode);
+        Assert.Equal(10009, (int)rejectionProblem!.ErrorCode);
+        Assert.Equal(HttpStatusCode.NoContent, success.StatusCode);
+        Assert.Equal("Renamed After History", persisted!.Name);
+        Assert.Equal(BodyPart.Back, persisted.BodyPart);
+        Assert.Equal(TrackingMode.Weighted, persisted.TrackingMode);
+        Assert.True(persisted.HasSetHistory);
+    }
+
+    [Fact]
+    public async Task Concurrent_custom_creates_return_one_created_and_one_localized_duplicate_problem()
+    {
+        var owner = await AuthenticateAsync("custom-concurrency@example.com");
+        var first = new HttpRequestMessage(HttpMethod.Post, "/api/v1/exercises/custom")
+        {
+            Content = JsonContent.Create(new { name = "Concurrent Press", bodyPart = 1, trackingMode = 1 })
+        };
+        first.Headers.Authorization = new AuthenticationHeaderValue("Bearer", owner.Token);
+        first.Headers.AcceptLanguage.ParseAdd("th-TH");
+        var second = new HttpRequestMessage(HttpMethod.Post, "/api/v1/exercises/custom")
+        {
+            Content = JsonContent.Create(new { name = "concurrent press", bodyPart = 1, trackingMode = 1 })
+        };
+        second.Headers.Authorization = new AuthenticationHeaderValue("Bearer", owner.Token);
+        second.Headers.AcceptLanguage.ParseAdd("th-TH");
+
+        var responses = await Task.WhenAll(_client.SendAsync(first), _client.SendAsync(second));
+        var conflict = Assert.Single(responses, response => response.StatusCode == HttpStatusCode.Conflict);
+        var problem = await conflict.Content.ReadFromJsonAsync<TrackZ.Contracts.Errors.ApiProblemDetails>();
+
+        Assert.Single(responses, response => response.StatusCode == HttpStatusCode.Created);
+        Assert.Equal(20002, (int)problem!.ErrorCode);
+        Assert.Equal("มีท่าออกกำลังกายแบบกำหนดเองที่ใช้งานอยู่ชื่อนี้แล้ว", problem.Message);
+        Assert.False(string.IsNullOrWhiteSpace(problem.TraceId));
+        Assert.Equal("application/problem+json", conflict.Content.Headers.ContentType!.MediaType);
+    }
+
     private static string SignedCursor(int version, string orderingName, Guid orderingId)
     {
         var payload = JsonSerializer.SerializeToUtf8Bytes(new { Version = version, OrderingName = orderingName, OrderingId = orderingId });

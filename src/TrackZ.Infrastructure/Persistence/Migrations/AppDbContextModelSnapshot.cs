@@ -62,6 +62,10 @@ namespace TrackZ.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("OwnerId", "IsArchived");
 
+                    b.HasIndex("OwnerId", "NormalizedName")
+                        .IsUnique()
+                        .HasFilter("\"OwnerId\" IS NOT NULL AND NOT \"IsArchived\"");
+
                     b.ToTable("exercise_definitions", null, t =>
                         {
                             t.HasCheckConstraint("CK_exercise_definitions_tracking_mode", "\"TrackingMode\" IN (1, 2, 3)");

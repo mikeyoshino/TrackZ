@@ -69,6 +69,15 @@ public sealed class ExerciseDefinition
         HasSetHistory = true;
     }
 
+    public void UpdateDetails(string name, BodyPart bodyPart)
+    {
+        var normalizedName = NormalizeName(name);
+        ValidateBodyPart(bodyPart);
+        Name = normalizedName;
+        NormalizedName = normalizedName.ToUpperInvariant();
+        BodyPart = bodyPart;
+    }
+
     public void ChangeTrackingMode(TrackingMode trackingMode)
     {
         ValidateTrackingMode(trackingMode);

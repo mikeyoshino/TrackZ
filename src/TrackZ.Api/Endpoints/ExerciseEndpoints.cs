@@ -1,12 +1,18 @@
 using System.Globalization;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
+using System.Text.Json;
 using MediatR;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Net.Http.Headers;
 using TrackZ.Api.Middleware;
+using TrackZ.Application.Exercises.CreateCustom;
+using TrackZ.Application.Exercises.DeleteCustom;
 using TrackZ.Application.Exercises.ListExercises;
+using TrackZ.Application.Exercises.UpdateCustom;
 using TrackZ.Application.Common.Exceptions;
 using TrackZ.Contracts.Errors;
+using TrackZ.Contracts.Exercises;
 using TrackZ.Domain.Exercises;
 
 namespace TrackZ.Api.Endpoints;
@@ -35,6 +41,48 @@ public static class ExerciseEndpoints
         .RequireAuthorization()
         .Produces(StatusCodes.Status200OK)
         .Produces<ApiProblemDetails>(StatusCodes.Status400BadRequest, "application/problem+json");
+
+        var custom = endpoints.MapGroup("/api/v1/exercises/custom").RequireAuthorization();
+        custom.MapPost("", async (HttpRequest request, HttpContext context, ISender sender, CancellationToken cancellationToken) =>
+        {
+            var parsed = await ReadCustomRequestAsync<CreateCustomExerciseRequest>(request, context, cancellationToken);
+            if (parsed.Error is not null) return parsed.Error;
+            var model = parsed.Value!;
+            var errors = ValidateCustomRequest(model.Name, model.BodyPart, model.TrackingMode, model.LibraryImageId, model.UploadedImageKey, context, trackingModeRequired: true);
+            if (errors is not null) return ValidationProblem(context, errors);
+
+            var id = await sender.Send(new CreateCustomExerciseCommand(
+                model.Name!, model.BodyPart!.Value, model.TrackingMode!.Value, model.LibraryImageId, model.UploadedImageKey), cancellationToken);
+            return Results.Created($"/api/v1/exercises/custom/{id:D}", new { id });
+        })
+        .Produces(StatusCodes.Status201Created)
+        .Produces<ApiProblemDetails>(StatusCodes.Status400BadRequest, "application/problem+json")
+        .Produces<ApiProblemDetails>(StatusCodes.Status409Conflict, "application/problem+json");
+
+        custom.MapPut("/{id:guid}", async (Guid id, HttpRequest request, HttpContext context, ISender sender, CancellationToken cancellationToken) =>
+        {
+            var parsed = await ReadCustomRequestAsync<UpdateCustomExerciseRequest>(request, context, cancellationToken);
+            if (parsed.Error is not null) return parsed.Error;
+            var model = parsed.Value!;
+            var errors = ValidateCustomRequest(model.Name, model.BodyPart, model.TrackingMode, model.LibraryImageId, model.UploadedImageKey, context, trackingModeRequired: false);
+            if (errors is not null) return ValidationProblem(context, errors);
+
+            await sender.Send(new UpdateCustomExerciseCommand(
+                id, model.Name!, model.BodyPart!.Value, model.TrackingMode, model.LibraryImageId, model.UploadedImageKey), cancellationToken);
+            return Results.NoContent();
+        })
+        .Produces(StatusCodes.Status204NoContent)
+        .Produces<ApiProblemDetails>(StatusCodes.Status400BadRequest, "application/problem+json")
+        .Produces<ApiProblemDetails>(StatusCodes.Status404NotFound, "application/problem+json")
+        .Produces<ApiProblemDetails>(StatusCodes.Status409Conflict, "application/problem+json");
+
+        custom.MapDelete("/{id:guid}", async (Guid id, ISender sender, CancellationToken cancellationToken) =>
+        {
+            await sender.Send(new DeleteCustomExerciseCommand(id), cancellationToken);
+            return Results.NoContent();
+        })
+        .Produces(StatusCodes.Status204NoContent)
+        .Produces<ApiProblemDetails>(StatusCodes.Status404NotFound, "application/problem+json");
 
         return endpoints;
     }
@@ -97,6 +145,75 @@ public static class ExerciseEndpoints
 
     private static string InvalidField(HttpContext context, string field) =>
         BusinessMessages.Format("InvalidField", CultureInfo.CurrentUICulture, field);
+
+    private static Dictionary<string, string[]>? ValidateCustomRequest(
+        string? name,
+        BodyPart? bodyPart,
+        TrackingMode? trackingMode,
+        Guid? libraryImageId,
+        string? uploadedImageKey,
+        HttpContext context,
+        bool trackingModeRequired)
+    {
+        var errors = new Dictionary<string, string[]>();
+        if (string.IsNullOrWhiteSpace(name) || name.Trim().Length > 100) errors["name"] = [InvalidField(context, "name")];
+        if (bodyPart is not { } parsedBodyPart || !Enum.IsDefined(parsedBodyPart)) errors["bodyPart"] = [InvalidField(context, "bodyPart")];
+        if (trackingModeRequired && (trackingMode is not { } parsedTrackingMode || !Enum.IsDefined(parsedTrackingMode))) errors["trackingMode"] = [InvalidField(context, "trackingMode")];
+        if (!trackingModeRequired && trackingMode is { } updateTrackingMode && !Enum.IsDefined(updateTrackingMode)) errors["trackingMode"] = [InvalidField(context, "trackingMode")];
+        if (libraryImageId is not null || uploadedImageKey is not null)
+        {
+            if (libraryImageId is not null) errors["libraryImageId"] = [InvalidField(context, "libraryImageId")];
+            if (uploadedImageKey is not null) errors["uploadedImageKey"] = [InvalidField(context, "uploadedImageKey")];
+        }
+
+        return errors.Count == 0 ? null : errors;
+    }
+
+    private static async Task<(T? Value, IResult? Error)> ReadCustomRequestAsync<T>(HttpRequest request, HttpContext context, CancellationToken cancellationToken)
+    {
+        if (!HasSupportedJsonContentType(request.ContentType))
+        {
+            return (default, ValidationProblem(context, new Dictionary<string, string[]> { ["body"] = [InvalidField(context, "body")] }));
+        }
+
+        try
+        {
+            var value = await request.ReadFromJsonAsync<T>(cancellationToken: cancellationToken);
+            return value is null
+                ? (default, ValidationProblem(context, new Dictionary<string, string[]> { ["body"] = [InvalidField(context, "body")] }))
+                : (value, null);
+        }
+        catch (JsonException exception)
+        {
+            var field = MapCustomJsonPath(exception.Path);
+            return (default, ValidationProblem(context, new Dictionary<string, string[]> { [field] = [InvalidField(context, field)] }));
+        }
+    }
+
+    private static bool HasSupportedJsonContentType(string? contentType)
+    {
+        if (!MediaTypeHeaderValue.TryParse(contentType, out var mediaType)) return false;
+        var type = mediaType.MediaType.Value ?? string.Empty;
+        if (!type.StartsWith("application/", StringComparison.OrdinalIgnoreCase)) return false;
+        var subtype = type["application/".Length..];
+        if (!string.Equals(subtype, "json", StringComparison.OrdinalIgnoreCase)
+            && (!subtype.EndsWith("+json", StringComparison.OrdinalIgnoreCase) || subtype.Length == "+json".Length)) return false;
+        var charsets = mediaType.Parameters.Where(parameter => string.Equals(parameter.Name.Value, "charset", StringComparison.OrdinalIgnoreCase)).ToList();
+        return charsets.Count switch
+        {
+            0 => true,
+            1 => string.Equals(charsets[0].Value.Value?.Trim('\"').Trim(), "utf-8", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(charsets[0].Value.Value?.Trim('\"').Trim(), "utf8", StringComparison.OrdinalIgnoreCase),
+            _ => false
+        };
+    }
+
+    private static string MapCustomJsonPath(string? path)
+    {
+        if (string.IsNullOrEmpty(path) || !path.StartsWith("$.", StringComparison.Ordinal)) return "body";
+        var field = path[2..];
+        return field is "name" or "bodyPart" or "trackingMode" or "libraryImageId" or "uploadedImageKey" ? field : "body";
+    }
 }
 
 public sealed class HttpCurrentUser(IHttpContextAccessor contextAccessor) : ICurrentUser
