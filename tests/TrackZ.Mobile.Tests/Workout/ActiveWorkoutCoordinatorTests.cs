@@ -239,6 +239,46 @@ public sealed class ActiveWorkoutCoordinatorTests : IDisposable
     }
 
     [Fact]
+    public async Task Durable_replacement_barrier_blocks_generic_graph_edit_and_new_start_without_partial_write()
+    {
+        var fixture = CreateFixture();
+        var original = await fixture.Coordinator.StartAsync([
+            new WorkoutExerciseSelection(_exerciseId, TrackingMode.Weighted)
+        ]);
+        var startOperation = Assert.Single(await fixture.Outbox.PendingAsync());
+        var replacementId = Guid.Parse("eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee");
+        await ExecuteRawAsync($"""
+            INSERT INTO OutboxOperation
+                (OperationId, EntityId, OperationType, Payload, BaseVersion, CreatedAt,
+                 State, DeletedAt, Version, ReplacesOperationId)
+            SELECT '{replacementId:D}', EntityId, OperationType, Payload, BaseVersion,
+                   '{Now.AddTicks(1):O}', 1, NULL, 1, OperationId
+            FROM OutboxOperation WHERE OperationId = '{startOperation.OperationId:D}';
+            """);
+        var edited = original with { Version = original.Version + 1 };
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Repository.SaveWorkoutAndEnqueueAsync(
+                edited, ReorderOperation(edited, original.Version, 1), default));
+
+        Assert.Equal(original.Version, (await fixture.Repository.GetActiveAsync(default))!.Version);
+        Assert.Equal(2, (await fixture.Outbox.PendingAsync()).Count);
+        await ExecuteRawAsync($"""
+            UPDATE LocalWorkout
+            SET Status = 3, CompletedAt = '{Now.AddMinutes(2):O}', Version = Version + 1
+            WHERE Id = '{original.Id:D}';
+            """);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Coordinator.StartAsync([
+                new WorkoutExerciseSelection(Guid.NewGuid(), TrackingMode.Bodyweight)
+            ]));
+
+        Assert.Null(await fixture.Repository.GetActiveAsync(default));
+        Assert.Equal(2, (await fixture.Outbox.PendingAsync()).Count);
+    }
+
+    [Fact]
     public async Task Database_rejects_a_second_active_workout()
     {
         var fixture = CreateFixture();
@@ -881,6 +921,10 @@ public sealed class ActiveWorkoutCoordinatorTests : IDisposable
             Guid operationId,
             CancellationToken cancellationToken) =>
             inner.GetOperationAsync(operationId, cancellationToken);
+
+        public Task<DateTimeOffset?> GetLatestOperationCreatedAtAsync(
+            CancellationToken cancellationToken) =>
+            inner.GetLatestOperationCreatedAtAsync(cancellationToken);
 
         public Task ClearPrivateDataAsync(CancellationToken cancellationToken) =>
             inner.ClearPrivateDataAsync(cancellationToken);

@@ -170,6 +170,124 @@ public sealed class SyncCoordinatorTests
     }
 
     [Fact]
+    public async Task Replacement_blocks_new_save_until_acknowledgement_pull_then_unblocks_causal_restart()
+    {
+        await using var context = await SyncContext.CreateAsync();
+        var local = await context.StartAsync();
+        context.Clock.UtcNow = context.Clock.UtcNow.AddMinutes(1);
+        var originalSet = new LocalSet(70m, null, 8) with
+        {
+            OperationId = Guid.Parse("ffffffff-ffff-ffff-ffff-ffffffffffff")
+        };
+        await new ActiveWorkoutCoordinator(context.Workouts, context.Boundary, context.Clock)
+            .SaveSetAsync(local.Exercises[0].ExerciseDefinitionId, originalSet);
+        var pending = await context.Outbox.PendingAsync();
+        var original = pending[1];
+        context.Api.PushResponses.Enqueue(new SyncPushResponse([
+            new(pending[0].OperationId, SyncOperationStatus.Applied, 1, null)
+        ]));
+        context.Api.PushResponses.Enqueue(new SyncPushResponse([
+            new(original.OperationId, SyncOperationStatus.Conflict, 3,
+                BusinessErrorCode.VersionConflict)
+        ]));
+        context.Api.PullResponses.Enqueue(new SyncPullResponse([
+            Change(ServerGraphWithRemoteSet(local, 3), 1)
+        ], "cursor-1", false));
+        await context.Coordinator.RunOnceAsync();
+        context.Clock.UtcNow = local.StartedAt.AddDays(-1);
+        var replacement = await new ConflictResolution(context.Coordinator)
+            .ApplyLocalAgainstVersionAsync(original.OperationId, 3);
+        var blockedSet = new LocalSet(75m, null, 7) with
+        {
+            OperationId = Guid.Parse("00000000-0000-0000-0000-000000000001")
+        };
+        var graphBeforeBlockedSave = (await context.Workouts.GetActiveAsync())!;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            new ActiveWorkoutCoordinator(context.Workouts, context.Boundary, context.Clock)
+                .SaveSetAsync(local.Exercises[0].ExerciseDefinitionId, blockedSet));
+
+        AssertWorkoutIntentEqual(
+            graphBeforeBlockedSave, (await context.Workouts.GetActiveAsync())!);
+        var retainedConflict = Assert.Single(await context.Outbox.ConflictedAsync());
+        Assert.Equal(original.OperationId, retainedConflict.OperationId);
+        Assert.Equal(original.Payload, retainedConflict.Payload);
+        Assert.Equal(3, retainedConflict.ServerVersion);
+        Assert.NotNull(retainedConflict.ServerPayload);
+        Assert.Equal(replacement, Assert.Single(await context.Outbox.PendingAsync()));
+
+        var acknowledgementApi = new FakeSyncApi
+        {
+            PushResponse = new SyncPushResponse([
+                new(replacement.OperationId, SyncOperationStatus.Applied, 4, null)
+            ])
+        };
+        var pullEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releasePull = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var authorityResponse = new SyncPullResponse([
+            Change(ServerGraphAfterRebase(local, original, 4), 2)
+        ], "cursor-2", false);
+        acknowledgementApi.PullOverride = async (_, cancellationToken) =>
+        {
+            pullEntered.TrySetResult();
+            await releasePull.Task.WaitAsync(cancellationToken);
+            return authorityResponse;
+        };
+        var restartedDatabase = new TrackZLocalDatabase(context.Path);
+        var restartedCoordinator = new SyncCoordinator(
+            restartedDatabase, acknowledgementApi, context.Boundary, context.Clock);
+
+        var acknowledgement = restartedCoordinator.RunOnceAsync();
+        await pullEntered.Task;
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            new ActiveWorkoutCoordinator(
+                    new LocalWorkoutRepository(restartedDatabase),
+                    context.Boundary,
+                    context.Clock)
+                .SaveSetAsync(local.Exercises[0].ExerciseDefinitionId, blockedSet));
+        AssertWorkoutIntentEqual(
+            graphBeforeBlockedSave,
+            (await new LocalWorkoutRepository(restartedDatabase).GetActiveAsync())!);
+        releasePull.TrySetResult();
+        await acknowledgement;
+
+        Assert.Equal(
+            [replacement.OperationId],
+            acknowledgementApi.PushRequests.SelectMany(request => request.Operations)
+                .Select(operation => operation.OperationId));
+        var restartedWorkouts = new LocalWorkoutRepository(restartedDatabase);
+        var saved = await new ActiveWorkoutCoordinator(
+                restartedWorkouts, context.Boundary, context.Clock)
+            .SaveSetAsync(local.Exercises[0].ExerciseDefinitionId, blockedSet);
+        var successor = Assert.Single(await new OutboxRepository(restartedDatabase).PendingAsync());
+        Assert.Equal(blockedSet.OperationId, successor.OperationId);
+        Assert.Equal(4, successor.BaseVersion);
+        Assert.True(successor.CreatedAt > replacement.CreatedAt);
+        Assert.Equal(saved.Id, successor.DeserializePayload<SaveSetOutboxPayload>().SetId);
+
+        var finalApi = new FakeSyncApi
+        {
+            PushResponse = new SyncPushResponse([
+                new(successor.OperationId, SyncOperationStatus.Applied, 5, null)
+            ])
+        };
+        var graphAfterSave = (await restartedWorkouts.GetActiveAsync())!;
+        finalApi.PullResponses.Enqueue(new SyncPullResponse([
+            Change(ServerGraph(graphAfterSave, 5), 3)
+        ], "cursor-3", false));
+        await new SyncCoordinator(
+            new TrackZLocalDatabase(context.Path), finalApi, context.Boundary, context.Clock)
+            .RunOnceAsync();
+
+        Assert.Equal(
+            [successor.OperationId],
+            finalApi.PushRequests.SelectMany(request => request.Operations)
+                .Select(operation => operation.OperationId));
+        Assert.Empty(await context.Outbox.PendingAsync());
+        Assert.Empty(await context.Outbox.ConflictedAsync());
+    }
+
+    [Fact]
     public async Task Rejected_replacement_does_not_discard_original_conflicted_intent()
     {
         await using var context = await SyncContext.CreateAsync();
@@ -199,6 +317,58 @@ public sealed class SyncCoordinatorTests
         await context.Coordinator.RunOnceAsync();
 
         Assert.Equal(original.OperationId, Assert.Single(await context.Outbox.ConflictedAsync()).OperationId);
+        Assert.Empty(await context.Outbox.PendingAsync());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Unresolved_conflict_blocks_new_save_even_after_replacement_rejection(
+        bool rejectReplacement)
+    {
+        await using var context = await SyncContext.CreateAsync();
+        var local = await context.StartAsync();
+        context.Clock.UtcNow = context.Clock.UtcNow.AddMinutes(1);
+        await new ActiveWorkoutCoordinator(context.Workouts, context.Boundary, context.Clock)
+            .SaveSetAsync(local.Exercises[0].ExerciseDefinitionId, new LocalSet(70m, null, 8));
+        var pending = await context.Outbox.PendingAsync();
+        var original = pending[1];
+        context.Api.PushResponses.Enqueue(new SyncPushResponse([
+            new(pending[0].OperationId, SyncOperationStatus.Applied, 1, null)
+        ]));
+        context.Api.PushResponses.Enqueue(new SyncPushResponse([
+            new(original.OperationId, SyncOperationStatus.Conflict, 3,
+                BusinessErrorCode.VersionConflict)
+        ]));
+        context.Api.PullResponses.Enqueue(new SyncPullResponse([
+            Change(ServerGraphWithRemoteSet(local, 3), 1)
+        ], "cursor-1", false));
+        await context.Coordinator.RunOnceAsync();
+        if (rejectReplacement)
+        {
+            var replacement = await new ConflictResolution(context.Coordinator)
+                .ApplyLocalAgainstVersionAsync(original.OperationId, 3);
+            context.Api.PushResponse = new SyncPushResponse([
+                new(replacement.OperationId, SyncOperationStatus.Rejected, null,
+                    BusinessErrorCode.InvalidRequest)
+            ]);
+            context.Api.PullResponses.Enqueue(new SyncPullResponse([], "cursor-1", false));
+            await context.Coordinator.RunOnceAsync();
+        }
+        context.Clock.UtcNow = context.Clock.UtcNow.AddDays(-1);
+        var graphBeforeBlockedSave = (await context.Workouts.GetActiveAsync())!;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            new ActiveWorkoutCoordinator(context.Workouts, context.Boundary, context.Clock)
+                .SaveSetAsync(
+                    local.Exercises[0].ExerciseDefinitionId,
+                    new LocalSet(75m, null, 7)));
+
+        AssertWorkoutIntentEqual(
+            graphBeforeBlockedSave, (await context.Workouts.GetActiveAsync())!);
+        var retained = Assert.Single(await context.Outbox.ConflictedAsync());
+        Assert.Equal(original.OperationId, retained.OperationId);
+        Assert.Equal(original.Payload, retained.Payload);
         Assert.Empty(await context.Outbox.PendingAsync());
     }
 
@@ -705,6 +875,26 @@ public sealed class SyncCoordinatorTests
         };
     }
 
+    private static SyncWorkoutDto ServerGraphAfterRebase(
+        LocalWorkout local,
+        OutboxOperation original,
+        long version)
+    {
+        var graph = ServerGraphWithRemoteSet(local, version);
+        var exercise = graph.Exercises[0];
+        var payload = original.DeserializePayload<SaveSetOutboxPayload>();
+        return graph with
+        {
+            Exercises = [exercise with
+            {
+                Version = exercise.Version + 1,
+                Sets = [.. exercise.Sets, new SyncSetDto(
+                    payload.SetId, 1, payload.WeightKg, payload.AssistedKg, payload.Reps,
+                    payload.CompletedAt, null, null, 1)]
+            }]
+        };
+    }
+
     private static SyncWorkoutDto EmptyServerGraph(Guid id, long version) => new(
         id, 2,
         new DateTimeOffset(2026, 8, 16, 7, 0, 0, TimeSpan.Zero),
@@ -962,6 +1152,7 @@ public sealed class SyncCoordinatorTests
         public Queue<SyncPushResponse> PushResponses { get; } = [];
         public Exception? PushException { get; set; }
         public Func<SyncPushRequest, CancellationToken, Task<SyncPushResponse>>? PushOverride { get; set; }
+        public Func<string?, CancellationToken, Task<SyncPullResponse>>? PullOverride { get; set; }
 
         public Task<SyncPushResponse> PushAsync(
             SyncPushRequest request,
@@ -980,6 +1171,7 @@ public sealed class SyncCoordinatorTests
             CancellationToken cancellationToken = default)
         {
             PullRequests.Add(cursor);
+            if (PullOverride is not null) return PullOverride(cursor, cancellationToken);
             return Task.FromResult(PullResponses.Count == 0
                 ? new SyncPullResponse([], cursor, false)
                 : PullResponses.Dequeue());

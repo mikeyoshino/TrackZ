@@ -56,7 +56,9 @@ public sealed class ActiveWorkoutCoordinator(
                     throw new InvalidDataException(
                         "The start operation exists without its active workout.");
 
-                var startedAt = Utc(clock.UtcNow);
+                var requestedAt = Utc(clock.UtcNow);
+                var latestOperationAt = await workouts.GetLatestOperationCreatedAtAsync(token);
+                var startedAt = AfterCausalWatermark(requestedAt, latestOperationAt);
                 var id = workoutId ?? Guid.NewGuid();
                 var exercises = selections.Select((selection, order) => new LocalWorkoutExercise(
                     Guid.NewGuid(),
@@ -156,8 +158,11 @@ public sealed class ActiveWorkoutCoordinator(
                 else
                 {
                     var lastMutation = LastAggregateMutationAt(active);
+                    var latestOperationAt = await workouts.GetLatestOperationCreatedAtAsync(token);
+                    if (latestOperationAt is { } latest && latest > lastMutation)
+                        lastMutation = latest;
                     var requestedAt = set.CompletedAt == default ? Utc(clock.UtcNow) : Utc(set.CompletedAt);
-                    var completedAt = requestedAt <= lastMutation ? lastMutation.AddTicks(1) : requestedAt;
+                    var completedAt = AfterCausalWatermark(requestedAt, lastMutation);
                     saved = set with
                     {
                         WorkoutExerciseId = exercise.Id,
@@ -238,6 +243,12 @@ public sealed class ActiveWorkoutCoordinator(
     }
 
     private static DateTimeOffset Utc(DateTimeOffset value) => value.ToUniversalTime();
+    private static DateTimeOffset AfterCausalWatermark(
+        DateTimeOffset requestedAt,
+        DateTimeOffset? watermark) =>
+        watermark is { } latest && requestedAt <= latest
+            ? latest.AddTicks(1)
+            : requestedAt;
     private static string? DecimalText(decimal? value) => value?.ToString(CultureInfo.InvariantCulture);
 
     private static DateTimeOffset LastAggregateMutationAt(LocalWorkout workout)

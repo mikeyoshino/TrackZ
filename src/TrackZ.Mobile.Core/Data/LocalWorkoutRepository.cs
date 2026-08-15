@@ -19,6 +19,9 @@ public interface ILocalWorkoutRepository
         Guid operationId,
         CancellationToken cancellationToken = default);
 
+    Task<DateTimeOffset?> GetLatestOperationCreatedAtAsync(
+        CancellationToken cancellationToken = default);
+
     Task ClearPrivateDataAsync(CancellationToken cancellationToken = default);
 }
 
@@ -60,6 +63,8 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
         {
             if (await ExistingOperationMatchesOrThrowAsync(
                     connection, transaction, operation, token)) return true;
+            await EnsureMutationCanFollowReplacementAsync(
+                connection, transaction, operation, token);
             await ValidateCoverageAndStageOrdersAsync(connection, transaction, workout, token);
             await UpsertWorkoutAsync(connection, transaction, workout, token);
             foreach (var exercise in workout.Exercises)
@@ -98,6 +103,16 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
             return ReadOperation(reader);
         }, cancellationToken);
     }
+
+    public Task<DateTimeOffset?> GetLatestOperationCreatedAtAsync(
+        CancellationToken cancellationToken = default) =>
+        _database.ReadAsync<DateTimeOffset?>(async (connection, token) =>
+        {
+            await using var command = connection.CreateCommand();
+            command.CommandText = "SELECT MAX(CreatedAt) FROM OutboxOperation;";
+            var value = await command.ExecuteScalarAsync(token);
+            return value is string text ? ParseTimestamp(text) : null;
+        }, cancellationToken);
 
     public Task ClearPrivateDataAsync(CancellationToken cancellationToken = default) =>
         _database.ClearPrivateDataAsync(cancellationToken);
@@ -573,6 +588,59 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
                 "The operation identifier is already bound to a different outbox contract.");
         }
         return true;
+    }
+
+    private static async Task EnsureMutationCanFollowReplacementAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        OutboxOperation operation,
+        CancellationToken cancellationToken)
+    {
+        await using (var conflict = connection.CreateCommand())
+        {
+            conflict.Transaction = transaction;
+            conflict.CommandText = """
+                SELECT EXISTS (
+                    SELECT 1 FROM OutboxOperation
+                    WHERE State = 4 AND DeletedAt IS NULL
+                );
+                """;
+            if (Convert.ToInt64(await conflict.ExecuteScalarAsync(cancellationToken)) != 0)
+                throw new InvalidOperationException(
+                    "Resolve the sync conflict before recording another workout change.");
+        }
+
+        DateTimeOffset? latestReplacementAt = null;
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT replacement.CreatedAt, replacement.State, replacement.DeletedAt,
+                   replacement.ServerVersion, workout.BaseVersion
+            FROM OutboxOperation AS replacement
+            INNER JOIN LocalWorkout AS workout ON workout.Id = replacement.EntityId
+            WHERE replacement.ReplacesOperationId IS NOT NULL;
+            """;
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var replacementAt = ParseTimestamp(reader.GetString(0));
+            if (latestReplacementAt is null || replacementAt > latestReplacementAt)
+                latestReplacementAt = replacementAt;
+            var state = EnumValue<OutboxOperationState>(reader, 1);
+            var isLive = reader.IsDBNull(2)
+                && state is OutboxOperationState.Pending or OutboxOperationState.Conflicted;
+            var isAppliedBeforeAuthority = state == OutboxOperationState.Applied
+                && !reader.IsDBNull(3)
+                && reader.GetInt64(4) < reader.GetInt64(3);
+            if (isLive || isAppliedBeforeAuthority)
+                throw new InvalidOperationException(
+                    "Synchronize the conflict replacement before recording another workout change.");
+        }
+
+        if (latestReplacementAt is { } causalBarrier
+            && operation.CreatedAt <= causalBarrier)
+            throw new InvalidOperationException(
+                "A workout change must follow the conflict replacement causally.");
     }
 
     private static void ValidateGraph(LocalWorkout workout)
