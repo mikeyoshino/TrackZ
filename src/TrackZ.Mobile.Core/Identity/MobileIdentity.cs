@@ -86,63 +86,91 @@ public sealed class MobileTokenStore(IMobileTokenStorage storage) : IAccessToken
 public sealed class TrackZIdentityApiClient(
     HttpClient httpClient,
     MobileTokenStore tokenStore,
-    IMobilePrivateDataCleaner privateDataCleaner)
+    IMobilePrivateDataCleaner privateDataCleaner,
+    IAccountSessionBoundary sessionBoundary)
 {
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
     public async Task LoginAsync(string email, string password, string deviceName, CancellationToken cancellationToken = default)
     {
+        var generation = sessionBoundary.Capture();
         using var response = await httpClient.PostAsJsonAsync(
             "/api/v1/auth/login", new { email, password, deviceName }, cancellationToken);
         var tokens = await ReadTokensAsync(response, cancellationToken);
-        var previousUserId = await tokenStore.GetUserIdAsync(cancellationToken);
-        var incomingUserId = MobileTokenStore.ReadUserId(tokens.AccessToken);
-        if (!Guid.TryParse(previousUserId, out var previous) || previous != incomingUserId)
-            await privateDataCleaner.ClearAsync(cancellationToken);
-        await tokenStore.SaveAsync(tokens.AccessToken, tokens.RefreshToken, cancellationToken);
+        _ = MobileTokenStore.ReadUserId(tokens.AccessToken);
+        if (!await sessionBoundary.TryResetAsync(generation, async token =>
+        {
+            await privateDataCleaner.ClearAsync(token);
+            await tokenStore.SaveAsync(tokens.AccessToken, tokens.RefreshToken, token);
+        }, cancellationToken)) throw new OperationCanceledException("The account session changed.");
     }
 
     public async Task RefreshAsync(string deviceName, CancellationToken cancellationToken = default)
     {
-        var refreshToken = await tokenStore.GetRefreshTokenAsync(cancellationToken)
-            ?? throw new MobileApiException(BusinessErrorCode.InvalidRequest, "No refresh token is available.");
+        var generation = sessionBoundary.Capture();
+        string? refreshToken = null;
+        if (!await sessionBoundary.TryCommitAsync(generation, async token =>
+        {
+            refreshToken = await tokenStore.GetRefreshTokenAsync(token);
+        }, cancellationToken)) throw new OperationCanceledException("The account session changed.");
+        if (refreshToken is null)
+            throw new MobileApiException(
+                BusinessErrorCode.InvalidRequest, "No refresh token is available.");
         using var response = await httpClient.PostAsJsonAsync(
             "/api/v1/auth/refresh", new { refreshToken, deviceName }, cancellationToken);
         var tokens = await ReadTokensAsync(response, cancellationToken);
-        await tokenStore.SaveAsync(tokens.AccessToken, tokens.RefreshToken, cancellationToken);
+        if (!await sessionBoundary.TryCommitAsync(generation, token =>
+            tokenStore.SaveAsync(tokens.AccessToken, tokens.RefreshToken, token), cancellationToken))
+            throw new OperationCanceledException("The account session changed.");
     }
 
     public async Task LogoutAsync(CancellationToken cancellationToken = default)
     {
+        var generation = sessionBoundary.Capture();
+        var sessionCancellation = sessionBoundary.GetCancellationToken(generation);
         try
         {
-            var sessionId = await tokenStore.GetSessionIdAsync(cancellationToken);
+            string? sessionId = null;
+            if (!await sessionBoundary.TryCommitAsync(generation, async token =>
+            {
+                sessionId = await tokenStore.GetSessionIdAsync(token);
+            }, cancellationToken)) return;
             if (Guid.TryParse(sessionId, out var parsed) && parsed != Guid.Empty)
             {
+                using var linked = CancellationTokenSource.CreateLinkedTokenSource(
+                    cancellationToken, sessionCancellation);
                 using var response = await httpClient.PostAsJsonAsync(
-                    "/api/v1/auth/logout", new { sessionId = parsed }, cancellationToken);
-                if (!response.IsSuccessStatusCode)
-                    throw new MobileApiException(BusinessErrorCode.InternalServerError, "Logout failed.");
+                    "/api/v1/auth/logout", new { sessionId = parsed }, linked.Token);
+                await EnsureSuccessAsync(response, linked.Token);
             }
+        }
+        catch (OperationCanceledException) when (
+            !cancellationToken.IsCancellationRequested && sessionCancellation.IsCancellationRequested)
+        {
+            // A newer identity transition owns the current session.
         }
         finally
         {
-            try
+            await sessionBoundary.TryResetAsync(generation, async token =>
             {
-                await privateDataCleaner.ClearAsync(CancellationToken.None);
-            }
-            finally
-            {
-                await tokenStore.ClearAsync(CancellationToken.None);
-            }
+                try
+                {
+                    await privateDataCleaner.ClearAsync(token);
+                }
+                finally
+                {
+                    await tokenStore.ClearAsync(CancellationToken.None);
+                }
+            }, CancellationToken.None);
         }
     }
 
     private static async Task<TokenResponse> ReadTokensAsync(HttpResponseMessage response, CancellationToken cancellationToken)
     {
-        if (!response.IsSuccessStatusCode)
-            throw new MobileApiException(BusinessErrorCode.InternalServerError, "Authentication failed.");
+        await EnsureSuccessAsync(response, cancellationToken);
         try
         {
-            var result = await response.Content.ReadFromJsonAsync<TokenResponse>(cancellationToken: cancellationToken);
+            var result = await response.Content.ReadFromJsonAsync<TokenResponse>(JsonOptions, cancellationToken);
             if (result is null || string.IsNullOrWhiteSpace(result.AccessToken) || string.IsNullOrWhiteSpace(result.RefreshToken))
                 throw new JsonException("Required token properties are missing.");
             return result;
@@ -152,6 +180,35 @@ public sealed class TrackZIdentityApiClient(
             throw new MobileApiException(BusinessErrorCode.InternalServerError, "The identity response was invalid.", innerException: exception);
         }
     }
+
+    private static async Task EnsureSuccessAsync(
+        HttpResponseMessage response,
+        CancellationToken cancellationToken)
+    {
+        if (response.IsSuccessStatusCode) return;
+        try
+        {
+            var problem = await response.Content.ReadFromJsonAsync<ApiProblemDetails>(JsonOptions, cancellationToken);
+            if (problem is not null
+                && Enum.IsDefined(problem.ErrorCode)
+                && !string.IsNullOrWhiteSpace(problem.Message))
+                throw new MobileApiException(problem.ErrorCode, problem.Message, problem.FieldErrors);
+        }
+        catch (MobileApiException)
+        {
+            throw;
+        }
+        catch (Exception exception) when (exception is JsonException or NotSupportedException)
+        {
+            throw InvalidResponse(exception);
+        }
+        throw InvalidResponse();
+    }
+
+    private static MobileApiException InvalidResponse(Exception? exception = null) => new(
+        BusinessErrorCode.InternalServerError,
+        "The server returned an invalid response.",
+        innerException: exception);
 
     private sealed record TokenResponse(string AccessToken, string RefreshToken, DateTimeOffset ExpiresAt);
 }

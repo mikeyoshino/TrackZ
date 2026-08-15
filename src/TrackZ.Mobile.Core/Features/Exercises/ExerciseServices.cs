@@ -100,8 +100,10 @@ public sealed class MobileApiException(
     BusinessErrorCode errorCode,
     string message,
     IReadOnlyDictionary<string, string[]>? fieldErrors = null,
-    Exception? innerException = null) : Exception(message, innerException)
+    Exception? innerException = null,
+    bool isRetryable = false) : Exception(message, innerException)
 {
     public BusinessErrorCode ErrorCode { get; } = errorCode;
     public IReadOnlyDictionary<string, string[]>? FieldErrors { get; } = fieldErrors;
+    public bool IsRetryable { get; } = isRetryable;
 }

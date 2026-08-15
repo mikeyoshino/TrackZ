@@ -128,7 +128,13 @@ public sealed class TrackZExerciseApiClient(HttpClient httpClient) :
         {
             var problem = await response.Content.ReadFromJsonAsync<ApiProblemDetails>(JsonOptions, cancellationToken);
             if (problem is not null)
-                throw new MobileApiException(problem.ErrorCode, problem.Message, problem.FieldErrors);
+                throw new MobileApiException(
+                    problem.ErrorCode,
+                    problem.Message,
+                    problem.FieldErrors,
+                    isRetryable: (int)response.StatusCode >= 500
+                        || response.StatusCode is System.Net.HttpStatusCode.RequestTimeout
+                        or System.Net.HttpStatusCode.TooManyRequests);
         }
         catch (MobileApiException)
         {
@@ -177,7 +183,8 @@ public sealed class TrackZExerciseApiClient(HttpClient httpClient) :
     private static MobileApiException InvalidResponse(Exception? exception = null) => new(
         BusinessErrorCode.InternalServerError,
         "The server returned an invalid response.",
-        innerException: exception);
+        innerException: exception,
+        isRetryable: true);
 
     private sealed record CreatedExerciseResponse(Guid Id);
     private sealed record UploadReservationResponse(Guid UploadId, Uri UploadUri, DateTimeOffset ExpiresAt);

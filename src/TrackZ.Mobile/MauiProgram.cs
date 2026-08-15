@@ -20,6 +20,7 @@ public static class MauiProgram
 			});
 
 		builder.Services.AddSingleton<IMobileTokenStorage, SecureMobileTokenStorage>();
+		builder.Services.AddSingleton<IAccountSessionBoundary, AccountSessionBoundary>();
 		builder.Services.AddSingleton<MobileTokenStore>();
 		builder.Services.AddSingleton<IMobilePrivateDataCleaner, MauiPrivateDataCleaner>();
 		builder.Services.AddSingleton<IAccessTokenProvider>(services => services.GetRequiredService<MobileTokenStore>());
@@ -40,7 +41,8 @@ public static class MauiProgram
 		builder.Services.AddSingleton<IExerciseImageApi>(services => services.GetRequiredService<TrackZExerciseApiClient>());
 		builder.Services.AddSingleton<IExerciseThumbnailCache>(services => new AuthenticatedExerciseThumbnailCache(
 			services.GetRequiredService<HttpClient>(),
-			Path.Combine(FileSystem.AppDataDirectory, "exercise-thumbnails")));
+			Path.Combine(FileSystem.AppDataDirectory, "exercise-thumbnails"),
+			services.GetRequiredService<IAccountSessionBoundary>()));
 		builder.Services.AddSingleton<IConnectivityService, MauiConnectivityService>();
 		builder.Services.AddSingleton<IClock, SystemClock>();
 		builder.Services.AddSingleton<IUiDispatcher, MauiUiDispatcher>();

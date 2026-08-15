@@ -331,3 +331,122 @@ Fresh pre-commit verification after the last safety edits:
 - Infrastructure migration/model parity: **3/3 passed** in 6 seconds.
 - API idempotency/library assignment, published-media authorization, and validation acceptance filter: **3/3 passed** in 7 seconds.
 - Android `net10.0-android` `Compile`: **0 warnings, 0 errors** in 0.73 seconds.
+
+## Controller Review Fix Round 2 (2026-08-15)
+
+The `receiving-code-review`, `test-driven-development`, `writing-good-tests`, and `systematic-debugging` instructions were reread before changes. Each finding was verified against the Round 1 implementation. Tests and builds ran one at a time; no emulator or full solution suite was used. The two explicitly deferred minors were not reopened.
+
+### RED evidence
+
+1. Shared account/session boundary:
+   - `AccountSessionRaceTests` initially failed compilation because `AccountSessionBoundary` and boundary-aware view-model/service constructors did not exist. This represented the actual gap: picker/library operations had no common generation with login/logout cleanup.
+   - After the boundary API was introduced, the two initial deterministic cases passed. Two additional delayed-response cases then exercised library and custom-create work that ignored cancellation until after logout/new-account state was committed.
+   - A final file-level race fixture initially failed compilation because the authenticated thumbnail cache had no shared-boundary constructor. It delays an old response until after reset and proves that a stale temporary download is never promoted into the account cache.
+2. Library metadata-first refresh:
+   - `Metadata_is_usable_before_bounded_failure_isolated_thumbnail_fills_finish` failed with `Expected: 6, Actual: 0` while the first thumbnail was deliberately blocked. The prior sequential loop did not publish or persist metadata until all media calls completed.
+3. Stable identity failures:
+   - The new login/refresh/logout fixtures initially failed compilation because `TrackZIdentityApiClient` had no shared session-boundary dependency. The prior client mapped every non-success response to `InternalServerError` without decoding `ApiProblemDetails`.
+4. Poison outbox:
+   - `OutboxFailureTests` initially failed compilation because no failed/user-action queue API existed.
+   - The subsequent retry test failed with different operation IDs, proving that an edited failed create would create a second local operation instead of reactivating the durable original.
+5. Migration chronology:
+   - The three chronology/target tests failed because `20260815143000_AddCustomExerciseSyncIdentityAndLibraryImage` was absent and the custom migration still sorted at `10:27`, before the existing `13:00` upload-ticket migration. The old test had incorrectly required that early historical target to equal the final snapshot.
+
+### GREEN behavior
+
+- `AccountSessionBoundary` is a platform-free singleton generation/gate. Catalog, library, thumbnail, custom-save, reconnect, refresh-token, and cache mutations capture a generation and must commit through the gate. Reset cancels the old generation before clearing SQLite/outbox/library/thumbnail state and synchronously resets live picker/custom collections. Delayed old catalog, library, and custom-create responses cannot mutate the new session.
+- Login and logout perform cache/token transitions inside the same boundary reset; refresh-token output is generation checked. The custom sync lock never nests around account cleanup, avoiding the Round 1 lock-order race/deadlock. Per-generation cancellation covers network/media work; the gate covers durable or collection mutation.
+- Published library metadata is transactionally replaced and made selectable before preview work. Preview fills use `Parallel.ForEachAsync` with `MaxDegreeOfParallelism = 4`, independently persist successful local paths, isolate an individual media failure, and discard stale-generation updates.
+- `MobileApiException.IsRetryable` distinguishes stable business 4xx responses from transport/server retry conditions. Online definitive rejection restores the previous coalesced intent/card (or removes a new intent) before surfacing the stable error. Reconnect marks a poison operation `UserActionRequired` with durable code/message, continues later rows, excludes failed rows from automatic retries, and reactivates the same operation after a user edit.
+- Identity login/refresh/logout decode canonical web-cased `ApiProblemDetails` and retain code, localized message, and field errors. Malformed/unrecognized responses alone normalize to `InternalServerError` / `The server returned an invalid response.` Logout always clears local data and shared secure-token keys even when the authorization-first response is a business problem.
+- The incorrectly early migration was replaced with `20260815143000_AddCustomExerciseSyncIdentityAndLibraryImage`, after `20260815130000_AddImageUploadTickets`. The `13:00` designer remains historical and has neither future custom field; the new target equals the current snapshot. Tests inspect both Up and Down column operations.
+
+### GREEN commands and counts
+
+Focused RED→GREEN cycles:
+
+```sh
+dotnet test tests/TrackZ.Mobile.Tests/TrackZ.Mobile.Tests.csproj \
+  --filter FullyQualifiedName~AccountSessionRaceTests --no-restore -v:minimal
+```
+
+Result: **4 passed, 0 failed**. This includes delayed old catalog/library/custom responses, new-account row survival, stale LAST/PR reset, and catalog/outbox/library/thumbnail cleanup.
+
+```sh
+dotnet test tests/TrackZ.Mobile.Tests/TrackZ.Mobile.Tests.csproj \
+  --filter FullyQualifiedName~LibraryMetadataRefreshTests --no-restore -v:minimal
+```
+
+Result: **1 passed, 0 failed**; metadata is observable while fills are blocked, maximum concurrency is exactly four, and one failed image retains a null preview without discarding other metadata/previews.
+
+```sh
+dotnet test tests/TrackZ.Mobile.Tests/TrackZ.Mobile.Tests.csproj \
+  --filter FullyQualifiedName~OutboxFailureTests --no-restore -v:minimal
+```
+
+Result: **3 passed, 0 failed**; online rollback, queue-order continuation, stable failed diagnostics, automatic-retry exclusion, and user-edit reactivation are covered.
+
+```sh
+dotnet test tests/TrackZ.Mobile.Tests/TrackZ.Mobile.Tests.csproj \
+  --filter FullyQualifiedName~IdentityTokenIntegrationTests --no-restore -v:minimal
+```
+
+Result: **5 passed, 0 failed**; real shared token keys plus exact login, refresh, logout, field-error, and malformed-response behavior are covered.
+
+Final sequential verification:
+
+- Mobile project: **59 passed, 0 failed, 0 skipped** in 213 ms. This includes the stale-thumbnail promotion boundary test.
+- Application custom exercise, media failure, and architecture filter: **41 passed, 0 failed**.
+- API idempotency/library assignment, published-media authorization, and canonical validation filter: **3 passed, 0 failed**.
+- Infrastructure current-model parity, final-target parity, migration chronology, and Up/Down sensitivity filter: **4 passed, 0 failed**.
+- Android graph/XAML compile with explicit local SDK/JDK:
+
+  ```sh
+  env ANDROID_HOME=/Users/mikeyoshino/Library/Developer/TrackZ/android-sdk \
+      ANDROID_SDK_ROOT=/Users/mikeyoshino/Library/Developer/TrackZ/android-sdk \
+      JAVA_HOME=/Users/mikeyoshino/Library/Developer/TrackZ/jdk \
+      PATH=/Users/mikeyoshino/Library/Developer/TrackZ/jdk/bin:/usr/local/share/dotnet:$PATH \
+    dotnet build src/TrackZ.Mobile/TrackZ.Mobile.csproj -f net10.0-android \
+      -t:Compile --no-restore -m:1 -v:minimal
+  ```
+
+  Result after the final shared-thumbnail-boundary change: **Build succeeded, 0 warnings, 0 errors** in 3.50 seconds.
+
+### Round 2 concerns
+
+- Only the controller-deferred refresh-cancellation and managed original/preview cleanup minors remain.
+- Task 5 artwork and review state remain untouched and Draft; no Plan 3 work was started.
+
+### Final Round 2 review follow-up
+
+A read-only review after the first Round 2 GREEN pass found five additional transition/phase defects within the new diff. They were verified and fixed with further RED→GREEN cycles:
+
+- Three delayed identity-transition tests initially failed: old refresh threw no cancellation and replaced the new token, old logout cleared the new account (`Actual: null` user ID), and old login threw no cancellation and resurrected tokens after reset. Login/logout now use generation-conditional `TryResetAsync`; refresh captures before reading and reads its token under the session gate. All three tests pass.
+- `Online_rejection_after_server_create_preserves_acknowledged_phase_for_user_action` initially found no failed row because unconditional rollback deleted the intent. The server ID is now durably persisted immediately after create and before reconciliation update; online rejection rolls back only before remote acknowledgement, otherwise retaining the exact server ID/phase as `UserActionRequired`.
+- `Deterministic_missing_original_is_failed_without_blocking_later_valid_row` initially escaped with `FileNotFoundException` before reaching the later row. Stable local corruption/missing-file/invalid-state failures now receive `InternalServerError` plus `The pending exercise requires attention.`, become user-action rows, and allow later independent work to continue. Cancellation and generic transport I/O remain retryable/pending.
+- The stale catalog/library error test initially observed `InvalidRequest` after session reset, and the full-reset test retained `Old Draft`. Error/loading/finally state now commits through the captured generation. The custom draft reset clears name, body part, tracking mode, IDs, media, selection, and validation errors. Custom synchronization diagnostics are committed under the same guard.
+- `Edit_hydration_reads_and_applies_custom_row_through_session_boundary` initially failed compilation because edit hydration existed only in MAUI page code. `CustomExerciseViewModel.LoadForEditAsync` now owns the gated SQLite read and application; the page no longer reads the cache directly.
+- The stale-thumbnail file test separately verified that an old response cannot be promoted after reset. `AuthenticatedExerciseThumbnailCache` downloads concurrently to a temporary file and promotes it only inside a generation-checked commit; runtime DI provides the shared boundary.
+
+Focused follow-up results:
+
+- Identity transition races: **3 passed, 0 failed**.
+- Phase-aware online poison plus deterministic local queue continuation: **2 passed, 0 failed**.
+- Stale response error state plus complete draft reset: **2 passed, 0 failed**.
+- Boundary-owned edit hydration: **1 passed, 0 failed**.
+- Stale thumbnail promotion: **1 passed, 0 failed**.
+
+The mobile regression after all follow-up changes is **67 passed, 0 failed, 0 skipped** in 214 ms. This supersedes the earlier Round 2 mobile count.
+
+A second narrow review found three remaining entry-point races. Additional RED tests proved each before production changes:
+
+- Logout initially serialized the newly committed session ID (`bbbbbbbb-...`) instead of the old session ID (`aaaaaaaa-...`) when account change occurred during secure-storage read. Session ID read now occurs inside the captured-generation gate, the HTTP request uses the generation cancellation token, and conditional reset cannot revoke or clear the new account.
+- `Save_queued_before_reset_cannot_persist_old_draft_in_new_session` initially threw no cancellation for the queued save. `CustomExerciseImageService.SaveAsync` now captures synchronously before waiting on its serialization lock; the view model passes its own captured generation through, so an old draft cannot acquire a new-account generation.
+- The delayed dispatcher test initially left `IsRefreshing == true` after reset, and the canceled view-model save escaped as `TaskCanceledException`. Refresh-start dispatch, validation, save success, and business error mutation now commit only under the captured generation; reset cancellation is a discarded `false` save result with no stale error.
+
+Focused GREEN results: logout session snapshot **1/1**, pre-lock queued save **1/1**, and stale picker/save UI state **2/2**. The final read-only re-review reported no unresolved Critical or Important finding in these fixes (its account-session/identity filter passed **18/18**).
+
+Fresh final verification after those changes:
+
+- Mobile project: **71 passed, 0 failed, 0 skipped** in 219 ms.
+- Android `net10.0-android` `Compile`: **Build succeeded, 0 warnings, 0 errors** in 3.47 seconds.

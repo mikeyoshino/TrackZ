@@ -3,6 +3,7 @@ using TrackZ.Domain.Exercises;
 using TrackZ.Mobile.Features.Exercises;
 using TrackZ.Mobile.Features.Exercises.Data;
 using TrackZ.Mobile.Features.Exercises.Services;
+using TrackZ.Mobile.Identity;
 using System.Net;
 using System.Text;
 
@@ -276,6 +277,33 @@ public sealed class ExercisePickerViewModelTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Thumbnail_response_from_reset_generation_is_never_promoted_to_account_cache()
+    {
+        var handler = new DelayedImageResponseHandler();
+        var directory = Path.Combine(Path.GetTempPath(), $"trackz-thumbnails-{Guid.NewGuid():N}");
+        var boundary = new AccountSessionBoundary();
+        try
+        {
+            var cache = new AuthenticatedExerciseThumbnailCache(
+                new HttpClient(handler) { BaseAddress = new Uri("https://trackz.test") }, directory, boundary);
+            var caching = cache.CacheAsync(
+                "/api/v1/media/exercise-images/99999999-9999-9999-9999-999999999999/thumbnail");
+            await handler.Entered;
+
+            await boundary.ResetAsync(cache.ClearAsync);
+            handler.Release();
+            var local = await caching;
+
+            Assert.Null(local);
+            Assert.Empty(Directory.Exists(directory) ? Directory.EnumerateFiles(directory) : []);
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Bearer_handler_never_sends_token_to_off_origin_absolute_request()
     {
         var terminal = new AuthorizationRecordingHandler();
@@ -443,6 +471,25 @@ public sealed class ExercisePickerViewModelTests : IAsyncLifetime
             {
                 Content = new ByteArrayContent([1, 2, 3])
             });
+        }
+    }
+
+    private sealed class DelayedImageResponseHandler : HttpMessageHandler
+    {
+        private readonly TaskCompletionSource _entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public Task Entered => _entered.Task;
+        public void Release() => _release.TrySetResult();
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            _entered.TrySetResult();
+            await _release.Task;
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent([1, 2, 3])
+            };
         }
     }
 }

@@ -8,6 +8,7 @@ using System.Net;
 using System.Text;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
+using TrackZ.Mobile.Identity;
 
 namespace TrackZ.Mobile.Tests.Exercises;
 
@@ -496,6 +497,29 @@ public sealed class CustomExerciseViewModelTests : IAsyncLifetime
         Assert.Empty(await _cache.GetPendingAsync());
         Assert.Empty(await _cache.GetLibraryImagesAsync());
         Assert.Equal(1, thumbnails.ClearCount);
+    }
+
+    [Fact]
+    public async Task Edit_hydration_reads_and_applies_custom_row_through_session_boundary()
+    {
+        var id = Guid.Parse("77777777-7777-7777-7777-777777777777");
+        await _cache.ReplaceAllAsync([
+            new ExerciseSummaryDto(
+                id, "Saved Press", BodyPart.Chest, TrackingMode.Weighted, null,
+                null, null, null, true)
+        ], new FixedClock().UtcNow);
+        var boundary = new AccountSessionBoundary();
+        using var service = new CustomExerciseImageService(
+            _cache, new MutableConnectivity(false), new RecordingCustomApi(), new RecordingMediaApi(),
+            new LocalExerciseFileStore(), new FixedClock(), new RecordingThumbnailCache(), boundary);
+        var sut = new CustomExerciseViewModel(
+            service, _cache, boundary: boundary);
+
+        var loaded = await sut.LoadForEditAsync(id);
+
+        Assert.True(loaded);
+        Assert.Equal(id, sut.ExistingExerciseId);
+        Assert.Equal("Saved Press", sut.Name);
     }
 
     private CustomExerciseImageService Service(

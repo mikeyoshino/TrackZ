@@ -2,6 +2,7 @@ using TrackZ.Contracts.Exercises;
 using TrackZ.Contracts.Errors;
 using TrackZ.Mobile.Features.Exercises.Data;
 using TrackZ.Mobile.Features.Exercises.Models;
+using TrackZ.Mobile.Identity;
 
 namespace TrackZ.Mobile.Features.Exercises.Services;
 
@@ -14,6 +15,7 @@ public sealed class CustomExerciseImageService : IDisposable
     private readonly IExerciseFileStore _files;
     private readonly IClock _clock;
     private readonly IExerciseThumbnailCache _thumbnailCache;
+    private readonly IAccountSessionBoundary _boundary;
     private readonly SemaphoreSlim _synchronizationLock = new(1, 1);
     private Task _pendingSynchronization = Task.CompletedTask;
     private bool _disposed;
@@ -25,7 +27,8 @@ public sealed class CustomExerciseImageService : IDisposable
         IExerciseImageApi imageApi,
         IExerciseFileStore files,
         IClock clock,
-        IExerciseThumbnailCache thumbnailCache)
+        IExerciseThumbnailCache thumbnailCache,
+        IAccountSessionBoundary? boundary = null)
     {
         _cache = cache;
         _connectivity = connectivity;
@@ -34,42 +37,83 @@ public sealed class CustomExerciseImageService : IDisposable
         _files = files;
         _clock = clock;
         _thumbnailCache = thumbnailCache;
+        _boundary = boundary ?? new AccountSessionBoundary();
         _connectivity.ConnectivityChanged += OnConnectivityChanged;
     }
 
     public Task PendingSynchronization => _pendingSynchronization;
     public BusinessErrorCode? LastSynchronizationError { get; private set; }
+    public string? LastSynchronizationMessage { get; private set; }
 
     public async Task ClearPrivateDataAsync(CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        await _synchronizationLock.WaitAsync(cancellationToken);
-        try
-        {
-            await _cache.ClearAllAsync(cancellationToken);
-            await _thumbnailCache.ClearAsync(cancellationToken);
-        }
-        finally
-        {
-            _synchronizationLock.Release();
-        }
+        await _cache.ClearAllAsync(cancellationToken);
+        await _thumbnailCache.ClearAsync(cancellationToken);
     }
 
-    public async Task<Guid> SaveAsync(CustomExerciseDraft draft, CancellationToken cancellationToken = default)
+    public Task<Guid> SaveAsync(CustomExerciseDraft draft, CancellationToken cancellationToken = default) =>
+        SaveAsync(draft, _boundary.Capture(), cancellationToken);
+
+    public async Task<Guid> SaveAsync(
+        CustomExerciseDraft draft,
+        AccountSessionGeneration generation,
+        CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         await _synchronizationLock.WaitAsync(cancellationToken);
         try
         {
-            var pending = await PersistIntentAsync(draft, cancellationToken);
-            if (!_connectivity.IsOnline) return pending.LocalExerciseId;
+            PendingCustomExercise? pending = null;
+            PendingCustomExercise? previousPending = null;
+            CachedExercise? previousExercise = null;
+            if (!await _boundary.TryCommitAsync(generation, async token =>
+            {
+                if (draft.ExistingExerciseId is { } existingId)
+                {
+                    previousPending = await _cache.FindPendingByLocalIdAsync(existingId, token);
+                    previousExercise = await _cache.FindExerciseAsync(existingId, token);
+                }
+                pending = await PersistIntentAsync(draft, token);
+            }, cancellationToken)) throw new OperationCanceledException("The account session changed.");
+            var durable = pending ?? throw new InvalidOperationException("The pending intent was not persisted.");
+            if (!_connectivity.IsOnline) return durable.LocalExerciseId;
             try
             {
-                return await SynchronizeOneAsync(pending, cancellationToken);
+                return await SynchronizeOneAsync(durable, generation, cancellationToken);
+            }
+            catch (Exception exception) when (IsDefinitiveLocalFailure(exception))
+            {
+                await MarkUserActionRequiredAsync(
+                    durable.OperationId,
+                    BusinessErrorCode.InternalServerError,
+                    "The pending exercise requires attention.",
+                    generation,
+                    cancellationToken);
+                throw new MobileApiException(
+                    BusinessErrorCode.InternalServerError,
+                    "The pending exercise requires attention.",
+                    innerException: exception);
             }
             catch (Exception exception) when (exception is HttpRequestException or IOException)
             {
-                return pending.ServerExerciseId ?? pending.LocalExerciseId;
+                return durable.ServerExerciseId ?? durable.LocalExerciseId;
+            }
+            catch (MobileApiException exception) when (!exception.IsRetryable)
+            {
+                await _boundary.TryCommitAsync(generation, async token =>
+                {
+                    var latest = await _cache.FindOutboxByOperationAsync(durable.OperationId, token);
+                    if (HasAcknowledgedRemoteSideEffect(durable, latest))
+                        await _cache.MarkPendingFailedAsync(
+                            durable.OperationId, exception.ErrorCode, exception.Message, token);
+                    else if (previousPending is not null)
+                        await _cache.QueueAsync(previousPending, token);
+                    else
+                        await _cache.RollbackPendingAsync(
+                            durable.OperationId, durable.LocalExerciseId, previousExercise, token);
+                }, cancellationToken);
+                throw;
             }
         }
         finally
@@ -85,9 +129,32 @@ public sealed class CustomExerciseImageService : IDisposable
         await _synchronizationLock.WaitAsync(cancellationToken);
         try
         {
-            foreach (var pending in await _cache.GetPendingAsync(cancellationToken))
+            var generation = _boundary.Capture();
+            IReadOnlyList<PendingCustomExercise> pendingRows = [];
+            if (!await _boundary.TryCommitAsync(generation, async token =>
             {
-                await SynchronizeOneAsync(pending, cancellationToken);
+                pendingRows = await _cache.GetPendingAsync(token);
+            }, cancellationToken)) return;
+            foreach (var pending in pendingRows)
+            {
+                try
+                {
+                    await SynchronizeOneAsync(pending, generation, cancellationToken);
+                }
+                catch (MobileApiException exception) when (!exception.IsRetryable)
+                {
+                    await MarkUserActionRequiredAsync(
+                        pending.OperationId, exception.ErrorCode, exception.Message, generation, cancellationToken);
+                }
+                catch (Exception exception) when (IsDefinitiveLocalFailure(exception))
+                {
+                    await MarkUserActionRequiredAsync(
+                        pending.OperationId,
+                        BusinessErrorCode.InternalServerError,
+                        "The pending exercise requires attention.",
+                        generation,
+                        cancellationToken);
+                }
             }
         }
         finally
@@ -151,8 +218,12 @@ public sealed class CustomExerciseImageService : IDisposable
 
     private async Task<Guid> SynchronizeOneAsync(
         PendingCustomExercise pending,
+        AccountSessionGeneration generation,
         CancellationToken cancellationToken)
     {
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken, _boundary.GetCancellationToken(generation));
+        cancellationToken = linked.Token;
         var current = pending;
         if (current.Phase is PendingCustomSyncPhase.PendingDetails
             or PendingCustomSyncPhase.PendingDetailsUploadReserved
@@ -164,6 +235,14 @@ public sealed class CustomExerciseImageService : IDisposable
             if (current.OperationKind == PendingCustomOperationKind.Create)
             {
                 serverId = await _customApi.CreateAsync(draft, cancellationToken);
+                current = current with
+                {
+                    ServerExerciseId = serverId,
+                    OperationKind = PendingCustomOperationKind.Update
+                };
+                if (!await _boundary.TryCommitAsync(generation, token =>
+                    _cache.QueueAsync(current, token), cancellationToken))
+                    throw new OperationCanceledException("The account session changed.");
                 await _customApi.UpdateAsync(serverId, draft, cancellationToken);
             }
             else
@@ -182,7 +261,8 @@ public sealed class CustomExerciseImageService : IDisposable
                     _ => PendingCustomSyncPhase.DetailsSaved
                 }
             };
-            await _cache.QueueAsync(current, cancellationToken);
+            if (!await _boundary.TryCommitAsync(generation, token => _cache.QueueAsync(current, token), cancellationToken))
+                throw new OperationCanceledException("The account session changed.");
         }
 
         var saved = current.ServerExerciseId ?? throw new InvalidOperationException(
@@ -190,11 +270,10 @@ public sealed class CustomExerciseImageService : IDisposable
         var currentDraft = ToDraft(current);
         if (current.LocalImagePath is null || current.LocalImageContentType is null)
         {
-            await _cache.CompletePendingAsync(
-                current.OperationId,
-                current.LocalExerciseId,
-                ToCached(saved, currentDraft, current.LocalPreviewPath),
-                cancellationToken);
+            if (!await _boundary.TryCommitAsync(generation, token => _cache.CompletePendingAsync(
+                current.OperationId, current.LocalExerciseId,
+                ToCached(saved, currentDraft, current.LocalPreviewPath), token), cancellationToken))
+                throw new OperationCanceledException("The account session changed.");
             return saved;
         }
 
@@ -211,7 +290,8 @@ public sealed class CustomExerciseImageService : IDisposable
                 UploadId = reservation.UploadId,
                 UploadUri = reservation.UploadUri.OriginalString
             };
-            await _cache.QueueAsync(current, cancellationToken);
+            if (!await _boundary.TryCommitAsync(generation, token => _cache.QueueAsync(current, token), cancellationToken))
+                throw new OperationCanceledException("The account session changed.");
         }
 
         if (current.Phase == PendingCustomSyncPhase.UploadReserved)
@@ -229,18 +309,20 @@ public sealed class CustomExerciseImageService : IDisposable
                     cancellationToken);
             }
             current = current with { Phase = PendingCustomSyncPhase.ContentUploaded };
-            await _cache.QueueAsync(current, cancellationToken);
+            if (!await _boundary.TryCommitAsync(generation, token => _cache.QueueAsync(current, token), cancellationToken))
+                throw new OperationCanceledException("The account session changed.");
         }
 
         var uploadId = current.UploadId ?? throw new InvalidOperationException(
             "An uploaded image must retain its reservation identity.");
         var uploaded = await _imageApi.CompleteUploadAsync(uploadId, cancellationToken);
-        var thumbnail = await CacheUploadedThumbnailAsync(uploaded, cancellationToken);
-        await _cache.CompletePendingAsync(
-            current.OperationId,
-            current.LocalExerciseId,
-            ToCached(saved, currentDraft, thumbnail),
-            cancellationToken);
+        var localizedThumbnail = await CacheUploadedThumbnailAsync(uploaded, cancellationToken);
+        if (!await _boundary.TryCommitAsync(generation, token =>
+        {
+            return _cache.CompletePendingAsync(
+                current.OperationId, current.LocalExerciseId,
+                ToCached(saved, currentDraft, localizedThumbnail), token);
+        }, cancellationToken)) throw new OperationCanceledException("The account session changed.");
         return saved;
     }
 
@@ -272,6 +354,37 @@ public sealed class CustomExerciseImageService : IDisposable
         CancellationToken cancellationToken) =>
         _thumbnailCache.CacheAsync(image.ThumbnailUrl, cancellationToken);
 
+    private async Task MarkUserActionRequiredAsync(
+        Guid operationId,
+        BusinessErrorCode code,
+        string message,
+        AccountSessionGeneration generation,
+        CancellationToken cancellationToken)
+    {
+        await _boundary.TryCommitAsync(generation, async token =>
+        {
+            await _cache.MarkPendingFailedAsync(operationId, code, message, token);
+            LastSynchronizationError = code;
+            LastSynchronizationMessage = message;
+        }, cancellationToken);
+    }
+
+    private static bool HasAcknowledgedRemoteSideEffect(
+        PendingCustomExercise original,
+        PendingCustomExercise? latest) =>
+        latest is not null
+        && ((original.ServerExerciseId is null && latest.ServerExerciseId is not null)
+            || latest.Phase is not PendingCustomSyncPhase.PendingDetails);
+
+    private static bool IsDefinitiveLocalFailure(Exception exception) => exception is
+        FileNotFoundException
+        or DirectoryNotFoundException
+        or UnauthorizedAccessException
+        or InvalidDataException
+        or UriFormatException
+        or ArgumentException
+        or InvalidOperationException;
+
     private void OnConnectivityChanged(object? sender, EventArgs eventArgs)
     {
         if (_disposed || !_connectivity.IsOnline) return;
@@ -280,18 +393,38 @@ public sealed class CustomExerciseImageService : IDisposable
 
     private async Task SynchronizeAfterConnectivityAsync()
     {
+        var generation = _boundary.Capture();
         try
         {
             await SynchronizePendingAsync();
-            LastSynchronizationError = null;
+            await _boundary.TryCommitAsync(generation, _ =>
+            {
+                LastSynchronizationError = null;
+                LastSynchronizationMessage = null;
+                return Task.CompletedTask;
+            });
         }
         catch (MobileApiException exception)
         {
-            LastSynchronizationError = exception.ErrorCode;
+            await _boundary.TryCommitAsync(generation, _ =>
+            {
+                LastSynchronizationError = exception.ErrorCode;
+                LastSynchronizationMessage = exception.Message;
+                return Task.CompletedTask;
+            });
         }
         catch (Exception exception) when (exception is HttpRequestException or IOException)
         {
-            LastSynchronizationError = BusinessErrorCode.InternalServerError;
+            await _boundary.TryCommitAsync(generation, _ =>
+            {
+                LastSynchronizationError = BusinessErrorCode.InternalServerError;
+                LastSynchronizationMessage = exception.Message;
+                return Task.CompletedTask;
+            });
+        }
+        catch (OperationCanceledException)
+        {
+            // Account reset invalidates the prior generation and owns durable cleanup.
         }
     }
 }

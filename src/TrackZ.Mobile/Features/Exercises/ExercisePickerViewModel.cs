@@ -6,6 +6,7 @@ using TrackZ.Contracts.Errors;
 using TrackZ.Domain.Exercises;
 using TrackZ.Mobile.Features.Exercises.Data;
 using TrackZ.Mobile.Features.Exercises.Models;
+using TrackZ.Mobile.Identity;
 
 namespace TrackZ.Mobile.Features.Exercises;
 
@@ -17,6 +18,7 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged
     private readonly IClock _clock;
     private readonly IUiDispatcher _dispatcher;
     private readonly IExerciseThumbnailCache? _thumbnailCache;
+    private readonly IAccountSessionBoundary _boundary;
     private readonly HashSet<Guid> _selectedIds = [];
     private IReadOnlyList<CachedExercise> _catalog = [];
     private string _searchText = string.Empty;
@@ -30,7 +32,8 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged
         IConnectivityService connectivity,
         IClock clock,
         IUiDispatcher? dispatcher = null,
-        IExerciseThumbnailCache? thumbnailCache = null)
+        IExerciseThumbnailCache? thumbnailCache = null,
+        IAccountSessionBoundary? boundary = null)
     {
         _cache = cache;
         _catalogApi = catalogApi;
@@ -38,6 +41,8 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged
         _clock = clock;
         _dispatcher = dispatcher ?? new InlineUiDispatcher();
         _thumbnailCache = thumbnailCache;
+        _boundary = boundary ?? new AccountSessionBoundary();
+        _boundary.SessionReset += OnSessionReset;
         ToggleSelectionCommand = new RelayCommand(ToggleSelection);
     }
 
@@ -98,29 +103,37 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged
 
     public async Task LoadAsync(BodyPart? bodyPart = null, CancellationToken cancellationToken = default)
     {
+        var generation = _boundary.Capture();
         _selectedBodyPart = bodyPart;
         OnPropertyChanged(nameof(SelectedBodyPart));
-        _catalog = await _cache.GetAllAsync(cancellationToken);
-        ApplyFilter();
+        if (!await _boundary.TryCommitAsync(generation, async token =>
+        {
+            _catalog = await _cache.GetAllAsync(token);
+            await _dispatcher.InvokeAsync(ApplyFilter);
+        }, cancellationToken)) return;
         RefreshCompletion = _connectivity.IsOnline
-            ? RefreshAsync(cancellationToken)
+            ? RefreshAsync(generation, cancellationToken)
             : Task.CompletedTask;
     }
 
-    private async Task RefreshAsync(CancellationToken cancellationToken)
+    private async Task RefreshAsync(AccountSessionGeneration generation, CancellationToken cancellationToken)
     {
-        await _dispatcher.InvokeAsync(() => IsRefreshing = true);
+        if (!await _boundary.TryCommitAsync(generation, _ =>
+            _dispatcher.InvokeAsync(() => IsRefreshing = true), cancellationToken)) return;
         try
         {
             var exercises = await _catalogApi.GetAllAsync(cancellationToken);
             var metadata = exercises.Select(WithoutRemoteThumbnail).ToArray();
-            await _cache.ReplaceAllAsync(metadata, _clock.UtcNow, cancellationToken);
-            _catalog = await _cache.GetAllAsync(cancellationToken);
-            await _dispatcher.InvokeAsync(() =>
+            if (!await _boundary.TryCommitAsync(generation, async token =>
             {
-                LastErrorCode = null;
-                ApplyFilter();
-            });
+                await _cache.ReplaceAllAsync(metadata, _clock.UtcNow, token);
+                _catalog = await _cache.GetAllAsync(token);
+                await _dispatcher.InvokeAsync(() =>
+                {
+                    LastErrorCode = null;
+                    ApplyFilter();
+                });
+            }, cancellationToken)) return;
 
             if (_thumbnailCache is not null)
             {
@@ -131,22 +144,28 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged
                         CancellationToken = cancellationToken,
                         MaxDegreeOfParallelism = 4
                     },
-                    CacheThumbnailBestEffortAsync);
-                _catalog = await _cache.GetAllAsync(cancellationToken);
-                await _dispatcher.InvokeAsync(ApplyFilter);
+                    (exercise, token) => CacheThumbnailBestEffortAsync(exercise, generation, token));
+                await _boundary.TryCommitAsync(generation, async token =>
+                {
+                    _catalog = await _cache.GetAllAsync(token);
+                    await _dispatcher.InvokeAsync(ApplyFilter);
+                }, cancellationToken);
             }
         }
         catch (MobileApiException exception)
         {
-            await _dispatcher.InvokeAsync(() => LastErrorCode = exception.ErrorCode);
+            await _boundary.TryCommitAsync(generation, _ =>
+                _dispatcher.InvokeAsync(() => LastErrorCode = exception.ErrorCode), cancellationToken);
         }
         catch (Exception exception) when (exception is HttpRequestException or IOException)
         {
-            await _dispatcher.InvokeAsync(() => LastErrorCode = BusinessErrorCode.InternalServerError);
+            await _boundary.TryCommitAsync(generation, _ =>
+                _dispatcher.InvokeAsync(() => LastErrorCode = BusinessErrorCode.InternalServerError), cancellationToken);
         }
         finally
         {
-            await _dispatcher.InvokeAsync(() => IsRefreshing = false);
+            await _boundary.TryCommitAsync(generation, _ =>
+                _dispatcher.InvokeAsync(() => IsRefreshing = false), cancellationToken);
         }
     }
 
@@ -165,13 +184,17 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged
 
     private async ValueTask CacheThumbnailBestEffortAsync(
         TrackZ.Contracts.Exercises.ExerciseSummaryDto exercise,
+        AccountSessionGeneration generation,
         CancellationToken cancellationToken)
     {
         try
         {
-            var local = await _thumbnailCache!.CacheAsync(exercise.ThumbnailUrl, cancellationToken);
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken, _boundary.GetCancellationToken(generation));
+            var local = await _thumbnailCache!.CacheAsync(exercise.ThumbnailUrl, linked.Token);
             if (local is not null)
-                await _cache.SetServerThumbnailAsync(exercise.Id, local, cancellationToken);
+                await _boundary.TryCommitAsync(generation, token =>
+                    _cache.SetServerThumbnailAsync(exercise.Id, local, token), linked.Token);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -213,6 +236,16 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged
             exercise.IsSelected = _selectedIds.Contains(exercise.Id);
             Exercises.Add(exercise);
         }
+    }
+
+    private void OnSessionReset(object? sender, EventArgs eventArgs)
+    {
+        _catalog = [];
+        _selectedIds.Clear();
+        LastErrorCode = null;
+        IsRefreshing = false;
+        Exercises.Clear();
+        OnPropertyChanged(nameof(SelectedExerciseIds));
     }
 
     private void OnPropertyChanged([CallerMemberName] string? name = null) =>

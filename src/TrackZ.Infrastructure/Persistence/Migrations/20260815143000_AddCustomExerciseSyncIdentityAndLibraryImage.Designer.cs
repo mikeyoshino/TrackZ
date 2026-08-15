@@ -12,7 +12,7 @@ using TrackZ.Infrastructure.Persistence;
 namespace TrackZ.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260815102739_AddCustomExerciseSyncIdentityAndLibraryImage")]
+    [Migration("20260815143000_AddCustomExerciseSyncIdentityAndLibraryImage")]
     partial class AddCustomExerciseSyncIdentityAndLibraryImage
     {
         /// <inheritdoc />

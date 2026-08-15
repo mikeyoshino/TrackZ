@@ -1,6 +1,7 @@
 using System.Globalization;
 using Microsoft.Data.Sqlite;
 using TrackZ.Contracts.Exercises;
+using TrackZ.Contracts.Errors;
 using TrackZ.Domain.Exercises;
 using TrackZ.Mobile.Features.Exercises.Models;
 
@@ -22,6 +23,12 @@ public enum PendingCustomSyncPhase
     PendingDetailsContentUploaded = 5
 }
 
+public enum PendingCustomSyncStatus
+{
+    Pending = 0,
+    UserActionRequired = 1
+}
+
 public sealed record CachedLibraryImage(Guid ImageId, string Name, string? ThumbnailUri);
 
 public sealed record PendingCustomExercise(
@@ -39,7 +46,10 @@ public sealed record PendingCustomExercise(
     PendingCustomOperationKind OperationKind = PendingCustomOperationKind.Create,
     PendingCustomSyncPhase Phase = PendingCustomSyncPhase.PendingDetails,
     Guid? UploadId = null,
-    string? UploadUri = null);
+    string? UploadUri = null,
+    PendingCustomSyncStatus SyncStatus = PendingCustomSyncStatus.Pending,
+    BusinessErrorCode? FailureCode = null,
+    string? FailureMessage = null);
 
 public sealed class ExerciseCache
 {
@@ -128,11 +138,11 @@ public sealed class ExerciseCache
             INSERT INTO pending_custom_exercises
                 (OperationId, LocalExerciseId, ServerExerciseId, Name, BodyPart, TrackingMode,
                  LibraryImageId, LocalImagePath, LocalImageContentType, CreatedAt, LocalPreviewPath,
-                 OperationKind, Phase, UploadId, UploadUri)
+                 OperationKind, Phase, UploadId, UploadUri, SyncStatus, FailureCode, FailureMessage)
             VALUES
                 ($operationId, $localExerciseId, $serverExerciseId, $name, $bodyPart, $trackingMode,
                  $libraryImageId, $localImagePath, $localImageContentType, $createdAt, $localPreviewPath,
-                 $operationKind, $phase, $uploadId, $uploadUri)
+                 $operationKind, $phase, $uploadId, $uploadUri, $syncStatus, $failureCode, $failureMessage)
             ON CONFLICT(OperationId) DO UPDATE SET
                 ServerExerciseId = excluded.ServerExerciseId,
                 Name = excluded.Name,
@@ -145,7 +155,10 @@ public sealed class ExerciseCache
                 OperationKind = excluded.OperationKind,
                 Phase = excluded.Phase,
                 UploadId = excluded.UploadId,
-                UploadUri = excluded.UploadUri;
+                UploadUri = excluded.UploadUri,
+                SyncStatus = excluded.SyncStatus,
+                FailureCode = excluded.FailureCode,
+                FailureMessage = excluded.FailureMessage;
             """;
         Add(command, "$operationId", pending.OperationId.ToString("D"));
         Add(command, "$localExerciseId", pending.LocalExerciseId.ToString("D"));
@@ -162,11 +175,22 @@ public sealed class ExerciseCache
         Add(command, "$phase", (int)pending.Phase);
         Add(command, "$uploadId", pending.UploadId?.ToString("D"));
         Add(command, "$uploadUri", pending.UploadUri);
+        Add(command, "$syncStatus", (int)pending.SyncStatus);
+        Add(command, "$failureCode", pending.FailureCode is null ? null : (int)pending.FailureCode.Value);
+        Add(command, "$failureMessage", pending.FailureMessage);
         await command.ExecuteNonQueryAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
     }
 
-    public async Task<IReadOnlyList<PendingCustomExercise>> GetPendingAsync(CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<PendingCustomExercise>> GetPendingAsync(CancellationToken cancellationToken = default) =>
+        GetByStatusAsync(PendingCustomSyncStatus.Pending, cancellationToken);
+
+    public Task<IReadOnlyList<PendingCustomExercise>> GetFailedAsync(CancellationToken cancellationToken = default) =>
+        GetByStatusAsync(PendingCustomSyncStatus.UserActionRequired, cancellationToken);
+
+    private async Task<IReadOnlyList<PendingCustomExercise>> GetByStatusAsync(
+        PendingCustomSyncStatus status,
+        CancellationToken cancellationToken)
     {
         await EnsureSchemaAsync(cancellationToken);
         await using var connection = await OpenAsync(cancellationToken);
@@ -174,10 +198,12 @@ public sealed class ExerciseCache
         command.CommandText = """
             SELECT OperationId, LocalExerciseId, ServerExerciseId, Name, BodyPart, TrackingMode,
                    LibraryImageId, LocalImagePath, LocalImageContentType, CreatedAt, LocalPreviewPath,
-                   OperationKind, Phase, UploadId, UploadUri
+                   OperationKind, Phase, UploadId, UploadUri, SyncStatus, FailureCode, FailureMessage
             FROM pending_custom_exercises
+            WHERE SyncStatus = $syncStatus
             ORDER BY CreatedAt, OperationId;
             """;
+        Add(command, "$syncStatus", (int)status);
         var result = new List<PendingCustomExercise>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
@@ -197,7 +223,10 @@ public sealed class ExerciseCache
                 (PendingCustomOperationKind)reader.GetInt32(11),
                 (PendingCustomSyncPhase)reader.GetInt32(12),
                 reader.IsDBNull(13) ? null : Guid.Parse(reader.GetString(13)),
-                reader.IsDBNull(14) ? null : reader.GetString(14)));
+                reader.IsDBNull(14) ? null : reader.GetString(14),
+                (PendingCustomSyncStatus)reader.GetInt32(15),
+                reader.IsDBNull(16) ? null : (BusinessErrorCode)reader.GetInt32(16),
+                reader.IsDBNull(17) ? null : reader.GetString(17)));
         }
         return result;
     }
@@ -207,7 +236,17 @@ public sealed class ExerciseCache
         CancellationToken cancellationToken = default)
     {
         var pending = await GetPendingAsync(cancellationToken);
-        return pending.SingleOrDefault(item => item.LocalExerciseId == localExerciseId);
+        var failed = await GetFailedAsync(cancellationToken);
+        return pending.Concat(failed).SingleOrDefault(item => item.LocalExerciseId == localExerciseId);
+    }
+
+    public async Task<PendingCustomExercise?> FindOutboxByOperationAsync(
+        Guid operationId,
+        CancellationToken cancellationToken = default)
+    {
+        var pending = await GetPendingAsync(cancellationToken);
+        var failed = await GetFailedAsync(cancellationToken);
+        return pending.Concat(failed).SingleOrDefault(item => item.OperationId == operationId);
     }
 
     public async Task<int> CountPendingAsync(CancellationToken cancellationToken = default)
@@ -215,8 +254,62 @@ public sealed class ExerciseCache
         await EnsureSchemaAsync(cancellationToken);
         await using var connection = await OpenAsync(cancellationToken);
         await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT COUNT(*) FROM pending_custom_exercises;";
+        command.CommandText = "SELECT COUNT(*) FROM pending_custom_exercises WHERE SyncStatus = 0;";
         return Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken), CultureInfo.InvariantCulture);
+    }
+
+    public async Task<CachedExercise?> FindExerciseAsync(Guid exerciseId, CancellationToken cancellationToken = default)
+    {
+        var rows = await GetAllAsync(cancellationToken);
+        return rows.SingleOrDefault(exercise => exercise.Id == exerciseId);
+    }
+
+    public async Task RollbackPendingAsync(
+        Guid operationId,
+        Guid localExerciseId,
+        CachedExercise? previousExercise,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureSchemaAsync(cancellationToken);
+        await using var connection = await OpenAsync(cancellationToken);
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        await using (var pending = connection.CreateCommand())
+        {
+            pending.Transaction = transaction;
+            pending.CommandText = "DELETE FROM pending_custom_exercises WHERE OperationId = $operationId;";
+            Add(pending, "$operationId", operationId.ToString("D"));
+            await pending.ExecuteNonQueryAsync(cancellationToken);
+        }
+        await using (var cached = connection.CreateCommand())
+        {
+            cached.Transaction = transaction;
+            cached.CommandText = "DELETE FROM cached_exercises WHERE Id = $localExerciseId AND IsPendingSync = 1;";
+            Add(cached, "$localExerciseId", localExerciseId.ToString("D"));
+            await cached.ExecuteNonQueryAsync(cancellationToken);
+        }
+        if (previousExercise is not null)
+            await UpsertAsync(connection, transaction, previousExercise, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+    }
+
+    public async Task MarkPendingFailedAsync(
+        Guid operationId,
+        BusinessErrorCode code,
+        string message,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureSchemaAsync(cancellationToken);
+        await using var connection = await OpenAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE pending_custom_exercises
+            SET SyncStatus = 1, FailureCode = $failureCode, FailureMessage = $failureMessage
+            WHERE OperationId = $operationId;
+            """;
+        Add(command, "$failureCode", (int)code);
+        Add(command, "$failureMessage", message);
+        Add(command, "$operationId", operationId.ToString("D"));
+        await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
     public async Task<IReadOnlyList<CachedLibraryImage>> GetLibraryImagesAsync(
@@ -262,6 +355,21 @@ public sealed class ExerciseCache
             await insert.ExecuteNonQueryAsync(cancellationToken);
         }
         await transaction.CommitAsync(cancellationToken);
+    }
+
+    public async Task SetLibraryThumbnailAsync(
+        Guid imageId,
+        string localThumbnailUri,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(localThumbnailUri);
+        await EnsureSchemaAsync(cancellationToken);
+        await using var connection = await OpenAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "UPDATE cached_library_images SET ThumbnailUri = $thumbnail WHERE ImageId = $id;";
+        Add(command, "$thumbnail", localThumbnailUri);
+        Add(command, "$id", imageId.ToString("D"));
+        await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
     public async Task SetPendingServerIdAsync(
@@ -396,7 +504,10 @@ public sealed class ExerciseCache
                     OperationKind INTEGER NOT NULL DEFAULT 0,
                     Phase INTEGER NOT NULL DEFAULT 0,
                     UploadId TEXT NULL,
-                    UploadUri TEXT NULL
+                    UploadUri TEXT NULL,
+                    SyncStatus INTEGER NOT NULL DEFAULT 0,
+                    FailureCode INTEGER NULL,
+                    FailureMessage TEXT NULL
                 );
                 CREATE TABLE IF NOT EXISTS cached_library_images (
                     ImageId TEXT PRIMARY KEY NOT NULL,
@@ -411,6 +522,9 @@ public sealed class ExerciseCache
             await EnsureColumnAsync(connection, "pending_custom_exercises", "Phase", "INTEGER NOT NULL DEFAULT 0", cancellationToken);
             await EnsureColumnAsync(connection, "pending_custom_exercises", "UploadId", "TEXT NULL", cancellationToken);
             await EnsureColumnAsync(connection, "pending_custom_exercises", "UploadUri", "TEXT NULL", cancellationToken);
+            await EnsureColumnAsync(connection, "pending_custom_exercises", "SyncStatus", "INTEGER NOT NULL DEFAULT 0", cancellationToken);
+            await EnsureColumnAsync(connection, "pending_custom_exercises", "FailureCode", "INTEGER NULL", cancellationToken);
+            await EnsureColumnAsync(connection, "pending_custom_exercises", "FailureMessage", "TEXT NULL", cancellationToken);
             await using (var normalizeLegacy = connection.CreateCommand())
             {
                 normalizeLegacy.CommandText = """

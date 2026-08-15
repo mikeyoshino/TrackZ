@@ -6,17 +6,14 @@ public partial class CustomExercisePage : ContentPage, IQueryAttributable
 {
     private readonly CustomExerciseViewModel _viewModel;
     private readonly LocalExerciseImageImporter _imageImporter;
-    private readonly Data.ExerciseCache _cache;
 
     public CustomExercisePage(
         CustomExerciseViewModel viewModel,
-        LocalExerciseImageImporter imageImporter,
-        Data.ExerciseCache cache)
+        LocalExerciseImageImporter imageImporter)
     {
         InitializeComponent();
         BindingContext = _viewModel = viewModel;
         _imageImporter = imageImporter;
-        _cache = cache;
     }
 
     public void ApplyQueryAttributes(IDictionary<string, object> query)
@@ -93,7 +90,6 @@ public partial class CustomExercisePage : ContentPage, IQueryAttributable
 
     private async Task LoadForEditAsync(Guid exerciseId)
     {
-        var exercise = (await _cache.GetAllAsync()).SingleOrDefault(item => item.Id == exerciseId && item.IsCustom);
-        if (exercise is not null) _viewModel.LoadForEdit(exercise);
+        await _viewModel.LoadForEditAsync(exerciseId);
     }
 }

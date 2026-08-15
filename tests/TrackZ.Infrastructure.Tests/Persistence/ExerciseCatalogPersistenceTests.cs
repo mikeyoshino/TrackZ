@@ -42,12 +42,12 @@ public sealed class ExerciseCatalogPersistenceTests
     }
 
     [Fact]
-    public async Task Custom_exercise_migration_designer_contains_the_complete_target_model()
+    public async Task Latest_custom_exercise_migration_designer_contains_the_complete_target_model()
     {
         await using var database = await PostgreSqlFixture.StartAsync();
         var migrations = database.Db.GetService<IMigrationsAssembly>();
         var migration = migrations.CreateMigration(
-            migrations.Migrations["20260815102739_AddCustomExerciseSyncIdentityAndLibraryImage"],
+            migrations.Migrations["20260815143000_AddCustomExerciseSyncIdentityAndLibraryImage"],
             database.Db.Database.ProviderName!)!;
 
         var entityNames = migration.TargetModel.GetEntityTypes()
@@ -81,17 +81,42 @@ public sealed class ExerciseCatalogPersistenceTests
     }
 
     [Fact]
-    public async Task Custom_exercise_migration_target_matches_current_snapshot_relational_metadata()
+    public async Task Latest_custom_exercise_migration_target_matches_current_snapshot_relational_metadata()
     {
         await using var database = await PostgreSqlFixture.StartAsync();
         var migrations = database.Db.GetService<IMigrationsAssembly>();
         var migration = migrations.CreateMigration(
-            migrations.Migrations["20260815102739_AddCustomExerciseSyncIdentityAndLibraryImage"],
+            migrations.Migrations["20260815143000_AddCustomExerciseSyncIdentityAndLibraryImage"],
             database.Db.Database.ProviderName!)!;
 
         Assert.Equal(
             DescribeRelationalModel(migrations.ModelSnapshot!.Model),
             DescribeRelationalModel(migration.TargetModel));
+    }
+
+    [Fact]
+    public async Task Custom_exercise_migration_is_chronologically_after_upload_tickets_without_rewriting_history()
+    {
+        await using var database = await PostgreSqlFixture.StartAsync();
+        var migrations = database.Db.GetService<IMigrationsAssembly>();
+        var ids = migrations.Migrations.Keys.ToArray();
+        var customIndex = Array.IndexOf(ids, "20260815143000_AddCustomExerciseSyncIdentityAndLibraryImage");
+        var uploadIndex = Array.IndexOf(ids, "20260815130000_AddImageUploadTickets");
+        var historical = migrations.CreateMigration(
+            migrations.Migrations["20260815130000_AddImageUploadTickets"],
+            database.Db.Database.ProviderName!)!;
+        var latest = migrations.CreateMigration(
+            migrations.Migrations["20260815143000_AddCustomExerciseSyncIdentityAndLibraryImage"],
+            database.Db.Database.ProviderName!)!;
+        var historicalExercise = historical.TargetModel.FindEntityType(typeof(ExerciseDefinition).FullName!)!;
+
+        Assert.True(customIndex > uploadIndex);
+        Assert.Null(historicalExercise.FindProperty(nameof(ExerciseDefinition.ClientOperationId)));
+        Assert.Null(historicalExercise.FindProperty(nameof(ExerciseDefinition.LibraryImageId)));
+        Assert.Equal(2, latest.UpOperations.OfType<Microsoft.EntityFrameworkCore.Migrations.Operations.AddColumnOperation>()
+            .Count(operation => operation.Table == "exercise_definitions"));
+        Assert.Equal(2, latest.DownOperations.OfType<Microsoft.EntityFrameworkCore.Migrations.Operations.DropColumnOperation>()
+            .Count(operation => operation.Table == "exercise_definitions"));
     }
 
     [Fact]
