@@ -48,9 +48,18 @@ public sealed class ExercisePerformanceTests
             weightKg is null ? null : (decimal)weightKg.Value,
             assistedKg is null ? null : (decimal)assistedKg.Value,
             reps);
+        var validSet = trackingMode switch
+        {
+            TrackingMode.Weighted => new ExercisePerformanceSet(70m, null, 8),
+            TrackingMode.Bodyweight => new ExercisePerformanceSet(null, null, 12),
+            TrackingMode.Assisted => new ExercisePerformanceSet(null, 25m, 10),
+            _ => throw new InvalidOperationException()
+        };
 
         Assert.Throws<ArgumentException>(() => ExercisePerformance.Create(
-            Guid.NewGuid(), Guid.NewGuid(), trackingMode, DateTimeOffset.UtcNow, set, null));
+            Guid.NewGuid(), Guid.NewGuid(), trackingMode, DateTimeOffset.UtcNow, set, validSet));
+        Assert.Throws<ArgumentException>(() => ExercisePerformance.Create(
+            Guid.NewGuid(), Guid.NewGuid(), trackingMode, DateTimeOffset.UtcNow, validSet, set));
     }
 
     [Fact]

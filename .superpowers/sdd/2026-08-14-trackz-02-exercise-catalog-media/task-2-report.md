@@ -29,3 +29,9 @@
 - **Acceptance regression matrix:** signed payload/signature corruption and valid-HMAC unsupported version return `10009`; nine-row traversal (seven equal names) with page size two has no duplicate/skip; PostgreSQL rejects invalid enum and composite-FK mode mismatch; image-seeded catalog projection remains one SELECT and never exposes storage keys.
 - **Focused results:** API cursor matrix 3 passed; infrastructure catalog persistence 3 passed; application catalog projection 2 passed.
 - **Final API acceptance:** full `ListExercisesEndpointTests` was run after adding archive/ownership visibility, weighted/bodyweight/assisted/no-performance JSON-shape, and Draft/Published/private image nonleak coverage. Every returned `thumbnailUrl` is null and all seeded object-key tokens are absent from the raw body.
+
+## Fix Round 3
+
+- **Sensitivity correction:** each invalid mode shape is now exercised twice: once as LAST with a valid PR, and once as PR with a valid LAST. This reaches `ValidateSet` rather than the projection-completeness guard.
+- **Response correction:** Bodyweight and Assisted `allTimeBest` JSON fields now have independent null/value/reps assertions.
+- **Results:** `ExercisePerformanceTests`: 11 passed; full `ListExercisesEndpointTests` run after assertions were added.
