@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage
+    x:Class="TrackZ.Mobile.Features.Exercises.ExercisePickerPage"
+    x:Name="Page"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:components="clr-namespace:TrackZ.Mobile.Components"
+    xmlns:models="clr-namespace:TrackZ.Mobile.Features.Exercises.Models;assembly=TrackZ.Mobile.Core"
+    xmlns:viewModels="clr-namespace:TrackZ.Mobile.Features.Exercises;assembly=TrackZ.Mobile.Core"
+    x:DataType="viewModels:ExercisePickerViewModel"
+    Title="Choose exercises">
+    <Grid Padding="16" RowDefinitions="Auto,Auto,Auto,*,Auto" RowSpacing="12">
+        <SearchBar
+            Placeholder="Search exercises"
+            Text="{Binding SearchText, Mode=TwoWay}" />
+        <Grid Grid.Row="1" ColumnDefinitions="*,Auto" ColumnSpacing="8">
+            <Picker
+                Title="All body parts"
+                ItemsSource="{Binding BodyParts}"
+                SelectedItem="{Binding SelectedBodyPart, Mode=TwoWay}" />
+            <Button Grid.Column="1" Clicked="OnClearBodyPartClicked" Text="All" />
+        </Grid>
+        <Grid Grid.Row="2" ColumnDefinitions="*,Auto">
+            <Label
+                FontAttributes="Bold"
+                Text="{Binding SelectedExerciseIds.Count, StringFormat='Selected: {0}'}"
+                VerticalOptions="Center" />
+            <ActivityIndicator
+                Grid.Column="1"
+                IsRunning="{Binding IsRefreshing}"
+                IsVisible="{Binding IsRefreshing}" />
+        </Grid>
+        <CollectionView
+            Grid.Row="3"
+            ItemsSource="{Binding Exercises}"
+            SelectionMode="None">
+            <CollectionView.EmptyView>
+                <Label
+                    HorizontalTextAlignment="Center"
+                    Text="No cached exercises match this filter."
+                    VerticalTextAlignment="Center" />
+            </CollectionView.EmptyView>
+            <CollectionView.ItemTemplate>
+                <DataTemplate x:DataType="models:CachedExercise">
+                    <components:ExercisePerformanceCard
+                        Margin="0,0,0,10"
+                        EditCommand="{Binding Source={x:Reference Page}, Path=EditCustomCommand}"
+                        Exercise="{Binding .}"
+                        ToggleCommand="{Binding Source={x:Reference Page}, Path=BindingContext.ToggleSelectionCommand}" />
+                </DataTemplate>
+            </CollectionView.ItemTemplate>
+        </CollectionView>
+        <Grid Grid.Row="4" ColumnDefinitions="*,*" ColumnSpacing="10">
+            <Button Clicked="OnCreateCustomClicked" Text="Create custom" />
+            <Button Grid.Column="1" Clicked="OnDoneClicked" Text="Done" />
+        </Grid>
+    </Grid>
+</ContentPage>

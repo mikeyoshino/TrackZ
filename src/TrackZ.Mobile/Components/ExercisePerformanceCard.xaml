@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentView
+    x:Class="TrackZ.Mobile.Components.ExercisePerformanceCard"
+    x:Name="Root"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:models="clr-namespace:TrackZ.Mobile.Features.Exercises.Models;assembly=TrackZ.Mobile.Core"
+    x:DataType="models:CachedExercise">
+    <Border Padding="12" StrokeShape="RoundRectangle 14">
+        <Border.GestureRecognizers>
+            <TapGestureRecognizer
+                Command="{Binding ToggleCommand, Source={x:Reference Root}}"
+                CommandParameter="{Binding Exercise, Source={x:Reference Root}}" />
+        </Border.GestureRecognizers>
+        <Grid ColumnDefinitions="72,*,Auto" ColumnSpacing="12" RowDefinitions="Auto,Auto,Auto">
+            <Image
+                Grid.RowSpan="3"
+                Aspect="AspectFill"
+                HeightRequest="64"
+                Source="{Binding Exercise.ThumbnailUri, Source={x:Reference Root}}"
+                WidthRequest="64" />
+            <Label
+                Grid.Column="1"
+                FontAttributes="Bold"
+                FontSize="16"
+                LineBreakMode="TailTruncation"
+                Text="{Binding Exercise.Name, Source={x:Reference Root}}" />
+            <Label
+                Grid.Row="1"
+                Grid.Column="1"
+                FontSize="12"
+                Text="{Binding Exercise.LastDisplay, Source={x:Reference Root}, StringFormat='LAST  {0}'}" />
+            <Label
+                Grid.Row="2"
+                Grid.Column="1"
+                FontAttributes="Bold"
+                FontSize="12"
+                Text="{Binding Exercise.PersonalRecordDisplay, Source={x:Reference Root}, StringFormat='PR  {0}'}" />
+            <VerticalStackLayout
+                Grid.RowSpan="3"
+                Grid.Column="2"
+                Spacing="2"
+                VerticalOptions="Center">
+                <CheckBox
+                    InputTransparent="True"
+                    IsChecked="{Binding Exercise.IsSelected, Source={x:Reference Root}, Mode=OneWay}" />
+                <Button
+                    Command="{Binding EditCommand, Source={x:Reference Root}}"
+                    CommandParameter="{Binding Exercise, Source={x:Reference Root}}"
+                    FontSize="11"
+                    IsVisible="{Binding Exercise.IsCustom, Source={x:Reference Root}}"
+                    Padding="8,4"
+                    Text="Edit" />
+                <Label
+                    FontSize="11"
+                    Text="{Binding Exercise.SyncLabel, Source={x:Reference Root}}"
+                    TextColor="#A15C00" />
+            </VerticalStackLayout>
+        </Grid>
+    </Border>
+</ContentView>

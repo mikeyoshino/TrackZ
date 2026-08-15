@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage
+    x:Class="TrackZ.Mobile.Features.Exercises.CustomExercisePage"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:viewModels="clr-namespace:TrackZ.Mobile.Features.Exercises;assembly=TrackZ.Mobile.Core"
+    x:DataType="viewModels:CustomExerciseViewModel"
+    Title="Custom exercise">
+    <ScrollView>
+        <VerticalStackLayout Padding="16" Spacing="14">
+            <Label Style="{StaticResource SubHeadline}" Text="Custom exercise" />
+            <Entry Placeholder="Exercise name" Text="{Binding Name, Mode=TwoWay}" />
+            <Picker
+                Title="Body part"
+                ItemsSource="{Binding BodyParts}"
+                SelectedItem="{Binding BodyPart, Mode=TwoWay}" />
+            <Picker
+                Title="Tracking mode"
+                ItemsSource="{Binding TrackingModes}"
+                SelectedItem="{Binding TrackingMode, Mode=TwoWay}" />
+            <Image
+                Aspect="AspectFit"
+                HeightRequest="220"
+                Source="{Binding PreviewImagePath}" />
+            <Button Clicked="OnChooseImageClicked" Text="Choose JPEG, PNG, or WebP" />
+            <Label
+                FontSize="12"
+                Text="The original file is retained for secure upload; only this preview is resized. Published library images can also be assigned when available."
+                TextColor="{StaticResource Gray500}" />
+            <Button Clicked="OnSaveClicked" Text="Save exercise" />
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>
