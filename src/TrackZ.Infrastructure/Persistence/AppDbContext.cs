@@ -12,12 +12,13 @@ using TrackZ.Application.Workouts;
 using TrackZ.Domain.Workouts;
 using TrackZ.Application.Sync;
 using TrackZ.Domain.Sync;
+using TrackZ.Application.Sync.Pull;
 using System.Security.Cryptography;
 using System.Text;
 
 namespace TrackZ.Infrastructure.Persistence;
 
-public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options), IAppDbContext, IExerciseCatalogReadStore, ICustomExerciseStore, IExerciseImageUploadStore, IWorkoutReadStore, ISyncPushStore
+public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options), IAppDbContext, IExerciseCatalogReadStore, ICustomExerciseStore, IExerciseImageUploadStore, IWorkoutReadStore, ISyncPushStore, ISyncPullStore
 {
     public DbSet<User> Users => Set<User>();
 
@@ -37,6 +38,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<SetEntry> SetEntries => Set<SetEntry>();
 
     public DbSet<ProcessedClientOperation> ProcessedClientOperations => Set<ProcessedClientOperation>();
+
+    public DbSet<SyncChange> SyncChanges => Set<SyncChange>();
 
     public async Task<IAppDbTransaction> BeginSyncTransactionAsync(CancellationToken cancellationToken) =>
         new AppDbTransaction(await Database.BeginTransactionAsync(cancellationToken));
@@ -123,6 +126,18 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
     public void AddProcessedOperation(ProcessedClientOperation operation) =>
         ProcessedClientOperations.Add(operation);
+
+    public void AddSyncChange(SyncChange change) => SyncChanges.Add(change);
+
+    public async Task<IReadOnlyList<SyncChange>> ReadChangesAsync(
+        Guid ownerId,
+        long afterSequence,
+        int take,
+        CancellationToken cancellationToken) => await SyncChanges.AsNoTracking()
+        .Where(change => change.OwnerId == ownerId && change.Sequence > afterSequence)
+        .OrderBy(change => change.Sequence)
+        .Take(take)
+        .ToListAsync(cancellationToken);
 
     public Task SaveSyncChangesAsync(CancellationToken cancellationToken) =>
         SaveChangesAsync(cancellationToken);

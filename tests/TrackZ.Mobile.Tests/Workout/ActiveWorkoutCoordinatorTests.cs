@@ -426,7 +426,7 @@ public sealed class ActiveWorkoutCoordinatorTests : IDisposable
         await using var connection = await OpenRawAsync();
         await using var version = connection.CreateCommand();
         version.CommandText = "PRAGMA user_version;";
-        Assert.Equal(2, Convert.ToInt32(await version.ExecuteScalarAsync()));
+        Assert.Equal(TrackZLocalDatabase.CurrentSchemaVersion, Convert.ToInt32(await version.ExecuteScalarAsync()));
         var restored = await new LocalWorkoutRepository(upgraded).GetActiveAsync(default);
         Assert.Equal(saved.OperationId, Assert.Single(Assert.Single(restored!.Exercises).Sets).OperationId);
     }

@@ -47,6 +47,8 @@ public static class MauiProgram
 		}));
 		builder.Services.AddSingleton<TrackZExerciseApiClient>();
 		builder.Services.AddSingleton<TrackZIdentityApiClient>();
+		builder.Services.AddSingleton<TrackZSyncApiClient>();
+		builder.Services.AddSingleton<ISyncApi>(services => services.GetRequiredService<TrackZSyncApiClient>());
 		builder.Services.AddSingleton<IExerciseCatalogApi>(services => services.GetRequiredService<TrackZExerciseApiClient>());
 		builder.Services.AddSingleton<ICustomExerciseApi>(services => services.GetRequiredService<TrackZExerciseApiClient>());
 		builder.Services.AddSingleton<IExerciseImageApi>(services => services.GetRequiredService<TrackZExerciseApiClient>());
@@ -72,6 +74,8 @@ public static class MauiProgram
 			services.GetRequiredService<LocalWorkoutRepository>());
 		builder.Services.AddSingleton<OutboxRepository>();
 		builder.Services.AddSingleton<ActiveWorkoutCoordinator>();
+		builder.Services.AddSingleton<SyncCoordinator>();
+		builder.Services.AddSingleton<ConflictResolution>();
 		builder.Services.AddSingleton<CustomExerciseImageService>();
 		builder.Services.AddSingleton<LocalExerciseImageImporter>();
 		builder.Services.AddSingleton<LocalExerciseImageSelectionCoordinator>();

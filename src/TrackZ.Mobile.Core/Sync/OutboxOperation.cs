@@ -30,7 +30,12 @@ public sealed record OutboxOperation(
     DateTimeOffset CreatedAt,
     OutboxOperationState State = OutboxOperationState.Pending,
     DateTimeOffset? DeletedAt = null,
-    long Version = 1)
+    long Version = 1,
+    long? ServerVersion = null,
+    int RetryCount = 0,
+    DateTimeOffset? NextAttemptAt = null,
+    string? ServerPayload = null,
+    Guid? ReplacesOperationId = null)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 

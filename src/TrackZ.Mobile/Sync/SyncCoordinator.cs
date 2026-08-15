@@ -1,0 +1,945 @@
+using System.Globalization;
+using System.Net.Http.Json;
+using System.Text.Json;
+using Microsoft.Data.Sqlite;
+using TrackZ.Contracts.Errors;
+using TrackZ.Contracts.Sync;
+using TrackZ.Domain.Exercises;
+using TrackZ.Mobile.Data;
+using TrackZ.Mobile.Features.Exercises;
+using TrackZ.Mobile.Identity;
+
+namespace TrackZ.Mobile.Sync;
+
+public interface ISyncApi
+{
+    Task<SyncPushResponse> PushAsync(SyncPushRequest request, CancellationToken cancellationToken = default);
+    Task<SyncPullResponse> PullAsync(string? cursor, CancellationToken cancellationToken = default);
+}
+
+public sealed class TrackZSyncApiClient(HttpClient httpClient) : ISyncApi
+{
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
+    public async Task<SyncPushResponse> PushAsync(
+        SyncPushRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await httpClient.PostAsJsonAsync(
+            "/api/v1/sync/push", request, JsonOptions, cancellationToken);
+        return await ReadAsync<SyncPushResponse>(response, cancellationToken);
+    }
+
+    public async Task<SyncPullResponse> PullAsync(
+        string? cursor,
+        CancellationToken cancellationToken = default)
+    {
+        var path = "/api/v1/sync/pull?pageSize=100" +
+            (cursor is null ? "" : $"&cursor={Uri.EscapeDataString(cursor)}");
+        using var response = await httpClient.GetAsync(path, cancellationToken);
+        return await ReadAsync<SyncPullResponse>(response, cancellationToken);
+    }
+
+    private static async Task<T> ReadAsync<T>(
+        HttpResponseMessage response,
+        CancellationToken cancellationToken) where T : class
+    {
+        if (!response.IsSuccessStatusCode)
+            throw new HttpRequestException(
+                "The sync endpoint was unavailable.", null, response.StatusCode);
+        try
+        {
+            return await response.Content.ReadFromJsonAsync<T>(JsonOptions, cancellationToken)
+                ?? throw new InvalidDataException("The sync response was empty.");
+        }
+        catch (Exception exception) when (exception is JsonException or NotSupportedException)
+        {
+            throw new InvalidDataException("The sync response was malformed.", exception);
+        }
+    }
+}
+
+public enum SyncRunStatus
+{
+    Completed = 1,
+    Offline = 2
+}
+
+public sealed class SyncCoordinator(
+    TrackZLocalDatabase database,
+    ISyncApi api,
+    IAccountSessionBoundary sessionBoundary,
+    IClock clock)
+{
+    private const string CursorScope = "workouts";
+    private readonly SemaphoreSlim _runGate = new(1, 1);
+
+    public async Task<SyncRunStatus> RunOnceAsync(CancellationToken cancellationToken = default)
+    {
+        var generation = sessionBoundary.Capture();
+        await _runGate.WaitAsync(cancellationToken);
+        try
+        {
+            using var lease = sessionBoundary.CreateCancellationLease(generation, cancellationToken);
+            try
+            {
+                while (await ReadNextPendingAsync(
+                           generation, clock.UtcNow, cancellationToken) is { } operation)
+                {
+                    var request = new SyncPushRequest([ToDto(operation)]);
+                    var response = await api.PushAsync(request, lease.Token);
+                    ValidateResults([operation], response);
+                    await CommitPushResultsAsync(
+                        generation, [operation], response.Results, cancellationToken);
+                    if (response.Results[0].Status != SyncOperationStatus.Applied) break;
+                }
+
+                var cursor = await ReadCursorAsync(generation, cancellationToken);
+                do
+                {
+                    var response = await api.PullAsync(cursor, lease.Token);
+                    ValidatePull(response, cursor);
+                    await CommitPullAsync(generation, response, cancellationToken);
+                    cursor = response.NextCursor;
+                    if (!response.HasMore) break;
+                } while (true);
+                return SyncRunStatus.Completed;
+            }
+            catch (Exception exception) when (
+                exception is HttpRequestException
+                || exception is OperationCanceledException
+                    && !cancellationToken.IsCancellationRequested
+                    && !sessionBoundary.IsCancellationRequested(generation))
+            {
+                return SyncRunStatus.Offline;
+            }
+        }
+        finally
+        {
+            _runGate.Release();
+        }
+    }
+
+    internal async Task<OutboxOperation> RebaseAsync(
+        Guid operationId,
+        long serverVersion,
+        CancellationToken cancellationToken = default)
+    {
+        if (operationId == Guid.Empty) throw new ArgumentException("An operation is required.", nameof(operationId));
+        if (serverVersion < 0) throw new ArgumentOutOfRangeException(nameof(serverVersion));
+        await _runGate.WaitAsync(cancellationToken);
+        try
+        {
+            var generation = sessionBoundary.Capture();
+            OutboxOperation? replacement = null;
+            return await CompleteAsync();
+
+            async Task<OutboxOperation> CompleteAsync()
+            {
+                var committed = await sessionBoundary.TryCommitAsync(generation, async token =>
+                {
+                    replacement = await database.WriteAsync(async (connection, transaction, innerToken) =>
+                    {
+                        var original = await ReadOperationAsync(connection, transaction, operationId, innerToken);
+                        if (original.State != OutboxOperationState.Conflicted)
+                            throw new InvalidOperationException("Only a conflicted operation can be rebased.");
+                        var latest = await ReadLatestCreatedAtAsync(connection, transaction, innerToken);
+                        var now = clock.UtcNow.ToUniversalTime();
+                        var createdAt = now > latest ? now : latest.AddTicks(1);
+                        if (original.Type != OutboxOperationType.SaveSet
+                            || original.ServerVersion != serverVersion
+                            || original.ServerPayload is null)
+                            throw new InvalidOperationException(
+                                "This conflict cannot be rebased against the selected server version.");
+                        if (await HasLiveReplacementAsync(
+                                connection, transaction, original.OperationId, innerToken))
+                            throw new InvalidOperationException("The conflict already has a live replacement.");
+                        var server = JsonSerializer.Deserialize<SyncWorkoutDto>(
+                            original.ServerPayload, JsonOptions)
+                            ?? throw new InvalidDataException("The stored server authority is malformed.");
+                        var localPayload = original.DeserializePayload<SaveSetOutboxPayload>();
+                        var serverExercise = server.Exercises.SingleOrDefault(item =>
+                            item.Id == localPayload.WorkoutExerciseId && item.DeletedAt is null)
+                            ?? throw new InvalidOperationException(
+                                "The server exercise no longer accepts the local set.");
+                        if (serverExercise.Sets.Any(set =>
+                                set.Id == localPayload.SetId && set.DeletedAt is null))
+                            throw new InvalidOperationException("The local set identifier already exists on the server.");
+                        var rebasedPayload = localPayload with
+                        {
+                            Order = serverExercise.Sets.Count(set => set.DeletedAt is null)
+                        };
+                        var next = original with
+                        {
+                            OperationId = Guid.NewGuid(),
+                            Payload = JsonSerializer.Serialize(rebasedPayload, JsonOptions),
+                            BaseVersion = serverVersion,
+                            CreatedAt = createdAt,
+                            State = OutboxOperationState.Pending,
+                            DeletedAt = null,
+                            Version = 1,
+                            ServerVersion = null,
+                            RetryCount = 0,
+                            NextAttemptAt = null,
+                            ServerPayload = null,
+                            ReplacesOperationId = original.OperationId
+                        };
+                        await InsertOperationAsync(connection, transaction, next, innerToken);
+                        return next;
+                    }, token);
+                }, cancellationToken);
+                EnsureCurrent(committed, generation, cancellationToken);
+                return replacement!;
+            }
+        }
+        finally
+        {
+            _runGate.Release();
+        }
+    }
+
+    internal async Task KeepServerAsync(Guid operationId, CancellationToken cancellationToken = default)
+    {
+        if (operationId == Guid.Empty) throw new ArgumentException("An operation is required.", nameof(operationId));
+        await _runGate.WaitAsync(cancellationToken);
+        try
+        {
+            var generation = sessionBoundary.Capture();
+            var committed = await sessionBoundary.TryCommitAsync(generation, async token =>
+            {
+                await database.WriteAsync(async (connection, transaction, innerToken) =>
+                {
+                    var operation = await ReadOperationAsync(connection, transaction, operationId, innerToken);
+                    if (operation.State != OutboxOperationState.Conflicted)
+                        throw new InvalidOperationException("The conflicted operation has no server authority to keep.");
+                    var authority = operation;
+                    var leaf = operation;
+                    while (await ReadLiveReplacementAsync(
+                               connection, transaction, leaf.OperationId, innerToken) is { } replacement)
+                    {
+                        leaf = replacement;
+                        if (replacement.ServerPayload is not null) authority = replacement;
+                    }
+                    if (authority.ServerPayload is null)
+                        throw new InvalidOperationException("The conflicted operation has no server authority to keep.");
+                    var graph = JsonSerializer.Deserialize<SyncWorkoutDto>(authority.ServerPayload, JsonOptions)
+                        ?? throw new InvalidDataException("The stored server authority is malformed.");
+                    await ArchiveAsync(
+                        connection, transaction, leaf.OperationId,
+                        OutboxOperationState.Rejected, clock.UtcNow, innerToken);
+                    await ArchiveReplacementAncestorsAsync(
+                        connection, transaction, leaf, clock.UtcNow, innerToken);
+                    await ApplyGraphAsync(connection, transaction, graph, innerToken);
+                    return true;
+                }, token);
+            }, cancellationToken);
+            EnsureCurrent(committed, generation, cancellationToken);
+        }
+        finally
+        {
+            _runGate.Release();
+        }
+    }
+
+    private async Task<OutboxOperation?> ReadNextPendingAsync(
+        AccountSessionGeneration generation,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        OutboxOperation? result = null;
+        var committed = await sessionBoundary.TryCommitAsync(generation, async token =>
+        {
+            result = await database.ReadAsync(async (connection, innerToken) =>
+            {
+                var rows = new List<OutboxOperation>();
+                await using var command = connection.CreateCommand();
+                command.CommandText = """
+                    SELECT OperationId, EntityId, OperationType, Payload, BaseVersion,
+                           CreatedAt, State, DeletedAt, Version, ServerVersion, RetryCount,
+                           NextAttemptAt, ServerPayload, ReplacesOperationId
+                    FROM OutboxOperation
+                    WHERE State IN (1, 4) AND DeletedAt IS NULL
+                    ORDER BY CreatedAt, OperationId;
+                    """;
+                await using var reader = await command.ExecuteReaderAsync(innerToken);
+                while (await reader.ReadAsync(innerToken)) rows.Add(ReadOperation(reader));
+                if (rows.Count == 0) return null;
+                var candidate = rows[0];
+                var visited = new HashSet<Guid>();
+                while (candidate.State == OutboxOperationState.Conflicted)
+                {
+                    if (!visited.Add(candidate.OperationId))
+                        throw new InvalidDataException("The conflict replacement chain is cyclic.");
+                    var replacement = rows.SingleOrDefault(item =>
+                        item.ReplacesOperationId == candidate.OperationId);
+                    if (replacement is null) return null;
+                    candidate = replacement;
+                }
+                return candidate.NextAttemptAt is null || candidate.NextAttemptAt <= now
+                    ? candidate
+                    : null;
+            }, token);
+        }, cancellationToken);
+        EnsureCurrent(committed, generation, cancellationToken);
+        return result;
+    }
+
+    private async Task CommitPushResultsAsync(
+        AccountSessionGeneration generation,
+        IReadOnlyList<OutboxOperation> operations,
+        IReadOnlyList<SyncOperationResultDto> results,
+        CancellationToken cancellationToken)
+    {
+        var committed = await sessionBoundary.TryCommitAsync(generation, async token =>
+        {
+            await database.WriteAsync(async (connection, transaction, innerToken) =>
+            {
+                for (var index = 0; index < operations.Count; index++)
+                {
+                    var operation = operations[index];
+                    var result = results[index];
+                    switch (result.Status)
+                    {
+                        case SyncOperationStatus.Applied:
+                        case SyncOperationStatus.Rejected:
+                            await ArchiveAsync(
+                                connection, transaction, operation.OperationId,
+                                result.Status == SyncOperationStatus.Applied
+                                    ? OutboxOperationState.Applied
+                                    : OutboxOperationState.Rejected,
+                                clock.UtcNow, innerToken, result.ServerVersion);
+                            if (result.Status == SyncOperationStatus.Applied)
+                                await ArchiveReplacementAncestorsAsync(
+                                    connection, transaction, operation,
+                                    clock.UtcNow, innerToken);
+                            break;
+                        case SyncOperationStatus.Conflict:
+                            await UpdateConflictAsync(
+                                connection, transaction, operation.OperationId,
+                                result.ServerVersion!.Value, innerToken);
+                            break;
+                        case SyncOperationStatus.Retryable:
+                            await UpdateRetryAsync(connection, transaction, operation, innerToken);
+                            break;
+                        default:
+                            throw new InvalidDataException("The sync status is invalid.");
+                    }
+                }
+                return true;
+            }, token);
+        }, cancellationToken);
+        EnsureCurrent(committed, generation, cancellationToken);
+    }
+
+    private async Task<string?> ReadCursorAsync(
+        AccountSessionGeneration generation,
+        CancellationToken cancellationToken)
+    {
+        string? cursor = null;
+        var committed = await sessionBoundary.TryCommitAsync(generation, async token =>
+        {
+            cursor = await database.ReadAsync(async (connection, innerToken) =>
+            {
+                await using var command = connection.CreateCommand();
+                command.CommandText = "SELECT Cursor FROM SyncCursor WHERE Scope = $scope;";
+                command.Parameters.AddWithValue("$scope", CursorScope);
+                return (string?)await command.ExecuteScalarAsync(innerToken);
+            }, token);
+        }, cancellationToken);
+        EnsureCurrent(committed, generation, cancellationToken);
+        return cursor;
+    }
+
+    private async Task CommitPullAsync(
+        AccountSessionGeneration generation,
+        SyncPullResponse response,
+        CancellationToken cancellationToken)
+    {
+        var committed = await sessionBoundary.TryCommitAsync(generation, async token =>
+        {
+            await database.WriteAsync(async (connection, transaction, innerToken) =>
+            {
+                foreach (var change in response.Changes)
+                {
+                    ValidateGraph(change.Workout);
+                    var serverPayload = JsonSerializer.Serialize(change.Workout, JsonOptions);
+                    var conflicts = await ReadActiveOperationsAsync(
+                        connection, transaction, change.EntityId, innerToken);
+                    if (conflicts.Count > 0)
+                    {
+                        foreach (var operation in conflicts.Where(operation =>
+                                     change.ServerVersion > operation.BaseVersion))
+                            await StoreServerConflictAsync(
+                                connection, transaction, operation.OperationId,
+                                change.ServerVersion, serverPayload, innerToken);
+                    }
+                    else
+                    {
+                        await ApplyGraphAsync(connection, transaction, change.Workout, innerToken);
+                    }
+                }
+                if (response.NextCursor is not null)
+                    await WriteCursorAsync(
+                        connection, transaction, response.NextCursor,
+                        clock.UtcNow, innerToken);
+                return true;
+            }, token);
+        }, cancellationToken);
+        EnsureCurrent(committed, generation, cancellationToken);
+    }
+
+    private static SyncOperationDto ToDto(OutboxOperation operation)
+    {
+        using var document = JsonDocument.Parse(operation.Payload);
+        return new SyncOperationDto(
+            operation.OperationId,
+            "Workout",
+            operation.Type.ToString(),
+            document.RootElement.Clone(),
+            operation.BaseVersion);
+    }
+
+    private static void ValidateResults(
+        IReadOnlyList<OutboxOperation> operations,
+        SyncPushResponse response)
+    {
+        if (response.Results is null || response.Results.Count != operations.Count)
+            throw new InvalidDataException("The push result count is invalid.");
+        var seen = new HashSet<Guid>();
+        for (var index = 0; index < operations.Count; index++)
+        {
+            var result = response.Results[index];
+            if (result is null
+                || result.OperationId != operations[index].OperationId
+                || !seen.Add(result.OperationId)
+                || !Enum.IsDefined(result.Status)
+                || result.Status is SyncOperationStatus.Applied or SyncOperationStatus.Conflict
+                    && result.ServerVersion is null
+                || result.Status == SyncOperationStatus.Conflict
+                    && result.ErrorCode != BusinessErrorCode.VersionConflict)
+                throw new InvalidDataException("The push result mapping is invalid.");
+        }
+    }
+
+    private static void ValidatePull(SyncPullResponse response, string? priorCursor)
+    {
+        if (response.Changes is null
+            || response.HasMore && response.Changes.Count == 0
+            || response.Changes.Count > 0 && string.IsNullOrWhiteSpace(response.NextCursor)
+            || response.Changes.Count > 0 && response.NextCursor == priorCursor
+            || response.Changes.Count == 0 && response.NextCursor != priorCursor)
+            throw new InvalidDataException("The pull page is malformed.");
+        long priorSequence = 0;
+        foreach (var change in response.Changes)
+        {
+            if (change is null
+                || change.Sequence <= priorSequence
+                || change.EntityType != "Workout"
+                || change.EntityId == Guid.Empty
+                || change.Workout is null
+                || change.Workout.Id != change.EntityId
+                || change.Workout.Version != change.ServerVersion
+                || change.IsDeleted != (change.Workout.DeletedAt is not null))
+                throw new InvalidDataException("The pull change is malformed.");
+            priorSequence = change.Sequence;
+        }
+    }
+
+    private void EnsureCurrent(
+        bool committed,
+        AccountSessionGeneration generation,
+        CancellationToken cancellationToken)
+    {
+        if (committed && !sessionBoundary.IsCancellationRequested(generation)) return;
+        throw new OperationCanceledException("The account session changed.", cancellationToken);
+    }
+
+    private async Task UpdateRetryAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        OutboxOperation operation,
+        CancellationToken cancellationToken)
+    {
+        var retryCount = checked(operation.RetryCount + 1);
+        var delaySeconds = Math.Min(3600, 1L << Math.Min(12, retryCount - 1));
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            UPDATE OutboxOperation
+            SET RetryCount = $retryCount, NextAttemptAt = $next, Version = Version + 1
+            WHERE OperationId = $id AND State = 1 AND DeletedAt IS NULL;
+            """;
+        Add(command, "$retryCount", retryCount);
+        Add(command, "$next", Timestamp(clock.UtcNow.AddSeconds(delaySeconds)));
+        Add(command, "$id", Id(operation.OperationId));
+        if (await command.ExecuteNonQueryAsync(cancellationToken) != 1)
+            throw new InvalidDataException("The retryable operation changed concurrently.");
+    }
+
+    private static async Task UpdateConflictAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        Guid operationId,
+        long serverVersion,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            UPDATE OutboxOperation
+            SET State = 4, ServerVersion = $serverVersion,
+                NextAttemptAt = NULL, Version = Version + 1
+            WHERE OperationId = $id AND State = 1 AND DeletedAt IS NULL;
+            """;
+        Add(command, "$serverVersion", serverVersion);
+        Add(command, "$id", Id(operationId));
+        if (await command.ExecuteNonQueryAsync(cancellationToken) != 1)
+            throw new InvalidDataException("The conflicted operation changed concurrently.");
+    }
+
+    private static async Task ArchiveAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        Guid operationId,
+        OutboxOperationState state,
+        DateTimeOffset now,
+        CancellationToken cancellationToken,
+        long? serverVersion = null)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            UPDATE OutboxOperation
+            SET State = $state, DeletedAt = $deletedAt, ServerVersion = COALESCE($serverVersion, ServerVersion),
+                NextAttemptAt = NULL, Version = Version + 1
+            WHERE OperationId = $id AND DeletedAt IS NULL;
+            """;
+        Add(command, "$state", (int)state);
+        Add(command, "$deletedAt", Timestamp(now));
+        Add(command, "$serverVersion", serverVersion);
+        Add(command, "$id", Id(operationId));
+        if (await command.ExecuteNonQueryAsync(cancellationToken) != 1)
+            throw new InvalidDataException("The terminal operation changed concurrently.");
+    }
+
+    private static async Task ArchiveReplacementAncestorsAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        OutboxOperation operation,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        var ancestorId = operation.ReplacesOperationId;
+        var visited = new HashSet<Guid>();
+        while (ancestorId is { } id)
+        {
+            if (!visited.Add(id))
+                throw new InvalidDataException("The conflict replacement chain is cyclic.");
+            var ancestor = await ReadOperationAsync(connection, transaction, id, cancellationToken);
+            if (ancestor.DeletedAt is null)
+                await ArchiveAsync(
+                    connection, transaction, id,
+                    OutboxOperationState.Applied, now, cancellationToken);
+            ancestorId = ancestor.ReplacesOperationId;
+        }
+    }
+
+    private static async Task<bool> HasLiveReplacementAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        Guid operationId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT EXISTS (
+                SELECT 1 FROM OutboxOperation
+                WHERE ReplacesOperationId = $id AND DeletedAt IS NULL
+                  AND State IN (1, 4)
+            );
+            """;
+        Add(command, "$id", Id(operationId));
+        return Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken)) != 0;
+    }
+
+    private static async Task<OutboxOperation?> ReadLiveReplacementAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        Guid operationId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT OperationId, EntityId, OperationType, Payload, BaseVersion,
+                   CreatedAt, State, DeletedAt, Version, ServerVersion, RetryCount,
+                   NextAttemptAt, ServerPayload, ReplacesOperationId
+            FROM OutboxOperation
+            WHERE ReplacesOperationId = $id AND DeletedAt IS NULL AND State IN (1, 4);
+            """;
+        Add(command, "$id", Id(operationId));
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken)) return null;
+        var replacement = ReadOperation(reader);
+        if (await reader.ReadAsync(cancellationToken))
+            throw new InvalidDataException("A conflict has multiple live replacements.");
+        return replacement;
+    }
+
+    private static async Task StoreServerConflictAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        Guid operationId,
+        long serverVersion,
+        string serverPayload,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            UPDATE OutboxOperation
+            SET State = 4, ServerVersion = $version, ServerPayload = $payload,
+                NextAttemptAt = NULL, Version = Version + 1
+            WHERE OperationId = $id AND DeletedAt IS NULL AND State IN (1, 4)
+              AND (ServerVersion IS NULL OR $version >= ServerVersion);
+            """;
+        Add(command, "$version", serverVersion);
+        Add(command, "$payload", serverPayload);
+        Add(command, "$id", Id(operationId));
+        _ = await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task<IReadOnlyList<OutboxOperation>> ReadActiveOperationsAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        Guid entityId,
+        CancellationToken cancellationToken)
+    {
+        var operations = new List<OutboxOperation>();
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT OperationId, EntityId, OperationType, Payload, BaseVersion,
+                   CreatedAt, State, DeletedAt, Version, ServerVersion, RetryCount,
+                   NextAttemptAt, ServerPayload, ReplacesOperationId
+            FROM OutboxOperation
+            WHERE EntityId = $entityId AND DeletedAt IS NULL AND State IN (1, 4)
+            ORDER BY CreatedAt, OperationId;
+            """;
+        Add(command, "$entityId", Id(entityId));
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken)) operations.Add(ReadOperation(reader));
+        return operations;
+    }
+
+    private static async Task ApplyGraphAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        SyncWorkoutDto graph,
+        CancellationToken cancellationToken)
+    {
+        ValidateGraph(graph);
+        await DeleteAbsentChildrenAsync(connection, transaction, graph, cancellationToken);
+        await ExecuteAsync(connection, transaction, """
+            UPDATE LocalWorkoutExercise SET SortOrder = SortOrder + 1000000000
+            WHERE WorkoutId = $workoutId AND DeletedAt IS NULL;
+            UPDATE LocalSet SET SortOrder = SortOrder + 1000000000
+            WHERE DeletedAt IS NULL AND WorkoutExerciseId IN
+                (SELECT Id FROM LocalWorkoutExercise WHERE WorkoutId = $workoutId);
+            """, cancellationToken, ("$workoutId", Id(graph.Id)));
+        await ExecuteAsync(connection, transaction, """
+            INSERT INTO LocalWorkout
+                (Id, Status, StartedAt, CompletedAt, DeletedAt, Version, BaseVersion)
+            VALUES ($id, $status, $startedAt, $completedAt, $deletedAt, $version, $version)
+            ON CONFLICT(Id) DO UPDATE SET
+                Status = excluded.Status, StartedAt = excluded.StartedAt,
+                CompletedAt = excluded.CompletedAt, DeletedAt = excluded.DeletedAt,
+                Version = excluded.Version, BaseVersion = excluded.BaseVersion;
+            """, cancellationToken,
+            ("$id", Id(graph.Id)), ("$status", graph.Status),
+            ("$startedAt", Timestamp(graph.StartedAt)), ("$completedAt", Timestamp(graph.CompletedAt)),
+            ("$deletedAt", Timestamp(graph.DeletedAt)), ("$version", graph.Version));
+        foreach (var exercise in graph.Exercises)
+        {
+            await ExecuteAsync(connection, transaction, """
+                INSERT INTO LocalWorkoutExercise
+                    (Id, WorkoutId, ExerciseDefinitionId, TrackingMode, SortOrder,
+                     DeletedAt, Version, BaseVersion)
+                VALUES ($id, $workoutId, $definitionId, $mode, $order,
+                        $deletedAt, $version, $version)
+                ON CONFLICT(Id) DO UPDATE SET
+                    TrackingMode = excluded.TrackingMode, SortOrder = excluded.SortOrder,
+                    DeletedAt = excluded.DeletedAt, Version = excluded.Version,
+                    BaseVersion = excluded.BaseVersion;
+                """, cancellationToken,
+                ("$id", Id(exercise.Id)), ("$workoutId", Id(graph.Id)),
+                ("$definitionId", Id(exercise.ExerciseDefinitionId)), ("$mode", exercise.TrackingMode),
+                ("$order", exercise.Order), ("$deletedAt", Timestamp(exercise.DeletedAt)),
+                ("$version", exercise.Version));
+            foreach (var set in exercise.Sets)
+            {
+                await ExecuteAsync(connection, transaction, """
+                    INSERT INTO LocalSet
+                        (Id, OperationId, WorkoutExerciseId, SortOrder, WeightKg, AssistedKg,
+                         Reps, CompletedAt, UpdatedAt, DeletedAt, Version, BaseVersion)
+                    VALUES ($id, $id, $exerciseId, $order, $weight, $assisted,
+                            $reps, $completedAt, $updatedAt, $deletedAt, $version, $version)
+                    ON CONFLICT(Id) DO UPDATE SET
+                        SortOrder = excluded.SortOrder, WeightKg = excluded.WeightKg,
+                        AssistedKg = excluded.AssistedKg, Reps = excluded.Reps,
+                        CompletedAt = excluded.CompletedAt, UpdatedAt = excluded.UpdatedAt,
+                        DeletedAt = excluded.DeletedAt, Version = excluded.Version,
+                        BaseVersion = excluded.BaseVersion;
+                    """, cancellationToken,
+                    ("$id", Id(set.Id)), ("$exerciseId", Id(exercise.Id)), ("$order", set.Order),
+                    ("$weight", set.WeightKg), ("$assisted", set.AssistedKg), ("$reps", set.Reps),
+                    ("$completedAt", Timestamp(set.CompletedAt)), ("$updatedAt", Timestamp(set.UpdatedAt)),
+                    ("$deletedAt", Timestamp(set.DeletedAt)), ("$version", set.Version));
+            }
+        }
+    }
+
+    private static async Task DeleteAbsentChildrenAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        SyncWorkoutDto graph,
+        CancellationToken cancellationToken)
+    {
+        var incomingExerciseIds = graph.Exercises.Select(item => item.Id).ToHashSet();
+        var incomingSetIds = graph.Exercises.SelectMany(item => item.Sets).Select(item => item.Id).ToHashSet();
+        var existingSets = new List<Guid>();
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                SELECT localSet.Id
+                FROM LocalSet AS localSet
+                INNER JOIN LocalWorkoutExercise AS exercise
+                    ON exercise.Id = localSet.WorkoutExerciseId
+                WHERE exercise.WorkoutId = $workoutId;
+                """;
+            Add(command, "$workoutId", Id(graph.Id));
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+                existingSets.Add(Guid.Parse(reader.GetString(0)));
+        }
+        foreach (var setId in existingSets.Where(id => !incomingSetIds.Contains(id)))
+            await ExecuteAsync(
+                connection, transaction, "DELETE FROM LocalSet WHERE Id = $id;",
+                cancellationToken, ("$id", Id(setId)));
+
+        var existingExercises = new List<Guid>();
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = "SELECT Id FROM LocalWorkoutExercise WHERE WorkoutId = $workoutId;";
+            Add(command, "$workoutId", Id(graph.Id));
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+                existingExercises.Add(Guid.Parse(reader.GetString(0)));
+        }
+        foreach (var exerciseId in existingExercises.Where(id => !incomingExerciseIds.Contains(id)))
+            await ExecuteAsync(
+                connection, transaction, "DELETE FROM LocalWorkoutExercise WHERE Id = $id;",
+                cancellationToken, ("$id", Id(exerciseId)));
+    }
+
+    private static void ValidateGraph(SyncWorkoutDto graph)
+    {
+        if (graph.Id == Guid.Empty
+            || graph.Version < 1
+            || !Utc(graph.StartedAt)
+            || graph.Status is not (2 or 3)
+            || graph.Status == 2 && graph.CompletedAt is not null
+            || graph.Status == 3 && graph.CompletedAt is null
+            || graph.CompletedAt is { } completion
+                && (!Utc(completion) || completion < graph.StartedAt)
+            || graph.DeletedAt is { } deletion
+                && (!Utc(deletion) || deletion < graph.StartedAt
+                    || graph.CompletedAt is { } completed && deletion < completed)
+            || graph.Exercises is null
+            || graph.Exercises.Count == 0
+            || graph.Exercises.Select(item => item.Id).Distinct().Count() != graph.Exercises.Count)
+            throw new InvalidDataException("The authoritative workout graph is malformed.");
+
+        var activeExercises = graph.Exercises.Where(item => item.DeletedAt is null).ToArray();
+        if (!Contiguous(activeExercises.Select(item => item.Order))
+            || activeExercises.Select(item => item.ExerciseDefinitionId).Distinct().Count()
+                != activeExercises.Length)
+            throw new InvalidDataException("The authoritative exercise order is malformed.");
+
+        var setIds = new HashSet<Guid>();
+        foreach (var exercise in graph.Exercises)
+        {
+            if (exercise.Id == Guid.Empty
+                || exercise.ExerciseDefinitionId == Guid.Empty
+                || exercise.Version < 1
+                || exercise.Order < 0
+                || !Enum.IsDefined((TrackingMode)exercise.TrackingMode)
+                || exercise.DeletedAt is { } exerciseDeletion
+                    && (!Utc(exerciseDeletion) || exerciseDeletion < graph.StartedAt)
+                || exercise.Sets is null)
+                throw new InvalidDataException("The authoritative exercise is malformed.");
+            var activeSets = exercise.Sets.Where(item => item.DeletedAt is null).ToArray();
+            if (!Contiguous(activeSets.Select(item => item.Order)))
+                throw new InvalidDataException("The authoritative set order is malformed.");
+            foreach (var set in exercise.Sets)
+            {
+                if (set.Id == Guid.Empty
+                    || !setIds.Add(set.Id)
+                    || set.Version < 1
+                    || set.Order < 0
+                    || set.Reps is < 1 or > 999
+                    || !Utc(set.CompletedAt)
+                    || set.CompletedAt < graph.StartedAt
+                    || set.UpdatedAt is { } updated
+                        && (!Utc(updated) || updated < set.CompletedAt)
+                    || set.DeletedAt is { } setDeletion
+                        && (!Utc(setDeletion)
+                            || setDeletion < (set.UpdatedAt ?? set.CompletedAt))
+                    || !ValidMeasurement(
+                        (TrackingMode)exercise.TrackingMode, set.WeightKg, set.AssistedKg))
+                    throw new InvalidDataException("The authoritative set is malformed.");
+                var lastMutation = set.DeletedAt ?? set.UpdatedAt ?? set.CompletedAt;
+                if (exercise.DeletedAt is { } deletedExercise
+                        && (deletedExercise < lastMutation
+                            || graph.CompletedAt is { } completedBeforeExerciseDelete
+                                && deletedExercise < completedBeforeExerciseDelete)
+                    || graph.CompletedAt is { } completedWorkout
+                        && (completedWorkout < set.CompletedAt
+                            || set.UpdatedAt is { } updateAfterCompletion
+                                && updateAfterCompletion < completedWorkout
+                            || set.DeletedAt is { } deleteAfterCompletion
+                                && deleteAfterCompletion < completedWorkout)
+                    || graph.DeletedAt is { } deletedWorkout && deletedWorkout < lastMutation)
+                    throw new InvalidDataException("The authoritative mutation chronology is malformed.");
+            }
+        }
+
+        static bool Utc(DateTimeOffset value) =>
+            value != default && value.Offset == TimeSpan.Zero;
+        static bool Contiguous(IEnumerable<int> orders)
+        {
+            var ordered = orders.Order().ToArray();
+            return ordered.Select((value, index) => value == index).All(value => value);
+        }
+        static bool ValidMeasurement(TrackingMode mode, string? weight, string? assisted) => mode switch
+        {
+            TrackingMode.Weighted => Kilograms(weight) && assisted is null,
+            TrackingMode.Bodyweight => weight is null && assisted is null,
+            TrackingMode.Assisted => weight is null && Kilograms(assisted),
+            _ => false
+        };
+        static bool Kilograms(string? value)
+        {
+            if (value is null
+                || !decimal.TryParse(
+                    value,
+                    NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint,
+                    CultureInfo.InvariantCulture,
+                    out var kilograms)
+                || kilograms is < 0.001m or > 99999.999m)
+                return false;
+            return ((decimal.GetBits(kilograms)[3] >> 16) & 0xff) <= 3;
+        }
+    }
+
+    private static async Task WriteCursorAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        string cursor,
+        DateTimeOffset now,
+        CancellationToken cancellationToken) => await ExecuteAsync(connection, transaction, """
+            INSERT INTO SyncCursor (Scope, Cursor, UpdatedAt, Version)
+            VALUES ($scope, $cursor, $updatedAt, 1)
+            ON CONFLICT(Scope) DO UPDATE SET Cursor = excluded.Cursor,
+                UpdatedAt = excluded.UpdatedAt, Version = SyncCursor.Version + 1;
+            """, cancellationToken,
+            ("$scope", CursorScope), ("$cursor", cursor), ("$updatedAt", Timestamp(now)));
+
+    private static async Task<OutboxOperation> ReadOperationAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        Guid operationId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT OperationId, EntityId, OperationType, Payload, BaseVersion,
+                   CreatedAt, State, DeletedAt, Version, ServerVersion, RetryCount,
+                   NextAttemptAt, ServerPayload, ReplacesOperationId
+            FROM OutboxOperation WHERE OperationId = $id;
+            """;
+        Add(command, "$id", Id(operationId));
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+            throw new InvalidOperationException("The operation does not exist.");
+        return ReadOperation(reader);
+    }
+
+    private static OutboxOperation ReadOperation(SqliteDataReader reader) => new(
+        Guid.Parse(reader.GetString(0)), Guid.Parse(reader.GetString(1)),
+        (OutboxOperationType)reader.GetInt32(2), reader.GetString(3), reader.GetInt64(4),
+        DateTimeOffset.ParseExact(reader.GetString(5), "O", CultureInfo.InvariantCulture),
+        (OutboxOperationState)reader.GetInt32(6),
+        reader.IsDBNull(7) ? null : DateTimeOffset.ParseExact(reader.GetString(7), "O", CultureInfo.InvariantCulture),
+        reader.GetInt64(8), reader.IsDBNull(9) ? null : reader.GetInt64(9), reader.GetInt32(10),
+        reader.IsDBNull(11) ? null : DateTimeOffset.ParseExact(reader.GetString(11), "O", CultureInfo.InvariantCulture),
+        reader.IsDBNull(12) ? null : reader.GetString(12),
+        reader.IsDBNull(13) ? null : Guid.Parse(reader.GetString(13)));
+
+    private static async Task<DateTimeOffset> ReadLatestCreatedAtAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "SELECT MAX(CreatedAt) FROM OutboxOperation;";
+        var value = await command.ExecuteScalarAsync(cancellationToken);
+        return value is string text
+            ? DateTimeOffset.ParseExact(text, "O", CultureInfo.InvariantCulture)
+            : DateTimeOffset.MinValue;
+    }
+
+    private static async Task InsertOperationAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        OutboxOperation operation,
+        CancellationToken cancellationToken) => await ExecuteAsync(connection, transaction, """
+            INSERT INTO OutboxOperation
+                (OperationId, EntityId, OperationType, Payload, BaseVersion, CreatedAt,
+                 State, DeletedAt, Version, ServerVersion, RetryCount, NextAttemptAt,
+                 ServerPayload, ReplacesOperationId)
+            VALUES ($id, $entityId, $type, $payload, $baseVersion, $createdAt,
+                    $state, NULL, 1, NULL, 0, NULL, NULL, $replaces);
+            """, cancellationToken,
+            ("$id", Id(operation.OperationId)), ("$entityId", Id(operation.EntityId)),
+            ("$type", (int)operation.Type), ("$payload", operation.Payload),
+            ("$baseVersion", operation.BaseVersion), ("$createdAt", Timestamp(operation.CreatedAt)),
+            ("$state", (int)operation.State), ("$replaces", Id(operation.ReplacesOperationId)));
+
+    private static async Task ExecuteAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        string sql,
+        CancellationToken cancellationToken,
+        params (string Name, object? Value)[] parameters)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = sql;
+        foreach (var parameter in parameters) Add(command, parameter.Name, parameter.Value);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static void Add(SqliteCommand command, string name, object? value) =>
+        command.Parameters.AddWithValue(name, value ?? DBNull.Value);
+    private static string Id(Guid value) => value.ToString("D");
+    private static string? Id(Guid? value) => value?.ToString("D");
+    private static string Timestamp(DateTimeOffset value) => value.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);
+    private static string? Timestamp(DateTimeOffset? value) => value?.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+}

@@ -39,6 +39,8 @@ public interface ISyncPushStore
 
     void AddProcessedOperation(ProcessedClientOperation operation);
 
+    void AddSyncChange(SyncChange change);
+
     Task SaveSyncChangesAsync(CancellationToken cancellationToken);
 
     bool IsTransient(Exception exception);

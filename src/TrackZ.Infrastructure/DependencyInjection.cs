@@ -17,6 +17,8 @@ using TrackZ.Infrastructure.Persistence.Seed;
 using TrackZ.Application.Workouts;
 using TrackZ.Infrastructure.Workouts;
 using TrackZ.Application.Sync;
+using TrackZ.Application.Sync.Pull;
+using TrackZ.Infrastructure.Sync;
 
 namespace TrackZ.Infrastructure;
 
@@ -36,6 +38,8 @@ public static class DependencyInjection
         services.AddScoped<IExerciseImageUploadStore>(provider => provider.GetRequiredService<AppDbContext>());
         services.AddScoped<IWorkoutReadStore>(provider => provider.GetRequiredService<AppDbContext>());
         services.AddScoped<ISyncPushStore>(provider => provider.GetRequiredService<AppDbContext>());
+        services.AddScoped<ISyncPullStore>(provider => provider.GetRequiredService<AppDbContext>());
+        services.AddSingleton<ISyncCursorCodec, HmacSyncCursorCodec>();
         services.AddSingleton<ObjectStorage>();
         services.AddSingleton<IObjectStorage>(provider => provider.GetRequiredService<ObjectStorage>());
         services.AddSingleton<IStagingObjectLifecycle>(provider => provider.GetRequiredService<ObjectStorage>());

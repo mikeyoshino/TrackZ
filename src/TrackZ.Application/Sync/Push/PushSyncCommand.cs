@@ -17,16 +17,17 @@ internal sealed record SaveSetSyncCommand(
 internal sealed record SyncMutationResult(
     SyncOperationStatus Status,
     long? ServerVersion,
-    TrackZ.Contracts.Errors.BusinessErrorCode? ErrorCode)
+    TrackZ.Contracts.Errors.BusinessErrorCode? ErrorCode,
+    TrackZ.Domain.Workouts.WorkoutSession? Workout)
 {
-    public static SyncMutationResult Applied(long serverVersion) =>
-        new(SyncOperationStatus.Applied, serverVersion, null);
+    public static SyncMutationResult Applied(TrackZ.Domain.Workouts.WorkoutSession workout) =>
+        new(SyncOperationStatus.Applied, workout.Version, null, workout);
 
     public static SyncMutationResult Rejected() =>
-        new(SyncOperationStatus.Rejected, null, TrackZ.Contracts.Errors.BusinessErrorCode.InvalidRequest);
+        new(SyncOperationStatus.Rejected, null, TrackZ.Contracts.Errors.BusinessErrorCode.InvalidRequest, null);
 
     public static SyncMutationResult Conflict(long serverVersion) =>
-        new(SyncOperationStatus.Conflict, serverVersion, TrackZ.Contracts.Errors.BusinessErrorCode.VersionConflict);
+        new(SyncOperationStatus.Conflict, serverVersion, TrackZ.Contracts.Errors.BusinessErrorCode.VersionConflict, null);
 }
 
 internal sealed record StartWorkoutExerciseSyncPayload(

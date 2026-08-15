@@ -56,7 +56,20 @@ public sealed class PushSyncHandler(
             }
 
             var result = await DispatchAsync(operation, cancellationToken);
-            var serializedResult = JsonSerializer.Serialize(result, JsonOptions);
+            if (result.Mutation?.Workout is { } workout)
+            {
+                var payloadJson = JsonSerializer.Serialize(ToDto(workout), JsonOptions);
+                store.AddSyncChange(SyncChange.Create(
+                    currentUser.UserId,
+                    operation.OperationId,
+                    workout.Id,
+                    workout.Version,
+                    workout.IsDeleted,
+                    payloadJson,
+                    timeProvider.GetUtcNow()));
+            }
+            var publicResult = result.Result;
+            var serializedResult = JsonSerializer.Serialize(publicResult, JsonOptions);
             store.AddProcessedOperation(ProcessedClientOperation.Create(
                 currentUser.UserId,
                 operation.OperationId,
@@ -65,7 +78,7 @@ public sealed class PushSyncHandler(
                 timeProvider.GetUtcNow()));
             await store.SaveSyncChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
-            return result;
+            return publicResult;
         }
         catch (Exception exception) when (
             exception is not OperationCanceledException && store.IsTransient(exception))
@@ -82,7 +95,7 @@ public sealed class PushSyncHandler(
         }
     }
 
-    private async Task<SyncOperationResultDto> DispatchAsync(
+    private async Task<DispatchResult> DispatchAsync(
         SyncOperationDto operation,
         CancellationToken cancellationToken)
     {
@@ -91,7 +104,7 @@ public sealed class PushSyncHandler(
             || operation.Payload.ValueKind != JsonValueKind.Object
             || !string.Equals(operation.EntityType, "Workout", StringComparison.Ordinal))
         {
-            return Rejected(operation.OperationId);
+            return new DispatchResult(Rejected(operation.OperationId), null);
         }
 
         try
@@ -99,7 +112,7 @@ public sealed class PushSyncHandler(
             if (operation.Action == "StartWorkout" && !HasStartWorkoutContract(operation.Payload)
                 || operation.Action == "SaveSet" && !HasSaveSetContract(operation.Payload))
             {
-                return Rejected(operation.OperationId);
+                return new DispatchResult(Rejected(operation.OperationId), null);
             }
 
             var mutation = operation.Action switch
@@ -114,18 +127,46 @@ public sealed class PushSyncHandler(
                         ?? throw new JsonException()), cancellationToken),
                 _ => SyncMutationResult.Rejected()
             };
-            return new SyncOperationResultDto(
+            return new DispatchResult(new SyncOperationResultDto(
                 operation.OperationId,
                 mutation.Status,
                 mutation.ServerVersion,
-                mutation.ErrorCode);
+                mutation.ErrorCode), mutation);
         }
         catch (Exception exception) when (
             exception is JsonException or ArgumentException or FormatException or OverflowException)
         {
-            return Rejected(operation.OperationId);
+            return new DispatchResult(Rejected(operation.OperationId), null);
         }
     }
+
+    private static SyncWorkoutDto ToDto(WorkoutSession workout) => new(
+        workout.Id,
+        (int)workout.Status,
+        workout.StartedAt,
+        workout.CompletedAt,
+        workout.DeletedAt,
+        workout.Version,
+        workout.ExerciseEntries.OrderBy(exercise => exercise.Order).Select(exercise =>
+            new SyncWorkoutExerciseDto(
+                exercise.Id,
+                exercise.ExerciseDefinitionId,
+                (int)exercise.TrackingMode,
+                exercise.Order,
+                exercise.DeletedAt,
+                exercise.Version,
+                exercise.SetEntries.OrderBy(set => set.Order).Select(set => new SyncSetDto(
+                    set.Id,
+                    set.Order,
+                    set.WeightKg?.ToString(CultureInfo.InvariantCulture),
+                    set.AssistedKg?.ToString(CultureInfo.InvariantCulture),
+                    set.Reps,
+                    set.CompletedAt,
+                    set.UpdatedAt,
+                    set.DeletedAt,
+                    set.Version)).ToArray())).ToArray());
+
+    private sealed record DispatchResult(SyncOperationResultDto Result, SyncMutationResult? Mutation);
 
     private static SyncOperationResultDto Rejected(Guid operationId) => new(
         operationId,
@@ -238,7 +279,7 @@ internal sealed class StartWorkoutSyncHandler(
             }
 
             store.AddWorkout(workout);
-            return SyncMutationResult.Applied(workout.Version);
+            return SyncMutationResult.Applied(workout);
         }
         catch (Exception exception) when (
             exception is ArgumentException or InvalidOperationException or WorkoutRuleException)
@@ -306,7 +347,7 @@ internal sealed class SaveSetSyncHandler(
                 payload.SetId,
                 new SetMeasurement(ParseDecimal(payload.WeightKg), ParseDecimal(payload.AssistedKg), payload.Reps),
                 payload.CompletedAt);
-            return SyncMutationResult.Applied(workout.Version);
+            return SyncMutationResult.Applied(workout);
         }
         catch (Exception exception) when (
             exception is ArgumentException or InvalidOperationException or WorkoutRuleException)

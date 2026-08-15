@@ -4,7 +4,7 @@ namespace TrackZ.Mobile.Data;
 
 public sealed class TrackZLocalDatabase
 {
-    public const int CurrentSchemaVersion = 2;
+    public const int CurrentSchemaVersion = 3;
     private const int BusyTimeoutMilliseconds = 5_000;
     private readonly string _connectionString;
     private readonly SemaphoreSlim _schemaGate = new(1, 1);
@@ -45,17 +45,22 @@ public sealed class TrackZLocalDatabase
                 _initialized = true;
                 return;
             }
-            if (version is not (0 or 1))
+            if (version is not (0 or 1 or 2))
             {
                 throw new InvalidDataException(
                     $"Workout database schema {version} is not supported; expected {CurrentSchemaVersion}.");
             }
 
+            var syncStateUpgrade = version is 1 or 2
+                ? await BuildSyncStateUpgradeAsync(connection, cancellationToken)
+                : string.Empty;
             await using var transaction = connection.BeginTransaction(deferred: false);
             await using var schema = connection.CreateCommand();
             schema.Transaction = transaction;
-            schema.CommandText = version == 1
-                ? """
+            schema.CommandText = version == 2
+                ? syncStateUpgrade
+                : version == 1
+                ? $$"""
                     DROP INDEX IF EXISTS UX_LocalSet_ActiveOrder;
                     ALTER TABLE LocalSet RENAME TO LocalSetV1;
 
@@ -100,7 +105,7 @@ public sealed class TrackZLocalDatabase
                     CREATE UNIQUE INDEX UX_LocalSet_ActiveOrder
                         ON LocalSet(WorkoutExerciseId, SortOrder)
                         WHERE DeletedAt IS NULL;
-                    PRAGMA user_version = 2;
+                    {{syncStateUpgrade}}
                     """
                 : """
                 CREATE TABLE IF NOT EXISTS LocalWorkout (
@@ -168,6 +173,11 @@ public sealed class TrackZLocalDatabase
                     State INTEGER NOT NULL CHECK (State IN (1, 2, 3, 4)),
                     DeletedAt TEXT NULL,
                     Version INTEGER NOT NULL CHECK (Version >= 1),
+                    ServerVersion INTEGER NULL CHECK (ServerVersion IS NULL OR ServerVersion >= 0),
+                    RetryCount INTEGER NOT NULL DEFAULT 0 CHECK (RetryCount >= 0),
+                    NextAttemptAt TEXT NULL,
+                    ServerPayload TEXT NULL CHECK (ServerPayload IS NULL OR json_valid(ServerPayload)),
+                    ReplacesOperationId TEXT NULL,
                     FOREIGN KEY (EntityId) REFERENCES LocalWorkout(Id) ON DELETE RESTRICT
                 );
 
@@ -182,7 +192,7 @@ public sealed class TrackZLocalDatabase
                     Version INTEGER NOT NULL CHECK (Version >= 0)
                 );
 
-                PRAGMA user_version = 2;
+                PRAGMA user_version = 3;
                 """;
             await schema.ExecuteNonQueryAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
@@ -281,5 +291,33 @@ public sealed class TrackZLocalDatabase
         await using var command = connection.CreateCommand();
         command.CommandText = "PRAGMA user_version;";
         return Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken));
+    }
+
+    private static async Task<string> BuildSyncStateUpgradeAsync(
+        SqliteConnection connection,
+        CancellationToken cancellationToken)
+    {
+        var columns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        await using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "PRAGMA table_info(OutboxOperation);";
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken)) columns.Add(reader.GetString(1));
+        }
+
+        var statements = new List<string>();
+        Add("ServerVersion", "INTEGER NULL CHECK (ServerVersion IS NULL OR ServerVersion >= 0)");
+        Add("RetryCount", "INTEGER NOT NULL DEFAULT 0 CHECK (RetryCount >= 0)");
+        Add("NextAttemptAt", "TEXT NULL");
+        Add("ServerPayload", "TEXT NULL CHECK (ServerPayload IS NULL OR json_valid(ServerPayload))");
+        Add("ReplacesOperationId", "TEXT NULL");
+        statements.Add("PRAGMA user_version = 3;");
+        return string.Join(Environment.NewLine, statements);
+
+        void Add(string name, string definition)
+        {
+            if (!columns.Contains(name))
+                statements.Add($"ALTER TABLE OutboxOperation ADD COLUMN {name} {definition};");
+        }
     }
 }

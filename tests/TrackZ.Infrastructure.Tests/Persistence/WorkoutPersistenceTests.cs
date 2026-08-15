@@ -367,23 +367,25 @@ public sealed class WorkoutPersistenceTests
     }
 
     [Fact]
-    public async Task Processed_operation_migration_is_latest_reversible_and_matches_snapshot()
+    public async Task Sync_change_migration_is_latest_reversible_and_matches_snapshot()
     {
         await using var database = await PostgreSqlFixture.StartAsync();
         var migrations = database.Db.GetService<IMigrationsAssembly>();
         var ids = migrations.Migrations.Keys.ToArray();
         var hardening = Array.FindIndex(ids, id => id.EndsWith("_HardenWorkoutPersistence", StringComparison.Ordinal));
         var processed = Array.FindIndex(ids, id => id.EndsWith("_AddProcessedClientOperations", StringComparison.Ordinal));
+        var syncChanges = Array.FindIndex(ids, id => id.EndsWith("_AddSyncChanges", StringComparison.Ordinal));
 
         Assert.True(processed > hardening);
+        Assert.True(syncChanges > processed);
         var migration = migrations.CreateMigration(
-            migrations.Migrations[ids[processed]], database.Db.Database.ProviderName!)!;
+            migrations.Migrations[ids[syncChanges]], database.Db.Database.ProviderName!)!;
         var created = Assert.Single(migration.UpOperations
             .OfType<Microsoft.EntityFrameworkCore.Migrations.Operations.CreateTableOperation>());
         var dropped = Assert.Single(migration.DownOperations
             .OfType<Microsoft.EntityFrameworkCore.Migrations.Operations.DropTableOperation>());
-        Assert.Equal("processed_client_operations", created.Name);
-        Assert.Equal("processed_client_operations", dropped.Name);
+        Assert.Equal("sync_changes", created.Name);
+        Assert.Equal("sync_changes", dropped.Name);
         Assert.Equal(
             DescribeRelationalModel(migrations.ModelSnapshot!.Model),
             DescribeRelationalModel(migration.TargetModel));

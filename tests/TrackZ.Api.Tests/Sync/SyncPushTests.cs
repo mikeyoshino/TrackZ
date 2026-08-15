@@ -485,6 +485,8 @@ public sealed class SyncPushTests : IAsyncLifetime
         Assert.Equal([firstSetId, lastSetId], setIds);
         Assert.False(await database.ProcessedClientOperations.AnyAsync(item =>
             item.UserId == authentication.UserId && item.OperationId == failingOperationId));
+        Assert.False(await database.SyncChanges.AnyAsync(item =>
+            item.OwnerId == authentication.UserId && item.OperationId == failingOperationId));
     }
 
     [Fact]
