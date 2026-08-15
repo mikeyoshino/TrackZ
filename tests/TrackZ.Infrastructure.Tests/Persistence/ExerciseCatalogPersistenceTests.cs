@@ -12,6 +12,98 @@ namespace TrackZ.Infrastructure.Tests.Persistence;
 public sealed class ExerciseCatalogPersistenceTests
 {
     [Fact]
+    public async Task Accepted_upload_attempt_remains_durable_through_monotonic_successor_states_and_requires_the_exact_contract()
+    {
+        await using var database = await PostgreSqlFixture.StartAsync();
+        var ownerId = Guid.NewGuid();
+        var otherOwnerId = Guid.NewGuid();
+        var now = DateTimeOffset.UtcNow;
+        var exercises = new[]
+        {
+            ExerciseDefinition.CreateCustom(ownerId, "Accepted Uploaded", BodyPart.Chest, TrackingMode.Weighted),
+            ExerciseDefinition.CreateCustom(ownerId, "Accepted Processing", BodyPart.Chest, TrackingMode.Weighted),
+            ExerciseDefinition.CreateCustom(ownerId, "Accepted Completed", BodyPart.Chest, TrackingMode.Weighted),
+            ExerciseDefinition.CreateCustom(ownerId, "Not Accepted Pending", BodyPart.Chest, TrackingMode.Weighted),
+            ExerciseDefinition.CreateCustom(ownerId, "Not Accepted Uploading", BodyPart.Chest, TrackingMode.Weighted)
+        };
+        var tickets = exercises.Select(exercise => ImageUploadTicket.Create(
+            ownerId,
+            exercise.Id,
+            $"staging/{ownerId:D}/{exercise.Id:D}/reserved",
+            "image/png",
+            4,
+            now.AddMinutes(5))).ToArray();
+        await database.Db.Exercises.AddRangeAsync(exercises);
+        foreach (var ticket in tickets) await database.Db.AddTicketAsync(ticket, default);
+        await database.Db.SaveAsync(default);
+
+        var acceptedKeys = new string[3];
+        await using (var transitions = database.CreateDbContext())
+        {
+            for (var index = 0; index < acceptedKeys.Length; index++)
+            {
+                var claim = await transitions.TryClaimUploadAsync(
+                    tickets[index].Id, ownerId, TimeSpan.FromMinutes(2), default);
+                acceptedKeys[index] = claim.StagingObjectKey;
+                Assert.Equal(
+                    StagingUploadTransition.Uploaded,
+                    await transitions.TryMarkUploadedAsync(
+                        tickets[index].Id, ownerId, claim.UploadLeaseId, default));
+            }
+
+            _ = await transitions.TryClaimUploadAsync(
+                tickets[4].Id, ownerId, TimeSpan.FromMinutes(2), default);
+        }
+
+        Guid processingLeaseId;
+        await using (var processing = database.CreateDbContext())
+        {
+            var ticket = (await processing.FindOwnedTicketAsync(tickets[1].Id, ownerId, default))!;
+            Assert.True(ticket.TryClaim(DateTimeOffset.UtcNow, TimeSpan.FromMinutes(2)));
+            processingLeaseId = ticket.ProcessingLeaseId!.Value;
+            await processing.SaveAsync(default);
+        }
+
+        await using (var completed = database.CreateDbContext())
+        {
+            var ticket = (await completed.FindOwnedTicketAsync(tickets[2].Id, ownerId, default))!;
+            Assert.True(ticket.TryClaim(DateTimeOffset.UtcNow, TimeSpan.FromMinutes(2)));
+            await completed.SaveAsync(default);
+            await completed.CommitCompletionAsync(
+                ticket.Id,
+                ownerId,
+                ticket.ProcessingLeaseId!.Value,
+                $"private/{ownerId:D}/accepted/master.jpg",
+                $"private/{ownerId:D}/accepted/thumbnail.jpg",
+                default);
+        }
+
+        await using var verify = database.CreateDbContext();
+        for (var index = 0; index < acceptedKeys.Length; index++)
+        {
+            Assert.True(await verify.IsAcceptedUploadAttemptDurableAsync(
+                tickets[index].Id, ownerId, acceptedKeys[index], "image/png", 4, default));
+        }
+
+        Assert.False(await verify.IsAcceptedUploadAttemptDurableAsync(
+            tickets[0].Id, otherOwnerId, acceptedKeys[0], "image/png", 4, default));
+        Assert.False(await verify.IsAcceptedUploadAttemptDurableAsync(
+            tickets[0].Id, ownerId, acceptedKeys[0] + "-different", "image/png", 4, default));
+        Assert.False(await verify.IsAcceptedUploadAttemptDurableAsync(
+            tickets[0].Id, ownerId, acceptedKeys[0], "image/jpeg", 4, default));
+        Assert.False(await verify.IsAcceptedUploadAttemptDurableAsync(
+            tickets[0].Id, ownerId, acceptedKeys[0], "image/png", 5, default));
+        Assert.False(await verify.IsAcceptedUploadAttemptDurableAsync(
+            tickets[3].Id, ownerId, tickets[3].StagingObjectKey, "image/png", 4, default));
+        Assert.False(await verify.IsAcceptedUploadAttemptDurableAsync(
+            tickets[4].Id, ownerId,
+            (await verify.FindOwnedTicketAsync(tickets[4].Id, ownerId, default))!.StagingObjectKey,
+            "image/png", 4, default));
+
+        Assert.NotEqual(Guid.Empty, processingLeaseId);
+    }
+
+    [Fact]
     public async Task Three_expired_upload_claim_crashes_are_each_cleaned_before_the_next_reclaim()
     {
         await using var database = await PostgreSqlFixture.StartAsync();

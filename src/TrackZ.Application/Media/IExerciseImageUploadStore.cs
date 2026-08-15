@@ -16,7 +16,7 @@ public interface IExerciseImageUploadStore
     Task<UploadClaim> TryClaimUploadAsync(Guid ticketId, Guid ownerId, TimeSpan lease, CancellationToken cancellationToken);
     Task<StagingUploadTransition> TryMarkUploadedAsync(Guid ticketId, Guid ownerId, Guid uploadLeaseId, CancellationToken cancellationToken);
     /// <summary>Reconciles a possibly committed content transition against the exact accepted staging contract.</summary>
-    Task<bool> IsUploadedAttemptDurableAsync(
+    Task<bool> IsAcceptedUploadAttemptDurableAsync(
         Guid ticketId,
         Guid ownerId,
         string stagingObjectKey,

@@ -48,7 +48,8 @@ public static class MediaEndpoints
         var matchesDeclaredContract =
             string.Equals(request.ContentType, ticket.DeclaredContentType, StringComparison.Ordinal)
             && request.ContentLength == ticket.DeclaredLength;
-        if (ticket.State == ImageUploadState.Uploaded && matchesDeclaredContract)
+        if ((ticket.State is ImageUploadState.Uploaded or ImageUploadState.Processing or ImageUploadState.Completed)
+            && matchesDeclaredContract)
         {
             var accepted = await storage.GetAsync(
                 $"staging/{currentUser.UserId:D}/", ticket.StagingObjectKey, cancellationToken);
@@ -80,7 +81,7 @@ public static class MediaEndpoints
         {
             try
             {
-                if (await store.IsUploadedAttemptDurableAsync(
+                if (await store.IsAcceptedUploadAttemptDurableAsync(
                     ticket.Id,
                     currentUser.UserId,
                     claim.StagingObjectKey,

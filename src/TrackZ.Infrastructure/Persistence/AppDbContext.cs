@@ -141,7 +141,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         await transaction.CommitAsync(cancellationToken);
         return StagingUploadTransition.Uploaded;
     }
-    public async Task<bool> IsUploadedAttemptDurableAsync(
+    public async Task<bool> IsAcceptedUploadAttemptDurableAsync(
         Guid ticketId,
         Guid ownerId,
         string stagingObjectKey,
@@ -153,7 +153,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         return await ImageUploadTickets.AsNoTracking().AnyAsync(ticket =>
             ticket.Id == ticketId
             && ticket.OwnerId == ownerId
-            && ticket.State == ImageUploadState.Uploaded
+            && (ticket.State == ImageUploadState.Uploaded
+                || ticket.State == ImageUploadState.Processing
+                || ticket.State == ImageUploadState.Completed)
             && ticket.StagingObjectKey == stagingObjectKey
             && ticket.DeclaredContentType == contentType
             && ticket.DeclaredLength == length
