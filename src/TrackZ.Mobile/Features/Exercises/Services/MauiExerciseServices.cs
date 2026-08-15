@@ -1,3 +1,5 @@
+using System.Runtime.ExceptionServices;
+using TrackZ.Mobile.Data;
 using TrackZ.Mobile.Identity;
 
 namespace TrackZ.Mobile.Features.Exercises.Services;
@@ -68,8 +70,32 @@ public sealed class SecureMobileTokenStorage : IMobileTokenStorage
     }
 }
 
-public sealed class MauiPrivateDataCleaner(CustomExerciseImageService exercises) : IMobilePrivateDataCleaner
+public sealed class MauiPrivateDataCleaner(
+    CustomExerciseImageService exercises,
+    TrackZLocalDatabase workouts) : IMobilePrivateDataCleaner
 {
-    public Task ClearAsync(CancellationToken cancellationToken = default) =>
-        exercises.ClearPrivateDataAsync(cancellationToken);
+    public async Task ClearAsync(CancellationToken cancellationToken = default)
+    {
+        var failures = new List<Exception>();
+        try
+        {
+            await exercises.ClearPrivateDataAsync(cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            failures.Add(exception);
+        }
+
+        try
+        {
+            await workouts.ClearPrivateDataAsync(cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            failures.Add(exception);
+        }
+
+        if (failures.Count == 1) ExceptionDispatchInfo.Capture(failures[0]).Throw();
+        if (failures.Count > 1) throw new AggregateException("Private mobile data cleanup failed.", failures);
+    }
 }

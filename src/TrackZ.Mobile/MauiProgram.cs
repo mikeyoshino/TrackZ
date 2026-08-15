@@ -1,8 +1,11 @@
 ﻿using Microsoft.Extensions.Logging;
+using TrackZ.Mobile.Data;
 using TrackZ.Mobile.Features.Exercises;
 using TrackZ.Mobile.Features.Exercises.Data;
 using TrackZ.Mobile.Features.Exercises.Services;
+using TrackZ.Mobile.Features.Workout;
 using TrackZ.Mobile.Identity;
+using TrackZ.Mobile.Sync;
 
 namespace TrackZ.Mobile;
 
@@ -62,6 +65,13 @@ public static class MauiProgram
 		builder.Services.AddSingleton<IExerciseFileStore, LocalExerciseFileStore>();
 		builder.Services.AddSingleton(services => new ExerciseCache(
 			Path.Combine(FileSystem.AppDataDirectory, "exercise-catalog.db")));
+		builder.Services.AddSingleton(services => new TrackZLocalDatabase(
+			Path.Combine(FileSystem.AppDataDirectory, "workouts.db")));
+		builder.Services.AddSingleton<LocalWorkoutRepository>();
+		builder.Services.AddSingleton<ILocalWorkoutRepository>(services =>
+			services.GetRequiredService<LocalWorkoutRepository>());
+		builder.Services.AddSingleton<OutboxRepository>();
+		builder.Services.AddSingleton<ActiveWorkoutCoordinator>();
 		builder.Services.AddSingleton<CustomExerciseImageService>();
 		builder.Services.AddSingleton<LocalExerciseImageImporter>();
 		builder.Services.AddSingleton<LocalExerciseImageSelectionCoordinator>();
