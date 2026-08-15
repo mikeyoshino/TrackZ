@@ -64,16 +64,52 @@ public sealed class ImageProcessorTests
         await Assert.ThrowsAsync<InvalidDataException>(() => processor.ProcessExerciseImageAsync(malformed, default));
     }
 
-    [Theory]
-    [InlineData(ImageKind.Jpeg)]
-    [InlineData(ImageKind.Png)]
-    [InlineData(ImageKind.Webp)]
-    public async Task Supported_containers_with_trailing_or_forged_terminal_payload_are_rejected(ImageKind kind)
+    [Fact]
+    public async Task Forged_terminal_jpeg_payload_is_rejected()
     {
-        var bytes = CreateImage(kind, 20, 10).Concat(new byte[] { 0xDE, 0xAD, 0xBE, 0xEF }).ToArray();
+        var bytes = CreateImage(ImageKind.Jpeg, 20, 10).Concat(new byte[] { 0xDE, 0xAD, 0xBE, 0xEF, 0xFF, 0xD9 }).ToArray();
         await using var source = new MemoryStream(bytes);
 
         await Assert.ThrowsAsync<InvalidDataException>(() => new ImageProcessor().ProcessExerciseImageAsync(source, default));
+    }
+
+    [Fact]
+    public async Task Forged_terminal_png_payload_is_rejected()
+    {
+        var bytes = CreateImage(ImageKind.Png, 20, 10).Concat(new byte[] { 0xDE, 0xAD, 0xBE, 0xEF, 0, 0, 0, 0, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82 }).ToArray();
+        await using var source = new MemoryStream(bytes);
+
+        await Assert.ThrowsAsync<InvalidDataException>(() => new ImageProcessor().ProcessExerciseImageAsync(source, default));
+    }
+
+    [Fact]
+    public async Task Riff_length_consistent_unknown_webp_chunk_is_rejected()
+    {
+        var bytes = AppendWebpChunk(CreateImage(ImageKind.Webp, 20, 10), "JUNK", new byte[] { 1, 2, 3, 4 });
+        Assert.Equal((uint)(bytes.Length - 8), BitConverter.ToUInt32(bytes, 4)); // the old RIFF-length-only check accepted this
+        await using var source = new MemoryStream(bytes);
+
+        await Assert.ThrowsAsync<InvalidDataException>(() => new ImageProcessor().ProcessExerciseImageAsync(source, default));
+    }
+
+    [Fact]
+    public async Task Standard_webp_xmp_metadata_is_accepted_and_removed_from_jpeg_renditions()
+    {
+        var sourceBytes = AppendWebpChunk(CreateImage(ImageKind.Webp, 40, 20), "XMP ", Encoding.UTF8.GetBytes("<x:xmpmeta>webp-secret</x:xmpmeta>"));
+        await using var source = new MemoryStream(sourceBytes);
+
+        var result = await new ImageProcessor().ProcessExerciseImageAsync(source, default);
+
+        using var master = Image.Load(result.Master);
+        using var thumbnail = Image.Load(result.Thumbnail);
+        Assert.Null(master.Metadata.ExifProfile);
+        Assert.Null(master.Metadata.XmpProfile);
+        Assert.Null(master.Metadata.IptcProfile);
+        Assert.Null(master.Metadata.IccProfile);
+        Assert.Null(thumbnail.Metadata.ExifProfile);
+        Assert.Null(thumbnail.Metadata.XmpProfile);
+        Assert.DoesNotContain(Encoding.UTF8.GetBytes("webp-secret"), result.Master);
+        Assert.DoesNotContain(Encoding.UTF8.GetBytes("webp-secret"), result.Thumbnail);
     }
 
     [Fact]
@@ -210,6 +246,19 @@ public sealed class ImageProcessorTests
         Assert.NotNull(fixture.Metadata.IptcProfile);
         Assert.Contains(Encoding.UTF8.GetBytes("sensitive-comment"), commented);
         return commented;
+    }
+
+    private static byte[] AppendWebpChunk(byte[] webp, string chunkType, byte[] payload)
+    {
+        Assert.Equal(4, chunkType.Length);
+        var padded = payload.Length + (payload.Length & 1);
+        var result = new byte[webp.Length + 8 + padded];
+        Buffer.BlockCopy(webp, 0, result, 0, webp.Length);
+        Encoding.ASCII.GetBytes(chunkType).CopyTo(result, webp.Length);
+        BitConverter.GetBytes(payload.Length).CopyTo(result, webp.Length + 4);
+        Buffer.BlockCopy(payload, 0, result, webp.Length + 8, payload.Length);
+        BitConverter.GetBytes(result.Length - 8).CopyTo(result, 4);
+        return result;
     }
 
     private static byte[] InsertJpegComment(byte[] jpeg, string comment)

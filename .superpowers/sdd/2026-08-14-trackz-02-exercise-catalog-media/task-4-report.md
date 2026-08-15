@@ -99,3 +99,9 @@ No Task 5 assets or mobile work was started.
 - Failure aggregation now uses logical AND: a successful staging delete cannot hide a master/thumbnail failure, and vice versa, so the corresponding durable attempt marker remains until all required deletes have succeeded.
 - WebP container validation now parses RIFF chunk boundaries and only admits known WebP chunks, rejecting malformed, unknown, truncated, padded, or trailing chunks even if the outer RIFF length is forged. Hostile tests also cover trailing/forged terminal payloads for JPEG, PNG, and WebP plus the 20,000,000-by-1 and 1-by-20,000,000 PNG header limits.
 - Focused low-thermal verification: `ImageUploadTicketTests` PASS `6/6`; `CompleteImageUploadFailureTests` PASS `19/19`; `ImageProcessorTests` PASS `18/18`; `ExerciseCatalogPersistenceTests` PASS `12/12`.
+
+## Fix round 10 — standards-compliant WebP metadata
+
+- Exact WebP validation now recognizes the standard `ICCP`, `EXIF`, and `XMP ` RIFF chunks alongside image and animation chunks, while retaining exact chunk-boundary, padding, truncation, and unknown-chunk rejection.
+- A real WebP image augmented with a standards-shaped `XMP ` metadata chunk is accepted and normalized to JPEG; both renditions are asserted metadata-free and free of the source metadata value. Forged terminal JPEG/PNG inputs and a RIFF-length-consistent unknown WebP chunk are rejected.
+- Focused low-thermal verification: `dotnet test tests/TrackZ.Infrastructure.Tests --filter ImageProcessorTests --no-restore --disable-build-servers` PASS `19/19`.

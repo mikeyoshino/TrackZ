@@ -159,7 +159,7 @@ public sealed class ImageProcessor : IImageProcessor
         {
             if (source.Length - source.Position < header.Length || source.Read(header) != header.Length) return false;
             var kind = header[..4];
-            if (!(kind.SequenceEqual("VP8 "u8) || kind.SequenceEqual("VP8L"u8) || kind.SequenceEqual("VP8X"u8) || kind.SequenceEqual("ALPH"u8) || kind.SequenceEqual("ANIM"u8) || kind.SequenceEqual("ANMF"u8))) return false;
+            if (!(kind.SequenceEqual("VP8 "u8) || kind.SequenceEqual("VP8L"u8) || kind.SequenceEqual("VP8X"u8) || kind.SequenceEqual("ALPH"u8) || kind.SequenceEqual("ANIM"u8) || kind.SequenceEqual("ANMF"u8) || kind.SequenceEqual("ICCP"u8) || kind.SequenceEqual("EXIF"u8) || kind.SequenceEqual("XMP "u8))) return false;
             var length = BinaryPrimitives.ReadUInt32LittleEndian(header[4..8]);
             var paddedLength = (long)length + (length & 1);
             if (paddedLength > source.Length - source.Position) return false;
