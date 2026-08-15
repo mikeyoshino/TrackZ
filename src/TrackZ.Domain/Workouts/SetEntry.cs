@@ -30,6 +30,25 @@ public sealed class SetEntry
 
     public SetMeasurement Measurement => new(WeightKg, AssistedKg, Reps);
 
+    internal DateTimeOffset LastMutationAt
+    {
+        get
+        {
+            var latest = CompletedAt;
+            if (UpdatedAt is { } updatedAt && updatedAt > latest)
+            {
+                latest = updatedAt;
+            }
+
+            if (DeletedAt is { } deletedAt && deletedAt > latest)
+            {
+                latest = deletedAt;
+            }
+
+            return latest;
+        }
+    }
+
     internal static SetEntry Create(
         Guid id,
         Guid workoutExerciseId,
@@ -57,14 +76,16 @@ public sealed class SetEntry
             throw new InvalidOperationException("A deleted set cannot be edited.");
         }
 
+        if (updatedAt < CompletedAt || UpdatedAt is { } priorUpdate && updatedAt < priorUpdate)
+        {
+            throw new ArgumentException(
+                "The update timestamp cannot precede an earlier set mutation.",
+                nameof(updatedAt));
+        }
+
         if (Measurement == measurement)
         {
             return false;
-        }
-
-        if (updatedAt < CompletedAt)
-        {
-            throw new ArgumentException("The update timestamp cannot precede set completion.", nameof(updatedAt));
         }
 
         WeightKg = measurement.WeightKg;
@@ -82,9 +103,11 @@ public sealed class SetEntry
             return false;
         }
 
-        if (deletedAt < CompletedAt)
+        if (deletedAt < LastMutationAt)
         {
-            throw new ArgumentException("The deletion timestamp cannot precede set completion.", nameof(deletedAt));
+            throw new ArgumentException(
+                "The deletion timestamp cannot precede an earlier set mutation.",
+                nameof(deletedAt));
         }
 
         DeletedAt = deletedAt;

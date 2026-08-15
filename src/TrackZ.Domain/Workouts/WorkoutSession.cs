@@ -154,6 +154,7 @@ public sealed class WorkoutSession
         var exercise = FindActiveExercise(workoutExerciseId);
         var normalizedUpdatedAt = NormalizeTimestamp(updatedAt, nameof(updatedAt));
         EnsureNotBeforeStart(normalizedUpdatedAt, nameof(updatedAt));
+        EnsureNotBeforeCompletion(normalizedUpdatedAt, nameof(updatedAt));
         if (exercise.EditSet(setId, measurement, normalizedUpdatedAt))
         {
             Version++;
@@ -168,6 +169,7 @@ public sealed class WorkoutSession
         var exercise = FindActiveExercise(workoutExerciseId);
         var normalizedDeletedAt = NormalizeTimestamp(deletedAt, nameof(deletedAt));
         EnsureNotBeforeStart(normalizedDeletedAt, nameof(deletedAt));
+        EnsureNotBeforeCompletion(normalizedDeletedAt, nameof(deletedAt));
         if (exercise.DeleteSet(setId, normalizedDeletedAt))
         {
             Version++;
@@ -186,6 +188,7 @@ public sealed class WorkoutSession
 
         var normalizedDeletedAt = NormalizeTimestamp(deletedAt, nameof(deletedAt));
         EnsureNotBeforeStart(normalizedDeletedAt, nameof(deletedAt));
+        EnsureNotBeforeCompletion(normalizedDeletedAt, nameof(deletedAt));
         if (!exercise.Delete(normalizedDeletedAt))
         {
             return;
@@ -206,10 +209,12 @@ public sealed class WorkoutSession
 
         var normalizedCompletedAt = NormalizeTimestamp(completedAt, nameof(completedAt));
         EnsureNotBeforeStart(normalizedCompletedAt, nameof(completedAt));
-        var latestSetAt = activeExercises.SelectMany(exercise => exercise.Sets).Max(set => set.CompletedAt);
-        if (normalizedCompletedAt < latestSetAt)
+        if (LatestDescendantMutationAt() is { } latestMutationAt
+            && normalizedCompletedAt < latestMutationAt)
         {
-            throw new ArgumentException("Workout completion cannot precede a completed set.", nameof(completedAt));
+            throw new ArgumentException(
+                "Workout completion cannot precede a descendant mutation.",
+                nameof(completedAt));
         }
 
         Status = WorkoutStatus.Completed;
@@ -226,6 +231,15 @@ public sealed class WorkoutSession
 
         var normalizedDeletedAt = NormalizeTimestamp(deletedAt, nameof(deletedAt));
         EnsureNotBeforeStart(normalizedDeletedAt, nameof(deletedAt));
+        EnsureNotBeforeCompletion(normalizedDeletedAt, nameof(deletedAt));
+        if (LatestDescendantMutationAt() is { } latestMutationAt
+            && normalizedDeletedAt < latestMutationAt)
+        {
+            throw new ArgumentException(
+                "Workout deletion cannot precede a descendant mutation.",
+                nameof(deletedAt));
+        }
+
         DeletedAt = normalizedDeletedAt;
         Version++;
     }
@@ -288,6 +302,31 @@ public sealed class WorkoutSession
         {
             throw new ArgumentException("The timestamp cannot precede workout start.", parameterName);
         }
+    }
+
+    private void EnsureNotBeforeCompletion(DateTimeOffset timestamp, string parameterName)
+    {
+        if (CompletedAt is { } completedAt && timestamp < completedAt)
+        {
+            throw new ArgumentException(
+                "The timestamp cannot precede workout completion.",
+                parameterName);
+        }
+    }
+
+    private DateTimeOffset? LatestDescendantMutationAt()
+    {
+        DateTimeOffset? latest = null;
+        foreach (var exercise in _exercises)
+        {
+            if (exercise.LastMutationAt is { } mutationAt
+                && (latest is null || mutationAt > latest))
+            {
+                latest = mutationAt;
+            }
+        }
+
+        return latest;
     }
 
     private static DateTimeOffset NormalizeTimestamp(DateTimeOffset timestamp, string parameterName)

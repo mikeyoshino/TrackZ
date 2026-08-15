@@ -34,6 +34,23 @@ public sealed class WorkoutExercise
 
     public IReadOnlyList<SetEntry> SetEntries => _sets.AsReadOnly();
 
+    internal DateTimeOffset? LastMutationAt
+    {
+        get
+        {
+            var latest = DeletedAt;
+            foreach (var set in _sets)
+            {
+                if (latest is null || set.LastMutationAt > latest)
+                {
+                    latest = set.LastMutationAt;
+                }
+            }
+
+            return latest;
+        }
+    }
+
     internal static WorkoutExercise Create(
         Guid id,
         Guid workoutSessionId,
@@ -97,14 +114,14 @@ public sealed class WorkoutExercise
             return false;
         }
 
-        var activeSets = Sets;
-        if (activeSets.Any(set => deletedAt < set.CompletedAt))
+        if (_sets.Any(set => deletedAt < set.LastMutationAt))
         {
             throw new ArgumentException(
-                "The deletion timestamp cannot precede set completion.",
+                "The deletion timestamp cannot precede a child set mutation.",
                 nameof(deletedAt));
         }
 
+        var activeSets = Sets;
         foreach (var set in activeSets)
         {
             set.Delete(deletedAt);
@@ -153,9 +170,11 @@ public sealed class WorkoutExercise
         var validReps = measurement.Reps is >= 1 and <= 999;
         var validForMode = TrackingMode switch
         {
-            TrackingMode.Weighted => measurement.WeightKg > 0m && measurement.AssistedKg is null,
+            TrackingMode.Weighted => IsRepresentableKilograms(measurement.WeightKg)
+                && measurement.AssistedKg is null,
             TrackingMode.Bodyweight => measurement.WeightKg is null && measurement.AssistedKg is null,
-            TrackingMode.Assisted => measurement.WeightKg is null && measurement.AssistedKg > 0m,
+            TrackingMode.Assisted => measurement.WeightKg is null
+                && IsRepresentableKilograms(measurement.AssistedKg),
             _ => false
         };
 
@@ -166,6 +185,16 @@ public sealed class WorkoutExercise
                 "The set measurement is invalid for the exercise tracking mode.");
         }
     }
+
+    private static bool IsRepresentableKilograms(decimal? value)
+    {
+        return value is { } kilograms
+            && kilograms is >= SetMeasurement.MinimumKilograms and <= SetMeasurement.MaximumKilograms
+            && DecimalScale(kilograms) <= SetMeasurement.MaximumKilogramScale;
+    }
+
+    private static int DecimalScale(decimal value) =>
+        (decimal.GetBits(value)[3] >> 16) & 0xff;
 
     private void EnsureNotDeleted()
     {
