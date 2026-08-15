@@ -245,6 +245,75 @@ public sealed class ListExercisesEndpointTests : IAsyncLifetime
         Assert.Equal(9, ids.Distinct().Count());
     }
 
+    [Fact]
+    public async Task List_excludes_archived_and_other_users_custom_exercises()
+    {
+        var account = await AuthenticateAsync("catalog-archive-owner@example.com");
+        var system = ExerciseDefinition.CreateSystem("Visible system", BodyPart.Chest, TrackingMode.Weighted);
+        var archivedSystem = ExerciseDefinition.CreateSystem("Archived system", BodyPart.Chest, TrackingMode.Weighted);
+        var mine = ExerciseDefinition.CreateCustom(account.UserId, "Visible mine", BodyPart.Chest, TrackingMode.Weighted);
+        var archivedMine = ExerciseDefinition.CreateCustom(account.UserId, "Archived mine", BodyPart.Chest, TrackingMode.Weighted); archivedMine.Archive();
+        var other = ExerciseDefinition.CreateCustom(Guid.NewGuid(), "Other user", BodyPart.Chest, TrackingMode.Weighted);
+        await using (var scope = _factory!.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await db.Exercises.AddRangeAsync(system, archivedSystem, mine, archivedMine, other);
+            await db.SaveChangesAsync();
+            await db.Database.ExecuteSqlInterpolatedAsync($"UPDATE exercise_definitions SET \"IsArchived\" = TRUE WHERE \"Id\" = {archivedSystem.Id}");
+        }
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/exercises?bodyPart=Chest"); request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", account.Token);
+        var page = await (await _client.SendAsync(request)).Content.ReadFromJsonAsync<JsonDocument>();
+        var names = page!.RootElement.GetProperty("items").EnumerateArray().Select(x => x.GetProperty("name").GetString()).ToList();
+
+        Assert.Contains("Visible system", names); Assert.Contains("Visible mine", names);
+        Assert.DoesNotContain("Archived system", names); Assert.DoesNotContain("Archived mine", names); Assert.DoesNotContain("Other user", names);
+    }
+
+    [Fact]
+    public async Task List_serializes_mode_correct_performance_shapes_and_null_for_no_performance()
+    {
+        var account = await AuthenticateAsync("catalog-mode-shapes@example.com");
+        var weighted = ExerciseDefinition.CreateSystem("Weighted shape", BodyPart.Chest, TrackingMode.Weighted);
+        var bodyweight = ExerciseDefinition.CreateSystem("Bodyweight shape", BodyPart.Core, TrackingMode.Bodyweight);
+        var assisted = ExerciseDefinition.CreateSystem("Assisted shape", BodyPart.Back, TrackingMode.Assisted);
+        var none = ExerciseDefinition.CreateSystem("No performance", BodyPart.Arms, TrackingMode.Weighted);
+        await using (var scope = _factory!.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>(); await db.Exercises.AddRangeAsync(weighted, bodyweight, assisted, none);
+            await db.ExercisePerformances.AddRangeAsync(
+                ExercisePerformance.Create(account.UserId, weighted.Id, TrackingMode.Weighted, DateTimeOffset.UtcNow, new ExercisePerformanceSet(70m, null, 8), new ExercisePerformanceSet(75m, null, 5)),
+                ExercisePerformance.Create(account.UserId, bodyweight.Id, TrackingMode.Bodyweight, DateTimeOffset.UtcNow, new ExercisePerformanceSet(null, null, 12), new ExercisePerformanceSet(null, null, 15)),
+                ExercisePerformance.Create(account.UserId, assisted.Id, TrackingMode.Assisted, DateTimeOffset.UtcNow, new ExercisePerformanceSet(null, 25m, 10), new ExercisePerformanceSet(null, 20m, 12)));
+            await db.SaveChangesAsync();
+        }
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/exercises?pageSize=50"); request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", account.Token);
+        var page = await (await _client.SendAsync(request)).Content.ReadFromJsonAsync<JsonDocument>();
+        var items = page!.RootElement.GetProperty("items").EnumerateArray().ToDictionary(x => x.GetProperty("name").GetString()!);
+        Assert.Equal(70m, items["Weighted shape"].GetProperty("lastBestSet").GetProperty("weightKg").GetDecimal()); Assert.Equal(JsonValueKind.Null, items["Weighted shape"].GetProperty("lastBestSet").GetProperty("assistedKg").ValueKind);
+        Assert.Equal(JsonValueKind.Null, items["Bodyweight shape"].GetProperty("lastBestSet").GetProperty("weightKg").ValueKind); Assert.Equal(JsonValueKind.Null, items["Bodyweight shape"].GetProperty("lastBestSet").GetProperty("assistedKg").ValueKind); Assert.Equal(12, items["Bodyweight shape"].GetProperty("lastBestSet").GetProperty("reps").GetInt32());
+        Assert.Equal(JsonValueKind.Null, items["Assisted shape"].GetProperty("lastBestSet").GetProperty("weightKg").ValueKind); Assert.Equal(25m, items["Assisted shape"].GetProperty("lastBestSet").GetProperty("assistedKg").GetDecimal());
+        Assert.Equal(JsonValueKind.Null, items["No performance"].GetProperty("lastPerformedAt").ValueKind); Assert.Equal(JsonValueKind.Null, items["No performance"].GetProperty("lastBestSet").ValueKind); Assert.Equal(JsonValueKind.Null, items["No performance"].GetProperty("allTimeBest").ValueKind);
+    }
+
+    [Fact]
+    public async Task List_never_serializes_image_object_keys_or_thumbnail_urls()
+    {
+        var account = await AuthenticateAsync("catalog-image-nonleak@example.com");
+        var systemDraft = ExerciseDefinition.CreateSystem("Draft image", BodyPart.Chest, TrackingMode.Weighted);
+        var systemPublished = ExerciseDefinition.CreateSystem("Published image", BodyPart.Chest, TrackingMode.Weighted);
+        var custom = ExerciseDefinition.CreateCustom(account.UserId, "Private image", BodyPart.Chest, TrackingMode.Weighted);
+        var draft = ExerciseImage.CreateSystem(systemDraft, "master-draft-secret", "thumb-draft-secret", 1, "generated");
+        var published = ExerciseImage.CreateSystem(systemPublished, "master-published-secret", "thumb-published-secret", 1, "generated");
+        published.Review(Guid.NewGuid(), "rights-approved", true, true, true, DateTimeOffset.UtcNow); published.Publish(DateTimeOffset.UtcNow.AddMinutes(1));
+        var privateImage = ExerciseImage.CreateCustomUpload(custom, account.UserId, "master-private-secret", "thumb-private-secret", 1, "camera");
+        await using (var scope = _factory!.Services.CreateAsyncScope())
+        { var db = scope.ServiceProvider.GetRequiredService<AppDbContext>(); await db.Exercises.AddRangeAsync(systemDraft, systemPublished, custom); await db.ExerciseImages.AddRangeAsync(draft, published, privateImage); await db.SaveChangesAsync(); }
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/exercises?bodyPart=Chest"); request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", account.Token);
+        var response = await _client.SendAsync(request); var raw = await response.Content.ReadAsStringAsync(); using var page = JsonDocument.Parse(raw);
+        Assert.All(page.RootElement.GetProperty("items").EnumerateArray(), item => Assert.Equal(JsonValueKind.Null, item.GetProperty("thumbnailUrl").ValueKind));
+        Assert.DoesNotContain("master-draft-secret", raw); Assert.DoesNotContain("thumb-draft-secret", raw); Assert.DoesNotContain("master-published-secret", raw); Assert.DoesNotContain("thumb-published-secret", raw); Assert.DoesNotContain("master-private-secret", raw); Assert.DoesNotContain("thumb-private-secret", raw);
+    }
+
     private static string SignedCursor(int version, string orderingName, Guid orderingId)
     {
         var payload = JsonSerializer.SerializeToUtf8Bytes(new { Version = version, OrderingName = orderingName, OrderingId = orderingId });
