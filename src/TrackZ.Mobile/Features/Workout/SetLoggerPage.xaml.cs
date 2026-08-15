@@ -6,12 +6,14 @@ public partial class SetLoggerPage : ContentPage, IQueryAttributable
 {
     private readonly SetLoggerViewModel _viewModel;
     private readonly MauiSetSavedFeedback _feedback;
+    private bool _wasParented;
 
     public SetLoggerPage(SetLoggerViewModel viewModel, MauiSetSavedFeedback feedback)
     {
-        InitializeComponent();
-        BindingContext = _viewModel = viewModel;
+        _viewModel = viewModel;
         _feedback = feedback;
+        InitializeComponent();
+        BindingContext = _viewModel;
     }
 
     protected override void OnAppearing()
@@ -24,6 +26,17 @@ public partial class SetLoggerPage : ContentPage, IQueryAttributable
     {
         _feedback.Saved -= OnSetSavedAsync;
         base.OnDisappearing();
+    }
+
+    protected override void OnParentSet()
+    {
+        base.OnParentSet();
+        if (Parent is not null)
+        {
+            _wasParented = true;
+            return;
+        }
+        if (_wasParented) _viewModel.Dispose();
     }
 
     public async void ApplyQueryAttributes(IDictionary<string, object> query)

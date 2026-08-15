@@ -7,6 +7,7 @@
   <data name="Offline" xml:space="preserve"><value>Offline · saved on this device</value></data>
   <data name="Pending" xml:space="preserve"><value>Saved · waiting to sync</value></data>
   <data name="Conflicted" xml:space="preserve"><value>Sync needs your review</value></data>
+  <data name="PermanentFailure" xml:space="preserve"><value>Sync failed permanently</value></data>
   <data name="Syncing" xml:space="preserve"><value>Syncing…</value></data>
   <data name="Synced" xml:space="preserve"><value>Synced</value></data>
   <data name="InvalidWeightedSet" xml:space="preserve"><value>Enter a valid weight and reps</value></data>
@@ -33,4 +34,24 @@
   <data name="Bodyweight" xml:space="preserve"><value>BODYWEIGHT</value></data>
   <data name="NoExercises" xml:space="preserve"><value>Add exercises to build your workout.</value></data>
   <data name="SavedLocally" xml:space="preserve"><value>Set saved</value></data>
+  <data name="ChooseExercises" xml:space="preserve"><value>Choose exercises</value></data>
+  <data name="SearchExercises" xml:space="preserve"><value>Search exercises</value></data>
+  <data name="AllBodyParts" xml:space="preserve"><value>All body parts</value></data>
+  <data name="All" xml:space="preserve"><value>All</value></data>
+  <data name="SelectedCountFormat" xml:space="preserve"><value>Selected: {0}</value></data>
+  <data name="NoMatchingExercises" xml:space="preserve"><value>No cached exercises match this filter.</value></data>
+  <data name="CreateCustom" xml:space="preserve"><value>Create custom</value></data>
+  <data name="Done" xml:space="preserve"><value>Done</value></data>
+  <data name="BodyPartChest" xml:space="preserve"><value>Chest</value></data>
+  <data name="BodyPartBack" xml:space="preserve"><value>Back</value></data>
+  <data name="BodyPartShoulders" xml:space="preserve"><value>Shoulders</value></data>
+  <data name="BodyPartArms" xml:space="preserve"><value>Arms</value></data>
+  <data name="BodyPartLegs" xml:space="preserve"><value>Legs</value></data>
+  <data name="BodyPartCore" xml:space="preserve"><value>Core</value></data>
+  <data name="DecreaseWeight" xml:space="preserve"><value>Decrease weight</value></data>
+  <data name="IncreaseWeight" xml:space="preserve"><value>Increase weight</value></data>
+  <data name="DecreaseAssistance" xml:space="preserve"><value>Decrease assistance</value></data>
+  <data name="IncreaseAssistance" xml:space="preserve"><value>Increase assistance</value></data>
+  <data name="DecreaseReps" xml:space="preserve"><value>Decrease reps</value></data>
+  <data name="IncreaseReps" xml:space="preserve"><value>Increase reps</value></data>
 </root>

@@ -4,6 +4,7 @@ using TrackZ.Mobile.Features.Exercises;
 using TrackZ.Mobile.Features.Exercises.Data;
 using TrackZ.Mobile.Features.Exercises.Services;
 using TrackZ.Mobile.Identity;
+using TrackZ.Mobile.Features.Workout;
 using System.Net;
 using System.Text;
 
@@ -99,6 +100,34 @@ public sealed class ExercisePickerViewModelTests : IAsyncLifetime
         sut.ToggleSelectionCommand.Execute(first.Id);
 
         Assert.Equal([second.Id, first.Id], sut.SelectedExerciseIds);
+    }
+
+    [Fact]
+    public async Task Thai_picker_copy_filter_options_and_selected_count_come_from_resources()
+    {
+        var exercise = ChestPressWithPerformance();
+        await _cache.ReplaceAllAsync([exercise], DateTimeOffset.UtcNow);
+        var sut = new ExercisePickerViewModel(
+            _cache,
+            new StubCatalogApi(),
+            new StubConnectivity(false),
+            new FixedClock(),
+            text: WorkoutResources.ForCulture(System.Globalization.CultureInfo.GetCultureInfo("th-TH")));
+        await sut.LoadAsync();
+
+        Assert.Equal("เลือกท่าออกกำลังกาย", sut.Text.ChooseExercises);
+        Assert.Equal("ค้นหาท่าออกกำลังกาย", sut.Text.SearchExercises);
+        Assert.Equal("ทุกส่วนของร่างกาย", sut.Text.AllBodyParts);
+        Assert.Equal("ไม่พบท่าออกกำลังกายที่ตรงกับตัวกรอง", sut.Text.NoMatchingExercises);
+        Assert.Equal("สร้างท่าเอง", sut.Text.CreateCustom);
+        Assert.Equal("เสร็จสิ้น", sut.Text.Done);
+        Assert.Equal("เลือกแล้ว: 0", sut.SelectedCountText);
+        Assert.Equal(["หน้าอก", "หลัง", "ไหล่", "แขน", "ขา", "แกนกลางลำตัว"],
+            sut.BodyPartOptions.Select(item => item.Label));
+
+        sut.ToggleSelectionCommand.Execute(exercise.Id);
+
+        Assert.Equal("เลือกแล้ว: 1", sut.SelectedCountText);
     }
 
     [Fact]

@@ -7,7 +7,7 @@
     <VerticalStackLayout Spacing="7">
         <Label FontAttributes="Bold" FontSize="12" Text="{Binding Caption, Source={x:Reference Root}}" TextColor="#8E959F" />
         <Grid ColumnDefinitions="52,*,52" ColumnSpacing="8">
-            <Button Command="{Binding DecrementCommand, Source={x:Reference Root}}" CornerRadius="14" FontSize="24" SemanticProperties.Description="{Binding DecrementLabel, Source={x:Reference Root}}" Text="−" />
+            <Button Command="{Binding DecrementCommand, Source={x:Reference Root}}" CornerRadius="14" FontSize="24" HeightRequest="52" MinimumHeightRequest="44" MinimumWidthRequest="44" SemanticProperties.Description="{Binding DecrementLabel, Source={x:Reference Root}}" Text="−" />
             <Border Grid.Column="1" Padding="10,0" BackgroundColor="#1B1F25" Stroke="#303640" StrokeShape="RoundRectangle 14">
                 <Entry
                     FontAttributes="Bold"
@@ -15,11 +15,12 @@
                     HorizontalTextAlignment="Center"
                     Keyboard="Numeric"
                     MaxLength="3"
+                    MinimumHeightRequest="44"
                     ReturnType="Done"
                     SemanticProperties.Description="{Binding Caption, Source={x:Reference Root}}"
                     Text="{Binding Value, Source={x:Reference Root}, Mode=TwoWay}" />
             </Border>
-            <Button Grid.Column="2" Command="{Binding IncrementCommand, Source={x:Reference Root}}" CornerRadius="14" FontSize="24" SemanticProperties.Description="{Binding IncrementLabel, Source={x:Reference Root}}" Text="+" />
+            <Button Grid.Column="2" Command="{Binding IncrementCommand, Source={x:Reference Root}}" CornerRadius="14" FontSize="24" HeightRequest="52" MinimumHeightRequest="44" MinimumWidthRequest="44" SemanticProperties.Description="{Binding IncrementLabel, Source={x:Reference Root}}" Text="+" />
         </Grid>
     </VerticalStackLayout>
 </ContentView>

@@ -7,6 +7,7 @@
   <data name="Offline" xml:space="preserve"><value>ออฟไลน์ · บันทึกไว้ในเครื่อง</value></data>
   <data name="Pending" xml:space="preserve"><value>บันทึกแล้ว · รอซิงค์</value></data>
   <data name="Conflicted" xml:space="preserve"><value>ต้องตรวจสอบข้อมูลซิงค์</value></data>
+  <data name="PermanentFailure" xml:space="preserve"><value>ซิงค์ไม่สำเร็จถาวร</value></data>
   <data name="Syncing" xml:space="preserve"><value>กำลังซิงค์…</value></data>
   <data name="Synced" xml:space="preserve"><value>ซิงค์แล้ว</value></data>
   <data name="InvalidWeightedSet" xml:space="preserve"><value>กรอกน้ำหนักและจำนวนครั้งที่ถูกต้อง</value></data>
@@ -33,4 +34,24 @@
   <data name="Bodyweight" xml:space="preserve"><value>น้ำหนักตัว</value></data>
   <data name="NoExercises" xml:space="preserve"><value>เพิ่มท่าเพื่อจัดการฝึกของคุณ</value></data>
   <data name="SavedLocally" xml:space="preserve"><value>บันทึกเซ็ตแล้ว</value></data>
+  <data name="ChooseExercises" xml:space="preserve"><value>เลือกท่าออกกำลังกาย</value></data>
+  <data name="SearchExercises" xml:space="preserve"><value>ค้นหาท่าออกกำลังกาย</value></data>
+  <data name="AllBodyParts" xml:space="preserve"><value>ทุกส่วนของร่างกาย</value></data>
+  <data name="All" xml:space="preserve"><value>ทั้งหมด</value></data>
+  <data name="SelectedCountFormat" xml:space="preserve"><value>เลือกแล้ว: {0}</value></data>
+  <data name="NoMatchingExercises" xml:space="preserve"><value>ไม่พบท่าออกกำลังกายที่ตรงกับตัวกรอง</value></data>
+  <data name="CreateCustom" xml:space="preserve"><value>สร้างท่าเอง</value></data>
+  <data name="Done" xml:space="preserve"><value>เสร็จสิ้น</value></data>
+  <data name="BodyPartChest" xml:space="preserve"><value>หน้าอก</value></data>
+  <data name="BodyPartBack" xml:space="preserve"><value>หลัง</value></data>
+  <data name="BodyPartShoulders" xml:space="preserve"><value>ไหล่</value></data>
+  <data name="BodyPartArms" xml:space="preserve"><value>แขน</value></data>
+  <data name="BodyPartLegs" xml:space="preserve"><value>ขา</value></data>
+  <data name="BodyPartCore" xml:space="preserve"><value>แกนกลางลำตัว</value></data>
+  <data name="DecreaseWeight" xml:space="preserve"><value>ลดน้ำหนัก</value></data>
+  <data name="IncreaseWeight" xml:space="preserve"><value>เพิ่มน้ำหนัก</value></data>
+  <data name="DecreaseAssistance" xml:space="preserve"><value>ลดน้ำหนักช่วย</value></data>
+  <data name="IncreaseAssistance" xml:space="preserve"><value>เพิ่มน้ำหนักช่วย</value></data>
+  <data name="DecreaseReps" xml:space="preserve"><value>ลดจำนวนครั้ง</value></data>
+  <data name="IncreaseReps" xml:space="preserve"><value>เพิ่มจำนวนครั้ง</value></data>
 </root>

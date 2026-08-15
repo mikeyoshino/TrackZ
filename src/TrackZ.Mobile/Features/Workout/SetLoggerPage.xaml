@@ -34,12 +34,25 @@
 
             <Border Padding="16" BackgroundColor="#15181D" Stroke="#2C3139" StrokeShape="RoundRectangle 20">
                 <VerticalStackLayout Spacing="16">
+                    <Grid ColumnDefinitions="*,*" ColumnSpacing="8" IsVisible="{Binding UsesWeight}">
+                        <Button
+                            Command="{Binding UseKilogramsCommand}"
+                            IsEnabled="{Binding IsPounds}"
+                            SemanticProperties.Description="{Binding Text.Kilograms}"
+                            Text="{Binding Text.Kilograms}" />
+                        <Button
+                            Grid.Column="1"
+                            Command="{Binding UsePoundsCommand}"
+                            IsEnabled="{Binding IsKilograms}"
+                            SemanticProperties.Description="{Binding Text.Pounds}"
+                            Text="{Binding Text.Pounds}" />
+                    </Grid>
                     <components:WeightStepper
                         Caption="{Binding WeightCaption}"
                         DecrementCommand="{Binding DecrementWeightCommand}"
-                        DecrementLabel="{Binding WeightCaption}"
+                        DecrementLabel="{Binding DecrementWeightDescription}"
                         IncrementCommand="{Binding IncrementWeightCommand}"
-                        IncrementLabel="{Binding WeightCaption}"
+                        IncrementLabel="{Binding IncrementWeightDescription}"
                         IsVisible="{Binding UsesWeight}"
                         UnitLabel="{Binding WeightUnitLabel}"
                         Value="{Binding DisplayWeight, Mode=TwoWay}" />
@@ -53,9 +66,9 @@
                     <components:RepsStepper
                         Caption="{Binding Text.Reps}"
                         DecrementCommand="{Binding DecrementRepsCommand}"
-                        DecrementLabel="{Binding Text.Reps}"
+                        DecrementLabel="{Binding DecrementRepsDescription}"
                         IncrementCommand="{Binding IncrementRepsCommand}"
-                        IncrementLabel="{Binding Text.Reps}"
+                        IncrementLabel="{Binding IncrementRepsDescription}"
                         Value="{Binding Reps, Mode=TwoWay}" />
                     <Label FontSize="12" HorizontalTextAlignment="Center" Text="{Binding ValidationMessage}" TextColor="#FFC65C" />
                 </VerticalStackLayout>

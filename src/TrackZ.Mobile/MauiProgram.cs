@@ -80,6 +80,8 @@ public static class MauiProgram
 		builder.Services.AddSingleton<IExerciseHistorySource, CachedExerciseHistorySource>();
 		builder.Services.AddSingleton<IWorkoutSyncRunner, WorkoutSyncRunner>();
 		builder.Services.AddSingleton(WorkoutResources.Current);
+		builder.Services.AddSingleton<IWorkoutPreferenceStore, MauiWorkoutPreferenceStore>();
+		builder.Services.AddSingleton<IWeightUnitPreference, WeightUnitPreference>();
 		builder.Services.AddSingleton<MauiSetSavedFeedback>();
 		builder.Services.AddSingleton<ISetSavedFeedback>(services => services.GetRequiredService<MauiSetSavedFeedback>());
 		builder.Services.AddSingleton<SyncCoordinator>();

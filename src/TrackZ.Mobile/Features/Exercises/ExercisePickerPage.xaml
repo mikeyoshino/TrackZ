@@ -8,22 +8,23 @@
     xmlns:models="clr-namespace:TrackZ.Mobile.Features.Exercises.Models;assembly=TrackZ.Mobile.Core"
     xmlns:viewModels="clr-namespace:TrackZ.Mobile.Features.Exercises;assembly=TrackZ.Mobile.Core"
     x:DataType="viewModels:ExercisePickerViewModel"
-    Title="Choose exercises">
+    Title="{Binding Text.ChooseExercises}">
     <Grid Padding="16" RowDefinitions="Auto,Auto,Auto,*,Auto" RowSpacing="12">
         <SearchBar
-            Placeholder="Search exercises"
+            Placeholder="{Binding Text.SearchExercises}"
             Text="{Binding SearchText, Mode=TwoWay}" />
         <Grid Grid.Row="1" ColumnDefinitions="*,Auto" ColumnSpacing="8">
             <Picker
-                Title="All body parts"
-                ItemsSource="{Binding BodyParts}"
-                SelectedItem="{Binding SelectedBodyPart, Mode=TwoWay}" />
-            <Button Grid.Column="1" Clicked="OnClearBodyPartClicked" Text="All" />
+                Title="{Binding Text.AllBodyParts}"
+                ItemDisplayBinding="{Binding Label}"
+                ItemsSource="{Binding BodyPartOptions}"
+                SelectedItem="{Binding SelectedBodyPartOption, Mode=TwoWay}" />
+            <Button Grid.Column="1" Clicked="OnClearBodyPartClicked" Text="{Binding Text.All}" />
         </Grid>
         <Grid Grid.Row="2" ColumnDefinitions="*,Auto">
             <Label
                 FontAttributes="Bold"
-                Text="{Binding SelectedExerciseIds.Count, StringFormat='Selected: {0}'}"
+                Text="{Binding SelectedCountText}"
                 VerticalOptions="Center" />
             <ActivityIndicator
                 Grid.Column="1"
@@ -37,7 +38,7 @@
             <CollectionView.EmptyView>
                 <Label
                     HorizontalTextAlignment="Center"
-                    Text="No cached exercises match this filter."
+                    Text="{Binding Source={x:Reference Page}, Path=BindingContext.Text.NoMatchingExercises}"
                     VerticalTextAlignment="Center" />
             </CollectionView.EmptyView>
             <CollectionView.ItemTemplate>
@@ -51,8 +52,8 @@
             </CollectionView.ItemTemplate>
         </CollectionView>
         <Grid Grid.Row="4" ColumnDefinitions="*,*" ColumnSpacing="10">
-            <Button Clicked="OnCreateCustomClicked" Text="Create custom" />
-            <Button Grid.Column="1" Clicked="OnDoneClicked" Text="Done" />
+            <Button Clicked="OnCreateCustomClicked" Text="{Binding Text.CreateCustom}" />
+            <Button Grid.Column="1" Clicked="OnDoneClicked" Text="{Binding Text.Done}" />
         </Grid>
     </Grid>
 </ContentPage>

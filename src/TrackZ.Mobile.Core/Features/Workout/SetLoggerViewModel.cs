@@ -19,7 +19,8 @@ public enum WorkoutSyncState
     Offline = 2,
     Pending = 3,
     Conflicted = 4,
-    Syncing = 5
+    Syncing = 5,
+    PermanentFailure = 6
 }
 
 public enum WeightDisplayUnit
@@ -64,7 +65,7 @@ public sealed record SetDisplayRow(
     public int SetNumber => Order + 1;
 }
 
-public sealed class SetLoggerViewModel : INotifyPropertyChanged
+public sealed class SetLoggerViewModel : INotifyPropertyChanged, IDisposable
 {
     private const decimal PoundsPerKilogram = 2.204622621848775807m;
     private readonly ActiveWorkoutCoordinator _coordinator;
@@ -72,9 +73,11 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
     private readonly ISetSavedFeedback _feedback;
     private readonly IAccountSessionBoundary _boundary;
     private readonly IConnectivityService _connectivity;
-    private readonly OutboxRepository _outbox;
+    private readonly IWorkoutOutboxStatusSource _outbox;
     private readonly WorkoutTextSet _text;
     private readonly IWorkoutSyncRunner? _syncRunner;
+    private readonly IWeightUnitPreference? _unitPreference;
+    private Guid _workoutId;
     private Guid _exerciseId;
     private string _exerciseName = string.Empty;
     private TrackingMode _trackingMode;
@@ -85,6 +88,7 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
     private string? _errorMessage;
     private WorkoutSyncState _syncState = WorkoutSyncState.Synced;
     private WeightDisplayUnit _displayUnit;
+    private bool _disposed;
 
     public SetLoggerViewModel(
         ActiveWorkoutCoordinator coordinator,
@@ -92,10 +96,10 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         ISetSavedFeedback feedback,
         IAccountSessionBoundary boundary,
         IConnectivityService connectivity,
-        OutboxRepository outbox,
+        IWorkoutOutboxStatusSource outbox,
         WorkoutTextSet text,
-        WeightDisplayUnit displayUnit = WeightDisplayUnit.Kilograms,
-        IWorkoutSyncRunner? syncRunner = null)
+        IWorkoutSyncRunner? syncRunner = null,
+        IWeightUnitPreference? unitPreference = null)
     {
         _coordinator = coordinator;
         _history = history;
@@ -105,13 +109,16 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         _outbox = outbox;
         _text = text;
         _syncRunner = syncRunner;
-        _displayUnit = displayUnit;
+        _unitPreference = unitPreference;
+        _displayUnit = unitPreference?.Current ?? WeightDisplayUnit.Kilograms;
         MatchLastCommand = new RelayCommand(_ => MatchLast(), _ => CanMatchLast);
         CompleteSetCommand = new AsyncCommand(_ => CompleteSetAsync(), _ => CanCompleteSet);
-        IncrementWeightCommand = new RelayCommand(_ => DisplayWeight += WeightStep, _ => UsesWeight && !IsBusy);
-        DecrementWeightCommand = new RelayCommand(_ => DisplayWeight = Math.Max(0m, DisplayWeight - WeightStep), _ => UsesWeight && !IsBusy);
-        IncrementRepsCommand = new RelayCommand(_ => Reps = Math.Min(999, Reps + 1), _ => !IsBusy);
-        DecrementRepsCommand = new RelayCommand(_ => Reps = Math.Max(0, Reps - 1), _ => !IsBusy);
+        IncrementWeightCommand = new RelayCommand(_ => DisplayWeight += WeightStep, _ => !_disposed && UsesWeight && !IsBusy);
+        DecrementWeightCommand = new RelayCommand(_ => DisplayWeight = Math.Max(0m, DisplayWeight - WeightStep), _ => !_disposed && UsesWeight && !IsBusy);
+        IncrementRepsCommand = new RelayCommand(_ => Reps = Math.Min(999, Reps + 1), _ => !_disposed && !IsBusy);
+        DecrementRepsCommand = new RelayCommand(_ => Reps = Math.Max(0, Reps - 1), _ => !_disposed && !IsBusy);
+        UseKilogramsCommand = new RelayCommand(_ => DisplayUnit = WeightDisplayUnit.Kilograms, _ => !_disposed && !IsBusy);
+        UsePoundsCommand = new RelayCommand(_ => DisplayUnit = WeightDisplayUnit.Pounds, _ => !_disposed && !IsBusy);
         _boundary.SessionReset += OnSessionReset;
         _connectivity.ConnectivityChanged += OnConnectivityChanged;
     }
@@ -124,6 +131,8 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
     public ICommand DecrementWeightCommand { get; }
     public ICommand IncrementRepsCommand { get; }
     public ICommand DecrementRepsCommand { get; }
+    public ICommand UseKilogramsCommand { get; }
+    public ICommand UsePoundsCommand { get; }
     public WorkoutTextSet Text => _text;
     public Task SyncCompletion { get; private set; } = Task.CompletedTask;
 
@@ -143,12 +152,22 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(IsBodyweight));
             OnPropertyChanged(nameof(WeightCaption));
             OnPropertyChanged(nameof(TrackingModeLabel));
+            OnPropertyChanged(nameof(DecrementWeightDescription));
+            OnPropertyChanged(nameof(IncrementWeightDescription));
         }
     }
 
     public bool UsesWeight => TrackingMode is TrackingMode.Weighted or TrackingMode.Assisted;
     public bool IsBodyweight => TrackingMode == TrackingMode.Bodyweight;
     public string WeightCaption => TrackingMode == TrackingMode.Assisted ? _text.Assistance : _text.Weight;
+    public string DecrementWeightDescription => TrackingMode == TrackingMode.Assisted
+        ? _text.DecreaseAssistance
+        : _text.DecreaseWeight;
+    public string IncrementWeightDescription => TrackingMode == TrackingMode.Assisted
+        ? _text.IncreaseAssistance
+        : _text.IncreaseWeight;
+    public string DecrementRepsDescription => _text.DecreaseReps;
+    public string IncrementRepsDescription => _text.IncreaseReps;
     public string TrackingModeLabel => TrackingMode switch
     {
         TrackingMode.Weighted => _text.Weight,
@@ -207,12 +226,20 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         get => _displayUnit;
         set
         {
+            if (!Enum.IsDefined(value)) throw new ArgumentOutOfRangeException(nameof(value));
             if (!Set(ref _displayUnit, value)) return;
+            _unitPreference?.Set(value);
             OnPropertyChanged(nameof(DisplayWeight));
             OnPropertyChanged(nameof(WeightUnitLabel));
             OnPropertyChanged(nameof(WeightStep));
+            OnPropertyChanged(nameof(IsKilograms));
+            OnPropertyChanged(nameof(IsPounds));
+            RefreshMeasurementRows();
         }
     }
+
+    public bool IsKilograms => DisplayUnit == WeightDisplayUnit.Kilograms;
+    public bool IsPounds => DisplayUnit == WeightDisplayUnit.Pounds;
 
     public int Reps
     {
@@ -241,8 +268,8 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         private set => Set(ref _errorMessage, value);
     }
 
-    public bool CanCompleteSet => !IsBusy && IsValidMeasurement();
-    public bool CanMatchLast => !IsBusy && TodaySets.Count < LastSets.Count;
+    public bool CanCompleteSet => !_disposed && !IsBusy && IsValidMeasurement();
+    public bool CanMatchLast => !_disposed && !IsBusy && TodaySets.Count < LastSets.Count;
     public string? ValidationMessage => IsValidMeasurement() ? null : TrackingMode switch
     {
         TrackingMode.Weighted => _text.InvalidWeightedSet,
@@ -266,6 +293,7 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         WorkoutSyncState.Pending => _text.Pending,
         WorkoutSyncState.Conflicted => _text.Conflicted,
         WorkoutSyncState.Syncing => _text.Syncing,
+        WorkoutSyncState.PermanentFailure => _text.PermanentFailure,
         _ => _text.Synced
     };
 
@@ -276,6 +304,7 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         string exerciseName,
         CancellationToken cancellationToken = default)
     {
+        if (_disposed) return;
         if (exerciseId == Guid.Empty) throw new ArgumentException("Exercise ID is required.", nameof(exerciseId));
         ArgumentException.ThrowIfNullOrWhiteSpace(exerciseName);
         var generation = _boundary.Capture();
@@ -292,6 +321,7 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
                 exerciseId, _connectivity.IsOnline, cancellationToken);
             if (_boundary.IsCancellationRequested(generation)) return;
 
+            _workoutId = active.Id;
             _exerciseId = exerciseId;
             ExerciseName = exerciseName;
             TrackingMode = exercise.TrackingMode;
@@ -334,24 +364,47 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
 
     private async Task CompleteSetAsync()
     {
-        if (!IsValidMeasurement() || _exerciseId == Guid.Empty) return;
+        if (_disposed || !IsValidMeasurement() || _exerciseId == Guid.Empty) return;
         var generation = _boundary.Capture();
         IsBusy = true;
         ErrorMessage = null;
         try
         {
-            var set = TrackingMode switch
+            LocalSet saved;
+            try
             {
-                TrackingMode.Weighted => new LocalSet(WeightKg, null, Reps),
-                TrackingMode.Assisted => new LocalSet(null, AssistedKg, Reps),
-                TrackingMode.Bodyweight => new LocalSet(null, null, Reps),
-                _ => throw new InvalidOperationException("Tracking mode is invalid.")
-            };
-            var saved = await _coordinator.SaveSetAsync(_exerciseId, set);
-            if (_boundary.IsCancellationRequested(generation)) return;
+                var set = TrackingMode switch
+                {
+                    TrackingMode.Weighted => new LocalSet(WeightKg, null, Reps),
+                    TrackingMode.Assisted => new LocalSet(null, AssistedKg, Reps),
+                    TrackingMode.Bodyweight => new LocalSet(null, null, Reps),
+                    _ => throw new InvalidOperationException("Tracking mode is invalid.")
+                };
+                saved = await _coordinator.SaveSetAsync(_exerciseId, set);
+            }
+            catch (OperationCanceledException) when (_boundary.IsCancellationRequested(generation))
+            {
+                ClearPrivateState();
+                return;
+            }
+            catch (Exception) when (!_boundary.IsCancellationRequested(generation))
+            {
+                ErrorMessage = _text.SaveFailed;
+                return;
+            }
+
+            if (_disposed || _boundary.IsCancellationRequested(generation)) return;
             TodaySets.Add(Row(saved, TrackingMode));
             OnPropertyChanged(nameof(CanMatchLast));
-            await RefreshSyncStateCoreAsync(CancellationToken.None);
+            try
+            {
+                await RefreshSyncStateCoreAsync(CancellationToken.None);
+            }
+            catch (Exception)
+            {
+                // Status projection is best-effort after the durable set commit.
+            }
+            if (_disposed || _boundary.IsCancellationRequested(generation)) return;
             try
             {
                 await _feedback.SetSavedAsync(saved, CancellationToken.None);
@@ -361,17 +414,9 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
                 // Feedback is best-effort. The set is already durably persisted, so a
                 // haptic or animation failure must never invite the user to save it again.
             }
-            if (_boundary.IsCancellationRequested(generation)) return;
+            if (_disposed || _boundary.IsCancellationRequested(generation)) return;
             if (_syncRunner is not null && _connectivity.IsOnline)
                 SyncCompletion = SynchronizeBestEffortAsync(generation);
-        }
-        catch (OperationCanceledException) when (_boundary.IsCancellationRequested(generation))
-        {
-            ClearPrivateState();
-        }
-        catch (Exception) when (!_boundary.IsCancellationRequested(generation))
-        {
-            ErrorMessage = _text.SaveFailed;
         }
         finally
         {
@@ -396,12 +441,17 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
             SyncState = WorkoutSyncState.Offline;
             return;
         }
-        if ((await _outbox.ConflictedAsync(cancellationToken)).Count != 0)
+        if ((await _outbox.ConflictedAsync(_workoutId, cancellationToken)).Count != 0)
         {
             SyncState = WorkoutSyncState.Conflicted;
             return;
         }
-        SyncState = (await _outbox.PendingAsync(cancellationToken)).Count == 0
+        if ((await _outbox.RejectedAsync(_workoutId, cancellationToken)).Count != 0)
+        {
+            SyncState = WorkoutSyncState.PermanentFailure;
+            return;
+        }
+        SyncState = (await _outbox.PendingAsync(_workoutId, cancellationToken)).Count == 0
             ? WorkoutSyncState.Synced
             : WorkoutSyncState.Pending;
     }
@@ -466,11 +516,42 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
 
     private string Measurement(decimal? weight, decimal? assisted, int reps, TrackingMode mode) => mode switch
     {
-        TrackingMode.Weighted => $"{weight:0.###} {_text.Kilograms} × {reps}",
-        TrackingMode.Assisted => $"{assisted:0.###} {_text.Kilograms} · {reps} {_text.Reps}",
+        TrackingMode.Weighted => $"{MeasurementValue(weight)} {WeightUnitLabel} × {reps}",
+        TrackingMode.Assisted => $"{MeasurementValue(assisted)} {WeightUnitLabel} · {reps} {_text.Reps}",
         TrackingMode.Bodyweight => $"{reps} {_text.Reps}",
         _ => string.Empty
     };
+
+    private decimal? DisplayKilograms(decimal? kilograms) => kilograms is null
+        ? null
+        : DisplayUnit == WeightDisplayUnit.Kilograms
+            ? kilograms
+            : decimal.Round(kilograms.Value * PoundsPerKilogram, 2, MidpointRounding.AwayFromZero);
+
+    private string MeasurementValue(decimal? kilograms) =>
+        DisplayKilograms(kilograms)?.ToString(
+            DisplayUnit == WeightDisplayUnit.Kilograms ? "0.###" : "0.##",
+            CultureInfo.CurrentCulture) ?? string.Empty;
+
+    private void RefreshMeasurementRows()
+    {
+        for (var index = 0; index < LastSets.Count; index++)
+        {
+            var row = LastSets[index];
+            LastSets[index] = row with
+            {
+                MeasurementText = Measurement(row.WeightKg, row.AssistedKg, row.Reps, row.TrackingMode)
+            };
+        }
+        for (var index = 0; index < TodaySets.Count; index++)
+        {
+            var row = TodaySets[index];
+            TodaySets[index] = row with
+            {
+                MeasurementText = Measurement(row.WeightKg, row.AssistedKg, row.Reps, row.TrackingMode)
+            };
+        }
+    }
 
     private void MeasurementChanged()
     {
@@ -488,12 +569,27 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         (DecrementWeightCommand as RelayCommand)?.RaiseCanExecuteChanged();
         (IncrementRepsCommand as RelayCommand)?.RaiseCanExecuteChanged();
         (DecrementRepsCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        (UseKilogramsCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        (UsePoundsCommand as RelayCommand)?.RaiseCanExecuteChanged();
     }
 
-    private void OnSessionReset(object? sender, EventArgs eventArgs) => ClearPrivateState();
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        _boundary.SessionReset -= OnSessionReset;
+        _connectivity.ConnectivityChanged -= OnConnectivityChanged;
+        MeasurementChanged();
+    }
+
+    private void OnSessionReset(object? sender, EventArgs eventArgs)
+    {
+        if (!_disposed) ClearPrivateState();
+    }
 
     private void ClearPrivateState()
     {
+        _workoutId = Guid.Empty;
         _exerciseId = Guid.Empty;
         ExerciseName = string.Empty;
         LastSets.Clear();
@@ -508,8 +604,9 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
 
     private async void OnConnectivityChanged(object? sender, EventArgs eventArgs)
     {
+        if (_disposed) return;
         try { await RefreshSyncStateCoreAsync(CancellationToken.None); }
-        catch (Exception) { SyncState = WorkoutSyncState.Offline; }
+        catch (Exception) { if (!_disposed) SyncState = WorkoutSyncState.Offline; }
     }
 
     private bool Set<T>(ref T field, T value, [CallerMemberName] string? name = null)

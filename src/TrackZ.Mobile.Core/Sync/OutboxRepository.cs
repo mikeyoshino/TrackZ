@@ -4,7 +4,20 @@ using TrackZ.Mobile.Data;
 
 namespace TrackZ.Mobile.Sync;
 
-public sealed class OutboxRepository(TrackZLocalDatabase database)
+public interface IWorkoutOutboxStatusSource
+{
+    Task<IReadOnlyList<OutboxOperation>> PendingAsync(
+        Guid workoutId,
+        CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<OutboxOperation>> ConflictedAsync(
+        Guid workoutId,
+        CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<OutboxOperation>> RejectedAsync(
+        Guid workoutId,
+        CancellationToken cancellationToken = default);
+}
+
+public sealed class OutboxRepository(TrackZLocalDatabase database) : IWorkoutOutboxStatusSource
 {
     public Task<IReadOnlyList<OutboxOperation>> PendingAsync(
         CancellationToken cancellationToken = default) =>
@@ -14,19 +27,65 @@ public sealed class OutboxRepository(TrackZLocalDatabase database)
         CancellationToken cancellationToken = default) =>
         database.ReadAsync(ReadConflictedAsync, cancellationToken);
 
+    public Task<IReadOnlyList<OutboxOperation>> PendingAsync(
+        Guid workoutId,
+        CancellationToken cancellationToken = default) =>
+        database.ReadAsync(
+            (connection, token) => ReadByStateAsync(
+                connection, OutboxOperationState.Pending, workoutId, token),
+            cancellationToken);
+
+    public Task<IReadOnlyList<OutboxOperation>> ConflictedAsync(
+        Guid workoutId,
+        CancellationToken cancellationToken = default) =>
+        database.ReadAsync(
+            (connection, token) => ReadByStateAsync(
+                connection, OutboxOperationState.Conflicted, workoutId, token),
+            cancellationToken);
+
+    public Task<IReadOnlyList<OutboxOperation>> RejectedAsync(
+        Guid workoutId,
+        CancellationToken cancellationToken = default) =>
+        database.ReadAsync(
+            (connection, token) => ReadRejectedAsync(connection, workoutId, token),
+            cancellationToken);
+
+    private static async Task<IReadOnlyList<OutboxOperation>> ReadRejectedAsync(
+        SqliteConnection connection,
+        Guid workoutId,
+        CancellationToken cancellationToken)
+    {
+        var result = new List<OutboxOperation>();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT OperationId, EntityId, OperationType, Payload, BaseVersion,
+                   CreatedAt, State, DeletedAt, Version, ServerVersion, RetryCount,
+                   NextAttemptAt, ServerPayload, ReplacesOperationId
+            FROM OutboxOperation
+            WHERE State = $state AND DeletedAt IS NOT NULL AND EntityId = $workoutId
+            ORDER BY DeletedAt DESC, CreatedAt DESC, OperationId DESC;
+            """;
+        command.Parameters.AddWithValue("$state", (int)OutboxOperationState.Rejected);
+        command.Parameters.AddWithValue("$workoutId", workoutId.ToString("D"));
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken)) result.Add(ReadOperation(reader));
+        return result;
+    }
+
     private static Task<IReadOnlyList<OutboxOperation>> ReadConflictedAsync(
         SqliteConnection connection,
         CancellationToken cancellationToken) =>
-        ReadByStateAsync(connection, OutboxOperationState.Conflicted, cancellationToken);
+        ReadByStateAsync(connection, OutboxOperationState.Conflicted, null, cancellationToken);
 
     private static async Task<IReadOnlyList<OutboxOperation>> ReadPendingAsync(
         SqliteConnection connection,
         CancellationToken cancellationToken) =>
-        await ReadByStateAsync(connection, OutboxOperationState.Pending, cancellationToken);
+        await ReadByStateAsync(connection, OutboxOperationState.Pending, null, cancellationToken);
 
     private static async Task<IReadOnlyList<OutboxOperation>> ReadByStateAsync(
         SqliteConnection connection,
         OutboxOperationState state,
+        Guid? workoutId,
         CancellationToken cancellationToken)
     {
         var result = new List<OutboxOperation>();
@@ -37,9 +96,11 @@ public sealed class OutboxRepository(TrackZLocalDatabase database)
                    NextAttemptAt, ServerPayload, ReplacesOperationId
             FROM OutboxOperation
             WHERE State = $state AND DeletedAt IS NULL
+              AND ($workoutId IS NULL OR EntityId = $workoutId)
             ORDER BY CreatedAt, OperationId;
             """;
         command.Parameters.AddWithValue("$state", (int)state);
+        command.Parameters.AddWithValue("$workoutId", workoutId is null ? DBNull.Value : workoutId.Value.ToString("D"));
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         try
         {
@@ -77,6 +138,22 @@ public sealed class OutboxRepository(TrackZLocalDatabase database)
         Guid.TryParseExact(text, "D", out var value) && value != Guid.Empty
             ? value
             : throw new InvalidDataException("An outbox identifier is invalid.");
+
+    private static OutboxOperation ReadOperation(SqliteDataReader reader) => new(
+        ParseGuid(reader.GetString(0)),
+        ParseGuid(reader.GetString(1)),
+        ParseEnum<OutboxOperationType>(reader.GetInt32(2)),
+        reader.GetString(3),
+        NonNegative(reader.GetInt64(4)),
+        ParseTimestamp(reader.GetString(5)),
+        ParseEnum<OutboxOperationState>(reader.GetInt32(6)),
+        reader.IsDBNull(7) ? null : ParseTimestamp(reader.GetString(7)),
+        Positive(reader.GetInt64(8)),
+        reader.IsDBNull(9) ? null : NonNegative(reader.GetInt64(9)),
+        reader.GetInt32(10),
+        reader.IsDBNull(11) ? null : ParseTimestamp(reader.GetString(11)),
+        reader.IsDBNull(12) ? null : reader.GetString(12),
+        reader.IsDBNull(13) ? null : ParseGuid(reader.GetString(13)));
 
     private static T ParseEnum<T>(int value) where T : struct, Enum =>
         Enum.IsDefined(typeof(T), value)

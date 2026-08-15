@@ -72,13 +72,67 @@ public sealed class SetLoggerViewModelTests : IDisposable
         await sut.LoadAsync(ExerciseId, "Bench Press");
         sut.MatchLastCommand.Execute(null);
 
-        sut.DisplayUnit = WeightDisplayUnit.Pounds;
+        sut.UsePoundsCommand.Execute(null);
 
         Assert.Equal(220.46m, sut.DisplayWeight);
         Assert.Equal(100m, sut.WeightKg);
         await sut.CompleteSetCommand.ExecuteAsync();
         var saved = Assert.Single(Assert.Single((await fixture.Repository.GetActiveAsync())!.Exercises).Sets);
         Assert.Equal(100m, saved.WeightKg);
+    }
+
+    [Fact]
+    public async Task Persisted_pound_preference_drives_entry_and_all_set_rows_while_storage_stays_kilograms()
+    {
+        var fixture = await CreateFixtureAsync(TrackingMode.Weighted);
+        await fixture.Coordinator.SaveSetAsync(ExerciseId, new LocalSet(50m, null, 6));
+        var store = new MemoryWorkoutPreferenceStore();
+        var preference = new WeightUnitPreference(store);
+        preference.Set(WeightDisplayUnit.Pounds);
+        var sut = fixture.CreateLogger(
+            Previous(TrackingMode.Weighted, Set(0, 50m, null, 6), Set(1, 100m, null, 5)),
+            unitPreference: preference);
+
+        await sut.LoadAsync(ExerciseId, "Bench Press");
+        sut.MatchLastCommand.Execute(null);
+
+        Assert.Equal(WeightDisplayUnit.Pounds, sut.DisplayUnit);
+        Assert.Equal("220.46 lb × 5", sut.LastSets[1].MeasurementText);
+        Assert.Equal("110.23 lb × 6", Assert.Single(sut.TodaySets).MeasurementText);
+        Assert.Equal(220.46m, sut.DisplayWeight);
+        sut.DisplayWeight = 176.37m;
+        sut.Reps = 8;
+        await sut.CompleteSetCommand.ExecuteAsync();
+        var saved = (await fixture.Repository.GetActiveAsync())!.Exercises.Single().Sets.OrderBy(item => item.Order).Last();
+        Assert.Equal(80m, saved.WeightKg);
+        Assert.Null(saved.AssistedKg);
+    }
+
+    [Fact]
+    public async Task Unit_selector_command_persists_across_logger_composition_and_uses_Thai_labels()
+    {
+        var fixture = await CreateFixtureAsync(TrackingMode.Assisted);
+        var store = new MemoryWorkoutPreferenceStore();
+        var first = fixture.CreateLogger(
+            Previous(TrackingMode.Assisted, Set(0, null, 25.125m, 10)),
+            culture: CultureInfo.GetCultureInfo("th-TH"),
+            unitPreference: new WeightUnitPreference(store));
+        await first.LoadAsync(ExerciseId, "Assisted Pull-up");
+
+        first.UsePoundsCommand.Execute(null);
+        var restoredPreference = new WeightUnitPreference(store);
+        var restored = fixture.CreateLogger(
+            Previous(TrackingMode.Assisted, Set(0, null, 25.125m, 10)),
+            culture: CultureInfo.GetCultureInfo("th-TH"),
+            unitPreference: restoredPreference);
+        await restored.LoadAsync(ExerciseId, "Assisted Pull-up");
+
+        Assert.Equal(WeightDisplayUnit.Pounds, restored.DisplayUnit);
+        Assert.Equal("ปอนด์", restored.WeightUnitLabel);
+        Assert.Equal("55.39 ปอนด์ · 10 ครั้ง", Assert.Single(restored.LastSets).MeasurementText);
+        restored.UseKilogramsCommand.Execute(null);
+        Assert.Equal(WeightDisplayUnit.Kilograms, new WeightUnitPreference(store).Current);
+        Assert.Equal("25.125 กก. · 10 ครั้ง", Assert.Single(restored.LastSets).MeasurementText);
     }
 
     [Fact]
@@ -181,6 +235,49 @@ public sealed class SetLoggerViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task Sync_status_refresh_failure_after_commit_keeps_the_set_successful_without_a_retry_write()
+    {
+        var fixture = await CreateFixtureAsync(TrackingMode.Weighted);
+        var status = new ControllableStatusSource(new OutboxRepository(fixture.Database));
+        var sut = fixture.CreateLogger(null, status: status);
+        await sut.LoadAsync(ExerciseId, "Bench Press");
+        status.ThrowOnNextRead();
+        sut.WeightKg = 70m;
+        sut.Reps = 10;
+
+        await sut.CompleteSetCommand.ExecuteAsync();
+
+        Assert.Single(Assert.Single((await fixture.Repository.GetActiveAsync())!.Exercises).Sets);
+        Assert.Single(sut.TodaySets);
+        Assert.Equal(1, fixture.Feedback.CallCount);
+        Assert.Null(sut.ErrorMessage);
+        Assert.False(sut.IsBusy);
+    }
+
+    [Fact]
+    public async Task Account_reset_during_post_commit_status_refresh_never_runs_stale_feedback()
+    {
+        var fixture = await CreateFixtureAsync(TrackingMode.Weighted);
+        var status = new ControllableStatusSource(new OutboxRepository(fixture.Database));
+        var sut = fixture.CreateLogger(null, status: status);
+        await sut.LoadAsync(ExerciseId, "Bench Press");
+        status.BlockNextRead();
+        sut.WeightKg = 55m;
+        sut.Reps = 10;
+
+        var save = sut.CompleteSetCommand.ExecuteAsync();
+        await status.Entered.Task;
+        var reset = fixture.Boundary.ResetAsync(fixture.Coordinator.ClearPrivateDataAsync);
+        status.Release.TrySetResult();
+        await Task.WhenAll(save, reset);
+
+        Assert.Equal(0, fixture.Feedback.CallCount);
+        Assert.Empty(sut.TodaySets);
+        Assert.Null(await fixture.Repository.GetActiveAsync());
+        Assert.Null(sut.ErrorMessage);
+    }
+
+    [Fact]
     public async Task Offline_load_uses_cached_exact_previous_sets_without_an_error_toast()
     {
         var fixture = await CreateFixtureAsync(TrackingMode.Bodyweight);
@@ -192,6 +289,53 @@ public sealed class SetLoggerViewModelTests : IDisposable
         Assert.Equal([12, 9], sut.LastSets.Select(item => item.Reps));
         Assert.Equal(WorkoutSyncState.Offline, sut.SyncState);
         Assert.Null(sut.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task Permanently_rejected_current_workout_operation_survives_restart_in_a_distinct_status()
+    {
+        var fixture = await CreateFixtureAsync(TrackingMode.Weighted);
+        var workoutId = (await fixture.Repository.GetActiveAsync())!.Id;
+        await ArchiveOperationsAsRejectedAsync(workoutId);
+        var restartedDatabase = new TrackZLocalDatabase(_databasePath);
+        var restartedRepository = new LocalWorkoutRepository(restartedDatabase);
+        var restartedBoundary = new AccountSessionBoundary();
+        var sut = new SetLoggerViewModel(
+            new ActiveWorkoutCoordinator(restartedRepository, restartedBoundary, new FixedClock()),
+            new StubHistory(null),
+            fixture.Feedback,
+            restartedBoundary,
+            new StubConnectivity(true),
+            new OutboxRepository(restartedDatabase),
+            WorkoutResources.English);
+
+        await sut.LoadAsync(ExerciseId, "Bench Press");
+
+        Assert.Equal(WorkoutSyncState.PermanentFailure, sut.SyncState);
+        Assert.Equal("Sync failed permanently", sut.SyncStatusText);
+        Assert.NotEqual(WorkoutResources.English.Synced, sut.SyncStatusText);
+    }
+
+    [Fact]
+    public async Task Rejected_operation_for_another_workout_is_not_projected_into_the_current_workout()
+    {
+        var fixture = await CreateFixtureAsync(TrackingMode.Weighted);
+        var unrelatedWorkoutId = Guid.Parse("99999999-9999-9999-9999-999999999999");
+        await InsertUnrelatedRejectedOperationAsync(unrelatedWorkoutId);
+        var restartedDatabase = new TrackZLocalDatabase(_databasePath);
+        var sut = new SetLoggerViewModel(
+            fixture.Coordinator,
+            new StubHistory(null),
+            fixture.Feedback,
+            fixture.Boundary,
+            new StubConnectivity(true),
+            new OutboxRepository(restartedDatabase),
+            WorkoutResources.English);
+
+        await sut.LoadAsync(ExerciseId, "Bench Press");
+
+        Assert.Equal(WorkoutSyncState.Pending, sut.SyncState);
+        Assert.Equal(WorkoutResources.English.Pending, sut.SyncStatusText);
     }
 
     [Fact]
@@ -317,6 +461,72 @@ public sealed class SetLoggerViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task Stepper_accessibility_descriptions_are_localized_action_and_mode_specific()
+    {
+        var weightedFixture = await CreateFixtureAsync(TrackingMode.Weighted);
+        var weighted = weightedFixture.CreateLogger(null);
+        await weighted.LoadAsync(ExerciseId, "Bench Press");
+
+        Assert.Equal("Decrease weight", weighted.DecrementWeightDescription);
+        Assert.Equal("Increase weight", weighted.IncrementWeightDescription);
+        Assert.Equal("Decrease reps", weighted.DecrementRepsDescription);
+        Assert.Equal("Increase reps", weighted.IncrementRepsDescription);
+        Assert.NotEqual(weighted.DecrementWeightDescription, weighted.IncrementWeightDescription);
+
+        await weightedFixture.Boundary.ResetAsync(weightedFixture.Coordinator.ClearPrivateDataAsync);
+        await weightedFixture.Coordinator.StartAsync([
+            new WorkoutExerciseSelection(ExerciseId, TrackingMode.Assisted)
+        ]);
+        var assisted = weightedFixture.CreateLogger(
+            null,
+            culture: CultureInfo.GetCultureInfo("th-TH"));
+        await assisted.LoadAsync(ExerciseId, "Assisted Pull-up");
+
+        Assert.Equal("ลดน้ำหนักช่วย", assisted.DecrementWeightDescription);
+        Assert.Equal("เพิ่มน้ำหนักช่วย", assisted.IncrementWeightDescription);
+        Assert.Equal("ลดจำนวนครั้ง", assisted.DecrementRepsDescription);
+        Assert.Equal("เพิ่มจำนวนครั้ง", assisted.IncrementRepsDescription);
+        Assert.NotEqual(assisted.DecrementWeightDescription, assisted.IncrementWeightDescription);
+    }
+
+    [Fact]
+    public async Task Disposed_navigation_loggers_unsubscribe_and_commands_cannot_write_or_accumulate_refreshes()
+    {
+        var fixture = await CreateFixtureAsync(TrackingMode.Weighted);
+        var connectivity = new TrackingConnectivity();
+        var status = new CountingStatusSource(new OutboxRepository(fixture.Database));
+        var disposed = new List<SetLoggerViewModel>();
+        for (var index = 0; index < 5; index++)
+        {
+            var logger = new SetLoggerViewModel(
+                fixture.Coordinator,
+                new StubHistory(null),
+                fixture.Feedback,
+                fixture.Boundary,
+                connectivity,
+                status,
+                WorkoutResources.English);
+            await logger.LoadAsync(ExerciseId, "Bench Press");
+            logger.WeightKg = 60m;
+            logger.Reps = 10;
+            logger.Dispose();
+            disposed.Add(logger);
+        }
+
+        var readsAfterNavigation = status.ReadCount;
+        Assert.Equal(0, connectivity.SubscriberCount);
+        connectivity.RaiseChanged();
+        await Task.Delay(50);
+        Assert.Equal(readsAfterNavigation, status.ReadCount);
+        Assert.All(disposed, logger => Assert.False(logger.CompleteSetCommand.CanExecute(null)));
+        await disposed[0].CompleteSetCommand.ExecuteAsync();
+        Assert.Empty(Assert.Single((await fixture.Repository.GetActiveAsync())!.Exercises).Sets);
+
+        await fixture.Boundary.ResetAsync(fixture.Coordinator.ClearPrivateDataAsync);
+        Assert.All(disposed, logger => Assert.Equal("Bench Press", logger.ExerciseName));
+    }
+
+    [Fact]
     public async Task Draft_reorder_preserves_stable_selection_order_in_the_single_start_operation()
     {
         var second = Guid.Parse("22222222-2222-2222-2222-222222222222");
@@ -426,6 +636,54 @@ public sealed class SetLoggerViewModelTests : IDisposable
         await command.ExecuteNonQueryAsync();
     }
 
+    private async Task ArchiveOperationsAsRejectedAsync(Guid workoutId)
+    {
+        await using var connection = new SqliteConnection($"Data Source={_databasePath};Pooling=False");
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE OutboxOperation
+            SET State = 3, DeletedAt = '2026-08-16T02:30:00.0000000+00:00'
+            WHERE EntityId = $workoutId;
+            """;
+        command.Parameters.AddWithValue("$workoutId", workoutId.ToString("D"));
+        await command.ExecuteNonQueryAsync();
+    }
+
+    private async Task InsertUnrelatedRejectedOperationAsync(Guid workoutId)
+    {
+        await using var connection = new SqliteConnection($"Data Source={_databasePath};Pooling=False");
+        await connection.OpenAsync();
+        await using var transaction = await connection.BeginTransactionAsync();
+        await using (var workout = connection.CreateCommand())
+        {
+            workout.Transaction = (SqliteTransaction)transaction;
+            workout.CommandText = """
+                INSERT INTO LocalWorkout
+                    (Id, Status, StartedAt, CompletedAt, DeletedAt, Version, BaseVersion)
+                VALUES ($id, 1, '2026-08-15T02:00:00.0000000+00:00', NULL, NULL, 1, 0);
+                """;
+            workout.Parameters.AddWithValue("$id", workoutId.ToString("D"));
+            await workout.ExecuteNonQueryAsync();
+        }
+        await using (var operation = connection.CreateCommand())
+        {
+            operation.Transaction = (SqliteTransaction)transaction;
+            operation.CommandText = """
+                INSERT INTO OutboxOperation
+                    (OperationId, EntityId, OperationType, Payload, BaseVersion, CreatedAt,
+                     State, DeletedAt, Version, RetryCount)
+                VALUES ($operationId, $workoutId, 1, '{}', 0,
+                        '2026-08-15T02:00:00.0000000+00:00', 3,
+                        '2026-08-15T02:01:00.0000000+00:00', 2, 0);
+                """;
+            operation.Parameters.AddWithValue("$operationId", Guid.NewGuid().ToString("D"));
+            operation.Parameters.AddWithValue("$workoutId", workoutId.ToString("D"));
+            await operation.ExecuteNonQueryAsync();
+        }
+        await transaction.CommitAsync();
+    }
+
     private static ExerciseHistorySessionDto Previous(TrackingMode mode, params WorkoutSetDto[] sets) =>
         new(Guid.NewGuid(), Now.AddDays(-2), mode, 0m, sets);
 
@@ -448,15 +706,18 @@ public sealed class SetLoggerViewModelTests : IDisposable
             ExerciseHistorySessionDto? previous,
             bool online = true,
             CultureInfo? culture = null,
-            IWorkoutSyncRunner? sync = null) => new(
+            IWorkoutSyncRunner? sync = null,
+            IWorkoutOutboxStatusSource? status = null,
+            IWeightUnitPreference? unitPreference = null) => new(
                 Coordinator,
                 new StubHistory(previous),
                 Feedback,
                 Boundary,
                 new StubConnectivity(online),
-                new OutboxRepository(Database),
+                status ?? new OutboxRepository(Database),
                 WorkoutResources.ForCulture(culture ?? CultureInfo.GetCultureInfo("en-US")),
-                syncRunner: sync);
+                syncRunner: sync,
+                unitPreference: unitPreference);
     }
 
     private sealed class StubHistory(ExerciseHistorySessionDto? previous) : IExerciseHistorySource
@@ -499,6 +760,81 @@ public sealed class SetLoggerViewModelTests : IDisposable
     {
         public bool IsOnline { get; } = online;
         public event EventHandler? ConnectivityChanged { add { } remove { } }
+    }
+
+    private sealed class TrackingConnectivity : IConnectivityService
+    {
+        private EventHandler? _changed;
+        public bool IsOnline => true;
+        public int SubscriberCount => _changed?.GetInvocationList().Length ?? 0;
+        public event EventHandler? ConnectivityChanged
+        {
+            add => _changed += value;
+            remove => _changed -= value;
+        }
+        public void RaiseChanged() => _changed?.Invoke(this, EventArgs.Empty);
+    }
+
+    private sealed class CountingStatusSource(IWorkoutOutboxStatusSource inner) : IWorkoutOutboxStatusSource
+    {
+        public int ReadCount { get; private set; }
+        public Task<IReadOnlyList<OutboxOperation>> PendingAsync(Guid workoutId, CancellationToken cancellationToken = default)
+        {
+            ReadCount++;
+            return inner.PendingAsync(workoutId, cancellationToken);
+        }
+        public Task<IReadOnlyList<OutboxOperation>> ConflictedAsync(Guid workoutId, CancellationToken cancellationToken = default)
+        {
+            ReadCount++;
+            return inner.ConflictedAsync(workoutId, cancellationToken);
+        }
+        public Task<IReadOnlyList<OutboxOperation>> RejectedAsync(Guid workoutId, CancellationToken cancellationToken = default)
+        {
+            ReadCount++;
+            return inner.RejectedAsync(workoutId, cancellationToken);
+        }
+    }
+
+    private sealed class MemoryWorkoutPreferenceStore : IWorkoutPreferenceStore
+    {
+        private readonly Dictionary<string, string> _values = [];
+        public string? Get(string key) => _values.GetValueOrDefault(key);
+        public void Set(string key, string value) => _values[key] = value;
+    }
+
+    private sealed class ControllableStatusSource(IWorkoutOutboxStatusSource inner) : IWorkoutOutboxStatusSource
+    {
+        private bool _block;
+        private bool _throw;
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public void BlockNextRead() => _block = true;
+        public void ThrowOnNextRead() => _throw = true;
+
+        public async Task<IReadOnlyList<OutboxOperation>> PendingAsync(Guid workoutId, CancellationToken cancellationToken = default) =>
+            await inner.PendingAsync(workoutId, cancellationToken);
+
+        public async Task<IReadOnlyList<OutboxOperation>> ConflictedAsync(Guid workoutId, CancellationToken cancellationToken = default)
+        {
+            if (_throw)
+            {
+                _throw = false;
+                throw new IOException("status refresh failed");
+            }
+            if (_block)
+            {
+                _block = false;
+                Entered.TrySetResult();
+                await Release.Task;
+            }
+            return await inner.ConflictedAsync(workoutId, cancellationToken);
+        }
+
+        public Task<IReadOnlyList<OutboxOperation>> RejectedAsync(
+            Guid workoutId,
+            CancellationToken cancellationToken = default) =>
+            inner.RejectedAsync(workoutId, cancellationToken);
     }
 
     private sealed class BlockingWorkoutRepository(ILocalWorkoutRepository inner) : ILocalWorkoutRepository

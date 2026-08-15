@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
 using TrackZ.Contracts.Errors;
@@ -7,8 +8,11 @@ using TrackZ.Domain.Exercises;
 using TrackZ.Mobile.Features.Exercises.Data;
 using TrackZ.Mobile.Features.Exercises.Models;
 using TrackZ.Mobile.Identity;
+using TrackZ.Mobile.Features.Workout;
 
 namespace TrackZ.Mobile.Features.Exercises;
+
+public sealed record BodyPartFilterOption(BodyPart Value, string Label);
 
 public sealed class ExercisePickerViewModel : INotifyPropertyChanged
 {
@@ -19,6 +23,7 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged
     private readonly IUiDispatcher _dispatcher;
     private readonly IExerciseThumbnailCache? _thumbnailCache;
     private readonly IAccountSessionBoundary _boundary;
+    private readonly WorkoutTextSet _text;
     private readonly List<Guid> _selectedIds = [];
     private readonly HashSet<Guid> _selectedIdSet = [];
     private IReadOnlyList<CachedExercise> _catalog = [];
@@ -34,7 +39,8 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged
         IClock clock,
         IUiDispatcher? dispatcher = null,
         IExerciseThumbnailCache? thumbnailCache = null,
-        IAccountSessionBoundary? boundary = null)
+        IAccountSessionBoundary? boundary = null,
+        WorkoutTextSet? text = null)
     {
         _cache = cache;
         _catalogApi = catalogApi;
@@ -43,13 +49,26 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged
         _dispatcher = dispatcher ?? new InlineUiDispatcher();
         _thumbnailCache = thumbnailCache;
         _boundary = boundary ?? new AccountSessionBoundary();
+        _text = text ?? WorkoutResources.Current;
+        BodyPartOptions =
+        [
+            new(BodyPart.Chest, _text.BodyPartChest),
+            new(BodyPart.Back, _text.BodyPartBack),
+            new(BodyPart.Shoulders, _text.BodyPartShoulders),
+            new(BodyPart.Arms, _text.BodyPartArms),
+            new(BodyPart.Legs, _text.BodyPartLegs),
+            new(BodyPart.Core, _text.BodyPartCore)
+        ];
         _boundary.SessionReset += OnSessionReset;
         ToggleSelectionCommand = new RelayCommand(ToggleSelection);
     }
 
     public ObservableCollection<CachedExercise> Exercises { get; } = [];
     public IReadOnlyList<BodyPart> BodyParts { get; } = Enum.GetValues<BodyPart>();
+    public IReadOnlyList<BodyPartFilterOption> BodyPartOptions { get; }
     public IReadOnlyCollection<Guid> SelectedExerciseIds => _selectedIds;
+    public WorkoutTextSet Text => _text;
+    public string SelectedCountText => string.Format(CultureInfo.CurrentCulture, _text.SelectedCountFormat, _selectedIds.Count);
     public ICommand ToggleSelectionCommand { get; }
     public Task RefreshCompletion { get; private set; } = Task.CompletedTask;
 
@@ -74,8 +93,15 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged
             if (_selectedBodyPart == value) return;
             _selectedBodyPart = value;
             OnPropertyChanged();
+            OnPropertyChanged(nameof(SelectedBodyPartOption));
             ApplyFilter();
         }
+    }
+
+    public BodyPartFilterOption? SelectedBodyPartOption
+    {
+        get => BodyPartOptions.SingleOrDefault(item => item.Value == SelectedBodyPart);
+        set => SelectedBodyPart = value?.Value;
     }
 
     public bool IsRefreshing
@@ -229,6 +255,7 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged
         foreach (var exercise in _catalog.Where(item => item.Id == id))
             exercise.IsSelected = _selectedIdSet.Contains(id);
         OnPropertyChanged(nameof(SelectedExerciseIds));
+        OnPropertyChanged(nameof(SelectedCountText));
     }
 
     private void ApplyFilter()
@@ -257,6 +284,7 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged
         IsRefreshing = false;
         Exercises.Clear();
         OnPropertyChanged(nameof(SelectedExerciseIds));
+        OnPropertyChanged(nameof(SelectedCountText));
     }
 
     private void OnPropertyChanged([CallerMemberName] string? name = null) =>

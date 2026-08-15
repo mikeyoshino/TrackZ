@@ -15,6 +15,9 @@
                 Command="{Binding DecrementCommand, Source={x:Reference Root}}"
                 CornerRadius="14"
                 FontSize="24"
+                HeightRequest="52"
+                MinimumHeightRequest="44"
+                MinimumWidthRequest="44"
                 SemanticProperties.Description="{Binding DecrementLabel, Source={x:Reference Root}}"
                 Text="−" />
             <Border Grid.Column="1" Padding="10,0" BackgroundColor="#1B1F25" Stroke="#303640" StrokeShape="RoundRectangle 14">
@@ -24,6 +27,7 @@
                         FontSize="24"
                         HorizontalTextAlignment="Center"
                         Keyboard="Numeric"
+                        MinimumHeightRequest="44"
                         ReturnType="Done"
                         SemanticProperties.Description="{Binding Caption, Source={x:Reference Root}}"
                         Text="{Binding Value, Source={x:Reference Root}, Mode=TwoWay}" />
@@ -40,6 +44,9 @@
                 Command="{Binding IncrementCommand, Source={x:Reference Root}}"
                 CornerRadius="14"
                 FontSize="24"
+                HeightRequest="52"
+                MinimumHeightRequest="44"
+                MinimumWidthRequest="44"
                 SemanticProperties.Description="{Binding IncrementLabel, Source={x:Reference Root}}"
                 Text="+" />
         </Grid>
