@@ -73,3 +73,13 @@ All three are original, built-in `imagegen` Draft outputs. The original generate
 - `dotnet test tests/TrackZ.Infrastructure.Tests --filter "FullyQualifiedName~ExerciseCatalogManifestTests&Category=Asset" --no-restore --verbosity minimal`: PASS — 1 passed, 0 failed.
 
 The asset remains `Draft`; no review, anatomy approval, rights approval, reviewer, timestamp, or publication state was created.
+
+## Round 3/5 — Lat Pulldown restrained movement-arrow edit
+
+- Built-in `imagegen` edited only `assets/exercises/images/lat-pulldown.png`, using that local Draft asset as the reference. The retained edit output is `/Users/mikeyoshino/.codex/generated_images/01a00440-d8c1-7961-b4d6-2be3f8faa8d8/exec-79dca7a6-5dd1-4fe4-bfe7-49881d4a4505.png`.
+- Actual edit prompt: add only one subtle dark-gray downward movement arrow in clear right-side background space, from the ghosted overhead start toward the solid upper-chest finish; preserve the athlete, anatomy colors, machine, pads, ghosted start, and corrected bar path exactly; no overlap with face, bar, cable, joints, target muscles, or equipment; no text, glyphs, letters, numbers, labels, logos, or watermarks.
+- Direct original-detail inspection accepted the output: the sole arrow is in clear upper-right background space, and the finished bar remains entirely in front of the head and neck, below the chin at the upper chest/clavicle. The ghosted overhead start, vertical cable, face, red lats, equipment, and thigh pads are unchanged; no text or glyphs are present.
+- `sips -z 1024 1024` wrote the accepted output to the stable Draft file, then `assets/exercises/contact-sheet.png` was rebuilt in manifest order (8 columns × 6 rows).
+- `dotnet test tests/TrackZ.Infrastructure.Tests --filter "FullyQualifiedName~ExerciseCatalogManifestTests&Category=Asset" --no-restore --verbosity minimal`: PASS — 1 passed, 0 failed.
+
+The asset remains `Draft`; no review, anatomy approval, rights approval, reviewer, timestamp, or publication state was created.
