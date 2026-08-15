@@ -1,15 +1,24 @@
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using TrackZ.Application.Common.Interfaces;
+using TrackZ.Application.Exercises.ListExercises;
+using TrackZ.Contracts.Exercises;
 using TrackZ.Domain.Identity;
+using TrackZ.Domain.Exercises;
 
 namespace TrackZ.Infrastructure.Persistence;
 
-public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options), IAppDbContext
+public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options), IAppDbContext, IExerciseCatalogReadStore
 {
     public DbSet<User> Users => Set<User>();
 
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+
+    public DbSet<ExerciseDefinition> Exercises => Set<ExerciseDefinition>();
+
+    public DbSet<ExerciseImage> ExerciseImages => Set<ExerciseImage>();
+
+    public DbSet<ExercisePerformance> ExercisePerformances => Set<ExercisePerformance>();
 
     public Task<User?> FindUserByNormalizedEmailAsync(
         string normalizedEmail,
@@ -56,6 +65,73 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
     public Task AcquireSessionLockAsync(Guid sessionId, CancellationToken cancellationToken = default) =>
         Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock({BitConverter.ToInt64(sessionId.ToByteArray(), 0)})", cancellationToken);
+
+    public async Task<IReadOnlyList<CatalogExerciseReadItem>> ListAsync(
+        Guid userId,
+        BodyPart? bodyPart,
+        string? normalizedSearch,
+        CatalogCursor? after,
+        int take,
+        CancellationToken cancellationToken)
+    {
+        var query =
+            from exercise in Exercises.AsNoTracking()
+            join performance in ExercisePerformances.AsNoTracking().Where(item => item.UserId == userId)
+                on exercise.Id equals performance.ExerciseDefinitionId into performanceRows
+            from performance in performanceRows.DefaultIfEmpty()
+            where !exercise.IsArchived
+                && (exercise.OwnerId == null || exercise.OwnerId == userId)
+                && (!bodyPart.HasValue || exercise.BodyPart == bodyPart.Value)
+                && (normalizedSearch == null || exercise.NormalizedName.Contains(normalizedSearch))
+                && (after == null
+                    || string.Compare(exercise.Name, after.OrderingName) > 0
+                    || (exercise.Name == after.OrderingName && exercise.Id.CompareTo(after.OrderingId) > 0))
+            orderby exercise.Name, exercise.Id
+            select new CatalogExerciseReadItem(
+                new ExerciseSummaryDto(
+                    exercise.Id,
+                    exercise.Name,
+                    exercise.BodyPart,
+                    exercise.TrackingMode,
+                    ExerciseImages.AsNoTracking()
+                        .Where(image => image.ExerciseDefinitionId == exercise.Id
+                            && ((image.Source == ExerciseImageSource.SystemArtwork
+                                    && !image.IsPrivate
+                                    && image.OwnerId == null
+                                    && image.ReviewState == ExerciseImageReviewState.Published
+                                    && image.AnatomyApproved
+                                    && image.MovementApproved
+                                    && image.RightsApproved
+                                    && image.ReviewedByUserId != null
+                                    && image.ReviewedAt != null
+                                    && image.RightsReference != null
+                                    && image.PublishedAt != null)
+                                || (image.Source == ExerciseImageSource.UserUpload
+                                    && image.IsPrivate
+                                    && image.OwnerId == userId
+                                    && image.ReviewState == null)))
+                        .OrderByDescending(image => image.Version)
+                        .Select(image => image.ThumbnailObjectKey)
+                        .FirstOrDefault(),
+                    performance == null ? null : performance.LastPerformedAt,
+                    performance == null || performance.LastBestReps == null
+                        ? null
+                        : new PerformanceSetDto(
+                            exercise.TrackingMode == TrackingMode.Weighted ? performance.LastBestWeightKg : null,
+                            exercise.TrackingMode == TrackingMode.Assisted ? performance.LastBestAssistedKg : null,
+                            performance.LastBestReps.Value),
+                    performance == null || performance.AllTimeBestReps == null
+                        ? null
+                        : new PerformanceSetDto(
+                            exercise.TrackingMode == TrackingMode.Weighted ? performance.AllTimeBestWeightKg : null,
+                            exercise.TrackingMode == TrackingMode.Assisted ? performance.AllTimeBestAssistedKg : null,
+                            performance.AllTimeBestReps.Value),
+                    exercise.OwnerId != null),
+                exercise.Name,
+                exercise.Id);
+
+        return await query.Take(take).ToListAsync(cancellationToken);
+    }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

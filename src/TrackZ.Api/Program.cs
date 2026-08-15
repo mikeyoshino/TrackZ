@@ -12,6 +12,8 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<TrackZ.Application.Exercises.ListExercises.ICurrentUser, HttpCurrentUser>();
 builder.Services.AddAuthorization();
 builder.Services.Configure<RequestLocalizationOptions>(options =>
 {
@@ -76,6 +78,7 @@ app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapIdentityEndpoints();
+app.MapExerciseEndpoints();
 
 app.Run();
 

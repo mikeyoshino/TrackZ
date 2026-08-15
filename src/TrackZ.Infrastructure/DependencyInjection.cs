@@ -8,6 +8,8 @@ using Microsoft.EntityFrameworkCore;
 using TrackZ.Application.Common.Interfaces;
 using TrackZ.Infrastructure.Identity;
 using TrackZ.Infrastructure.Persistence;
+using TrackZ.Application.Exercises.ListExercises;
+using TrackZ.Infrastructure.Exercises;
 
 namespace TrackZ.Infrastructure;
 
@@ -22,6 +24,8 @@ public static class DependencyInjection
                 ?? throw new InvalidOperationException("The TrackZ database connection string is not configured.")));
 
         services.AddScoped<IAppDbContext>(provider => provider.GetRequiredService<AppDbContext>());
+        services.AddScoped<IExerciseCatalogReadStore>(provider => provider.GetRequiredService<AppDbContext>());
+        services.AddSingleton<IExerciseCursorCodec, HmacExerciseCursorCodec>();
         services.AddSingleton<IPasswordHasher, PasswordHasher>();
         services.AddSingleton<ITokenService, JwtTokenService>();
 
