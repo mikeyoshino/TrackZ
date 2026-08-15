@@ -21,9 +21,7 @@ public sealed class CompleteImageUploadHandler(IExerciseImageUploadStore store, 
         if (ticket.IsExpired(now)) throw Missing();
         if (ticket.State is not (ImageUploadState.Uploaded or ImageUploadState.Processing)) throw Missing();
         if (!ticket.TryClaim(now, Lease)) throw Processing();
-        try { await store.SaveAsync(cancellationToken); }
-        catch (OperationCanceledException) { throw; }
-        catch { throw Processing(); }
+        await store.SaveAsync(cancellationToken);
 
         var processingLeaseId = ticket.ProcessingLeaseId ?? throw Processing();
         string? masterKey = null; string? thumbnailKey = null;
@@ -42,7 +40,7 @@ public sealed class CompleteImageUploadHandler(IExerciseImageUploadStore store, 
             await using var thumbnail = new MemoryStream(rendered.Thumbnail, writable: false);
             await storage.PutAsync($"private/{owner:D}/", thumbnailKey, thumbnail, rendered.ContentType, cancellationToken);
             var image = await store.CommitCompletionAsync(ticket.Id, owner, processingLeaseId, masterKey, thumbnailKey, cancellationToken);
-            _ = DeleteBestEffortAsync($"staging/{owner:D}/", ticket.StagingObjectKey);
+            await DeleteBestEffortAsync($"staging/{owner:D}/", ticket.StagingObjectKey);
             return Dto(image.Id);
         }
         catch (OperationCanceledException) { await ReleaseAsync(ticket, owner, processingLeaseId, masterKey, thumbnailKey, cancellationToken); throw; }
@@ -81,8 +79,8 @@ public sealed class CompleteImageUploadHandler(IExerciseImageUploadStore store, 
     }
     private async Task ReleaseAsync(ImageUploadTicket ticket, Guid owner, Guid leaseId, string? master, string? thumbnail, CancellationToken ct)
     {
-        _ = await store.TryReleaseClaimAsync(ticket.Id, owner, leaseId, ct);
-        await CleanupAttemptAsync(owner, master, thumbnail, ct);
+        _ = await store.TryReleaseClaimAsync(ticket.Id, owner, leaseId, CancellationToken.None);
+        await CleanupAttemptAsync(owner, master, thumbnail, CancellationToken.None);
     }
     private async Task CleanupAttemptAsync(Guid owner, string? master, string? thumbnail, CancellationToken ct)
     { try { if (master is not null) await storage.DeleteAsync($"private/{owner:D}/", master, ct); } catch { } try { if (thumbnail is not null) await storage.DeleteAsync($"private/{owner:D}/", thumbnail, ct); } catch { } }
