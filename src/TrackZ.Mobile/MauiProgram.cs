@@ -50,6 +50,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<TrackZSyncApiClient>();
 		builder.Services.AddSingleton<ISyncApi>(services => services.GetRequiredService<TrackZSyncApiClient>());
 		builder.Services.AddSingleton<IExerciseCatalogApi>(services => services.GetRequiredService<TrackZExerciseApiClient>());
+		builder.Services.AddSingleton<IExerciseHistoryApi>(services => services.GetRequiredService<TrackZExerciseApiClient>());
 		builder.Services.AddSingleton<ICustomExerciseApi>(services => services.GetRequiredService<TrackZExerciseApiClient>());
 		builder.Services.AddSingleton<IExerciseImageApi>(services => services.GetRequiredService<TrackZExerciseApiClient>());
 		builder.Services.AddSingleton<IExerciseThumbnailCache>(services => new AuthenticatedExerciseThumbnailCache(
@@ -67,6 +68,8 @@ public static class MauiProgram
 		builder.Services.AddSingleton<IExerciseFileStore, LocalExerciseFileStore>();
 		builder.Services.AddSingleton(services => new ExerciseCache(
 			Path.Combine(FileSystem.AppDataDirectory, "exercise-catalog.db")));
+		builder.Services.AddSingleton(services => new ExerciseHistoryCache(
+			Path.Combine(FileSystem.AppDataDirectory, "exercise-history.db")));
 		builder.Services.AddSingleton(services => new TrackZLocalDatabase(
 			Path.Combine(FileSystem.AppDataDirectory, "workouts.db")));
 		builder.Services.AddSingleton<LocalWorkoutRepository>();
@@ -74,6 +77,11 @@ public static class MauiProgram
 			services.GetRequiredService<LocalWorkoutRepository>());
 		builder.Services.AddSingleton<OutboxRepository>();
 		builder.Services.AddSingleton<ActiveWorkoutCoordinator>();
+		builder.Services.AddSingleton<IExerciseHistorySource, CachedExerciseHistorySource>();
+		builder.Services.AddSingleton<IWorkoutSyncRunner, WorkoutSyncRunner>();
+		builder.Services.AddSingleton(WorkoutResources.Current);
+		builder.Services.AddSingleton<MauiSetSavedFeedback>();
+		builder.Services.AddSingleton<ISetSavedFeedback>(services => services.GetRequiredService<MauiSetSavedFeedback>());
 		builder.Services.AddSingleton<SyncCoordinator>();
 		builder.Services.AddSingleton<ConflictResolution>();
 		builder.Services.AddSingleton<CustomExerciseImageService>();
@@ -81,8 +89,12 @@ public static class MauiProgram
 		builder.Services.AddSingleton<LocalExerciseImageSelectionCoordinator>();
 		builder.Services.AddTransient<ExercisePickerViewModel>();
 		builder.Services.AddTransient<CustomExerciseViewModel>();
+		builder.Services.AddTransient<WorkoutViewModel>();
+		builder.Services.AddTransient<SetLoggerViewModel>();
 		builder.Services.AddSingleton<ExercisePickerPage>();
 		builder.Services.AddTransient<CustomExercisePage>();
+		builder.Services.AddSingleton<WorkoutPage>();
+		builder.Services.AddTransient<SetLoggerPage>();
 		builder.Services.AddSingleton<AppShell>();
 
 #if DEBUG

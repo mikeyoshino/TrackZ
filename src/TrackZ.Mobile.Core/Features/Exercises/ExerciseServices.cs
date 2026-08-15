@@ -1,5 +1,6 @@
 using TrackZ.Contracts.Errors;
 using TrackZ.Contracts.Exercises;
+using TrackZ.Contracts.Workouts;
 using TrackZ.Domain.Exercises;
 
 namespace TrackZ.Mobile.Features.Exercises;
@@ -48,6 +49,13 @@ public sealed class InlineUiDispatcher : IUiDispatcher
 public interface IExerciseCatalogApi
 {
     Task<IReadOnlyList<ExerciseSummaryDto>> GetAllAsync(CancellationToken cancellationToken = default);
+}
+
+public interface IExerciseHistoryApi
+{
+    Task<ExerciseHistorySessionDto?> GetMostRecentAsync(
+        Guid exerciseId,
+        CancellationToken cancellationToken = default);
 }
 
 public interface IExerciseThumbnailCache

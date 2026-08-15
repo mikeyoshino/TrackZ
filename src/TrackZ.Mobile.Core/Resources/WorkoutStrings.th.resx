@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms</value></resheader>
+  <data name="Offline" xml:space="preserve"><value>ออฟไลน์ · บันทึกไว้ในเครื่อง</value></data>
+  <data name="Pending" xml:space="preserve"><value>บันทึกแล้ว · รอซิงค์</value></data>
+  <data name="Conflicted" xml:space="preserve"><value>ต้องตรวจสอบข้อมูลซิงค์</value></data>
+  <data name="Syncing" xml:space="preserve"><value>กำลังซิงค์…</value></data>
+  <data name="Synced" xml:space="preserve"><value>ซิงค์แล้ว</value></data>
+  <data name="InvalidWeightedSet" xml:space="preserve"><value>กรอกน้ำหนักและจำนวนครั้งที่ถูกต้อง</value></data>
+  <data name="InvalidAssistedSet" xml:space="preserve"><value>กรอกน้ำหนักช่วยและจำนวนครั้งที่ถูกต้อง</value></data>
+  <data name="InvalidBodyweightSet" xml:space="preserve"><value>กรอกจำนวนครั้งที่ถูกต้อง</value></data>
+  <data name="SaveFailed" xml:space="preserve"><value>บันทึกเซ็ตลงในอุปกรณ์ไม่ได้</value></data>
+  <data name="LoadFailed" xml:space="preserve"><value>โหลดรายละเอียดการฝึกไม่ได้</value></data>
+  <data name="WorkoutTitle" xml:space="preserve"><value>การฝึกวันนี้</value></data>
+  <data name="SetLoggerTitle" xml:space="preserve"><value>บันทึกเซ็ต</value></data>
+  <data name="Last" xml:space="preserve"><value>ครั้งก่อน</value></data>
+  <data name="Today" xml:space="preserve"><value>วันนี้</value></data>
+  <data name="MatchLast" xml:space="preserve"><value>ใช้ค่าครั้งก่อน</value></data>
+  <data name="CompleteSet" xml:space="preserve"><value>จบเซ็ต</value></data>
+  <data name="AddExercise" xml:space="preserve"><value>เพิ่มท่า</value></data>
+  <data name="StartWorkout" xml:space="preserve"><value>เริ่มการฝึก</value></data>
+  <data name="Remove" xml:space="preserve"><value>นำออก</value></data>
+  <data name="MoveUp" xml:space="preserve"><value>เลื่อนขึ้น</value></data>
+  <data name="MoveDown" xml:space="preserve"><value>เลื่อนลง</value></data>
+  <data name="Weight" xml:space="preserve"><value>น้ำหนัก</value></data>
+  <data name="Assistance" xml:space="preserve"><value>น้ำหนักช่วย</value></data>
+  <data name="Reps" xml:space="preserve"><value>ครั้ง</value></data>
+  <data name="Kilograms" xml:space="preserve"><value>กก.</value></data>
+  <data name="Pounds" xml:space="preserve"><value>ปอนด์</value></data>
+  <data name="Bodyweight" xml:space="preserve"><value>น้ำหนักตัว</value></data>
+  <data name="NoExercises" xml:space="preserve"><value>เพิ่มท่าเพื่อจัดการฝึกของคุณ</value></data>
+  <data name="SavedLocally" xml:space="preserve"><value>บันทึกเซ็ตแล้ว</value></data>
+</root>

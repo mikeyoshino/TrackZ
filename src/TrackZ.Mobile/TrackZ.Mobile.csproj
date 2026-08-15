@@ -72,12 +72,4 @@
 	  <ProjectReference Include="..\TrackZ.Mobile.Core\TrackZ.Mobile.Core.csproj" />
 	</ItemGroup>
 
-	<ItemGroup>
-	  <Compile Remove="Features\Exercises\Models\CachedExercise.cs" />
-	  <Compile Remove="Features\Exercises\Data\ExerciseCache.cs" />
-	  <Compile Remove="Features\Exercises\ExercisePickerViewModel.cs" />
-	  <Compile Remove="Features\Exercises\CustomExerciseViewModel.cs" />
-	  <Compile Remove="Features\Exercises\Services\CustomExerciseImageService.cs" />
-	</ItemGroup>
-
 </Project>

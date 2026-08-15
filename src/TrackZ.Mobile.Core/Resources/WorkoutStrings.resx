@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms</value></resheader>
+  <data name="Offline" xml:space="preserve"><value>Offline · saved on this device</value></data>
+  <data name="Pending" xml:space="preserve"><value>Saved · waiting to sync</value></data>
+  <data name="Conflicted" xml:space="preserve"><value>Sync needs your review</value></data>
+  <data name="Syncing" xml:space="preserve"><value>Syncing…</value></data>
+  <data name="Synced" xml:space="preserve"><value>Synced</value></data>
+  <data name="InvalidWeightedSet" xml:space="preserve"><value>Enter a valid weight and reps</value></data>
+  <data name="InvalidAssistedSet" xml:space="preserve"><value>Enter valid assistance and reps</value></data>
+  <data name="InvalidBodyweightSet" xml:space="preserve"><value>Enter valid reps</value></data>
+  <data name="SaveFailed" xml:space="preserve"><value>Could not save this set on your device</value></data>
+  <data name="LoadFailed" xml:space="preserve"><value>Could not load workout details</value></data>
+  <data name="WorkoutTitle" xml:space="preserve"><value>Today's workout</value></data>
+  <data name="SetLoggerTitle" xml:space="preserve"><value>Set logger</value></data>
+  <data name="Last" xml:space="preserve"><value>LAST</value></data>
+  <data name="Today" xml:space="preserve"><value>TODAY</value></data>
+  <data name="MatchLast" xml:space="preserve"><value>MATCH LAST</value></data>
+  <data name="CompleteSet" xml:space="preserve"><value>COMPLETE SET</value></data>
+  <data name="AddExercise" xml:space="preserve"><value>Add exercise</value></data>
+  <data name="StartWorkout" xml:space="preserve"><value>Start workout</value></data>
+  <data name="Remove" xml:space="preserve"><value>Remove</value></data>
+  <data name="MoveUp" xml:space="preserve"><value>Move up</value></data>
+  <data name="MoveDown" xml:space="preserve"><value>Move down</value></data>
+  <data name="Weight" xml:space="preserve"><value>Weight</value></data>
+  <data name="Assistance" xml:space="preserve"><value>Assistance</value></data>
+  <data name="Reps" xml:space="preserve"><value>Reps</value></data>
+  <data name="Kilograms" xml:space="preserve"><value>kg</value></data>
+  <data name="Pounds" xml:space="preserve"><value>lb</value></data>
+  <data name="Bodyweight" xml:space="preserve"><value>BODYWEIGHT</value></data>
+  <data name="NoExercises" xml:space="preserve"><value>Add exercises to build your workout.</value></data>
+  <data name="SavedLocally" xml:space="preserve"><value>Set saved</value></data>
+</root>

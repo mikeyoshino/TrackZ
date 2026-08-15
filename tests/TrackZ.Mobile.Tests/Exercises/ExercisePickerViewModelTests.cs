@@ -84,6 +84,24 @@ public sealed class ExercisePickerViewModelTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Selection_order_is_explicit_and_reselect_moves_the_stable_id_to_the_end()
+    {
+        var first = ChestPressWithPerformance();
+        var second = Summary(Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"), "Lat Pulldown", BodyPart.Back);
+        await _cache.ReplaceAllAsync([first, second], DateTimeOffset.UtcNow);
+        var sut = new ExercisePickerViewModel(
+            _cache, new StubCatalogApi(), new StubConnectivity(false), new FixedClock());
+        await sut.LoadAsync();
+
+        sut.ToggleSelectionCommand.Execute(first.Id);
+        sut.ToggleSelectionCommand.Execute(second.Id);
+        sut.ToggleSelectionCommand.Execute(first.Id);
+        sut.ToggleSelectionCommand.Execute(first.Id);
+
+        Assert.Equal([second.Id, first.Id], sut.SelectedExerciseIds);
+    }
+
+    [Fact]
     public async Task Failed_replacement_leaves_the_previous_catalog_intact()
     {
         var cached = ChestPressWithPerformance();

@@ -1,6 +1,7 @@
 using System.Runtime.ExceptionServices;
 using TrackZ.Mobile.Data;
 using TrackZ.Mobile.Identity;
+using TrackZ.Mobile.Features.Workout;
 
 namespace TrackZ.Mobile.Features.Exercises.Services;
 
@@ -72,7 +73,8 @@ public sealed class SecureMobileTokenStorage : IMobileTokenStorage
 
 public sealed class MauiPrivateDataCleaner(
     CustomExerciseImageService exercises,
-    TrackZLocalDatabase workouts) : IMobilePrivateDataCleaner
+    TrackZLocalDatabase workouts,
+    ExerciseHistoryCache history) : IMobilePrivateDataCleaner
 {
     public async Task ClearAsync(CancellationToken cancellationToken = default)
     {
@@ -89,6 +91,15 @@ public sealed class MauiPrivateDataCleaner(
         try
         {
             await workouts.ClearPrivateDataAsync(cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            failures.Add(exception);
+        }
+
+        try
+        {
+            await history.ClearAsync(cancellationToken);
         }
         catch (Exception exception)
         {

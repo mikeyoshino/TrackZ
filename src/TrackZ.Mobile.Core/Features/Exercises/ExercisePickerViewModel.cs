@@ -19,7 +19,8 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged
     private readonly IUiDispatcher _dispatcher;
     private readonly IExerciseThumbnailCache? _thumbnailCache;
     private readonly IAccountSessionBoundary _boundary;
-    private readonly HashSet<Guid> _selectedIds = [];
+    private readonly List<Guid> _selectedIds = [];
+    private readonly HashSet<Guid> _selectedIdSet = [];
     private IReadOnlyList<CachedExercise> _catalog = [];
     private string _searchText = string.Empty;
     private BodyPart? _selectedBodyPart;
@@ -216,9 +217,17 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged
             _ => Guid.Empty
         };
         if (id == Guid.Empty) return;
-        if (!_selectedIds.Add(id)) _selectedIds.Remove(id);
+        if (_selectedIdSet.Add(id))
+        {
+            _selectedIds.Add(id);
+        }
+        else
+        {
+            _selectedIdSet.Remove(id);
+            _selectedIds.Remove(id);
+        }
         foreach (var exercise in _catalog.Where(item => item.Id == id))
-            exercise.IsSelected = _selectedIds.Contains(id);
+            exercise.IsSelected = _selectedIdSet.Contains(id);
         OnPropertyChanged(nameof(SelectedExerciseIds));
     }
 
@@ -234,7 +243,7 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged
         Exercises.Clear();
         foreach (var exercise in filtered)
         {
-            exercise.IsSelected = _selectedIds.Contains(exercise.Id);
+            exercise.IsSelected = _selectedIdSet.Contains(exercise.Id);
             Exercises.Add(exercise);
         }
     }
@@ -243,6 +252,7 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged
     {
         _catalog = [];
         _selectedIds.Clear();
+        _selectedIdSet.Clear();
         LastErrorCode = null;
         IsRefreshing = false;
         Exercises.Clear();

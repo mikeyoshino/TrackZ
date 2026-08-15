@@ -5,16 +5,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Compile Include="..\TrackZ.Mobile\Features\Exercises\Models\CachedExercise.cs" Link="Features\Exercises\Models\CachedExercise.cs" />
-    <Compile Include="..\TrackZ.Mobile\Features\Exercises\Data\ExerciseCache.cs" Link="Features\Exercises\Data\ExerciseCache.cs" />
-    <Compile Include="..\TrackZ.Mobile\Features\Exercises\ExercisePickerViewModel.cs" Link="Features\Exercises\ExercisePickerViewModel.cs" />
-    <Compile Include="..\TrackZ.Mobile\Features\Exercises\CustomExerciseViewModel.cs" Link="Features\Exercises\CustomExerciseViewModel.cs" />
-    <Compile Include="..\TrackZ.Mobile\Features\Exercises\Services\CustomExerciseImageService.cs" Link="Features\Exercises\Services\CustomExerciseImageService.cs" />
-    <Compile Include="..\TrackZ.Mobile\Sync\SyncCoordinator.cs" Link="Sync\SyncCoordinator.cs" />
-    <Compile Include="..\TrackZ.Mobile\Sync\ConflictResolution.cs" Link="Sync\ConflictResolution.cs" />
-  </ItemGroup>
-
-  <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.9" />
     <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.5" />

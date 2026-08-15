@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage
+    x:Class="TrackZ.Mobile.Features.Workout.SetLoggerPage"
+    x:Name="Page"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:components="clr-namespace:TrackZ.Mobile.Components"
+    xmlns:workout="clr-namespace:TrackZ.Mobile.Features.Workout;assembly=TrackZ.Mobile.Core"
+    x:DataType="workout:SetLoggerViewModel"
+    BackgroundColor="#0D0F12"
+    Title="{Binding Text.SetLoggerTitle}">
+    <ScrollView>
+        <VerticalStackLayout Padding="18,18,18,30" Spacing="18">
+            <Grid ColumnDefinitions="*,Auto">
+                <VerticalStackLayout>
+                    <Label FontAttributes="Bold" FontSize="28" Text="{Binding ExerciseName}" />
+                    <Label FontSize="12" Text="{Binding TrackingModeLabel}" TextColor="#8E959F" />
+                </VerticalStackLayout>
+                <components:SyncStatusPill Grid.Column="1" State="{Binding SyncState}" Text="{Binding SyncStatusText}" VerticalOptions="Start" />
+            </Grid>
+
+            <Border Padding="14" BackgroundColor="#15181D" Stroke="#2C3139" StrokeShape="RoundRectangle 20">
+                <Grid ColumnDefinitions="*,*" ColumnSpacing="20">
+                    <components:LastSetTable Header="{Binding Text.Last}" ItemsSource="{Binding LastSets}" />
+                    <components:LastSetTable Grid.Column="1" Header="{Binding Text.Today}" ItemsSource="{Binding TodaySets}" />
+                </Grid>
+            </Border>
+
+            <Button
+                Command="{Binding MatchLastCommand}"
+                FontAttributes="Bold"
+                SemanticProperties.Description="{Binding Text.MatchLast}"
+                Text="{Binding Text.MatchLast}" />
+
+            <Border Padding="16" BackgroundColor="#15181D" Stroke="#2C3139" StrokeShape="RoundRectangle 20">
+                <VerticalStackLayout Spacing="16">
+                    <components:WeightStepper
+                        Caption="{Binding WeightCaption}"
+                        DecrementCommand="{Binding DecrementWeightCommand}"
+                        DecrementLabel="{Binding WeightCaption}"
+                        IncrementCommand="{Binding IncrementWeightCommand}"
+                        IncrementLabel="{Binding WeightCaption}"
+                        IsVisible="{Binding UsesWeight}"
+                        UnitLabel="{Binding WeightUnitLabel}"
+                        Value="{Binding DisplayWeight, Mode=TwoWay}" />
+                    <Label
+                        FontAttributes="Bold"
+                        FontSize="20"
+                        HorizontalTextAlignment="Center"
+                        IsVisible="{Binding IsBodyweight}"
+                        Text="{Binding Text.Bodyweight}"
+                        TextColor="#C8FF3D" />
+                    <components:RepsStepper
+                        Caption="{Binding Text.Reps}"
+                        DecrementCommand="{Binding DecrementRepsCommand}"
+                        DecrementLabel="{Binding Text.Reps}"
+                        IncrementCommand="{Binding IncrementRepsCommand}"
+                        IncrementLabel="{Binding Text.Reps}"
+                        Value="{Binding Reps, Mode=TwoWay}" />
+                    <Label FontSize="12" HorizontalTextAlignment="Center" Text="{Binding ValidationMessage}" TextColor="#FFC65C" />
+                </VerticalStackLayout>
+            </Border>
+
+            <Border x:Name="SavedPulse" Padding="12" BackgroundColor="#173126" Opacity="0" StrokeThickness="0" StrokeShape="RoundRectangle 16">
+                <Label FontAttributes="Bold" HorizontalTextAlignment="Center" Text="{Binding Text.SavedLocally}" TextColor="#62DD91" />
+            </Border>
+            <Label HorizontalTextAlignment="Center" Text="{Binding ErrorMessage}" TextColor="#FF6B6B" />
+            <Button
+                Command="{Binding CompleteSetCommand}"
+                FontAttributes="Bold"
+                FontSize="17"
+                IsEnabled="{Binding CanCompleteSet}"
+                SemanticProperties.Description="{Binding Text.CompleteSet}"
+                Text="{Binding Text.CompleteSet}" />
+            <ActivityIndicator IsRunning="{Binding IsBusy}" IsVisible="{Binding IsBusy}" />
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>

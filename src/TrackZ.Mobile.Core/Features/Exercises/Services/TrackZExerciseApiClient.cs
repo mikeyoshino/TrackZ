@@ -4,11 +4,13 @@ using System.Text.Json;
 using TrackZ.Contracts.Common;
 using TrackZ.Contracts.Errors;
 using TrackZ.Contracts.Exercises;
+using TrackZ.Contracts.Workouts;
 
 namespace TrackZ.Mobile.Features.Exercises.Services;
 
 public sealed class TrackZExerciseApiClient(HttpClient httpClient) :
     IExerciseCatalogApi,
+    IExerciseHistoryApi,
     ICustomExerciseApi,
     IExerciseImageApi
 {
@@ -32,6 +34,22 @@ public sealed class TrackZExerciseApiClient(HttpClient httpClient) :
             cursor = page.NextCursor;
         } while (cursor is not null);
         return exercises;
+    }
+
+    public async Task<ExerciseHistorySessionDto?> GetMostRecentAsync(
+        Guid exerciseId,
+        CancellationToken cancellationToken = default)
+    {
+        if (exerciseId == Guid.Empty)
+            throw new ArgumentException("Exercise ID is required.", nameof(exerciseId));
+        using var response = await httpClient.GetAsync(
+            $"/api/v1/exercises/{exerciseId:D}/history?pageSize=1", cancellationToken);
+        await EnsureSuccessAsync(response, cancellationToken);
+        var page = await ReadSuccessAsync<CursorPage<ExerciseHistorySessionDto>>(
+            response,
+            value => value.Items is not null && value.Items.Count <= 1,
+            cancellationToken);
+        return page.Items.SingleOrDefault();
     }
 
     public async Task<Guid> CreateAsync(CustomExerciseDraft exercise, CancellationToken cancellationToken = default)

@@ -22,6 +22,20 @@ public sealed class MobileCoreDependencyTests
         Assert.DoesNotContain(projectReferences, reference => reference?.Contains("Maui", StringComparison.OrdinalIgnoreCase) == true);
     }
 
+    [Fact]
+    public void Mobile_core_owns_nonvisual_sources_without_linking_them_from_the_maui_project()
+    {
+        var solutionDirectory = FindSolutionDirectory();
+        var coreDirectory = Path.Combine(solutionDirectory, "src", "TrackZ.Mobile.Core");
+        var project = XDocument.Load(Path.Combine(coreDirectory, "TrackZ.Mobile.Core.csproj"));
+
+        Assert.DoesNotContain(project.Descendants("Compile"), item =>
+            item.Attribute("Include")?.Value.Contains("..\\TrackZ.Mobile", StringComparison.OrdinalIgnoreCase) == true);
+        Assert.True(File.Exists(Path.Combine(coreDirectory, "Features", "Workout", "SetLoggerViewModel.cs")));
+        Assert.True(File.Exists(Path.Combine(coreDirectory, "Features", "Workout", "WorkoutViewModel.cs")));
+        Assert.True(File.Exists(Path.Combine(coreDirectory, "Sync", "SyncCoordinator.cs")));
+    }
+
     private static string FindSolutionDirectory()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
