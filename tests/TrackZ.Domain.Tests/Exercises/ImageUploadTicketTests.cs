@@ -55,4 +55,31 @@ public sealed class ImageUploadTicketTests
         Assert.True(ticket.CompleteCleanupClaim(cleanupClaim));
         Assert.False(ticket.TryClaimCleanup(now.AddMinutes(3), "staging/a/b", null, out _));
     }
+
+    [Fact]
+    public void Completed_ticket_cleanup_claim_allows_only_its_staging_key()
+    {
+        var now = DateTimeOffset.Parse("2026-08-15T00:00:00Z");
+        var ticket = ImageUploadTicket.Create(Guid.NewGuid(), Guid.NewGuid(), "staging/a/b", "image/jpeg", 100, now.AddMinutes(5));
+        ticket.TryMarkUploaded(now);
+        Assert.True(ticket.TryClaim(now, TimeSpan.FromMinutes(1)));
+        ticket.Complete(Guid.NewGuid(), ticket.ProcessingLeaseId!.Value, now);
+
+        Assert.False(ticket.TryClaimCleanup(now, "staging/a/b", Guid.NewGuid(), out _));
+        Assert.True(ticket.TryClaimCleanup(now, "staging/a/b", null, out var claim));
+        Assert.True(ticket.CompleteCleanupClaim(claim));
+        Assert.Equal(ImageUploadState.Completed, ticket.State);
+    }
+
+    [Fact]
+    public void Active_cleanup_claim_is_not_stolen_but_stale_claim_is_reclaimed()
+    {
+        var now = DateTimeOffset.Parse("2026-08-15T00:00:00Z");
+        var ticket = ImageUploadTicket.Create(Guid.NewGuid(), Guid.NewGuid(), "staging/a/b", "image/jpeg", 100, now.AddMinutes(1));
+        Assert.True(ticket.TryClaimCleanup(now.AddMinutes(2), "staging/a/b", null, out var first));
+
+        Assert.False(ticket.TryClaimCleanup(now.AddMinutes(6), "staging/a/b", null, out _));
+        Assert.True(ticket.TryClaimCleanup(now.AddMinutes(8), "staging/a/b", null, out var replacement));
+        Assert.NotEqual(first, replacement);
+    }
 }

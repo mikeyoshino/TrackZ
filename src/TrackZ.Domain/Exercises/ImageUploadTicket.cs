@@ -4,6 +4,7 @@ public enum ImageUploadState { Pending = 1, Uploading = 2, Uploaded = 3, Process
 
 public sealed class ImageUploadTicket
 {
+    private static readonly TimeSpan CleanupClaimLease = TimeSpan.FromMinutes(5);
     private ImageUploadTicket() { }
     public Guid Id { get; private set; }
     public Guid OwnerId { get; private set; }
@@ -121,8 +122,18 @@ public sealed class ImageUploadTicket
     public bool TryClaimCleanup(DateTimeOffset now, string? expectedStagingKey, Guid? expectedProcessingLeaseId, out Guid cleanupClaimId)
     {
         cleanupClaimId = Guid.Empty;
-        if (State == ImageUploadState.Completed || CleanupClaimId is not null) return false;
-        if (CleanupStagingObjectKey is null && CleanupProcessingLeaseId is null)
+        if (State == ImageUploadState.Completed)
+        {
+            // A completed ticket may retain only staging after its durable image exists.
+            if (expectedStagingKey is null || expectedProcessingLeaseId is not null || CleanupStagingObjectKey != expectedStagingKey || CleanupProcessingLeaseId is not null) return false;
+        }
+        if (CleanupClaimId is not null)
+        {
+            if (CleanupClaimedAt is { } claimedAt && claimedAt.Add(CleanupClaimLease) > now) return false;
+            CleanupClaimId = null;
+            CleanupClaimedAt = null;
+        }
+        if (State != ImageUploadState.Completed && CleanupStagingObjectKey is null && CleanupProcessingLeaseId is null)
         {
             if (!IsExpired(now) || State is ImageUploadState.Failed or ImageUploadState.Expired) return false;
             CleanupStagingObjectKey = StagingObjectKey;

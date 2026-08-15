@@ -125,8 +125,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     }
     public async Task<IReadOnlyList<ImageUploadCleanupCandidate>> ListCleanupCandidatesAsync(DateTimeOffset now, CancellationToken cancellationToken)
     {
+        var staleBefore = now.AddMinutes(-5);
         return await ImageUploadTickets.AsNoTracking()
-            .Where(x => x.CleanupClaimId == null && (x.CleanupStagingObjectKey != null || x.CleanupProcessingLeaseId != null ||
+            .Where(x => (x.CleanupClaimId == null || x.CleanupClaimedAt <= staleBefore) && (x.CleanupStagingObjectKey != null || x.CleanupProcessingLeaseId != null ||
                 ((x.State == ImageUploadState.Pending || x.State == ImageUploadState.Uploading || x.State == ImageUploadState.Uploaded) && x.ExpiresAt <= now) ||
                 (x.State == ImageUploadState.Processing && x.LeaseExpiresAt <= now)))
             .Select(x => new ImageUploadCleanupCandidate(x.Id, x.OwnerId, x.ExerciseDefinitionId, x.State,

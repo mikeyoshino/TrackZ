@@ -56,7 +56,7 @@ public sealed class CompleteImageUploadHandler(IExerciseImageUploadStore store, 
                     var completed = await store.FindCompletedByAttemptAsync(ticket.Id, owner, processingLeaseId, masterKey, thumbnailKey, CancellationToken.None);
                     if (completed is not null)
                     {
-                        await DeleteBestEffortAsync($"staging/{owner:D}/", ticket.StagingObjectKey);
+                        await CleanupCompletedStagingAsync(ticket, owner);
                         return Dto(completed.Id);
                     }
                 }
@@ -66,7 +66,7 @@ public sealed class CompleteImageUploadHandler(IExerciseImageUploadStore store, 
                 }
                 throw;
             }
-            await DeleteBestEffortAsync($"staging/{owner:D}/", ticket.StagingObjectKey);
+            await CleanupCompletedStagingAsync(ticket, owner);
             return Dto(image.Id);
         }
         catch (OperationCanceledException) { await ReleaseAsync(ticket, owner, processingLeaseId, masterKey, thumbnailKey, cancellationToken); throw; }
@@ -102,7 +102,7 @@ public sealed class CompleteImageUploadHandler(IExerciseImageUploadStore store, 
     {
         var failed = await store.TryFailClaimAsync(ticket.Id, owner, leaseId, CancellationToken.None);
         var cleaned = await CleanupAttemptAsync(owner, master, thumbnail, CancellationToken.None);
-        if (failed && await DeleteBestEffortAsync($"staging/{owner:D}/", ticket.StagingObjectKey)) cleaned = true;
+        if (failed) cleaned &= await DeleteBestEffortAsync($"staging/{owner:D}/", ticket.StagingObjectKey);
         if (failed && cleaned) await store.MarkCleanupCompleteAsync(ticket.Id, ticket.StagingObjectKey, leaseId, CancellationToken.None);
     }
     private async Task ReleaseAsync(ImageUploadTicket ticket, Guid owner, Guid leaseId, string? master, string? thumbnail, CancellationToken ct)
@@ -114,4 +114,9 @@ public sealed class CompleteImageUploadHandler(IExerciseImageUploadStore store, 
     private async Task<bool> CleanupAttemptAsync(Guid owner, string? master, string? thumbnail, CancellationToken ct)
     { var success = true; try { if (master is not null) await storage.DeleteAsync($"private/{owner:D}/", master, ct); } catch { success = false; } try { if (thumbnail is not null) await storage.DeleteAsync($"private/{owner:D}/", thumbnail, ct); } catch { success = false; } return success; }
     private async Task<bool> DeleteBestEffortAsync(string prefix, string key) { try { await storage.DeleteAsync(prefix, key, CancellationToken.None); return true; } catch { return false; } }
+    private async Task CleanupCompletedStagingAsync(ImageUploadTicket ticket, Guid owner)
+    {
+        if (await DeleteBestEffortAsync($"staging/{owner:D}/", ticket.StagingObjectKey))
+            await store.MarkCleanupCompleteAsync(ticket.Id, ticket.StagingObjectKey, null, CancellationToken.None);
+    }
 }

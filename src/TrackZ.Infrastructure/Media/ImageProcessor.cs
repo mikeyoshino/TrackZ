@@ -60,10 +60,7 @@ public sealed class ImageProcessor : IImageProcessor
         {
             return IsExactPng(source);
         }
-        if (source.Length < 8) return false;
-        source.Position = 4;
-        Span<byte> size = stackalloc byte[4];
-        return source.Read(size) == size.Length && BinaryPrimitives.ReadUInt32LittleEndian(size) == source.Length - 8;
+        return IsExactWebp(source);
     }
     private static void EnsureDimensionsBeforeDecode(Stream source, string contentType)
     {
@@ -149,5 +146,25 @@ public sealed class ImageProcessor : IImageProcessor
             source.Position += segmentLength - 2;
         }
         return false;
+    }
+    private static bool IsExactWebp(Stream source)
+    {
+        if (source.Length < 12) return false;
+        source.Position = 0;
+        Span<byte> riff = stackalloc byte[12];
+        if (source.Read(riff) != riff.Length || !riff[..4].SequenceEqual("RIFF"u8) || !riff[8..12].SequenceEqual("WEBP"u8)) return false;
+        if (BinaryPrimitives.ReadUInt32LittleEndian(riff[4..8]) != source.Length - 8) return false;
+        Span<byte> header = stackalloc byte[8];
+        while (source.Position < source.Length)
+        {
+            if (source.Length - source.Position < header.Length || source.Read(header) != header.Length) return false;
+            var kind = header[..4];
+            if (!(kind.SequenceEqual("VP8 "u8) || kind.SequenceEqual("VP8L"u8) || kind.SequenceEqual("VP8X"u8) || kind.SequenceEqual("ALPH"u8) || kind.SequenceEqual("ANIM"u8) || kind.SequenceEqual("ANMF"u8))) return false;
+            var length = BinaryPrimitives.ReadUInt32LittleEndian(header[4..8]);
+            var paddedLength = (long)length + (length & 1);
+            if (paddedLength > source.Length - source.Position) return false;
+            source.Position += paddedLength;
+        }
+        return source.Position == source.Length;
     }
 }

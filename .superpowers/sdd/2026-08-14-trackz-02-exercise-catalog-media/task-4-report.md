@@ -91,3 +91,11 @@ No Task 5 assets or mobile work was started.
 - The frozen `20260815130000_AddImageUploadTickets` migration/designer/snapshot now include cleanup claim ID/timestamp and the terminal state value. JPEG SOF dimensions are also bounded before full decode, complementing existing exact-container and PNG/WebP checks.
 - RED/GREEN additions: post-durable `OperationCanceledException` reconciliation and expired ticket terminalization are covered in deterministic tests; the PostgreSQL lease test proves expiry cleanup terminalizes rather than handing an old attempt to a new completion lease.
 - Fresh verification: Domain `54/54`, Application `50/50`, Infrastructure `44/44`, focused media API `7/7`, and API build all passed. The API command was rerun outside the filesystem sandbox because MSBuild local named-pipe binding is blocked there.
+
+## Fix round 9 — cleanup lease and completed staging recovery
+
+- Completed tickets now permit a worker cleanup claim only for their retained staging key; a completion state can never produce a rendition cleanup candidate. Successful post-commit staging deletion clears its durable marker, while failure leaves it for the worker's idempotent retry.
+- Cleanup claims have a five-minute lease. Active claims remain invisible to competing workers; stale claims are made eligible by the scan and are replaced under the ticket row lock.
+- Failure aggregation now uses logical AND: a successful staging delete cannot hide a master/thumbnail failure, and vice versa, so the corresponding durable attempt marker remains until all required deletes have succeeded.
+- WebP container validation now parses RIFF chunk boundaries and only admits known WebP chunks, rejecting malformed, unknown, truncated, padded, or trailing chunks even if the outer RIFF length is forged. Hostile tests also cover trailing/forged terminal payloads for JPEG, PNG, and WebP plus the 20,000,000-by-1 and 1-by-20,000,000 PNG header limits.
+- Focused low-thermal verification: `ImageUploadTicketTests` PASS `6/6`; `CompleteImageUploadFailureTests` PASS `19/19`; `ImageProcessorTests` PASS `18/18`; `ExerciseCatalogPersistenceTests` PASS `12/12`.
