@@ -17,6 +17,10 @@
 - Version conflicts use `VersionConflict = 60001`; local unsynchronized data is never silently discarded.
 - Users may edit or delete historical workouts/sets at any time; dependent projections must be recalculated.
 - Network absence is a normal state, not an error toast.
+- Preserve the Clean Architecture guards established by Plans 1–2: Domain has no framework dependencies and Application exposes persistence ports without EF Core/Npgsql types.
+- In the current repository, non-visual mobile data, use cases, coordinators, sync services, and ViewModels belong in `TrackZ.Mobile.Core`; MAUI XAML, code-behind, platform adapters, animation, and haptics belong in `TrackZ.Mobile`. Tests reference `TrackZ.Mobile.Core` directly. Do not add new linked-source indirection between the projects.
+- Append new EF migrations after `20260815143000_AddCustomExerciseSyncIdentityAndLibraryImage`; never rewrite historical migrations. Every new migration requires target-model/snapshot parity and Up/Down chronology coverage.
+- Execute container-backed and platform builds sequentially with one MSBuild node; do not run an emulator for plan verification.
 
 ---
 
