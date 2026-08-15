@@ -19,8 +19,7 @@ public sealed class ExercisePerformanceConfiguration : IEntityTypeConfiguration<
         builder.Property(performance => performance.AllTimeBestAssistedKg).HasPrecision(10, 3);
         builder.HasIndex(performance => new { performance.UserId, performance.ExerciseDefinitionId }).IsUnique();
         builder.HasOne<ExerciseDefinition>().WithMany()
-            .HasForeignKey(performance => new { performance.ExerciseDefinitionId, performance.TrackingMode })
-            .HasPrincipalKey(exercise => new { exercise.Id, exercise.TrackingMode })
+            .HasForeignKey(performance => performance.ExerciseDefinitionId)
             .OnDelete(DeleteBehavior.Restrict);
         builder.ToTable(table =>
         {

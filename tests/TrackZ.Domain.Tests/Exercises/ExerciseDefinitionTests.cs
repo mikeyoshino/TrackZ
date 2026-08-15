@@ -249,10 +249,11 @@ public sealed class ExerciseDefinitionTests
     [Fact]
     public void Reviewed_system_image_can_be_published_and_records_approval_metadata_in_utc()
     {
-        var image = CreateDraftSystemImage();
         var reviewerId = Guid.NewGuid();
         var reviewedAt = new DateTimeOffset(2026, 8, 15, 10, 30, 0, TimeSpan.FromHours(7));
         var publishedAt = reviewedAt.AddMinutes(5);
+        var image = ExerciseImage.CreateSystem(
+            CreateSystemExercise(reviewedAt.AddMinutes(-1)), "master.png", "thumbnail.png", 1, "generated", reviewedAt.AddMinutes(-1));
 
         image.Review(reviewerId, "rights-2026", anatomyApproved: true, movementApproved: true, rightsApproved: true, reviewedAt);
         Assert.False(image.IsReadyForUse);

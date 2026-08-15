@@ -45,3 +45,46 @@ The current aggregate has no safe association from a custom exercise to an indep
 
 - Added application port/commands/handlers, contracts, PostgreSQL store implementation, endpoint DTO validation, localized exercise resources, and migration `20260815112000_AddCustomExerciseNameUniqueness`.
 - The migration is represented in the snapshot; PostgreSQL parity test verifies no pending model changes.
+
+## Fix Round 1 — review remediation
+
+### Root cause
+
+`ExerciseDefinition.TrackingMode` was part of the mutable principal alternate key used by the `ExercisePerformance` composite foreign key. EF Core correctly treats key members as immutable, so an owner changing a custom exercise's mode before history reached the API as `500`.
+
+The relationship now uses `ExerciseDefinitionId` alone as the normal restrictive FK. Migration `20260815124500_EnforceExercisePerformanceTrackingMode` adds PostgreSQL triggers which preserve the prior data guarantees: a performance's stored mode must match its exercise, and direct SQL cannot change an exercise mode once any performance exists. The application history guard remains in place.
+
+### RED evidence
+
+1. `dotnet test tests/TrackZ.Api.Tests --filter FullyQualifiedName~Custom_tracking_mode_changes_before_any_history_exists --no-restore`
+   - Failed as intended: expected `204 NoContent`, actual `500 InternalServerError`.
+2. `dotnet test tests/TrackZ.Application.Tests --filter 'FullyQualifiedName~Create_rejects_a_library_image_identifier_when_linking_is_deferred|FullyQualifiedName~Create_rejects_every_uploaded_image_key_when_linking_is_deferred' --no-restore`
+   - Failed as intended: empty and whitespace uploaded keys were accepted instead of returning `10009`.
+3. `dotnet test tests/TrackZ.Infrastructure.Tests --filter FullyQualifiedName~Custom_exercise_migration_designer_contains_the_complete_target_model --no-restore`
+   - Failed as intended: migration `TargetModel` contained `[]` rather than the five persisted entities.
+4. `dotnet test tests/TrackZ.Api.Tests --filter FullyQualifiedName~Custom_json_paths_canonicalize_only_known_root_properties --no-restore`
+   - Failed as intended: five casing variants returned `body` rather than the canonical field.
+
+### GREEN / verification evidence
+
+| Command | Result |
+|---|---|
+| `dotnet test tests/TrackZ.Api.Tests --filter FullyQualifiedName~Custom_tracking_mode_changes_before_any_history_exists --no-restore` | PASS — 1/1 |
+| `dotnet test tests/TrackZ.Infrastructure.Tests --filter 'FullyQualifiedName~Custom_exercise_migration_designer_contains_the_complete_target_model|FullyQualifiedName~Performance_round_trips_valid_mode_shapes' --no-restore` | PASS — 2/2, real PostgreSQL trigger/FK integrity |
+| `dotnet test tests/TrackZ.Api.Tests --filter FullyQualifiedName~Custom_json_paths_canonicalize_only_known_root_properties --no-restore` | PASS — 9/9 |
+| `dotnet test tests/TrackZ.Api.Tests --filter FullyQualifiedName~Case_variant_malformed_custom_properties_return_canonical_thai_validation_fields --no-restore` | PASS — 5/5 |
+| `dotnet test tests/TrackZ.Domain.Tests --no-restore` | PASS — 50/50 |
+| `dotnet test tests/TrackZ.Application.Tests --no-restore` | PASS — 28/28 |
+| `dotnet test tests/TrackZ.Infrastructure.Tests --no-restore` | PASS — 20/20 |
+| `dotnet build src/TrackZ.Api/TrackZ.Api.csproj --no-restore --disable-build-servers` (outside sandbox) | PASS — 0 warnings, 0 errors |
+| `dotnet test tests/TrackZ.Api.Tests --no-restore` (outside sandbox) | Stalled without a final test-run summary and was stopped; all Task 3 sensitive API groups above passed independently. |
+
+### Fix Round 1 sensitivity coverage
+
+- Real API mode update before history persists the new mode and returns `204`.
+- Direct PostgreSQL valid-shaped performance with a mismatched mode is rejected, and direct SQL principal mode change after persisted performance is rejected.
+- Migration metadata test verifies the custom-exercise migration designer exposes `ExerciseDefinition`, `ExerciseImage`, `ExercisePerformance`, `RefreshToken`, and `User`.
+- Case-insensitive JSON parser paths canonicalize all five accepted root properties; nested, bare/bracketed, unknown, and array/attacker-shaped paths fall back to `body`.
+- Five mixed-case malformed request payloads assert exact canonical Thai `fieldErrors` keys and messages.
+- Direct handler tests reject library IDs, ordinary uploaded keys, empty keys, whitespace keys, and the already-covered mutual combination; no untrusted identifier can reach persistence.
+- The deterministic image chronology fixture now explicitly creates the image before its review timestamp; production chronology checks are unchanged.

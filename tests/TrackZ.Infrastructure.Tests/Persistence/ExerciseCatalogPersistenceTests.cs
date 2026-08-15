@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using TrackZ.Domain.Exercises;
 using TrackZ.Domain.Progress;
 
@@ -35,6 +37,20 @@ public sealed class ExerciseCatalogPersistenceTests
         Assert.Empty(await database.Db.Database.GetPendingMigrationsAsync());
         Assert.False(database.Db.Database.HasPendingModelChanges());
         Assert.Contains(await database.Db.Database.GetAppliedMigrationsAsync(), migration => migration.EndsWith("AddExerciseCatalog", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Custom_exercise_migration_designer_contains_the_complete_target_model()
+    {
+        await using var database = await PostgreSqlFixture.StartAsync();
+        var migrations = database.Db.GetService<IMigrationsAssembly>();
+        var migration = migrations.CreateMigration(
+            migrations.Migrations["20260815112000_AddCustomExerciseNameUniqueness"],
+            database.Db.Database.ProviderName!)!;
+
+        var entityNames = migration.TargetModel.GetEntityTypes().Select(entity => entity.ClrType.Name).OrderBy(name => name).ToArray();
+
+        Assert.Equal(["ExerciseDefinition", "ExerciseImage", "ExercisePerformance", "RefreshToken", "User"], entityNames);
     }
 
     [Fact]
@@ -81,5 +97,7 @@ public sealed class ExerciseCatalogPersistenceTests
         await Assert.ThrowsAsync<Npgsql.PostgresException>(() => database.Db.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO exercise_performances (\"Id\", \"UserId\", \"ExerciseDefinitionId\", \"TrackingMode\", \"LastBestReps\") VALUES ({Guid.NewGuid()}, {Guid.NewGuid()}, {weightedExercise.Id}, {1}, {8})"));
         await Assert.ThrowsAsync<Npgsql.PostgresException>(() => database.Db.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO exercise_performances (\"Id\", \"UserId\", \"ExerciseDefinitionId\", \"TrackingMode\", \"LastPerformedAt\", \"LastBestWeightKg\", \"LastBestReps\", \"AllTimeBestWeightKg\", \"AllTimeBestReps\") VALUES ({Guid.NewGuid()}, {Guid.NewGuid()}, {weightedExercise.Id}, {99}, {DateTimeOffset.UtcNow}, {10m}, {1}, {10m}, {1})"));
         await Assert.ThrowsAsync<Npgsql.PostgresException>(() => database.Db.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO exercise_performances (\"Id\", \"UserId\", \"ExerciseDefinitionId\", \"TrackingMode\", \"LastPerformedAt\", \"LastBestAssistedKg\", \"LastBestReps\", \"AllTimeBestAssistedKg\", \"AllTimeBestReps\") VALUES ({Guid.NewGuid()}, {Guid.NewGuid()}, {weightedExercise.Id}, {3}, {DateTimeOffset.UtcNow}, {10m}, {1}, {10m}, {1})"));
+        await Assert.ThrowsAsync<Npgsql.PostgresException>(() => database.Db.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO exercise_performances (\"Id\", \"UserId\", \"ExerciseDefinitionId\", \"TrackingMode\", \"LastPerformedAt\", \"LastBestReps\", \"AllTimeBestReps\") VALUES ({Guid.NewGuid()}, {Guid.NewGuid()}, {weightedExercise.Id}, {2}, {DateTimeOffset.UtcNow}, {8}, {10})"));
+        await Assert.ThrowsAsync<Npgsql.PostgresException>(() => database.Db.Database.ExecuteSqlInterpolatedAsync($"UPDATE exercise_definitions SET \"TrackingMode\" = {2} WHERE \"Id\" = {weightedExercise.Id}"));
     }
 }

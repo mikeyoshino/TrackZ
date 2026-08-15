@@ -212,7 +212,17 @@ public static class ExerciseEndpoints
     {
         if (string.IsNullOrEmpty(path) || !path.StartsWith("$.", StringComparison.Ordinal)) return "body";
         var field = path[2..];
-        return field is "name" or "bodyPart" or "trackingMode" or "libraryImageId" or "uploadedImageKey" ? field : "body";
+        if (field.Length == 0 || field.IndexOfAny(['.', '[', ']', '$']) >= 0) return "body";
+
+        return field.ToLowerInvariant() switch
+        {
+            "name" => "name",
+            "bodypart" => "bodyPart",
+            "trackingmode" => "trackingMode",
+            "libraryimageid" => "libraryImageId",
+            "uploadedimagekey" => "uploadedImageKey",
+            _ => "body"
+        };
     }
 }
 

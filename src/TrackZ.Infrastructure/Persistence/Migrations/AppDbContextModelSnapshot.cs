@@ -260,7 +260,7 @@ namespace TrackZ.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ExerciseDefinitionId", "TrackingMode");
+                    b.HasIndex("ExerciseDefinitionId");
 
                     b.HasIndex("UserId", "ExerciseDefinitionId")
                         .IsUnique();
@@ -299,8 +299,7 @@ namespace TrackZ.Infrastructure.Persistence.Migrations
                 {
                     b.HasOne("TrackZ.Domain.Exercises.ExerciseDefinition", null)
                         .WithMany()
-                        .HasForeignKey("ExerciseDefinitionId", "TrackingMode")
-                        .HasPrincipalKey("Id", "TrackingMode")
+                        .HasForeignKey("ExerciseDefinitionId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });

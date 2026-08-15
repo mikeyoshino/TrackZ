@@ -23,7 +23,6 @@ public sealed class ExerciseDefinitionConfiguration : IEntityTypeConfiguration<E
         builder.HasIndex(exercise => new { exercise.OwnerId, exercise.NormalizedName })
             .IsUnique()
             .HasFilter("\"OwnerId\" IS NOT NULL AND NOT \"IsArchived\"");
-        builder.HasAlternateKey(exercise => new { exercise.Id, exercise.TrackingMode });
         builder.ToTable(table => table.HasCheckConstraint("CK_exercise_definitions_tracking_mode", "\"TrackingMode\" IN (1, 2, 3)"));
         builder.HasMany<ExerciseImage>().WithOne().HasForeignKey(image => image.ExerciseDefinitionId).OnDelete(DeleteBehavior.Cascade);
     }

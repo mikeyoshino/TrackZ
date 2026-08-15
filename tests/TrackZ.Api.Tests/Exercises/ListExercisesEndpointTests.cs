@@ -448,6 +448,32 @@ public sealed class ListExercisesEndpointTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Custom_tracking_mode_changes_before_any_history_exists()
+    {
+        var owner = await AuthenticateAsync("custom-prehistory-mode@example.com");
+        var exercise = ExerciseDefinition.CreateCustom(owner.UserId, "Mode Press", BodyPart.Chest, TrackingMode.Weighted);
+        await using (var scope = _factory!.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await db.Exercises.AddAsync(exercise);
+            await db.SaveChangesAsync();
+        }
+
+        using var update = new HttpRequestMessage(HttpMethod.Put, $"/api/v1/exercises/custom/{exercise.Id:D}")
+        {
+            Content = JsonContent.Create(new { name = "Mode Press", bodyPart = 1, trackingMode = 2 })
+        };
+        update.Headers.Authorization = new AuthenticationHeaderValue("Bearer", owner.Token);
+
+        var response = await _client.SendAsync(update);
+
+        await using var verifyScope = _factory.Services.CreateAsyncScope();
+        var persisted = await verifyScope.ServiceProvider.GetRequiredService<AppDbContext>().Exercises.FindAsync(exercise.Id);
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal(TrackingMode.Bodyweight, persisted!.TrackingMode);
+    }
+
+    [Fact]
     public async Task Concurrent_custom_creates_return_one_created_and_one_localized_duplicate_problem()
     {
         var owner = await AuthenticateAsync("custom-concurrency@example.com");
@@ -473,6 +499,52 @@ public sealed class ListExercisesEndpointTests : IAsyncLifetime
         Assert.Equal("มีท่าออกกำลังกายแบบกำหนดเองที่ใช้งานอยู่ชื่อนี้แล้ว", problem.Message);
         Assert.False(string.IsNullOrWhiteSpace(problem.TraceId));
         Assert.Equal("application/problem+json", conflict.Content.Headers.ContentType!.MediaType);
+    }
+
+    [Theory]
+    [InlineData("$.NAME", "name")]
+    [InlineData("$.BoDyPaRt", "bodyPart")]
+    [InlineData("$.TRACKINGmode", "trackingMode")]
+    [InlineData("$.LibraryIMAGEid", "libraryImageId")]
+    [InlineData("$.uploadedIMAGEkey", "uploadedImageKey")]
+    [InlineData("$.name.value", "body")]
+    [InlineData("$.unknown", "body")]
+    [InlineData("$.uploadedImageKey[0]", "body")]
+    [InlineData("$['name']", "body")]
+    public void Custom_json_paths_canonicalize_only_known_root_properties(string path, string expectedField)
+    {
+        var mapper = typeof(TrackZ.Api.Endpoints.ExerciseEndpoints).GetMethod(
+            "MapCustomJsonPath",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+
+        var actual = (string)mapper.Invoke(null, [path])!;
+
+        Assert.Equal(expectedField, actual);
+    }
+
+    [Theory]
+    [InlineData("{\"NAME\":{},\"bodyPart\":1,\"trackingMode\":1}", "name")]
+    [InlineData("{\"name\":\"Press\",\"BODYPART\":{},\"trackingMode\":1}", "bodyPart")]
+    [InlineData("{\"name\":\"Press\",\"bodyPart\":1,\"TRACKINGMODE\":{}}", "trackingMode")]
+    [InlineData("{\"name\":\"Press\",\"bodyPart\":1,\"trackingMode\":1,\"LIBRARYIMAGEID\":{}}", "libraryImageId")]
+    [InlineData("{\"name\":\"Press\",\"bodyPart\":1,\"trackingMode\":1,\"UPLOADEDIMAGEKEY\":{}}", "uploadedImageKey")]
+    public async Task Case_variant_malformed_custom_properties_return_canonical_thai_validation_fields(string body, string field)
+    {
+        var account = await AuthenticateAsync($"custom-case-{Guid.NewGuid():N}@example.com");
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/exercises/custom")
+        {
+            Content = new StringContent(body, Encoding.UTF8, "application/json")
+        };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", account.Token);
+        request.Headers.AcceptLanguage.ParseAdd("th-TH");
+
+        var response = await _client.SendAsync(request);
+        var problem = await response.Content.ReadFromJsonAsync<TrackZ.Contracts.Errors.ApiProblemDetails>();
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(10009, (int)problem!.ErrorCode);
+        Assert.Equal([field], problem.FieldErrors!.Keys);
+        Assert.Equal($"ข้อมูล {field} ไม่ถูกต้อง", Assert.Single(problem.FieldErrors[field]));
     }
 
     private static string SignedCursor(int version, string orderingName, Guid orderingId)

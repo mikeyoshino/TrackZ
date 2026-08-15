@@ -9,8 +9,8 @@ using TrackZ.Infrastructure.Persistence;
 namespace TrackZ.Infrastructure.Persistence.Migrations;
 
 [DbContext(typeof(AppDbContext))]
-[Migration("20260815112000_AddCustomExerciseNameUniqueness")]
-partial class AddCustomExerciseNameUniqueness
+[Migration("20260815124500_EnforceExercisePerformanceTrackingMode")]
+partial class EnforceExercisePerformanceTrackingMode
 {
     protected override void BuildTargetModel(ModelBuilder modelBuilder)
     {

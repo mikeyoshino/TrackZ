@@ -12,7 +12,7 @@ public sealed class CreateCustomExerciseHandler(ICustomExerciseStore store, ICur
 {
     public async Task<Guid> Handle(CreateCustomExerciseCommand request, CancellationToken cancellationToken)
     {
-        if (request.LibraryImageId is not null || !string.IsNullOrWhiteSpace(request.UploadedImageKey))
+        if (request.LibraryImageId is not null || request.UploadedImageKey is not null)
         {
             // Task 4 owns creating independently verifiable upload records. The current aggregate has
             // no safe association for an existing asset, so untrusted identifiers are deliberately rejected.

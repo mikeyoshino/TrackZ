@@ -59,6 +59,31 @@ public sealed class CustomExerciseTests
         Assert.Empty(store.Exercises);
     }
 
+    [Fact]
+    public async Task Create_rejects_a_library_image_identifier_when_linking_is_deferred()
+    {
+        var handler = new CreateCustomExerciseHandler(new InMemoryCustomExerciseStore(), new TestCurrentUser(Guid.NewGuid()));
+
+        var error = await Assert.ThrowsAsync<BusinessException>(() => handler.Handle(
+            new CreateCustomExerciseCommand("My Press", BodyPart.Chest, TrackingMode.Weighted, Guid.NewGuid(), null), CancellationToken.None));
+
+        Assert.Equal(BusinessErrorCode.InvalidRequest, error.Code);
+    }
+
+    [Theory]
+    [InlineData("uploaded-key")]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task Create_rejects_every_uploaded_image_key_when_linking_is_deferred(string uploadedImageKey)
+    {
+        var handler = new CreateCustomExerciseHandler(new InMemoryCustomExerciseStore(), new TestCurrentUser(Guid.NewGuid()));
+
+        var error = await Assert.ThrowsAsync<BusinessException>(() => handler.Handle(
+            new CreateCustomExerciseCommand("My Press", BodyPart.Chest, TrackingMode.Weighted, null, uploadedImageKey), CancellationToken.None));
+
+        Assert.Equal(BusinessErrorCode.InvalidRequest, error.Code);
+    }
+
     [Theory]
     [InlineData("", BodyPart.Chest, TrackingMode.Weighted)]
     [InlineData("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", BodyPart.Chest, TrackingMode.Weighted)]
