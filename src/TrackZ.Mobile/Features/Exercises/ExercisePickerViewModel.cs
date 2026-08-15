@@ -113,31 +113,28 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged
         try
         {
             var exercises = await _catalogApi.GetAllAsync(cancellationToken);
-            if (_thumbnailCache is not null)
-            {
-                var cachedImages = new List<TrackZ.Contracts.Exercises.ExerciseSummaryDto>(exercises.Count);
-                foreach (var exercise in exercises)
-                {
-                    cachedImages.Add(new TrackZ.Contracts.Exercises.ExerciseSummaryDto(
-                        exercise.Id,
-                        exercise.Name,
-                        exercise.BodyPart,
-                        exercise.TrackingMode,
-                        await _thumbnailCache.CacheAsync(exercise.ThumbnailUrl, cancellationToken),
-                        exercise.LastPerformedAt,
-                        exercise.LastBestSet,
-                        exercise.AllTimeBest,
-                        exercise.IsCustom));
-                }
-                exercises = cachedImages;
-            }
-            await _cache.ReplaceAllAsync(exercises, _clock.UtcNow, cancellationToken);
+            var metadata = exercises.Select(WithoutRemoteThumbnail).ToArray();
+            await _cache.ReplaceAllAsync(metadata, _clock.UtcNow, cancellationToken);
             _catalog = await _cache.GetAllAsync(cancellationToken);
             await _dispatcher.InvokeAsync(() =>
             {
                 LastErrorCode = null;
                 ApplyFilter();
             });
+
+            if (_thumbnailCache is not null)
+            {
+                await Parallel.ForEachAsync(
+                    exercises.Where(exercise => exercise.ThumbnailUrl is not null),
+                    new ParallelOptions
+                    {
+                        CancellationToken = cancellationToken,
+                        MaxDegreeOfParallelism = 4
+                    },
+                    CacheThumbnailBestEffortAsync);
+                _catalog = await _cache.GetAllAsync(cancellationToken);
+                await _dispatcher.InvokeAsync(ApplyFilter);
+            }
         }
         catch (MobileApiException exception)
         {
@@ -150,6 +147,39 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged
         finally
         {
             await _dispatcher.InvokeAsync(() => IsRefreshing = false);
+        }
+    }
+
+    private static TrackZ.Contracts.Exercises.ExerciseSummaryDto WithoutRemoteThumbnail(
+        TrackZ.Contracts.Exercises.ExerciseSummaryDto exercise) => new(
+            exercise.Id,
+            exercise.Name,
+            exercise.BodyPart,
+            exercise.TrackingMode,
+            null,
+            exercise.LastPerformedAt,
+            exercise.LastBestSet,
+            exercise.AllTimeBest,
+            exercise.IsCustom,
+            exercise.LibraryImageId);
+
+    private async ValueTask CacheThumbnailBestEffortAsync(
+        TrackZ.Contracts.Exercises.ExerciseSummaryDto exercise,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var local = await _thumbnailCache!.CacheAsync(exercise.ThumbnailUrl, cancellationToken);
+            if (local is not null)
+                await _cache.SetServerThumbnailAsync(exercise.Id, local, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            // Thumbnail fills are best effort; metadata is already durable.
         }
     }
 

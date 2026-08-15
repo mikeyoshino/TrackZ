@@ -15,6 +15,7 @@ public sealed class CachedExercise : INotifyPropertyChanged
     public required BodyPart BodyPart { get; init; }
     public required TrackingMode TrackingMode { get; init; }
     public string? ThumbnailUri { get; init; }
+    public Guid? LibraryImageId { get; init; }
     public DateTimeOffset? LastPerformedAt { get; init; }
     public PerformanceSetDto? LastBestSet { get; init; }
     public PerformanceSetDto? AllTimeBest { get; init; }
@@ -45,6 +46,7 @@ public sealed class CachedExercise : INotifyPropertyChanged
         BodyPart = source.BodyPart,
         TrackingMode = source.TrackingMode,
         ThumbnailUri = source.ThumbnailUrl,
+        LibraryImageId = source.LibraryImageId,
         LastPerformedAt = source.LastPerformedAt,
         LastBestSet = source.LastBestSet,
         AllTimeBest = source.AllTimeBest,

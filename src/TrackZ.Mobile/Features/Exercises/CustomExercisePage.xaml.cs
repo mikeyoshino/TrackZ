@@ -25,6 +25,12 @@ public partial class CustomExercisePage : ContentPage, IQueryAttributable
             _ = LoadForEditAsync(id);
     }
 
+    protected override async void OnAppearing()
+    {
+        base.OnAppearing();
+        await _viewModel.LoadLibraryImagesAsync();
+    }
+
     private async void OnChooseImageClicked(object? sender, EventArgs eventArgs)
     {
         var selected = await FilePicker.Default.PickAsync(new PickOptions

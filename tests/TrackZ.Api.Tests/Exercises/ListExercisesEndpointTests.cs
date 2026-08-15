@@ -339,7 +339,10 @@ public sealed class ListExercisesEndpointTests : IAsyncLifetime
         { var db = scope.ServiceProvider.GetRequiredService<AppDbContext>(); await db.Exercises.AddRangeAsync(systemDraft, systemPublished, custom); await db.ExerciseImages.AddRangeAsync(draft, published, privateImage); await db.SaveChangesAsync(); }
         using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/exercises?bodyPart=Chest"); request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", account.Token);
         var response = await _client.SendAsync(request); var raw = await response.Content.ReadAsStringAsync(); using var page = JsonDocument.Parse(raw);
-        Assert.All(page.RootElement.GetProperty("items").EnumerateArray(), item => Assert.Equal(JsonValueKind.Null, item.GetProperty("thumbnailUrl").ValueKind));
+        var items = page.RootElement.GetProperty("items").EnumerateArray().ToArray();
+        Assert.Equal(JsonValueKind.Null, Assert.Single(items, item => item.GetProperty("name").GetString() == "Draft image").GetProperty("thumbnailUrl").ValueKind);
+        Assert.StartsWith("/api/v1/media/exercise-images/", Assert.Single(items, item => item.GetProperty("name").GetString() == "Published image").GetProperty("thumbnailUrl").GetString(), StringComparison.Ordinal);
+        Assert.StartsWith("/api/v1/media/exercise-images/", Assert.Single(items, item => item.GetProperty("name").GetString() == "Private image").GetProperty("thumbnailUrl").GetString(), StringComparison.Ordinal);
         Assert.DoesNotContain("master-draft-secret", raw); Assert.DoesNotContain("thumb-draft-secret", raw); Assert.DoesNotContain("master-published-secret", raw); Assert.DoesNotContain("thumb-published-secret", raw); Assert.DoesNotContain("master-private-secret", raw); Assert.DoesNotContain("thumb-private-secret", raw);
     }
 
@@ -350,7 +353,7 @@ public sealed class ListExercisesEndpointTests : IAsyncLifetime
         var other = await AuthenticateAsync("custom-other@example.com");
         using var create = new HttpRequestMessage(HttpMethod.Post, "/api/v1/exercises/custom")
         {
-            Content = JsonContent.Create(new { name = "  My Press  ", bodyPart = 1, trackingMode = 1, ownerId = other.UserId })
+            Content = JsonContent.Create(new { name = "  My Press  ", bodyPart = 1, trackingMode = 1, ownerId = other.UserId, operationId = Guid.NewGuid() })
         };
         create.Headers.Authorization = new AuthenticationHeaderValue("Bearer", owner.Token);
 
@@ -395,7 +398,7 @@ public sealed class ListExercisesEndpointTests : IAsyncLifetime
         Assert.Equal("application/problem+json", invalidResponse.Content.Headers.ContentType!.MediaType);
         Assert.Equal(10009, (int)problem!.ErrorCode);
         Assert.Equal("ข้อมูลคำขอไม่ถูกต้อง", problem.Message);
-        Assert.Equal(["bodyPart", "name", "trackingMode"], problem.FieldErrors!.Keys.OrderBy(key => key));
+        Assert.Equal(["bodyPart", "name", "operationId", "trackingMode"], problem.FieldErrors!.Keys.OrderBy(key => key));
         Assert.All(problem.FieldErrors.Values, value => Assert.Single(value));
     }
 
@@ -507,13 +510,13 @@ public sealed class ListExercisesEndpointTests : IAsyncLifetime
         var owner = await AuthenticateAsync("custom-concurrency@example.com");
         var first = new HttpRequestMessage(HttpMethod.Post, "/api/v1/exercises/custom")
         {
-            Content = JsonContent.Create(new { name = "Concurrent Press", bodyPart = 1, trackingMode = 1 })
+            Content = JsonContent.Create(new { name = "Concurrent Press", bodyPart = 1, trackingMode = 1, operationId = Guid.NewGuid() })
         };
         first.Headers.Authorization = new AuthenticationHeaderValue("Bearer", owner.Token);
         first.Headers.AcceptLanguage.ParseAdd("th-TH");
         var second = new HttpRequestMessage(HttpMethod.Post, "/api/v1/exercises/custom")
         {
-            Content = JsonContent.Create(new { name = "concurrent press", bodyPart = 1, trackingMode = 1 })
+            Content = JsonContent.Create(new { name = "concurrent press", bodyPart = 1, trackingMode = 1, operationId = Guid.NewGuid() })
         };
         second.Headers.Authorization = new AuthenticationHeaderValue("Bearer", owner.Token);
         second.Headers.AcceptLanguage.ParseAdd("th-TH");
@@ -527,6 +530,75 @@ public sealed class ListExercisesEndpointTests : IAsyncLifetime
         Assert.Equal("มีท่าออกกำลังกายแบบกำหนดเองที่ใช้งานอยู่ชื่อนี้แล้ว", problem.Message);
         Assert.False(string.IsNullOrWhiteSpace(problem.TraceId));
         Assert.Equal("application/problem+json", conflict.Content.Headers.ContentType!.MediaType);
+    }
+
+    [Fact]
+    public async Task Custom_create_is_idempotent_and_accepts_only_published_library_artwork()
+    {
+        var owner = await AuthenticateAsync($"custom-library-{Guid.NewGuid():N}@example.com");
+        var system = ExerciseDefinition.CreateSystem("Published Art", BodyPart.Chest, TrackingMode.Weighted);
+        var published = ExerciseImage.CreateSystem(system, "system/published/master.png", "system/published/thumb.png", 1, "source");
+        published.Review(Guid.NewGuid(), "rights", true, true, true, DateTimeOffset.UtcNow);
+        published.Publish(DateTimeOffset.UtcNow.AddSeconds(1));
+        var draft = ExerciseImage.CreateSystem(system, "system/draft/master.png", "system/draft/thumb.png", 2, "draft");
+        await using (var scope = _factory!.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await db.Exercises.AddAsync(system);
+            await db.ExerciseImages.AddRangeAsync(published, draft);
+            await db.SaveChangesAsync();
+        }
+        var operationId = Guid.NewGuid();
+
+        async Task<HttpResponseMessage> CreateAsync(Guid libraryImageId, Guid requestOperationId, string name) => await _client.SendAsync(new HttpRequestMessage(
+            HttpMethod.Post, "/api/v1/exercises/custom")
+        {
+            Headers = { Authorization = new AuthenticationHeaderValue("Bearer", owner.Token) },
+            Content = JsonContent.Create(new
+            {
+                name,
+                bodyPart = 1,
+                trackingMode = 1,
+                operationId = requestOperationId,
+                libraryImageId
+            })
+        });
+
+        var created = await CreateAsync(published.Id, operationId, "Library Custom Press");
+        var replay = await CreateAsync(published.Id, operationId, "Library Custom Press");
+        var firstId = (await created.Content.ReadFromJsonAsync<JsonDocument>())!.RootElement.GetProperty("id").GetGuid();
+        var replayId = (await replay.Content.ReadFromJsonAsync<JsonDocument>())!.RootElement.GetProperty("id").GetGuid();
+        var rejectedDraft = await CreateAsync(draft.Id, Guid.NewGuid(), "Draft Custom Press");
+
+        await using (var uploadScope = _factory.Services.CreateAsyncScope())
+        {
+            var db = uploadScope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var custom = await db.Exercises.SingleAsync(exercise => exercise.Id == firstId);
+            await db.ExerciseImages.AddAsync(ExerciseImage.CreateCustomUpload(
+                custom, owner.UserId,
+                $"private/{owner.UserId:D}/master.jpg",
+                $"private/{owner.UserId:D}/thumbnail.jpg", 1, "upload"));
+            await db.SaveChangesAsync();
+        }
+
+        using var list = new HttpRequestMessage(HttpMethod.Get, "/api/v1/exercises?bodyPart=Chest");
+        list.Headers.Authorization = new AuthenticationHeaderValue("Bearer", owner.Token);
+        var catalog = await (await _client.SendAsync(list)).Content.ReadFromJsonAsync<JsonDocument>();
+
+        await using var verify = _factory.Services.CreateAsyncScope();
+        var rows = await verify.ServiceProvider.GetRequiredService<AppDbContext>().Exercises
+            .Where(exercise => exercise.OwnerId == owner.UserId && exercise.ClientOperationId == operationId)
+            .ToListAsync();
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, replay.StatusCode);
+        Assert.Equal(firstId, replayId);
+        Assert.Equal(published.Id, Assert.Single(rows).LibraryImageId);
+        Assert.Equal(HttpStatusCode.BadRequest, rejectedDraft.StatusCode);
+        var catalogItems = catalog!.RootElement.GetProperty("items").EnumerateArray().ToArray();
+        Assert.Contains(catalogItems, item => item.GetProperty("id").GetGuid() == system.Id
+            && item.GetProperty("libraryImageId").GetGuid() == published.Id);
+        Assert.Contains(catalogItems, item => item.GetProperty("id").GetGuid() == firstId
+            && item.GetProperty("thumbnailUrl").GetString()!.Contains(published.Id.ToString("D"), StringComparison.Ordinal));
     }
 
     [Theory]

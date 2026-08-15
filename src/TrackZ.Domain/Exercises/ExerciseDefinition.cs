@@ -12,6 +12,10 @@ public sealed class ExerciseDefinition
 
     public Guid? OwnerId { get; private set; }
 
+    public Guid? ClientOperationId { get; private set; }
+
+    public Guid? LibraryImageId { get; private set; }
+
     public string Name { get; private set; } = null!;
 
     public string NormalizedName { get; private set; } = null!;
@@ -57,14 +61,22 @@ public sealed class ExerciseDefinition
         string name,
         BodyPart bodyPart,
         TrackingMode trackingMode,
-        DateTimeOffset? createdAt = null)
+        DateTimeOffset? createdAt = null,
+        Guid? clientOperationId = null)
     {
         if (ownerId == Guid.Empty)
         {
             throw new ArgumentException("A custom exercise owner is required.", nameof(ownerId));
         }
 
-        return Create(ownerId, name, bodyPart, trackingMode, createdAt);
+        if (clientOperationId == Guid.Empty)
+        {
+            throw new ArgumentException("A client operation identifier cannot be empty.", nameof(clientOperationId));
+        }
+
+        var exercise = Create(ownerId, name, bodyPart, trackingMode, createdAt);
+        exercise.ClientOperationId = clientOperationId;
+        return exercise;
     }
 
     public void Archive()
@@ -80,6 +92,16 @@ public sealed class ExerciseDefinition
     public void RecordSetHistory()
     {
         HasSetHistory = true;
+    }
+
+    public void SelectLibraryImage(Guid? libraryImageId)
+    {
+        if (libraryImageId == Guid.Empty)
+        {
+            throw new ArgumentException("A library image identifier cannot be empty.", nameof(libraryImageId));
+        }
+
+        LibraryImageId = libraryImageId;
     }
 
     public void UpdateDetails(string name, BodyPart bodyPart)

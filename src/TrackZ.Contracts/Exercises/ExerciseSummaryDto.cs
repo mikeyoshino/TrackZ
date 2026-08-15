@@ -13,7 +13,8 @@ public sealed record ExerciseSummaryDto
         DateTimeOffset? lastPerformedAt,
         PerformanceSetDto? lastBestSet,
         PerformanceSetDto? allTimeBest,
-        bool isCustom)
+        bool isCustom,
+        Guid? libraryImageId = null)
     {
         Id = id;
         Name = name;
@@ -24,6 +25,7 @@ public sealed record ExerciseSummaryDto
         LastBestSet = lastBestSet;
         AllTimeBest = allTimeBest;
         IsCustom = isCustom;
+        LibraryImageId = libraryImageId;
     }
 
     public Guid Id { get; }
@@ -43,4 +45,6 @@ public sealed record ExerciseSummaryDto
     public PerformanceSetDto? AllTimeBest { get; }
 
     public bool IsCustom { get; }
+
+    public Guid? LibraryImageId { get; }
 }

@@ -2,6 +2,7 @@
 using TrackZ.Mobile.Features.Exercises;
 using TrackZ.Mobile.Features.Exercises.Data;
 using TrackZ.Mobile.Features.Exercises.Services;
+using TrackZ.Mobile.Identity;
 
 namespace TrackZ.Mobile;
 
@@ -18,17 +19,22 @@ public static class MauiProgram
 				fonts.AddFont("OpenSans-Semibold.ttf", "OpenSansSemibold");
 			});
 
-		builder.Services.AddSingleton<IAccessTokenProvider, SecureStorageAccessTokenProvider>();
+		builder.Services.AddSingleton<IMobileTokenStorage, SecureMobileTokenStorage>();
+		builder.Services.AddSingleton<MobileTokenStore>();
+		builder.Services.AddSingleton<IMobilePrivateDataCleaner, MauiPrivateDataCleaner>();
+		builder.Services.AddSingleton<IAccessTokenProvider>(services => services.GetRequiredService<MobileTokenStore>());
+		var apiOrigin = new Uri("https://api.trackz.app");
 		builder.Services.AddSingleton(services => new HttpClient(
-			new BearerTokenHandler(services.GetRequiredService<IAccessTokenProvider>())
+			new BearerTokenHandler(services.GetRequiredService<IAccessTokenProvider>(), apiOrigin)
 			{
 				InnerHandler = new HttpClientHandler()
 			})
 		{
-			BaseAddress = new Uri("https://api.trackz.app"),
+			BaseAddress = apiOrigin,
 			Timeout = TimeSpan.FromSeconds(30)
 		});
 		builder.Services.AddSingleton<TrackZExerciseApiClient>();
+		builder.Services.AddSingleton<TrackZIdentityApiClient>();
 		builder.Services.AddSingleton<IExerciseCatalogApi>(services => services.GetRequiredService<TrackZExerciseApiClient>());
 		builder.Services.AddSingleton<ICustomExerciseApi>(services => services.GetRequiredService<TrackZExerciseApiClient>());
 		builder.Services.AddSingleton<IExerciseImageApi>(services => services.GetRequiredService<TrackZExerciseApiClient>());

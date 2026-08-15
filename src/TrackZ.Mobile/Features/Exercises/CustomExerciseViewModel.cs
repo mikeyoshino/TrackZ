@@ -1,15 +1,37 @@
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using System.Collections.ObjectModel;
 using TrackZ.Contracts.Errors;
 using TrackZ.Domain.Exercises;
 using TrackZ.Mobile.Features.Exercises.Models;
 using TrackZ.Mobile.Features.Exercises.Services;
+using TrackZ.Mobile.Features.Exercises.Data;
 
 namespace TrackZ.Mobile.Features.Exercises;
 
-public sealed class CustomExerciseViewModel(CustomExerciseImageService service) : INotifyPropertyChanged
+public sealed class CustomExerciseViewModel : INotifyPropertyChanged
 {
+    private readonly CustomExerciseImageService _service;
+    private readonly ExerciseCache? _cache;
+    private readonly IExerciseCatalogApi? _catalogApi;
+    private readonly IConnectivityService? _connectivity;
+    private readonly IExerciseThumbnailCache? _thumbnailCache;
     private BusinessErrorCode? _lastErrorCode;
+    private CachedLibraryImage? _selectedLibraryImage;
+
+    public CustomExerciseViewModel(
+        CustomExerciseImageService service,
+        ExerciseCache? cache = null,
+        IExerciseCatalogApi? catalogApi = null,
+        IConnectivityService? connectivity = null,
+        IExerciseThumbnailCache? thumbnailCache = null)
+    {
+        _service = service;
+        _cache = cache;
+        _catalogApi = catalogApi;
+        _connectivity = connectivity;
+        _thumbnailCache = thumbnailCache;
+    }
 
     public string Name { get; set; } = string.Empty;
     public BodyPart? BodyPart { get; set; }
@@ -22,6 +44,19 @@ public sealed class CustomExerciseViewModel(CustomExerciseImageService service) 
     public IReadOnlyList<BodyPart> BodyParts { get; } = Enum.GetValues<BodyPart>();
     public IReadOnlyList<TrackingMode> TrackingModes { get; } = Enum.GetValues<TrackingMode>();
     public Dictionary<string, string[]> ValidationErrors { get; } = new(StringComparer.Ordinal);
+    public ObservableCollection<CachedLibraryImage> LibraryImages { get; } = [];
+
+    public CachedLibraryImage? SelectedLibraryImage
+    {
+        get => _selectedLibraryImage;
+        set
+        {
+            if (_selectedLibraryImage == value) return;
+            _selectedLibraryImage = value;
+            if (value is not null) SelectLibraryImage(value.ImageId, value.ThumbnailUri);
+            OnPropertyChanged();
+        }
+    }
 
     public BusinessErrorCode? LastErrorCode
     {
@@ -45,13 +80,57 @@ public sealed class CustomExerciseViewModel(CustomExerciseImageService service) 
         OnPropertyChanged(nameof(PreviewImagePath));
     }
 
-    public void SelectLibraryImage(Guid libraryImageId)
+    public void SelectLibraryImage(Guid libraryImageId, string? localPreviewPath = null)
     {
         LibraryImageId = libraryImageId;
         LocalImagePath = null;
         LocalImageContentType = null;
-        PreviewImagePath = null;
+        PreviewImagePath = localPreviewPath;
         OnPropertyChanged(nameof(PreviewImagePath));
+    }
+
+    public async Task LoadLibraryImagesAsync(CancellationToken cancellationToken = default)
+    {
+        if (_cache is null) return;
+        SetLibraryImages(await _cache.GetLibraryImagesAsync(cancellationToken));
+        if (_connectivity?.IsOnline != true || _catalogApi is null) return;
+        try
+        {
+            var published = (await _catalogApi.GetAllAsync(cancellationToken))
+                .Where(exercise => !exercise.IsCustom && exercise.LibraryImageId is not null)
+                .ToArray();
+            var local = new List<CachedLibraryImage>(published.Length);
+            foreach (var exercise in published)
+            {
+                string? thumbnail = null;
+                try
+                {
+                    thumbnail = _thumbnailCache is null
+                        ? null
+                        : await _thumbnailCache.CacheAsync(exercise.ThumbnailUrl, cancellationToken);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception)
+                {
+                    // Library metadata remains usable if one preview cannot be cached.
+                }
+                local.Add(new CachedLibraryImage(exercise.LibraryImageId!.Value, exercise.Name, thumbnail));
+            }
+            await _cache.ReplaceLibraryImagesAsync(local, cancellationToken);
+            SetLibraryImages(local);
+            LastErrorCode = null;
+        }
+        catch (MobileApiException exception)
+        {
+            LastErrorCode = exception.ErrorCode;
+        }
+        catch (Exception exception) when (exception is HttpRequestException or IOException)
+        {
+            LastErrorCode = BusinessErrorCode.InternalServerError;
+        }
     }
 
     public void LoadForEdit(CachedExercise exercise)
@@ -60,6 +139,7 @@ public sealed class CustomExerciseViewModel(CustomExerciseImageService service) 
         Name = exercise.Name;
         BodyPart = exercise.BodyPart;
         TrackingMode = exercise.TrackingMode;
+        LibraryImageId = exercise.LibraryImageId;
         PreviewImagePath = exercise.ThumbnailUri;
         OnPropertyChanged(nameof(Name));
         OnPropertyChanged(nameof(BodyPart));
@@ -87,7 +167,7 @@ public sealed class CustomExerciseViewModel(CustomExerciseImageService service) 
             PreviewImagePath);
         try
         {
-            await service.SaveAsync(draft, cancellationToken);
+            await _service.SaveAsync(draft, cancellationToken);
             LastErrorCode = null;
             return true;
         }
@@ -100,6 +180,12 @@ public sealed class CustomExerciseViewModel(CustomExerciseImageService service) 
             }
             return false;
         }
+    }
+
+    private void SetLibraryImages(IEnumerable<CachedLibraryImage> images)
+    {
+        LibraryImages.Clear();
+        foreach (var image in images) LibraryImages.Add(image);
     }
 
     private void Validate()

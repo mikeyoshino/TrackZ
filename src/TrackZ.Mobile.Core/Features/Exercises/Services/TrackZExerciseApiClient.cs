@@ -24,8 +24,10 @@ public sealed class TrackZExerciseApiClient(HttpClient httpClient) :
                 (cursor is null ? string.Empty : $"&cursor={Uri.EscapeDataString(cursor)}");
             using var response = await httpClient.GetAsync(path, cancellationToken);
             await EnsureSuccessAsync(response, cancellationToken);
-            var page = await response.Content.ReadFromJsonAsync<CursorPage<ExerciseSummaryDto>>(JsonOptions, cancellationToken)
-                ?? throw InvalidResponse();
+            var page = await ReadSuccessAsync<CursorPage<ExerciseSummaryDto>>(
+                response,
+                value => value.Items is not null,
+                cancellationToken);
             exercises.AddRange(page.Items);
             cursor = page.NextCursor;
         } while (cursor is not null);
@@ -41,12 +43,15 @@ public sealed class TrackZExerciseApiClient(HttpClient httpClient) :
                 exercise.BodyPart,
                 exercise.TrackingMode,
                 exercise.LibraryImageId,
-                null),
+                null,
+                exercise.OperationId),
             JsonOptions,
             cancellationToken);
         await EnsureSuccessAsync(response, cancellationToken);
-        var created = await response.Content.ReadFromJsonAsync<CreatedExerciseResponse>(JsonOptions, cancellationToken)
-            ?? throw InvalidResponse();
+        var created = await ReadSuccessAsync<CreatedExerciseResponse>(
+            response,
+            value => value.Id != Guid.Empty,
+            cancellationToken);
         return created.Id;
     }
 
@@ -77,8 +82,12 @@ public sealed class TrackZExerciseApiClient(HttpClient httpClient) :
             JsonOptions,
             cancellationToken);
         await EnsureSuccessAsync(response, cancellationToken);
-        var reservation = await response.Content.ReadFromJsonAsync<UploadReservationResponse>(JsonOptions, cancellationToken)
-            ?? throw InvalidResponse();
+        var reservation = await ReadSuccessAsync<UploadReservationResponse>(
+            response,
+            value => value.UploadId != Guid.Empty
+                && value.UploadUri is not null
+                && IsUploadContentRoute(value.UploadUri, value.UploadId),
+            cancellationToken);
         return new ImageUploadReservation(reservation.UploadId, reservation.UploadUri);
     }
 
@@ -104,8 +113,12 @@ public sealed class TrackZExerciseApiClient(HttpClient httpClient) :
             null,
             cancellationToken);
         await EnsureSuccessAsync(response, cancellationToken);
-        return await response.Content.ReadFromJsonAsync<UploadedExerciseImage>(JsonOptions, cancellationToken)
-            ?? throw InvalidResponse();
+        return await ReadSuccessAsync<UploadedExerciseImage>(
+            response,
+            value => value.Id != Guid.Empty
+                && IsCompletedImageRoute(value.MasterUrl, value.Id, "master")
+                && IsCompletedImageRoute(value.ThumbnailUrl, value.Id, "thumbnail"),
+            cancellationToken);
     }
 
     private static async Task EnsureSuccessAsync(HttpResponseMessage response, CancellationToken cancellationToken)
@@ -127,6 +140,39 @@ public sealed class TrackZExerciseApiClient(HttpClient httpClient) :
         }
         throw InvalidResponse();
     }
+
+    private static async Task<T> ReadSuccessAsync<T>(
+        HttpResponseMessage response,
+        Func<T, bool> isValid,
+        CancellationToken cancellationToken) where T : class
+    {
+        try
+        {
+            var value = await response.Content.ReadFromJsonAsync<T>(JsonOptions, cancellationToken);
+            return value is not null && isValid(value) ? value : throw InvalidResponse();
+        }
+        catch (MobileApiException)
+        {
+            throw;
+        }
+        catch (Exception exception) when (exception is JsonException or NotSupportedException)
+        {
+            throw InvalidResponse(exception);
+        }
+    }
+
+    private static bool IsUploadContentRoute(Uri route, Guid uploadId) =>
+        !route.IsAbsoluteUri
+        && string.Equals(
+            route.OriginalString,
+            $"/api/v1/media/exercise-images/uploads/{uploadId:D}/content",
+            StringComparison.Ordinal);
+
+    private static bool IsCompletedImageRoute(string? route, Guid imageId, string rendition) =>
+        string.Equals(
+            route,
+            $"/api/v1/media/exercise-images/{imageId:D}/{rendition}",
+            StringComparison.Ordinal);
 
     private static MobileApiException InvalidResponse(Exception? exception = null) => new(
         BusinessErrorCode.InternalServerError,

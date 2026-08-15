@@ -361,6 +361,7 @@ public sealed class CompleteImageUploadFailureTests
         public Task<ImageUploadTicket?> FindOwnedTicketAsync(Guid id, Guid owner, CancellationToken ct) => Task.FromResult<ImageUploadTicket?>(Ticket);
         public Task<ExerciseImage?> FindImageAsync(Guid id, CancellationToken ct) => Task.FromResult<ExerciseImage?>(null);
         public Task<ExerciseImage?> FindOwnedImageAsync(Guid id, Guid owner, CancellationToken ct) => Task.FromResult<ExerciseImage?>(null);
+        public Task<ExerciseImage?> FindReadableImageAsync(Guid id, Guid owner, CancellationToken ct) => Task.FromResult<ExerciseImage?>(null);
         public Task<StagingUploadTransition> TryMarkUploadedAsync(Guid id, Guid owner, CancellationToken ct) => Task.FromResult(StagingUploadTransition.Uploaded);
         public Task<UploadClaim> TryClaimUploadAsync(Guid id, Guid owner, TimeSpan lease, CancellationToken ct) => Task.FromResult(new UploadClaim(Guid.NewGuid(), Ticket.StagingObjectKey, DateTimeOffset.UtcNow.Add(lease)));
         public Task<StagingUploadTransition> TryMarkUploadedAsync(Guid id, Guid owner, Guid uploadLease, CancellationToken ct) => Task.FromResult(StagingUploadTransition.Uploaded);

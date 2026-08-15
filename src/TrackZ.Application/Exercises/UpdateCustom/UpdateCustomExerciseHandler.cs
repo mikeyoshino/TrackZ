@@ -14,10 +14,14 @@ public sealed class UpdateCustomExerciseHandler(ICustomExerciseStore store, ICur
         var exercise = await store.FindActiveCustomOwnedAsync(request.ExerciseId, currentUser.UserId, cancellationToken)
             ?? throw NotFound();
 
-        if (request.LibraryImageId is not null || request.UploadedImageKey is not null)
+        if (request.UploadedImageKey is not null)
         {
-            throw InvalidRequest("Image selection is not available yet.");
+            throw InvalidRequest("Uploaded image keys cannot be assigned directly.");
         }
+
+        if (request.LibraryImageId is { } libraryImageId
+            && await store.FindPublishedLibraryImageAsync(libraryImageId, cancellationToken) is null)
+            throw InvalidRequest("The selected library image is unavailable.");
 
         try
         {
@@ -27,6 +31,7 @@ public sealed class UpdateCustomExerciseHandler(ICustomExerciseStore store, ICur
             }
 
             exercise.UpdateDetails(request.Name, request.BodyPart);
+            exercise.SelectLibraryImage(request.LibraryImageId);
         }
         catch (ArgumentException exception)
         {

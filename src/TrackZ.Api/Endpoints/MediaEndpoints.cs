@@ -72,10 +72,11 @@ public static class MediaEndpoints
     private static async Task<IResult> ReadAsync(Guid imageId, string rendition, HttpContext context, IExerciseImageUploadStore store, IObjectStorage storage, ICurrentUser currentUser, CancellationToken cancellationToken)
     {
         if (rendition is not ("master" or "thumbnail")) return Missing(context);
-        var image = await store.FindOwnedImageAsync(imageId, currentUser.UserId, cancellationToken);
+        var image = await store.FindReadableImageAsync(imageId, currentUser.UserId, cancellationToken);
         if (image is null) return Missing(context);
         var key = rendition == "master" ? image.MasterObjectKey : image.ThumbnailObjectKey;
-        var result = await storage.GetAsync($"private/{currentUser.UserId:D}/", key, cancellationToken);
+        var prefix = image.IsPrivate ? $"private/{currentUser.UserId:D}/" : "system/";
+        var result = await storage.GetAsync(prefix, key, cancellationToken);
         return result is null ? Missing(context) : Results.Stream(result.Content, result.ContentType);
     }
     private static async Task<byte[]> BufferAsync(Stream source, CancellationToken cancellationToken)

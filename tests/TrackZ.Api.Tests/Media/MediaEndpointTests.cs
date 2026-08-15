@@ -160,6 +160,45 @@ public sealed class MediaEndpointTests : IAsyncLifetime
         Assert.Null(unknownProblem.FieldErrors);
     }
 
+    [Fact]
+    public async Task Published_system_thumbnail_is_readable_but_draft_and_foreign_private_images_are_hidden()
+    {
+        var reader = await AuthenticateAsync($"media-library-reader-{Guid.NewGuid():N}@example.com");
+        var foreign = await AuthenticateAsync($"media-library-owner-{Guid.NewGuid():N}@example.com");
+        var system = ExerciseDefinition.CreateSystem("Library", BodyPart.Chest, TrackingMode.Weighted);
+        var published = ExerciseImage.CreateSystem(system, "system/library/master.png", "system/library/thumb.png", 1, "source");
+        published.Review(Guid.NewGuid(), "rights", true, true, true, DateTimeOffset.UtcNow);
+        published.Publish(DateTimeOffset.UtcNow.AddSeconds(1));
+        var draft = ExerciseImage.CreateSystem(system, "system/draft/master.png", "system/draft/thumb.png", 2, "draft");
+        var custom = ExerciseDefinition.CreateCustom(foreign.UserId, "Foreign", BodyPart.Chest, TrackingMode.Weighted);
+        var privateImage = ExerciseImage.CreateCustomUpload(
+            custom, foreign.UserId,
+            $"private/{foreign.UserId:D}/master.jpg",
+            $"private/{foreign.UserId:D}/thumb.jpg", 1, "upload");
+        await using (var scope = _factory!.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await db.Exercises.AddRangeAsync(system, custom);
+            await db.ExerciseImages.AddRangeAsync(published, draft, privateImage);
+            var storage = scope.ServiceProvider.GetRequiredService<IObjectStorage>();
+            await using var bytes = new MemoryStream([7, 8, 9]);
+            await storage.PutAsync("system/", published.ThumbnailObjectKey, bytes, "image/png", CancellationToken.None);
+            await db.SaveChangesAsync();
+        }
+
+        var publishedRead = await SendAuthorizedAsync(reader.Token, HttpMethod.Get,
+            $"/api/v1/media/exercise-images/{published.Id:D}/thumbnail", null);
+        var draftRead = await SendAuthorizedAsync(reader.Token, HttpMethod.Get,
+            $"/api/v1/media/exercise-images/{draft.Id:D}/thumbnail", null);
+        var privateRead = await SendAuthorizedAsync(reader.Token, HttpMethod.Get,
+            $"/api/v1/media/exercise-images/{privateImage.Id:D}/thumbnail", null);
+
+        Assert.Equal(HttpStatusCode.OK, publishedRead.StatusCode);
+        Assert.Equal([7, 8, 9], await publishedRead.Content.ReadAsByteArrayAsync());
+        Assert.Equal(HttpStatusCode.NotFound, draftRead.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, privateRead.StatusCode);
+    }
+
     private async Task<(Guid UserId, string Token)> AuthenticateAsync(string email)
     {
         var registration = await _client.PostAsJsonAsync("/api/v1/auth/register", new { email, password = "ValidPassword!42" });

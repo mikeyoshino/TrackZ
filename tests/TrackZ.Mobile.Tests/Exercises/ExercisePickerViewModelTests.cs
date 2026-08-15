@@ -151,7 +151,7 @@ public sealed class ExercisePickerViewModelTests : IAsyncLifetime
     public async Task Api_http_handler_adds_the_current_bearer_token()
     {
         var terminal = new AuthorizationRecordingHandler();
-        var handler = new BearerTokenHandler(new StubAccessTokenProvider()) { InnerHandler = terminal };
+        var handler = new BearerTokenHandler(new StubAccessTokenProvider(), new Uri("https://trackz.test")) { InnerHandler = terminal };
         using var client = new HttpClient(handler) { BaseAddress = new Uri("https://trackz.test") };
 
         await client.GetAsync("/api/v1/exercises");
@@ -181,7 +181,61 @@ public sealed class ExercisePickerViewModelTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Thumbnail_cache_rejects_absolute_urls_without_leaking_bearer_request()
+    public async Task Failed_thumbnail_does_not_discard_refreshed_metadata()
+    {
+        var refreshed = Summary(
+            Guid.NewGuid(), "New Metadata", BodyPart.Back,
+            "/api/v1/media/exercise-images/99999999-9999-9999-9999-999999999999/thumbnail");
+        var sut = new ExercisePickerViewModel(
+            _cache,
+            new ImmediateCatalogApi([refreshed]),
+            new StubConnectivity(true),
+            new FixedClock(),
+            thumbnailCache: new FailingThumbnailCache());
+
+        await sut.LoadAsync();
+        await sut.RefreshCompletion;
+
+        var cached = Assert.Single(await _cache.GetAllAsync());
+        Assert.Equal("New Metadata", cached.Name);
+        Assert.Null(cached.ThumbnailUri);
+        Assert.Null(sut.LastErrorCode);
+    }
+
+    [Fact]
+    public async Task Thumbnail_fill_uses_bounded_parallelism()
+    {
+        var exercises = Enumerable.Range(1, 12)
+            .Select(index => Summary(
+                Guid.NewGuid(), $"Exercise {index}", BodyPart.Chest,
+                $"/api/v1/media/exercise-images/{Guid.NewGuid():D}/thumbnail"))
+            .ToArray();
+        var thumbnails = new ConcurrencyTrackingThumbnailCache();
+        var sut = new ExercisePickerViewModel(
+            _cache,
+            new ImmediateCatalogApi(exercises),
+            new StubConnectivity(true),
+            new FixedClock(),
+            thumbnailCache: thumbnails);
+
+        await sut.LoadAsync();
+        await sut.RefreshCompletion;
+
+        Assert.InRange(thumbnails.MaximumConcurrency, 2, 4);
+        Assert.Equal(12, (await _cache.GetAllAsync()).Count(item => item.ThumbnailUri == "/local/image.jpg"));
+    }
+
+    [Theory]
+    [InlineData("//evil.example/api/v1/media/exercise-images/99999999-9999-9999-9999-999999999999/thumbnail")]
+    [InlineData("/%2f%2fevil.example/x")]
+    [InlineData("/\\evil.example/x")]
+    [InlineData("https://trackz.test/api/v1/media/exercise-images/99999999-9999-9999-9999-999999999999/thumbnail")]
+    [InlineData("http://trackz.test/api/v1/media/exercise-images/99999999-9999-9999-9999-999999999999/thumbnail")]
+    [InlineData("https://trackz.test:444/api/v1/media/exercise-images/99999999-9999-9999-9999-999999999999/thumbnail")]
+    [InlineData("https://evil.example/api/v1/media/exercise-images/99999999-9999-9999-9999-999999999999/thumbnail")]
+    [InlineData("/api/v1/media/exercise-images/not-a-guid/thumbnail")]
+    [InlineData("/api/v1/media/exercise-images/99999999-9999-9999-9999-999999999999/master")]
+    public async Task Thumbnail_cache_rejects_noncanonical_routes_without_sending_request(string route)
     {
         var handler = new NeverCalledHandler();
         var directory = Path.Combine(Path.GetTempPath(), $"trackz-thumbnails-{Guid.NewGuid():N}");
@@ -190,13 +244,47 @@ public sealed class ExercisePickerViewModelTests : IAsyncLifetime
             var cache = new AuthenticatedExerciseThumbnailCache(
                 new HttpClient(handler) { BaseAddress = new Uri("https://trackz.test") }, directory);
 
-            await Assert.ThrowsAsync<InvalidDataException>(() => cache.CacheAsync("https://evil.example/image.jpg"));
+            await Assert.ThrowsAsync<InvalidDataException>(() => cache.CacheAsync(route));
             Assert.Equal(0, handler.CallCount);
         }
         finally
         {
             if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task Thumbnail_cache_accepts_canonical_private_media_route()
+    {
+        var handler = new ImageResponseHandler();
+        var directory = Path.Combine(Path.GetTempPath(), $"trackz-thumbnails-{Guid.NewGuid():N}");
+        try
+        {
+            var cache = new AuthenticatedExerciseThumbnailCache(
+                new HttpClient(handler) { BaseAddress = new Uri("https://trackz.test") }, directory);
+
+            var local = await cache.CacheAsync(
+                "/api/v1/media/exercise-images/99999999-9999-9999-9999-999999999999/thumbnail");
+
+            Assert.Equal(1, handler.CallCount);
+            Assert.Equal([1, 2, 3], await File.ReadAllBytesAsync(local!));
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Bearer_handler_never_sends_token_to_off_origin_absolute_request()
+    {
+        var terminal = new AuthorizationRecordingHandler();
+        var handler = new BearerTokenHandler(new StubAccessTokenProvider(), new Uri("https://trackz.test")) { InnerHandler = terminal };
+        using var client = new HttpClient(handler);
+
+        await client.GetAsync("https://evil.example/x");
+
+        Assert.Null(terminal.Authorization);
     }
 
     private static ExerciseSummaryDto ChestPressWithPerformance() => new(
@@ -210,8 +298,8 @@ public sealed class ExercisePickerViewModelTests : IAsyncLifetime
         new PerformanceSetDto(75m, null, 5),
         false);
 
-    private static ExerciseSummaryDto Summary(Guid id, string name, BodyPart bodyPart) => new(
-        id, name, bodyPart, TrackingMode.Weighted, null, null, null, null, false);
+    private static ExerciseSummaryDto Summary(Guid id, string name, BodyPart bodyPart, string? thumbnailUrl = null) => new(
+        id, name, bodyPart, TrackingMode.Weighted, thumbnailUrl, null, null, null, false);
 
     private sealed class StubConnectivity(bool isOnline) : IConnectivityService
     {
@@ -252,6 +340,48 @@ public sealed class ExercisePickerViewModelTests : IAsyncLifetime
     {
         public Task<string?> CacheAsync(string? thumbnailUri, CancellationToken cancellationToken = default) =>
             Task.FromResult<string?>(thumbnailUri is null ? null : "/local/private-thumbnail.jpg");
+    }
+
+    private sealed class FailingThumbnailCache : IExerciseThumbnailCache
+    {
+        public Task<string?> CacheAsync(string? thumbnailUri, CancellationToken cancellationToken = default) =>
+            throw new IOException("thumbnail unavailable");
+    }
+
+    private sealed class ConcurrencyTrackingThumbnailCache : IExerciseThumbnailCache
+    {
+        private int _current;
+        private int _maximum;
+        public int MaximumConcurrency => _maximum;
+
+        public async Task<string?> CacheAsync(string? thumbnailUri, CancellationToken cancellationToken = default)
+        {
+            var current = Interlocked.Increment(ref _current);
+            InterlockedExtensions.Max(ref _maximum, current);
+            try
+            {
+                await Task.Delay(20, cancellationToken);
+                return "/local/image.jpg";
+            }
+            finally
+            {
+                Interlocked.Decrement(ref _current);
+            }
+        }
+    }
+
+    private static class InterlockedExtensions
+    {
+        public static void Max(ref int location, int value)
+        {
+            int observed;
+            do
+            {
+                observed = Volatile.Read(ref location);
+                if (observed >= value) return;
+            }
+            while (Interlocked.CompareExchange(ref location, value, observed) != observed);
+        }
     }
 
     private sealed class FixedClock : IClock
@@ -300,6 +430,19 @@ public sealed class ExercisePickerViewModelTests : IAsyncLifetime
         {
             CallCount++;
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
+        }
+    }
+
+    private sealed class ImageResponseHandler : HttpMessageHandler
+    {
+        public int CallCount { get; private set; }
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            CallCount++;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent([1, 2, 3])
+            });
         }
     }
 }

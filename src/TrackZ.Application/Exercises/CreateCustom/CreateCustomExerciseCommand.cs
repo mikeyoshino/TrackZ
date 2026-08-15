@@ -8,4 +8,5 @@ public sealed record CreateCustomExerciseCommand(
     BodyPart BodyPart,
     TrackingMode TrackingMode,
     Guid? LibraryImageId,
-    string? UploadedImageKey) : IRequest<Guid>;
+    string? UploadedImageKey,
+    Guid? OperationId = null) : IRequest<Guid>;

@@ -12,11 +12,23 @@ public sealed class CreateCustomExerciseHandler(ICustomExerciseStore store, ICur
 {
     public async Task<Guid> Handle(CreateCustomExerciseCommand request, CancellationToken cancellationToken)
     {
-        if (request.LibraryImageId is not null || request.UploadedImageKey is not null)
+        if (request.OperationId is { } operationId)
         {
-            // Task 4 owns creating independently verifiable upload records. The current aggregate has
-            // no safe association for an existing asset, so untrusted identifiers are deliberately rejected.
-            throw InvalidRequest("Image selection is not available yet.");
+            if (operationId == Guid.Empty) throw InvalidRequest("A client operation identifier is required.");
+            var replay = await store.FindCustomByOperationAsync(currentUser.UserId, operationId, cancellationToken);
+            if (replay is not null) return replay.Id;
+        }
+
+        if (request.UploadedImageKey is not null)
+        {
+            throw InvalidRequest("Uploaded image keys cannot be assigned directly.");
+        }
+
+        ExerciseImage? libraryImage = null;
+        if (request.LibraryImageId is { } libraryImageId)
+        {
+            libraryImage = await store.FindPublishedLibraryImageAsync(libraryImageId, cancellationToken)
+                ?? throw InvalidRequest("The selected library image is unavailable.");
         }
 
         ExerciseDefinition exercise;
@@ -26,15 +38,22 @@ public sealed class CreateCustomExerciseHandler(ICustomExerciseStore store, ICur
                 currentUser.UserId,
                 request.Name,
                 request.BodyPart,
-                request.TrackingMode);
+                request.TrackingMode,
+                clientOperationId: request.OperationId);
         }
         catch (ArgumentException exception)
         {
             throw InvalidRequest(exception.Message);
         }
+        exercise.SelectLibraryImage(libraryImage?.Id);
 
         if (!await store.TryCreateCustomAsync(exercise, cancellationToken))
         {
+            if (request.OperationId is { } replayOperationId)
+            {
+                var replay = await store.FindCustomByOperationAsync(currentUser.UserId, replayOperationId, cancellationToken);
+                if (replay is not null) return replay.Id;
+            }
             throw new BusinessException(
                 BusinessErrorCode.ExerciseNameDuplicate,
                 "An active custom exercise with this name already exists.",

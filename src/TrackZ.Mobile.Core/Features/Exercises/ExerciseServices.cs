@@ -42,6 +42,7 @@ public interface IExerciseCatalogApi
 public interface IExerciseThumbnailCache
 {
     Task<string?> CacheAsync(string? thumbnailUri, CancellationToken cancellationToken = default);
+    Task ClearAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 }
 
 public sealed record CustomExerciseDraft(
@@ -52,7 +53,8 @@ public sealed record CustomExerciseDraft(
     string? LocalImagePath,
     string? LocalImageContentType,
     Guid? ExistingExerciseId = null,
-    string? LocalPreviewPath = null);
+    string? LocalPreviewPath = null,
+    Guid? OperationId = null);
 
 public interface ICustomExerciseApi
 {

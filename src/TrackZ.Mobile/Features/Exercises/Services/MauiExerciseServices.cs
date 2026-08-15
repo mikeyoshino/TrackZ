@@ -1,3 +1,5 @@
+using TrackZ.Mobile.Identity;
+
 namespace TrackZ.Mobile.Features.Exercises.Services;
 
 public sealed class MauiConnectivityService : IConnectivityService, IDisposable
@@ -18,11 +20,30 @@ public sealed class MauiUiDispatcher : IUiDispatcher
     public Task InvokeAsync(Action action) => MainThread.InvokeOnMainThreadAsync(action);
 }
 
-public sealed class SecureStorageAccessTokenProvider : IAccessTokenProvider
+public sealed class SecureMobileTokenStorage : IMobileTokenStorage
 {
-    public Task<string?> GetAccessTokenAsync(CancellationToken cancellationToken = default)
+    public Task<string?> GetAsync(string key, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return SecureStorage.Default.GetAsync("trackz_access_token");
+        return SecureStorage.Default.GetAsync(key);
     }
+
+    public async Task SetAsync(string key, string value, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        await SecureStorage.Default.SetAsync(key, value);
+    }
+
+    public Task RemoveAsync(string key, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        SecureStorage.Default.Remove(key);
+        return Task.CompletedTask;
+    }
+}
+
+public sealed class MauiPrivateDataCleaner(CustomExerciseImageService exercises) : IMobilePrivateDataCleaner
+{
+    public Task ClearAsync(CancellationToken cancellationToken = default) =>
+        exercises.ClearPrivateDataAsync(cancellationToken);
 }

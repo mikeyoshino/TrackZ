@@ -29,6 +29,22 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public Task<ImageUploadTicket?> FindOwnedTicketAsync(Guid ticketId, Guid ownerId, CancellationToken cancellationToken) => ImageUploadTickets.SingleOrDefaultAsync(x => x.Id == ticketId && x.OwnerId == ownerId, cancellationToken);
     public Task<ExerciseImage?> FindImageAsync(Guid imageId, CancellationToken cancellationToken) => ExerciseImages.SingleOrDefaultAsync(x => x.Id == imageId, cancellationToken);
     public Task<ExerciseImage?> FindOwnedImageAsync(Guid imageId, Guid ownerId, CancellationToken cancellationToken) => ExerciseImages.SingleOrDefaultAsync(x => x.Id == imageId && x.OwnerId == ownerId && x.IsPrivate, cancellationToken);
+    public Task<ExerciseImage?> FindReadableImageAsync(Guid imageId, Guid ownerId, CancellationToken cancellationToken) =>
+        ExerciseImages.SingleOrDefaultAsync(image => image.Id == imageId && (
+            (image.OwnerId == ownerId && image.IsPrivate && image.Source == ExerciseImageSource.UserUpload)
+            || (image.OwnerId == null
+                && !image.IsPrivate
+                && image.Source == ExerciseImageSource.SystemArtwork
+                && image.ReviewState == ExerciseImageReviewState.Published
+                && image.AnatomyApproved
+                && image.MovementApproved
+                && image.RightsApproved
+                && image.ReviewedByUserId != null
+                && image.ReviewedAt != null
+                && image.ReviewedAt >= image.CreatedAt
+                && image.RightsReference != null && image.RightsReference != ""
+                && image.PublishedAt != null
+                && image.PublishedAt >= image.ReviewedAt)), cancellationToken);
     public async Task<StagingUploadTransition> TryMarkUploadedAsync(Guid ticketId, Guid ownerId, CancellationToken cancellationToken)
     {
         await using var transaction = await Database.BeginTransactionAsync(cancellationToken);
@@ -240,6 +256,32 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         return await TrySaveCustomAsync(cancellationToken, exercise);
     }
 
+    public Task<ExerciseDefinition?> FindCustomByOperationAsync(
+        Guid ownerId,
+        Guid operationId,
+        CancellationToken cancellationToken) =>
+        Exercises.AsNoTracking().SingleOrDefaultAsync(
+            exercise => exercise.OwnerId == ownerId && exercise.ClientOperationId == operationId,
+            cancellationToken);
+
+    public Task<ExerciseImage?> FindPublishedLibraryImageAsync(Guid imageId, CancellationToken cancellationToken) =>
+        ExerciseImages.AsNoTracking().SingleOrDefaultAsync(image =>
+            image.Id == imageId
+            && image.Source == ExerciseImageSource.SystemArtwork
+            && !image.IsPrivate
+            && image.OwnerId == null
+            && image.ReviewState == ExerciseImageReviewState.Published
+            && image.AnatomyApproved
+            && image.MovementApproved
+            && image.RightsApproved
+            && image.ReviewedByUserId != null
+            && image.ReviewedAt != null
+            && image.ReviewedAt >= image.CreatedAt
+            && image.RightsReference != null && image.RightsReference != ""
+            && image.PublishedAt != null
+            && image.PublishedAt >= image.ReviewedAt,
+            cancellationToken);
+
     public async Task<ExerciseDefinition?> FindActiveCustomOwnedAsync(Guid exerciseId, Guid ownerId, CancellationToken cancellationToken)
     {
         var exercise = await Exercises.SingleOrDefaultAsync(item =>
@@ -311,6 +353,34 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
                     || string.Compare(exercise.Name, after.OrderingName) > 0
                     || (exercise.Name == after.OrderingName && exercise.Id.CompareTo(after.OrderingId) > 0))
             let latestImageId = images.OrderByDescending(image => image.Version).ThenByDescending(image => image.Id).Select(image => (Guid?)image.Id).FirstOrDefault()
+            let publishedSystemImageId = ExerciseImages.AsNoTracking()
+                .Where(image => image.ExerciseDefinitionId == exercise.Id
+                    && image.OwnerId == null
+                    && !image.IsPrivate
+                    && image.Source == ExerciseImageSource.SystemArtwork
+                    && image.ReviewState == ExerciseImageReviewState.Published
+                    && image.AnatomyApproved && image.MovementApproved && image.RightsApproved
+                    && image.ReviewedByUserId != null && image.ReviewedAt != null
+                    && image.ReviewedAt >= image.CreatedAt
+                    && image.RightsReference != null && image.RightsReference != ""
+                    && image.PublishedAt != null && image.PublishedAt >= image.ReviewedAt)
+                .OrderByDescending(image => image.Version).ThenByDescending(image => image.Id)
+                .Select(image => (Guid?)image.Id).FirstOrDefault()
+            let selectedLibraryImageId = ExerciseImages.AsNoTracking()
+                .Where(image => image.Id == exercise.LibraryImageId
+                    && image.OwnerId == null
+                    && !image.IsPrivate
+                    && image.Source == ExerciseImageSource.SystemArtwork
+                    && image.ReviewState == ExerciseImageReviewState.Published
+                    && image.AnatomyApproved && image.MovementApproved && image.RightsApproved
+                    && image.ReviewedByUserId != null && image.ReviewedAt != null
+                    && image.ReviewedAt >= image.CreatedAt
+                    && image.RightsReference != null && image.RightsReference != ""
+                    && image.PublishedAt != null && image.PublishedAt >= image.ReviewedAt)
+                .Select(image => (Guid?)image.Id).FirstOrDefault()
+            let displayImageId = exercise.OwnerId != null && selectedLibraryImageId != null
+                ? selectedLibraryImageId
+                : latestImageId ?? publishedSystemImageId
             orderby exercise.Name, exercise.Id
             select new CatalogExerciseReadItem(
                 new ExerciseSummaryDto(
@@ -318,8 +388,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
                     exercise.Name,
                     exercise.BodyPart,
                     exercise.TrackingMode,
-                    latestImageId != null
-                        ? "/api/v1/media/exercise-images/" + latestImageId.Value.ToString() + "/thumbnail"
+                    displayImageId != null
+                        ? "/api/v1/media/exercise-images/" + displayImageId.Value.ToString() + "/thumbnail"
                         : null,
                     performance == null ? null : performance.LastPerformedAt,
                     performance == null || performance.TrackingMode != exercise.TrackingMode || performance.LastBestReps == null
@@ -327,14 +397,15 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
                         : new PerformanceSetDto(
                             exercise.TrackingMode == TrackingMode.Weighted ? performance.LastBestWeightKg : null,
                             exercise.TrackingMode == TrackingMode.Assisted ? performance.LastBestAssistedKg : null,
-                            performance.LastBestReps.Value),
+                            performance.LastBestReps.GetValueOrDefault()),
                     performance == null || performance.TrackingMode != exercise.TrackingMode || performance.AllTimeBestReps == null
                         ? null
                         : new PerformanceSetDto(
                             exercise.TrackingMode == TrackingMode.Weighted ? performance.AllTimeBestWeightKg : null,
                             exercise.TrackingMode == TrackingMode.Assisted ? performance.AllTimeBestAssistedKg : null,
-                            performance.AllTimeBestReps.Value),
-                    exercise.OwnerId != null),
+                            performance.AllTimeBestReps.GetValueOrDefault()),
+                    exercise.OwnerId != null,
+                    exercise.OwnerId == null ? publishedSystemImageId : selectedLibraryImageId),
                 exercise.Name,
                 exercise.Id);
 
@@ -360,7 +431,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             await SaveChangesAsync(cancellationToken);
             return true;
         }
-        catch (DbUpdateException exception) when (IsActiveCustomNameUniqueConstraintViolation(exception))
+        catch (DbUpdateException exception) when (
+            IsActiveCustomNameUniqueConstraintViolation(exception)
+            || IsCustomOperationUniqueConstraintViolation(exception))
         {
             if (addedExercise is not null)
             {
@@ -376,6 +449,13 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         {
             SqlState: PostgresErrorCodes.UniqueViolation,
             ConstraintName: "IX_exercise_definitions_OwnerId_NormalizedName"
+        };
+
+    private static bool IsCustomOperationUniqueConstraintViolation(DbUpdateException exception) =>
+        exception.InnerException is PostgresException
+        {
+            SqlState: PostgresErrorCodes.UniqueViolation,
+            ConstraintName: "IX_exercise_definitions_OwnerId_ClientOperationId"
         };
 
     private sealed class AppDbTransaction(Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction transaction)

@@ -47,7 +47,7 @@ public sealed class ExerciseCatalogPersistenceTests
         await using var database = await PostgreSqlFixture.StartAsync();
         var migrations = database.Db.GetService<IMigrationsAssembly>();
         var migration = migrations.CreateMigration(
-            migrations.Migrations["20260815130000_AddImageUploadTickets"],
+            migrations.Migrations["20260815102739_AddCustomExerciseSyncIdentityAndLibraryImage"],
             database.Db.Database.ProviderName!)!;
 
         var entityNames = migration.TargetModel.GetEntityTypes()
@@ -70,6 +70,14 @@ public sealed class ExerciseCatalogPersistenceTests
             .SequenceEqual([nameof(ExercisePerformance.ExerciseDefinitionId)]));
         Assert.DoesNotContain(exercise.GetKeys(), key => key.Properties.Select(property => property.Name)
             .SequenceEqual([nameof(ExerciseDefinition.Id), nameof(ExerciseDefinition.TrackingMode)]));
+        Assert.NotNull(exercise.FindProperty(nameof(ExerciseDefinition.ClientOperationId)));
+        Assert.NotNull(exercise.FindProperty(nameof(ExerciseDefinition.LibraryImageId)));
+        var idempotency = Assert.Single(exercise.GetIndexes(), index => index.Properties.Select(property => property.Name)
+            .SequenceEqual([nameof(ExerciseDefinition.OwnerId), nameof(ExerciseDefinition.ClientOperationId)]));
+        Assert.True(idempotency.IsUnique);
+        Assert.Equal("\"OwnerId\" IS NOT NULL AND \"ClientOperationId\" IS NOT NULL", idempotency.GetFilter());
+        Assert.Contains(exercise.GetForeignKeys(), foreignKey => foreignKey.Properties.Select(property => property.Name)
+            .SequenceEqual([nameof(ExerciseDefinition.LibraryImageId)]));
     }
 
     [Fact]
@@ -78,7 +86,7 @@ public sealed class ExerciseCatalogPersistenceTests
         await using var database = await PostgreSqlFixture.StartAsync();
         var migrations = database.Db.GetService<IMigrationsAssembly>();
         var migration = migrations.CreateMigration(
-            migrations.Migrations["20260815130000_AddImageUploadTickets"],
+            migrations.Migrations["20260815102739_AddCustomExerciseSyncIdentityAndLibraryImage"],
             database.Db.Database.ProviderName!)!;
 
         Assert.Equal(

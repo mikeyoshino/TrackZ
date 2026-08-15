@@ -49,10 +49,15 @@ public static class ExerciseEndpoints
             if (parsed.Error is not null) return parsed.Error;
             var model = parsed.Value!;
             var errors = ValidateCustomRequest(model.Name, model.BodyPart, model.TrackingMode, model.LibraryImageId, model.UploadedImageKey, context, trackingModeRequired: true);
+            if (model.OperationId is null || model.OperationId == Guid.Empty)
+            {
+                errors ??= new Dictionary<string, string[]>(StringComparer.Ordinal);
+                errors["operationId"] = [InvalidField(context, "operationId")];
+            }
             if (errors is not null) return ValidationProblem(context, errors);
 
             var id = await sender.Send(new CreateCustomExerciseCommand(
-                model.Name!, model.BodyPart!.Value, model.TrackingMode!.Value, model.LibraryImageId, model.UploadedImageKey), cancellationToken);
+                model.Name!, model.BodyPart!.Value, model.TrackingMode!.Value, model.LibraryImageId, model.UploadedImageKey, model.OperationId), cancellationToken);
             return Results.Created($"/api/v1/exercises/custom/{id:D}", new { id });
         })
         .Produces(StatusCodes.Status201Created)
@@ -160,9 +165,9 @@ public static class ExerciseEndpoints
         if (bodyPart is not { } parsedBodyPart || !Enum.IsDefined(parsedBodyPart)) errors["bodyPart"] = [InvalidField(context, "bodyPart")];
         if (trackingModeRequired && (trackingMode is not { } parsedTrackingMode || !Enum.IsDefined(parsedTrackingMode))) errors["trackingMode"] = [InvalidField(context, "trackingMode")];
         if (!trackingModeRequired && trackingMode is { } updateTrackingMode && !Enum.IsDefined(updateTrackingMode)) errors["trackingMode"] = [InvalidField(context, "trackingMode")];
-        if (libraryImageId is not null || uploadedImageKey is not null)
+        if (libraryImageId == Guid.Empty || uploadedImageKey is not null)
         {
-            if (libraryImageId is not null) errors["libraryImageId"] = [InvalidField(context, "libraryImageId")];
+            if (libraryImageId == Guid.Empty) errors["libraryImageId"] = [InvalidField(context, "libraryImageId")];
             if (uploadedImageKey is not null) errors["uploadedImageKey"] = [InvalidField(context, "uploadedImageKey")];
         }
 
@@ -221,6 +226,7 @@ public static class ExerciseEndpoints
             "trackingmode" => "trackingMode",
             "libraryimageid" => "libraryImageId",
             "uploadedimagekey" => "uploadedImageKey",
+            "operationid" => "operationId",
             _ => "body"
         };
     }

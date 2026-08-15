@@ -18,12 +18,18 @@ public sealed class ExerciseDefinitionConfiguration : IEntityTypeConfiguration<E
         builder.Property(exercise => exercise.IsArchived).IsRequired();
         builder.Property(exercise => exercise.HasSetHistory).IsRequired();
         builder.Property(exercise => exercise.CreatedAt).IsRequired();
+        builder.Property(exercise => exercise.ClientOperationId);
+        builder.Property(exercise => exercise.LibraryImageId);
         builder.HasIndex(exercise => new { exercise.Name, exercise.Id });
         builder.HasIndex(exercise => new { exercise.OwnerId, exercise.IsArchived });
+        builder.HasIndex(exercise => new { exercise.OwnerId, exercise.ClientOperationId })
+            .IsUnique()
+            .HasFilter("\"OwnerId\" IS NOT NULL AND \"ClientOperationId\" IS NOT NULL");
         builder.HasIndex(exercise => new { exercise.OwnerId, exercise.NormalizedName })
             .IsUnique()
             .HasFilter("\"OwnerId\" IS NOT NULL AND NOT \"IsArchived\"");
         builder.ToTable(table => table.HasCheckConstraint("CK_exercise_definitions_tracking_mode", "\"TrackingMode\" IN (1, 2, 3)"));
         builder.HasMany<ExerciseImage>().WithOne().HasForeignKey(image => image.ExerciseDefinitionId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasOne<ExerciseImage>().WithMany().HasForeignKey(exercise => exercise.LibraryImageId).OnDelete(DeleteBehavior.Restrict);
     }
 }
