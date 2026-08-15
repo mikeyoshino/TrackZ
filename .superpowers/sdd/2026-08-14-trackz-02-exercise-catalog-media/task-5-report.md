@@ -62,3 +62,14 @@ All three are original, built-in `imagegen` Draft outputs. The original generate
 | Front Squat | `/Users/mikeyoshino/.codex/generated_images/01a00440-d8c1-7961-b4d6-2be3f8faa8d8/exec-4177da00-a46c-446a-b243-b6b9208e9f62.png` | `assets/exercises/images/front-squat.png` | Grayscale scientific anatomy illustration; clean front rack and elbows high; every plate completely plain and unbranded with no embossed glyphs, letters, numbers, markings, or logos; no text/glyphs/watermarks. |
 
 `assets/exercises/contact-sheet.png` was rebuilt from manifest-order source files as eight columns by six body-part rows (1024×768). It is a Draft review aid only. No artwork was marked Reviewed or Published, and no product-owner, anatomy, or rights decision was recorded.
+
+## Round 2/5 — Lat Pulldown Draft replacement
+
+- Built-in `imagegen` generated a fresh replacement with **no input/reference image**: `/Users/mikeyoshino/.codex/generated_images/01a00440-d8c1-7961-b4d6-2be3f8faa8d8/exec-a3f0ad1a-ec74-4234-b6bd-083446a9e7d0.png`.
+- Actual prompt: strict front-left three-quarter scientific-educational view with face and sternum visible; solid wide-overhand bar entirely in front of forehead, face, chin, neck, and shoulders, finishing at upper chest/clavicle below chin; vertical cable, elbows beside ribs, thighs secured, upright slight-lean torso; ghosted same-bar start overhead. Explicit negatives: no rear camera, no behind-neck bar, no upper-back/trapezius contact, no text/glyphs/logos.
+- Direct original-detail inspection accepted the generation: its finished bar is below the chin at the clavicle and visually in front of the face/body; the ghosted bar is directly overhead. It has no embedded text/glyphs/logos.
+- `sips -z 1024 1024` wrote the stable Draft replacement at `assets/exercises/images/lat-pulldown.png`; the generated original remains retained at the source path above.
+- Rebuilt `assets/exercises/contact-sheet.png` in manifest order (8 columns × 6 rows), then visually checked the Back-row Lat Pulldown card.
+- `dotnet test tests/TrackZ.Infrastructure.Tests --filter "FullyQualifiedName~ExerciseCatalogManifestTests&Category=Asset" --no-restore --verbosity minimal`: PASS — 1 passed, 0 failed.
+
+The asset remains `Draft`; no review, anatomy approval, rights approval, reviewer, timestamp, or publication state was created.
