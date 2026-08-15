@@ -17,7 +17,7 @@ The entity ID remains in the exact Task 3 payload as `workoutId`; no second payl
 
 - `EntityType = "Workout"`, `Action = "StartWorkout"`
   - Payload: `workoutId`, `startedAt`, and ordered `exercises`
-  - Exercise: `workoutExerciseId`, `exerciseDefinitionId`, numeric `trackingMode`, and zero-based `order`
+  - Exercise: `workoutExerciseId`, `exerciseDefinitionId`, numeric `trackingMode`, and zero-based `order`; the order set must be exactly unique and contiguous from `0` through `Count - 1`
 - `EntityType = "Workout"`, `Action = "SaveSet"`
   - Payload: `workoutId`, `workoutExerciseId`, `setId`, zero-based `order`, string `weightKg`, string `assistedKg`, `reps`, and `completedAt`
 
@@ -65,16 +65,21 @@ Genuine RED states captured before their production fixes included:
 - Empty operation ID applied a workout instead of rejecting it.
 - Omitted required numeric fields defaulted to valid zero values and applied.
 - Omitted required nullable Task 3 payload fields defaulted silently and applied.
+- Duplicate StartWorkout exercise orders were sorted and normalized by insertion-style aggregate behavior, so malformed `[0, 0]` input returned `Applied`; a real PostgreSQL/API acceptance test captured this RED before exact contiguous-order validation was added ahead of every domain mutation.
 - The initial new migration used `length(jsonb)` and failed against real PostgreSQL; the model constraint was corrected to `jsonb_typeof(...) = 'object'` and the uncommitted generated migration was regenerated.
 
 Each case was followed by a focused GREEN run. Independent code review completed after the fixes with no remaining Critical or Important findings.
+
+### Fix Round 1
+
+Reviewer follow-up identified that two StartWorkout exercises could both declare `order = 0`. Sorting followed by insertion-style `AddExercise` calls silently normalized that malformed shape and stored `Applied`. A deterministic real PostgreSQL/API test first failed with `Applied` for duplicate orders. The handler now validates that every order is non-negative, in range, unique, and collectively exactly `0..Count - 1` before acquiring workout state or creating the aggregate. The focused GREEN proves duplicate `[0, 0]` and gapped `[0, 2]` shapes are terminal `Rejected` results, exact replay remains identical, both terminal rows store `Rejected`, and neither workout is committed.
 
 ## Fresh verification
 
 All commands ran sequentially with one MSBuild node and no emulator:
 
 - `dotnet test tests/TrackZ.Api.Tests --filter SyncPush -m:1 --no-restore`
-  - Passed 13/13, including real PostgreSQL/API duplicate replay, concurrent delivery, immutable-request mismatch, ordered partial batches, stable conflicts, auth/owner isolation, global child-ID collisions, and transaction rollback via SQLSTATE `40001`.
+  - Passed 14/14, including real PostgreSQL/API duplicate replay, concurrent delivery, immutable-request mismatch, ordered partial batches, stable conflicts, auth/owner isolation, malformed duplicate/gapped StartWorkout exercise orders, global child-ID collisions, and transaction rollback via SQLSTATE `40001`.
 - `dotnet test tests/TrackZ.Domain.Tests -m:1 --no-restore`
   - Passed 126/126.
 - `dotnet test tests/TrackZ.Application.Tests -m:1 --no-restore`

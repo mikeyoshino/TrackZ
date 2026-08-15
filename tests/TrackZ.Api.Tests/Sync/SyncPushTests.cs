@@ -334,6 +334,80 @@ public sealed class SyncPushTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Duplicate_and_gapped_start_orders_are_terminal_rejections_without_workout_mutation()
+    {
+        var authentication = await AuthenticateAsync();
+        var firstExercise = ExerciseDefinition.CreateSystem(
+            $"Order Press {Guid.NewGuid():N}", BodyPart.Chest, TrackingMode.Weighted);
+        var secondExercise = ExerciseDefinition.CreateSystem(
+            $"Order Row {Guid.NewGuid():N}", BodyPart.Back, TrackingMode.Weighted);
+        await SeedAsync(firstExercise, secondExercise);
+        var startedAt = Utc(18);
+        var duplicateWorkoutId = Guid.NewGuid();
+        var duplicate = Operation(Guid.NewGuid(), "StartWorkout", 0, new
+        {
+            workoutId = duplicateWorkoutId,
+            startedAt,
+            exercises = new[]
+            {
+                new
+                {
+                    workoutExerciseId = Guid.NewGuid(),
+                    exerciseDefinitionId = firstExercise.Id,
+                    trackingMode = 1,
+                    order = 0
+                },
+                new
+                {
+                    workoutExerciseId = Guid.NewGuid(),
+                    exerciseDefinitionId = secondExercise.Id,
+                    trackingMode = 1,
+                    order = 0
+                }
+            }
+        });
+        var gappedWorkoutId = Guid.NewGuid();
+        var gapped = Operation(Guid.NewGuid(), "StartWorkout", 0, new
+        {
+            workoutId = gappedWorkoutId,
+            startedAt,
+            exercises = new[]
+            {
+                new
+                {
+                    workoutExerciseId = Guid.NewGuid(),
+                    exerciseDefinitionId = firstExercise.Id,
+                    trackingMode = 1,
+                    order = 0
+                },
+                new
+                {
+                    workoutExerciseId = Guid.NewGuid(),
+                    exerciseDefinitionId = secondExercise.Id,
+                    trackingMode = 1,
+                    order = 2
+                }
+            }
+        });
+
+        var first = await PushDocumentAsync(authentication.Token, duplicate, gapped);
+        var replay = await PushDocumentAsync(authentication.Token, duplicate);
+
+        AssertResult(first, 0, "Rejected", null, 10009);
+        AssertResult(first, 1, "Rejected", null, 10009);
+        Assert.Equal(Result(first, 0).GetRawText(), Result(replay, 0).GetRawText());
+        await using var scope = _factory!.Services.CreateAsyncScope();
+        var database = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        Assert.False(await database.WorkoutSessions.AnyAsync(workout =>
+            workout.Id == duplicateWorkoutId || workout.Id == gappedWorkoutId));
+        var processed = await database.ProcessedClientOperations
+            .Where(operation => operation.UserId == authentication.UserId)
+            .ToListAsync();
+        Assert.Equal(2, processed.Count);
+        Assert.All(processed, operation => Assert.Contains("\"Rejected\"", operation.ResultJson));
+    }
+
+    [Fact]
     public async Task Conflict_replay_keeps_original_server_version_after_later_mutations()
     {
         var authentication = await AuthenticateAsync();
@@ -627,11 +701,11 @@ public sealed class SyncPushTests : IAsyncLifetime
         return (registration!.UserId, token!.AccessToken);
     }
 
-    private async Task SeedAsync(ExerciseDefinition exercise)
+    private async Task SeedAsync(params ExerciseDefinition[] exercises)
     {
         await using var scope = _factory!.Services.CreateAsyncScope();
         var database = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        await database.Exercises.AddAsync(exercise);
+        await database.Exercises.AddRangeAsync(exercises);
         await database.SaveChangesAsync();
     }
 

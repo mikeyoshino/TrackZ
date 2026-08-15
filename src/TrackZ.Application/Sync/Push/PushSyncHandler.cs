@@ -196,7 +196,7 @@ internal sealed class StartWorkoutSyncHandler(
             || payload.StartedAt == default
             || payload.Exercises is null
             || payload.Exercises.Count == 0
-            || payload.Exercises.Any(exercise => exercise.Order is null))
+            || !HasExactContiguousOrders(payload.Exercises))
         {
             return SyncMutationResult.Rejected();
         }
@@ -245,6 +245,26 @@ internal sealed class StartWorkoutSyncHandler(
         {
             return SyncMutationResult.Rejected();
         }
+    }
+
+    private static bool HasExactContiguousOrders(
+        IReadOnlyList<StartWorkoutExerciseSyncPayload> exercises)
+    {
+        var seen = new bool[exercises.Count];
+        foreach (var exercise in exercises)
+        {
+            if (exercise.Order is not int order
+                || order < 0
+                || order >= exercises.Count
+                || seen[order])
+            {
+                return false;
+            }
+
+            seen[order] = true;
+        }
+
+        return true;
     }
 }
 
