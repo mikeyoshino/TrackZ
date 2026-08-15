@@ -6,4 +6,8 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\TrackZ.Domain\TrackZ.Domain.csproj" />
+  </ItemGroup>
+
 </Project>

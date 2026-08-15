@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\TrackZ.Domain\TrackZ.Domain.csproj" />
+    <ProjectReference Include="..\..\src\TrackZ.Contracts\TrackZ.Contracts.csproj" />
   </ItemGroup>
 
 </Project>
