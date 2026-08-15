@@ -11,6 +11,8 @@ using TrackZ.Infrastructure.Persistence;
 using TrackZ.Application.Exercises.ListExercises;
 using TrackZ.Infrastructure.Exercises;
 using TrackZ.Application.Exercises.Custom;
+using TrackZ.Application.Media;
+using TrackZ.Infrastructure.Media;
 
 namespace TrackZ.Infrastructure;
 
@@ -27,6 +29,10 @@ public static class DependencyInjection
         services.AddScoped<IAppDbContext>(provider => provider.GetRequiredService<AppDbContext>());
         services.AddScoped<IExerciseCatalogReadStore>(provider => provider.GetRequiredService<AppDbContext>());
         services.AddScoped<ICustomExerciseStore>(provider => provider.GetRequiredService<AppDbContext>());
+        services.AddScoped<IExerciseImageUploadStore>(provider => provider.GetRequiredService<AppDbContext>());
+        services.AddSingleton<IObjectStorage, ObjectStorage>();
+        services.AddSingleton<IImageProcessor, ImageProcessor>();
+        services.AddOptions<ObjectStorageOptions>().Bind(configuration.GetSection(ObjectStorageOptions.SectionName));
         services.AddSingleton<IExerciseCursorCodec, HmacExerciseCursorCodec>();
         services.AddSingleton<IPasswordHasher, PasswordHasher>();
         services.AddSingleton<ITokenService, JwtTokenService>();

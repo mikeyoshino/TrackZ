@@ -79,6 +79,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.MapIdentityEndpoints();
 app.MapExerciseEndpoints();
+app.MapMediaEndpoints();
 
 app.Run();
 

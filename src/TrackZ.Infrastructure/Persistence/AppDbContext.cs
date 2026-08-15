@@ -7,10 +7,11 @@ using TrackZ.Contracts.Exercises;
 using TrackZ.Domain.Identity;
 using TrackZ.Domain.Exercises;
 using TrackZ.Domain.Progress;
+using TrackZ.Application.Media;
 
 namespace TrackZ.Infrastructure.Persistence;
 
-public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options), IAppDbContext, IExerciseCatalogReadStore, ICustomExerciseStore
+public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options), IAppDbContext, IExerciseCatalogReadStore, ICustomExerciseStore, IExerciseImageUploadStore
 {
     public DbSet<User> Users => Set<User>();
 
@@ -21,6 +22,15 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<ExerciseImage> ExerciseImages => Set<ExerciseImage>();
 
     public DbSet<ExercisePerformance> ExercisePerformances => Set<ExercisePerformance>();
+    public DbSet<ImageUploadTicket> ImageUploadTickets => Set<ImageUploadTicket>();
+
+    public Task<ExerciseDefinition?> FindOwnedActiveExerciseAsync(Guid exerciseId, Guid ownerId, CancellationToken cancellationToken) => Exercises.SingleOrDefaultAsync(x => x.Id == exerciseId && x.OwnerId == ownerId && !x.IsArchived, cancellationToken);
+    public Task AddTicketAsync(ImageUploadTicket ticket, CancellationToken cancellationToken) => ImageUploadTickets.AddAsync(ticket, cancellationToken).AsTask();
+    public Task<ImageUploadTicket?> FindOwnedTicketAsync(Guid ticketId, Guid ownerId, CancellationToken cancellationToken) => ImageUploadTickets.SingleOrDefaultAsync(x => x.Id == ticketId && x.OwnerId == ownerId, cancellationToken);
+    public Task<ExerciseImage?> FindImageAsync(Guid imageId, CancellationToken cancellationToken) => ExerciseImages.SingleOrDefaultAsync(x => x.Id == imageId, cancellationToken);
+    public async Task<int> NextImageVersionAsync(Guid exerciseId, CancellationToken cancellationToken) => (await ExerciseImages.Where(x => x.ExerciseDefinitionId == exerciseId).MaxAsync(x => (int?)x.Version, cancellationToken) ?? 0) + 1;
+    public Task AddImageAsync(ExerciseImage image, CancellationToken cancellationToken) => ExerciseImages.AddAsync(image, cancellationToken).AsTask();
+    public Task SaveAsync(CancellationToken cancellationToken) => SaveChangesAsync(cancellationToken);
 
     public Task<User?> FindUserByNormalizedEmailAsync(
         string normalizedEmail,

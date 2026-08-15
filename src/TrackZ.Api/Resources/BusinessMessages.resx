@@ -9,6 +9,8 @@
   <data name="InvalidRequest" xml:space="preserve"><value>Request data is invalid.</value></data>
   <data name="ExerciseNotFound" xml:space="preserve"><value>The exercise was not found.</value></data>
   <data name="ExerciseNameDuplicate" xml:space="preserve"><value>An active custom exercise with this name already exists.</value></data>
+  <data name="ImageTooLarge" xml:space="preserve"><value>The image is too large.</value></data>
+  <data name="ImageTypeNotSupported" xml:space="preserve"><value>The image type is not supported.</value></data>
   <data name="RequiredField" xml:space="preserve"><value>The {0} field is required.</value></data>
   <data name="InvalidDeviceName" xml:space="preserve"><value>The deviceName field is invalid.</value></data>
   <data name="InvalidField" xml:space="preserve"><value>The {0} field is invalid.</value></data>

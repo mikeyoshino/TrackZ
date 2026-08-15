@@ -12,3 +12,23 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+  minio:
+    image: minio/minio:RELEASE.2025-07-23T15-54-02Z
+    command: server /data
+    environment:
+      MINIO_ROOT_USER: ${TRACKZ_MINIO_ACCESS_KEY:-trackz_local}
+      MINIO_ROOT_PASSWORD: ${TRACKZ_MINIO_SECRET_KEY:-trackz_local_development_secret}
+    expose:
+      - "9000"
+    volumes:
+      - minio-data:/data
+  minio-bootstrap:
+    image: minio/mc:RELEASE.2025-07-21T05-28-08Z
+    depends_on:
+      - minio
+    environment:
+      MINIO_ROOT_USER: ${TRACKZ_MINIO_ACCESS_KEY:-trackz_local}
+      MINIO_ROOT_PASSWORD: ${TRACKZ_MINIO_SECRET_KEY:-trackz_local_development_secret}
+    entrypoint: ["/bin/sh", "-c", "mc alias set local http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD && mc mb --ignore-existing local/trackz-private && mc anonymous set none local/trackz-private"]
+volumes:
+  minio-data:

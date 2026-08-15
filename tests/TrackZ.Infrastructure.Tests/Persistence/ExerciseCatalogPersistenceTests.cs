@@ -46,7 +46,7 @@ public sealed class ExerciseCatalogPersistenceTests
         await using var database = await PostgreSqlFixture.StartAsync();
         var migrations = database.Db.GetService<IMigrationsAssembly>();
         var migration = migrations.CreateMigration(
-            migrations.Migrations["20260815112000_AddCustomExerciseNameUniqueness"],
+            migrations.Migrations["20260815051856_AddImageUploadTicketRelationships"],
             database.Db.Database.ProviderName!)!;
 
         var entityNames = migration.TargetModel.GetEntityTypes()
@@ -54,7 +54,7 @@ public sealed class ExerciseCatalogPersistenceTests
             .OrderBy(name => name)
             .ToArray();
 
-        Assert.Equal(["ExerciseDefinition", "ExerciseImage", "ExercisePerformance", "RefreshToken", "User"], entityNames);
+        Assert.Equal(["ExerciseDefinition", "ExerciseImage", "ExercisePerformance", "ImageUploadTicket", "RefreshToken", "User"], entityNames);
         var exercise = migration.TargetModel.FindEntityType(typeof(ExerciseDefinition).FullName!)!;
         var performance = migration.TargetModel.FindEntityType(typeof(ExercisePerformance).FullName!)!;
         var uniqueness = Assert.Single(exercise.GetIndexes(), index => index.Properties.Select(property => property.Name)
@@ -77,7 +77,7 @@ public sealed class ExerciseCatalogPersistenceTests
         await using var database = await PostgreSqlFixture.StartAsync();
         var migrations = database.Db.GetService<IMigrationsAssembly>();
         var migration = migrations.CreateMigration(
-            migrations.Migrations["20260815112000_AddCustomExerciseNameUniqueness"],
+            migrations.Migrations["20260815051856_AddImageUploadTicketRelationships"],
             database.Db.Database.ProviderName!)!;
 
         Assert.Equal(

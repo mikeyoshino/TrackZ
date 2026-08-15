@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using TrackZ.Infrastructure.Persistence;
@@ -11,9 +12,11 @@ using TrackZ.Infrastructure.Persistence;
 namespace TrackZ.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260815051502_AddImageUploadTickets")]
+    partial class AddImageUploadTickets
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -152,6 +155,7 @@ namespace TrackZ.Infrastructure.Persistence.Migrations
                     b.Property<byte[]>("ConcurrencyToken")
                         .IsConcurrencyToken()
                         .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
                         .HasColumnType("bytea");
 
                     b.Property<string>("DeclaredContentType")
@@ -183,10 +187,6 @@ namespace TrackZ.Infrastructure.Persistence.Migrations
                         .HasColumnType("integer");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("ExerciseDefinitionId");
-
-                    b.HasIndex("ExerciseImageId");
 
                     b.HasIndex("OwnerId", "Id");
 
@@ -332,20 +332,6 @@ namespace TrackZ.Infrastructure.Persistence.Migrations
                         .HasForeignKey("ExerciseDefinitionId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
-                });
-
-            modelBuilder.Entity("TrackZ.Domain.Exercises.ImageUploadTicket", b =>
-                {
-                    b.HasOne("TrackZ.Domain.Exercises.ExerciseDefinition", null)
-                        .WithMany()
-                        .HasForeignKey("ExerciseDefinitionId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("TrackZ.Domain.Exercises.ExerciseImage", null)
-                        .WithMany()
-                        .HasForeignKey("ExerciseImageId")
-                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("TrackZ.Domain.Identity.RefreshToken", b =>
