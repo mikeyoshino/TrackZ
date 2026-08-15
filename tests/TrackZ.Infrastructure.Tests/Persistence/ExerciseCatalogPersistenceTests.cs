@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Migrations;
+using TrackZ.Application.Media;
 using TrackZ.Domain.Exercises;
 using TrackZ.Domain.Progress;
 
@@ -83,6 +84,176 @@ public sealed class ExerciseCatalogPersistenceTests
         Assert.Equal(
             DescribeRelationalModel(migrations.ModelSnapshot!.Model),
             DescribeRelationalModel(migration.TargetModel));
+    }
+
+    [Fact]
+    public async Task Upload_ticket_migration_models_uploaded_state_and_fenced_processing_lease()
+    {
+        await using var database = await PostgreSqlFixture.StartAsync();
+        var migrations = database.Db.GetService<IMigrationsAssembly>();
+        var migration = migrations.CreateMigration(
+            migrations.Migrations["20260815130000_AddImageUploadTickets"],
+            database.Db.Database.ProviderName!)!;
+        var ticket = migration.TargetModel.FindEntityType(typeof(ImageUploadTicket))!;
+
+        Assert.NotNull(ticket.FindProperty(nameof(ImageUploadTicket.ProcessingLeaseId)));
+        Assert.Contains(ticket.GetCheckConstraints(), check => check.Name == "CK_image_upload_tickets_state" && check.Sql.Contains("1, 2, 3, 4, 5", StringComparison.Ordinal));
+        Assert.Contains(ticket.GetCheckConstraints(), check => check.Name == "CK_image_upload_tickets_processing_lease" && check.Sql.Contains("ProcessingLeaseId", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Stale_processing_lease_cannot_commit_after_an_expired_lease_is_reclaimed()
+    {
+        await using var database = await PostgreSqlFixture.StartAsync();
+        var ownerId = Guid.NewGuid();
+        var exercise = ExerciseDefinition.CreateCustom(ownerId, "Lease Press", BodyPart.Chest, TrackingMode.Weighted);
+        var now = DateTimeOffset.UtcNow;
+        var ticket = ImageUploadTicket.Create(ownerId, exercise.Id, "staging/lease", "image/jpeg", 10, now.AddMinutes(5));
+        await database.Db.Exercises.AddAsync(exercise);
+        await database.Db.AddTicketAsync(ticket, default);
+        await database.Db.SaveAsync(default);
+
+        await using (var uploaded = database.CreateDbContext())
+        {
+            Assert.Equal(StagingUploadTransition.Uploaded, await uploaded.TryMarkUploadedAsync(ticket.Id, ownerId, default));
+        }
+
+        Guid firstLease;
+        await using (var first = database.CreateDbContext())
+        {
+            var firstTicket = (await first.FindOwnedTicketAsync(ticket.Id, ownerId, default))!;
+            Assert.True(firstTicket.TryClaim(now, TimeSpan.FromMinutes(1)));
+            firstLease = firstTicket.ProcessingLeaseId!.Value;
+            await first.SaveAsync(default);
+        }
+
+        Guid winnerLease;
+        await using (var winner = database.CreateDbContext())
+        {
+            var winnerTicket = (await winner.FindOwnedTicketAsync(ticket.Id, ownerId, default))!;
+            Assert.True(winnerTicket.TryClaim(now.AddMinutes(2), TimeSpan.FromMinutes(1)));
+            winnerLease = winnerTicket.ProcessingLeaseId!.Value;
+            await winner.SaveAsync(default);
+        }
+
+        await using (var stale = database.CreateDbContext())
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(() => stale.CommitCompletionAsync(ticket.Id, ownerId, firstLease, "private/old/master.jpg", "private/old/thumbnail.jpg", default));
+        }
+        await using (var winner = database.CreateDbContext())
+        {
+            await winner.CommitCompletionAsync(ticket.Id, ownerId, winnerLease, "private/new/master.jpg", "private/new/thumbnail.jpg", default);
+        }
+        await using var verify = database.CreateDbContext();
+        var persisted = await verify.ImageUploadTickets.SingleAsync();
+        var image = await verify.ExerciseImages.SingleAsync();
+        Assert.Equal(ImageUploadState.Completed, persisted.State);
+        Assert.Equal("private/new/master.jpg", image.MasterObjectKey);
+    }
+
+    [Fact]
+    public async Task Concurrent_put_state_transitions_have_one_uploaded_winner()
+    {
+        await using var database = await PostgreSqlFixture.StartAsync();
+        var ownerId = Guid.NewGuid();
+        var exercise = ExerciseDefinition.CreateCustom(ownerId, "PUT Race Press", BodyPart.Chest, TrackingMode.Weighted);
+        var ticket = ImageUploadTicket.Create(ownerId, exercise.Id, "staging/race", "image/jpeg", 10, DateTimeOffset.UtcNow.AddMinutes(5));
+        await database.Db.Exercises.AddAsync(exercise);
+        await database.Db.AddTicketAsync(ticket, default);
+        await database.Db.SaveAsync(default);
+
+        await using var left = database.CreateDbContext();
+        await using var right = database.CreateDbContext();
+        // Match the gateway's read-before-write shape so the transition must not trust EF's
+        // per-context tracked Pending instance once the competing request commits.
+        Assert.NotNull(await left.FindOwnedTicketAsync(ticket.Id, ownerId, default));
+        Assert.NotNull(await right.FindOwnedTicketAsync(ticket.Id, ownerId, default));
+        var outcomes = await Task.WhenAll(
+            left.TryMarkUploadedAsync(ticket.Id, ownerId, default),
+            right.TryMarkUploadedAsync(ticket.Id, ownerId, default));
+
+        Assert.Equal(1, outcomes.Count(result => result == StagingUploadTransition.Uploaded));
+        Assert.Equal(1, outcomes.Count(result => result == StagingUploadTransition.RetainedByAnotherUpload));
+    }
+
+    [Fact]
+    public async Task Concurrent_tickets_for_one_exercise_receive_unique_serialized_versions()
+    {
+        await using var database = await PostgreSqlFixture.StartAsync();
+        var ownerId = Guid.NewGuid();
+        var exercise = ExerciseDefinition.CreateCustom(ownerId, "Concurrent Press", BodyPart.Chest, TrackingMode.Weighted);
+        var now = DateTimeOffset.UtcNow;
+        var first = ImageUploadTicket.Create(ownerId, exercise.Id, "staging/first", "image/jpeg", 10, now.AddMinutes(5));
+        var second = ImageUploadTicket.Create(ownerId, exercise.Id, "staging/second", "image/jpeg", 10, now.AddMinutes(5));
+        await database.Db.Exercises.AddAsync(exercise);
+        await database.Db.AddTicketAsync(first, default);
+        await database.Db.AddTicketAsync(second, default);
+        await database.Db.SaveAsync(default);
+
+        Guid firstLease;
+        Guid secondLease;
+        await using (var uploads = database.CreateDbContext())
+        {
+            Assert.Equal(StagingUploadTransition.Uploaded, await uploads.TryMarkUploadedAsync(first.Id, ownerId, default));
+            Assert.Equal(StagingUploadTransition.Uploaded, await uploads.TryMarkUploadedAsync(second.Id, ownerId, default));
+        }
+        await using (var claims = database.CreateDbContext())
+        {
+            var firstClaim = (await claims.FindOwnedTicketAsync(first.Id, ownerId, default))!;
+            var secondClaim = (await claims.FindOwnedTicketAsync(second.Id, ownerId, default))!;
+            Assert.True(firstClaim.TryClaim(now, TimeSpan.FromMinutes(2)));
+            Assert.True(secondClaim.TryClaim(now, TimeSpan.FromMinutes(2)));
+            firstLease = firstClaim.ProcessingLeaseId!.Value;
+            secondLease = secondClaim.ProcessingLeaseId!.Value;
+            await claims.SaveAsync(default);
+        }
+
+        await using var firstCommit = database.CreateDbContext();
+        await using var secondCommit = database.CreateDbContext();
+        await Task.WhenAll(
+            firstCommit.CommitCompletionAsync(first.Id, ownerId, firstLease, "private/first/master.jpg", "private/first/thumb.jpg", default),
+            secondCommit.CommitCompletionAsync(second.Id, ownerId, secondLease, "private/second/master.jpg", "private/second/thumb.jpg", default));
+
+        await using var verify = database.CreateDbContext();
+        var versions = await verify.ExerciseImages.OrderBy(image => image.Version).Select(image => image.Version).ToArrayAsync();
+        Assert.Equal(new[] { 1, 2 }, versions);
+    }
+
+    [Fact]
+    public async Task Commit_rechecks_archival_and_preserves_the_prior_ready_image()
+    {
+        await using var database = await PostgreSqlFixture.StartAsync();
+        var ownerId = Guid.NewGuid();
+        var exercise = ExerciseDefinition.CreateCustom(ownerId, "Archive Press", BodyPart.Chest, TrackingMode.Weighted);
+        var prior = ExerciseImage.CreateCustomUpload(exercise, ownerId, "private/prior/master.jpg", "private/prior/thumb.jpg", 1, "prior");
+        var now = DateTimeOffset.UtcNow;
+        var ticket = ImageUploadTicket.Create(ownerId, exercise.Id, "staging/archive", "image/jpeg", 10, now.AddMinutes(5));
+        await database.Db.Exercises.AddAsync(exercise);
+        await database.Db.ExerciseImages.AddAsync(prior);
+        await database.Db.AddTicketAsync(ticket, default);
+        await database.Db.SaveAsync(default);
+
+        Guid lease;
+        await using (var upload = database.CreateDbContext())
+        {
+            Assert.Equal(StagingUploadTransition.Uploaded, await upload.TryMarkUploadedAsync(ticket.Id, ownerId, default));
+            var claim = (await upload.FindOwnedTicketAsync(ticket.Id, ownerId, default))!;
+            Assert.True(claim.TryClaim(now, TimeSpan.FromMinutes(2)));
+            lease = claim.ProcessingLeaseId!.Value;
+            await upload.SaveAsync(default);
+        }
+        await using (var archive = database.CreateDbContext())
+        {
+            var active = (await archive.FindOwnedActiveExerciseAsync(exercise.Id, ownerId, default))!;
+            active.Archive();
+            await archive.SaveAsync(default);
+        }
+        await using (var commit = database.CreateDbContext())
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(() => commit.CommitCompletionAsync(ticket.Id, ownerId, lease, "private/new/master.jpg", "private/new/thumb.jpg", default));
+        }
+        await using var verify = database.CreateDbContext();
+        Assert.Equal("private/prior/master.jpg", (await verify.ExerciseImages.SingleAsync()).MasterObjectKey);
     }
 
     [Fact]

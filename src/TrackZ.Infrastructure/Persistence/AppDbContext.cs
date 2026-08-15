@@ -29,21 +29,39 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public Task<ImageUploadTicket?> FindOwnedTicketAsync(Guid ticketId, Guid ownerId, CancellationToken cancellationToken) => ImageUploadTickets.SingleOrDefaultAsync(x => x.Id == ticketId && x.OwnerId == ownerId, cancellationToken);
     public Task<ExerciseImage?> FindImageAsync(Guid imageId, CancellationToken cancellationToken) => ExerciseImages.SingleOrDefaultAsync(x => x.Id == imageId, cancellationToken);
     public Task<ExerciseImage?> FindOwnedImageAsync(Guid imageId, Guid ownerId, CancellationToken cancellationToken) => ExerciseImages.SingleOrDefaultAsync(x => x.Id == imageId && x.OwnerId == ownerId && x.IsPrivate, cancellationToken);
-    public async Task<ExerciseImage> CommitCompletionAsync(Guid ticketId, Guid ownerId, string masterKey, string thumbnailKey, CancellationToken cancellationToken)
+    public async Task<StagingUploadTransition> TryMarkUploadedAsync(Guid ticketId, Guid ownerId, CancellationToken cancellationToken)
     {
         await using var transaction = await Database.BeginTransactionAsync(cancellationToken);
-        var ticket = await ImageUploadTickets.FromSqlInterpolated($"SELECT * FROM image_upload_tickets WHERE \"Id\" = {ticketId} AND \"OwnerId\" = {ownerId} FOR UPDATE")
-            .SingleOrDefaultAsync(cancellationToken) ?? throw new InvalidOperationException("Ticket is unavailable.");
+        var ticket = await LockTicketAsync(ticketId, ownerId, cancellationToken);
+        if (ticket is null) return StagingUploadTransition.Rejected;
+        if (ticket.State != ImageUploadState.Pending)
+        {
+            await transaction.RollbackAsync(CancellationToken.None);
+            return ticket.State == ImageUploadState.Uploaded ? StagingUploadTransition.RetainedByAnotherUpload : StagingUploadTransition.Rejected;
+        }
+        if (!ticket.TryMarkUploaded(DateTimeOffset.UtcNow))
+        {
+            await transaction.RollbackAsync(CancellationToken.None);
+            return StagingUploadTransition.Rejected;
+        }
+        await SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return StagingUploadTransition.Uploaded;
+    }
+    public async Task<ExerciseImage> CommitCompletionAsync(Guid ticketId, Guid ownerId, Guid processingLeaseId, string masterKey, string thumbnailKey, CancellationToken cancellationToken)
+    {
+        await using var transaction = await Database.BeginTransactionAsync(cancellationToken);
+        var ticket = await LockTicketAsync(ticketId, ownerId, cancellationToken) ?? throw new InvalidOperationException("Ticket is unavailable.");
         await Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock({BitConverter.ToInt64(ticket.ExerciseDefinitionId.ToByteArray(), 0)})", cancellationToken);
         var exercise = await Exercises.SingleOrDefaultAsync(x => x.Id == ticket.ExerciseDefinitionId && x.OwnerId == ownerId && !x.IsArchived, cancellationToken)
             ?? throw new InvalidOperationException("Exercise is unavailable.");
-        if (ticket.State != ImageUploadState.Processing || !ticket.HasActiveLease(DateTimeOffset.UtcNow)) throw new InvalidOperationException("Ticket lease is unavailable.");
+        if (!ticket.IsClaimHeldBy(processingLeaseId, DateTimeOffset.UtcNow)) throw new InvalidOperationException("Ticket lease is unavailable.");
         var version = (await ExerciseImages.Where(x => x.ExerciseDefinitionId == exercise.Id).MaxAsync(x => (int?)x.Version, cancellationToken) ?? 0) + 1;
         var image = ExerciseImage.CreateCustomUpload(exercise, ownerId, masterKey, thumbnailKey, version, "validated-upload");
         try
         {
             await ExerciseImages.AddAsync(image, cancellationToken);
-            ticket.Complete(image.Id);
+            ticket.Complete(image.Id, processingLeaseId, DateTimeOffset.UtcNow);
             await SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return image;
@@ -55,7 +73,35 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             throw;
         }
     }
+    public Task<bool> TryFailClaimAsync(Guid ticketId, Guid ownerId, Guid processingLeaseId, CancellationToken cancellationToken) =>
+        TransitionClaimAsync(ticketId, ownerId, processingLeaseId, ticket => ticket.Fail(processingLeaseId), cancellationToken);
+    public Task<bool> TryReleaseClaimAsync(Guid ticketId, Guid ownerId, Guid processingLeaseId, CancellationToken cancellationToken) =>
+        TransitionClaimAsync(ticketId, ownerId, processingLeaseId, ticket => ticket.ReleaseForRetry(processingLeaseId), cancellationToken);
     public Task SaveAsync(CancellationToken cancellationToken) => SaveChangesAsync(cancellationToken);
+
+    private async Task<ImageUploadTicket?> LockTicketAsync(Guid ticketId, Guid ownerId, CancellationToken cancellationToken)
+    {
+        // The request may already have read the ticket before another request committed a
+        // transition. A fresh lock read is required; EF's identity map would otherwise reuse
+        // the stale entity and defeat both the state check and the fencing token.
+        ChangeTracker.Clear();
+        return await ImageUploadTickets.FromSqlInterpolated($"SELECT * FROM image_upload_tickets WHERE \"Id\" = {ticketId} AND \"OwnerId\" = {ownerId} FOR UPDATE")
+            .SingleOrDefaultAsync(cancellationToken);
+    }
+
+    private async Task<bool> TransitionClaimAsync(Guid ticketId, Guid ownerId, Guid processingLeaseId, Func<ImageUploadTicket, bool> transition, CancellationToken cancellationToken)
+    {
+        await using var transaction = await Database.BeginTransactionAsync(cancellationToken);
+        var ticket = await LockTicketAsync(ticketId, ownerId, cancellationToken);
+        if (ticket is null || !transition(ticket))
+        {
+            await transaction.RollbackAsync(CancellationToken.None);
+            return false;
+        }
+        await SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return true;
+    }
 
     public Task<User?> FindUserByNormalizedEmailAsync(
         string normalizedEmail,

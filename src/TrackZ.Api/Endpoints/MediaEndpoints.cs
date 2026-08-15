@@ -49,7 +49,22 @@ public static class MediaEndpoints
         if (bytes.LongLength != ticket.DeclaredLength) return Bad(context, "length");
         await using var content = new MemoryStream(bytes, writable: false);
         await storage.PutAsync($"staging/{currentUser.UserId:D}/", ticket.StagingObjectKey, content, ticket.DeclaredContentType, cancellationToken);
-        return Results.NoContent();
+        StagingUploadTransition transition;
+        try
+        {
+            transition = await store.TryMarkUploadedAsync(ticket.Id, currentUser.UserId, cancellationToken);
+        }
+        catch
+        {
+            await DeleteStagingBestEffortAsync(storage, currentUser.UserId, ticket.StagingObjectKey);
+            throw;
+        }
+        if (transition == StagingUploadTransition.Uploaded) return Results.NoContent();
+        // A concurrent PUT may already have made the ticket durable. Its staging bytes are now
+        // owned by that upload, so a losing request must never delete them.
+        if (transition == StagingUploadTransition.RetainedByAnotherUpload) return Missing();
+        await DeleteStagingBestEffortAsync(storage, currentUser.UserId, ticket.StagingObjectKey);
+        return Missing();
     }
     private static async Task<IResult> ReadAsync(Guid imageId, string rendition, IExerciseImageUploadStore store, IObjectStorage storage, ICurrentUser currentUser, CancellationToken cancellationToken)
     {
@@ -62,6 +77,8 @@ public static class MediaEndpoints
     }
     private static async Task<byte[]> BufferAsync(Stream source, CancellationToken cancellationToken)
     { await using var buffer = new MemoryStream((int)MaxBytes + 1); var chunk = new byte[81920]; while (true) { var count = await source.ReadAsync(chunk, cancellationToken); if (count == 0) break; if (buffer.Length + count > MaxBytes) throw new TrackZ.Application.Common.Exceptions.BusinessException(BusinessErrorCode.ImageTooLarge, "The image is too large.", 400); await buffer.WriteAsync(chunk.AsMemory(0, count), cancellationToken); } return buffer.ToArray(); }
+    private static async Task DeleteStagingBestEffortAsync(IObjectStorage storage, Guid ownerId, string stagingKey)
+    { try { await storage.DeleteAsync($"staging/{ownerId:D}/", stagingKey, CancellationToken.None); } catch { } }
     private static IResult Missing() => Results.Problem(statusCode: 404, title: "The exercise was not found.");
     private static bool IsJson(string? contentType)
     { if (!MediaTypeHeaderValue.TryParse(contentType, out var media)) return false; var type = media.MediaType.Value ?? string.Empty; if (!type.Equals("application/json", StringComparison.OrdinalIgnoreCase) && !type.EndsWith("+json", StringComparison.OrdinalIgnoreCase)) return false; var charsets = media.Parameters.Where(x => string.Equals(x.Name.Value, "charset", StringComparison.OrdinalIgnoreCase)).ToList(); return charsets.Count is 0 || (charsets.Count == 1 && (string.Equals(charsets[0].Value.Value?.Trim('\"'), "utf-8", StringComparison.OrdinalIgnoreCase) || string.Equals(charsets[0].Value.Value?.Trim('\"'), "utf8", StringComparison.OrdinalIgnoreCase))); }

@@ -184,6 +184,9 @@ namespace TrackZ.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset?>("ProcessingStartedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<Guid?>("ProcessingLeaseId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("StagingObjectKey")
                         .IsRequired()
                         .HasMaxLength(512)
@@ -200,7 +203,11 @@ namespace TrackZ.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("OwnerId", "Id");
 
-                    b.ToTable("image_upload_tickets", (string)null);
+                    b.ToTable("image_upload_tickets", (string)null, t =>
+                        {
+                            t.HasCheckConstraint("CK_image_upload_tickets_processing_lease", "(\"State\" = 3 AND \"ProcessingStartedAt\" IS NOT NULL AND \"LeaseExpiresAt\" IS NOT NULL AND \"ProcessingLeaseId\" IS NOT NULL) OR (\"State\" <> 3 AND \"ProcessingStartedAt\" IS NULL AND \"LeaseExpiresAt\" IS NULL AND \"ProcessingLeaseId\" IS NULL)");
+                            t.HasCheckConstraint("CK_image_upload_tickets_state", "\"State\" IN (1, 2, 3, 4, 5)");
+                        });
                 });
 
             modelBuilder.Entity("TrackZ.Domain.Identity.RefreshToken", b =>
