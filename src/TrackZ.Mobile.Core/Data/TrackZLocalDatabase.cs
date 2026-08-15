@@ -4,7 +4,7 @@ namespace TrackZ.Mobile.Data;
 
 public sealed class TrackZLocalDatabase
 {
-    public const int CurrentSchemaVersion = 1;
+    public const int CurrentSchemaVersion = 2;
     private const int BusyTimeoutMilliseconds = 5_000;
     private readonly string _connectionString;
     private readonly SemaphoreSlim _schemaGate = new(1, 1);
@@ -45,16 +45,64 @@ public sealed class TrackZLocalDatabase
                 _initialized = true;
                 return;
             }
-            if (version != 0)
+            if (version is not (0 or 1))
             {
                 throw new InvalidDataException(
                     $"Workout database schema {version} is not supported; expected {CurrentSchemaVersion}.");
             }
 
-            await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+            await using var transaction = connection.BeginTransaction(deferred: false);
             await using var schema = connection.CreateCommand();
             schema.Transaction = transaction;
-            schema.CommandText = """
+            schema.CommandText = version == 1
+                ? """
+                    DROP INDEX IF EXISTS UX_LocalSet_ActiveOrder;
+                    ALTER TABLE LocalSet RENAME TO LocalSetV1;
+
+                    CREATE TABLE LocalSet (
+                        Id TEXT PRIMARY KEY NOT NULL,
+                        OperationId TEXT NOT NULL UNIQUE,
+                        WorkoutExerciseId TEXT NOT NULL,
+                        SortOrder INTEGER NOT NULL CHECK (SortOrder >= 0),
+                        WeightKg TEXT NULL CHECK (WeightKg IS NULL OR typeof(WeightKg) = 'text'),
+                        AssistedKg TEXT NULL CHECK (AssistedKg IS NULL OR typeof(AssistedKg) = 'text'),
+                        Reps INTEGER NOT NULL CHECK (Reps BETWEEN 1 AND 999),
+                        CompletedAt TEXT NOT NULL,
+                        UpdatedAt TEXT NULL,
+                        DeletedAt TEXT NULL,
+                        Version INTEGER NOT NULL CHECK (Version >= 0),
+                        BaseVersion INTEGER NOT NULL CHECK (BaseVersion >= 0 AND BaseVersion <= Version),
+                        FOREIGN KEY (WorkoutExerciseId) REFERENCES LocalWorkoutExercise(Id) ON DELETE CASCADE,
+                        CHECK (NOT (WeightKg IS NOT NULL AND AssistedKg IS NOT NULL))
+                    );
+
+                    INSERT INTO LocalSet
+                        (Id, OperationId, WorkoutExerciseId, SortOrder, WeightKg, AssistedKg, Reps,
+                         CompletedAt, UpdatedAt, DeletedAt, Version, BaseVersion)
+                    SELECT legacy.Id,
+                           COALESCE(
+                               (SELECT operation.OperationId
+                                FROM OutboxOperation AS operation
+                                WHERE operation.OperationType = 2
+                                  AND CASE
+                                          WHEN json_valid(operation.Payload)
+                                          THEN json_extract(operation.Payload, '$.setId')
+                                      END = legacy.Id
+                                ORDER BY operation.CreatedAt, operation.OperationId
+                                LIMIT 1),
+                               legacy.Id),
+                           legacy.WorkoutExerciseId, legacy.SortOrder, legacy.WeightKg,
+                           legacy.AssistedKg, legacy.Reps, legacy.CompletedAt, legacy.UpdatedAt,
+                           legacy.DeletedAt, legacy.Version, legacy.BaseVersion
+                    FROM LocalSetV1 AS legacy;
+
+                    DROP TABLE LocalSetV1;
+                    CREATE UNIQUE INDEX UX_LocalSet_ActiveOrder
+                        ON LocalSet(WorkoutExerciseId, SortOrder)
+                        WHERE DeletedAt IS NULL;
+                    PRAGMA user_version = 2;
+                    """
+                : """
                 CREATE TABLE IF NOT EXISTS LocalWorkout (
                     Id TEXT PRIMARY KEY NOT NULL,
                     Status INTEGER NOT NULL CHECK (Status IN (1, 2, 3)),
@@ -91,6 +139,7 @@ public sealed class TrackZLocalDatabase
 
                 CREATE TABLE IF NOT EXISTS LocalSet (
                     Id TEXT PRIMARY KEY NOT NULL,
+                    OperationId TEXT NOT NULL UNIQUE,
                     WorkoutExerciseId TEXT NOT NULL,
                     SortOrder INTEGER NOT NULL CHECK (SortOrder >= 0),
                     WeightKg TEXT NULL CHECK (WeightKg IS NULL OR typeof(WeightKg) = 'text'),
@@ -133,7 +182,7 @@ public sealed class TrackZLocalDatabase
                     Version INTEGER NOT NULL CHECK (Version >= 0)
                 );
 
-                PRAGMA user_version = 1;
+                PRAGMA user_version = 2;
                 """;
             await schema.ExecuteNonQueryAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
@@ -173,6 +222,19 @@ public sealed class TrackZLocalDatabase
         return await read(connection, cancellationToken);
     }
 
+    internal async Task<TResult> ReadTransactionAsync<TResult>(
+        Func<SqliteConnection, SqliteTransaction, CancellationToken, Task<TResult>> read,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(read);
+        await InitializeAsync(cancellationToken);
+        await using var connection = await OpenConfiguredAsync(cancellationToken);
+        await using var transaction = connection.BeginTransaction(deferred: true);
+        var result = await read(connection, transaction, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return result;
+    }
+
     internal async Task<TResult> WriteAsync<TResult>(
         Func<SqliteConnection, SqliteTransaction, CancellationToken, Task<TResult>> write,
         CancellationToken cancellationToken)
@@ -183,7 +245,7 @@ public sealed class TrackZLocalDatabase
         try
         {
             await using var connection = await OpenConfiguredAsync(cancellationToken);
-            await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+            await using var transaction = connection.BeginTransaction(deferred: false);
             var result = await write(connection, transaction, cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return result;

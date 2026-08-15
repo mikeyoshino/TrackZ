@@ -110,6 +110,34 @@ public sealed class ActiveWorkoutCoordinatorTests : IDisposable
     }
 
     [Fact]
+    public async Task Exact_duplicate_operation_returns_prior_success_without_writing_higher_version_graph()
+    {
+        var fixture = CreateFixture();
+        var persisted = await fixture.Coordinator.StartAsync([
+            new WorkoutExerciseSelection(_exerciseId, TrackingMode.Weighted)
+        ]);
+        var operation = Assert.Single(await fixture.Outbox.PendingAsync());
+        var divergent = persisted with
+        {
+            Version = persisted.Version + 1,
+            StartedAt = persisted.StartedAt.AddMinutes(15)
+        };
+        await ExecuteRawAsync($"""
+            UPDATE OutboxOperation
+            SET State = 2, Version = 2
+            WHERE OperationId = '{operation.OperationId:D}';
+            """);
+
+        await fixture.Repository.SaveWorkoutAndEnqueueAsync(divergent, operation, default);
+
+        var restored = await fixture.Repository.GetActiveAsync(default);
+        Assert.Equal(persisted.Version, restored!.Version);
+        Assert.Equal(persisted.StartedAt, restored.StartedAt);
+        Assert.Equal(OutboxOperationState.Applied,
+            (await fixture.Repository.GetOperationAsync(operation.OperationId, default))!.State);
+    }
+
+    [Fact]
     public async Task Different_snapshot_at_same_local_version_fails_closed_and_rolls_back_new_operation()
     {
         var fixture = CreateFixture();
@@ -150,6 +178,32 @@ public sealed class ActiveWorkoutCoordinatorTests : IDisposable
     }
 
     [Fact]
+    public async Task Offline_mutations_form_the_same_root_version_chain_the_server_aggregate_will_apply()
+    {
+        var secondExerciseId = Guid.Parse("22222222-2222-2222-2222-222222222222");
+        var fixture = CreateFixture();
+        var started = await fixture.Coordinator.StartAsync([
+            new WorkoutExerciseSelection(_exerciseId, TrackingMode.Weighted),
+            new WorkoutExerciseSelection(secondExerciseId, TrackingMode.Bodyweight)
+        ]);
+        Assert.Equal(2, started.Version);
+
+        await fixture.Coordinator.SaveSetAsync(_exerciseId, new LocalSet(60m, null, 12));
+        await fixture.Coordinator.SaveSetAsync(_exerciseId, new LocalSet(65m, null, 10));
+        await fixture.Coordinator.SaveSetAsync(_exerciseId, new LocalSet(70m, null, 8));
+
+        var operations = await fixture.Outbox.PendingAsync();
+        Assert.Equal(
+            [0L, 2L, 3L, 4L],
+            operations.Select(operation => operation.BaseVersion));
+        var restored = await fixture.Repository.GetActiveAsync(default);
+        Assert.Equal(5, restored!.Version);
+        Assert.Equal(4, restored.Exercises.Single(item => item.ExerciseDefinitionId == _exerciseId).Version);
+        Assert.Equal(1, restored.Exercises.Single(item => item.ExerciseDefinitionId == secondExerciseId).Version);
+        Assert.All(restored.Exercises.SelectMany(item => item.Sets), set => Assert.Equal(1, set.Version));
+    }
+
+    [Fact]
     public async Task Database_rejects_a_second_active_workout()
     {
         var fixture = CreateFixture();
@@ -172,6 +226,36 @@ public sealed class ActiveWorkoutCoordinatorTests : IDisposable
     }
 
     [Fact]
+    public async Task Stable_start_replay_returns_persisted_child_ids_and_rejects_contract_mismatches()
+    {
+        var workoutId = Guid.Parse("aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb");
+        var operationId = Guid.Parse("cccccccc-1111-2222-3333-dddddddddddd");
+        var selections = new[] { new WorkoutExerciseSelection(_exerciseId, TrackingMode.Weighted) };
+        var fixture = CreateFixture();
+        var first = await fixture.Coordinator.StartAsync(selections, workoutId, operationId);
+
+        var recreated = CreateFixture();
+        var replay = await recreated.Coordinator.StartAsync(selections, workoutId, operationId);
+
+        Assert.Equal(first.Id, replay.Id);
+        Assert.Equal(first.Exercises.Select(item => item.Id), replay.Exercises.Select(item => item.Id));
+        Assert.Single(await recreated.Outbox.PendingAsync());
+        await Assert.ThrowsAsync<InvalidDataException>(() => recreated.Coordinator.StartAsync(
+            [new WorkoutExerciseSelection(_exerciseId, TrackingMode.Bodyweight)],
+            workoutId,
+            operationId));
+        await Assert.ThrowsAsync<InvalidDataException>(() => recreated.Coordinator.StartAsync(
+            selections,
+            workoutId,
+            Guid.NewGuid()));
+        await Assert.ThrowsAsync<InvalidDataException>(() => recreated.Coordinator.StartAsync(
+            selections,
+            Guid.NewGuid(),
+            operationId));
+        Assert.Single(await recreated.Outbox.PendingAsync());
+    }
+
+    [Fact]
     public async Task Corrupt_decimal_row_fails_closed_instead_of_returning_partial_workout()
     {
         var fixture = CreateFixture();
@@ -181,6 +265,25 @@ public sealed class ActiveWorkoutCoordinatorTests : IDisposable
 
         await Assert.ThrowsAsync<InvalidDataException>(() =>
             CreateFixture().Coordinator.RestoreActiveAsync());
+    }
+
+    [Fact]
+    public async Task Set_operation_id_survives_restart_and_same_set_with_a_different_operation_fails_closed()
+    {
+        var fixture = CreateFixture();
+        await fixture.Coordinator.StartAsync([new WorkoutExerciseSelection(_exerciseId, TrackingMode.Weighted)]);
+        var saved = await fixture.Coordinator.SaveSetAsync(_exerciseId, new LocalSet(75m, null, 5));
+
+        var recreated = CreateFixture();
+        var restoredSet = Assert.Single(Assert.Single(
+            (await recreated.Coordinator.RestoreActiveAsync())!.Exercises).Sets);
+        Assert.Equal(saved.OperationId, restoredSet.OperationId);
+
+        await recreated.Coordinator.SaveSetAsync(_exerciseId, saved);
+        var differentOperation = saved with { OperationId = Guid.NewGuid() };
+        await Assert.ThrowsAsync<InvalidDataException>(() =>
+            recreated.Coordinator.SaveSetAsync(_exerciseId, differentOperation));
+        Assert.Equal(2, (await recreated.Outbox.PendingAsync()).Count);
     }
 
     [Fact]
@@ -222,6 +325,29 @@ public sealed class ActiveWorkoutCoordinatorTests : IDisposable
     }
 
     [Fact]
+    public async Task Active_graph_read_uses_one_snapshot_when_writer_commits_between_header_and_children()
+    {
+        var fixture = CreateFixture();
+        await fixture.Coordinator.StartAsync([new WorkoutExerciseSelection(_exerciseId, TrackingMode.Weighted)]);
+        var gate = new GatedWorkoutReadCheckpoint();
+        var reader = new LocalWorkoutRepository(fixture.Database, gate);
+
+        var snapshotRead = reader.GetActiveAsync(default);
+        await gate.HeaderRead.Task;
+        var writer = new ActiveWorkoutCoordinator(
+            new LocalWorkoutRepository(new TrackZLocalDatabase(_databasePath)),
+            new AccountSessionBoundary(),
+            new FixedClock(Now));
+        await writer.SaveSetAsync(_exerciseId, new LocalSet(80m, null, 6));
+        gate.Release.TrySetResult();
+
+        var snapshot = await snapshotRead;
+        Assert.Empty(Assert.Single(snapshot!.Exercises).Sets);
+        var latest = await fixture.Repository.GetActiveAsync(default);
+        Assert.Single(Assert.Single(latest!.Exercises).Sets);
+    }
+
+    [Fact]
     public async Task Schema_initialization_is_idempotent_versioned_and_enforces_foreign_keys_after_restart()
     {
         var first = new TrackZLocalDatabase(_databasePath);
@@ -246,6 +372,25 @@ public sealed class ActiveWorkoutCoordinatorTests : IDisposable
     }
 
     [Fact]
+    public async Task Schema_v1_migration_backfills_set_operation_id_from_its_save_set_outbox()
+    {
+        var fixture = CreateFixture();
+        await fixture.Coordinator.StartAsync([new WorkoutExerciseSelection(_exerciseId, TrackingMode.Weighted)]);
+        var saved = await fixture.Coordinator.SaveSetAsync(_exerciseId, new LocalSet(72.5m, null, 9));
+        await DowngradeLocalSetToLegacyV1Async();
+
+        var upgraded = new TrackZLocalDatabase(_databasePath);
+        await upgraded.InitializeAsync();
+
+        await using var connection = await OpenRawAsync();
+        await using var version = connection.CreateCommand();
+        version.CommandText = "PRAGMA user_version;";
+        Assert.Equal(2, Convert.ToInt32(await version.ExecuteScalarAsync()));
+        var restored = await new LocalWorkoutRepository(upgraded).GetActiveAsync(default);
+        Assert.Equal(saved.OperationId, Assert.Single(Assert.Single(restored!.Exercises).Sets).OperationId);
+    }
+
+    [Fact]
     public async Task Pending_outbox_is_ordered_by_created_at_then_operation_id_and_retains_payload()
     {
         var fixture = CreateFixture();
@@ -264,6 +409,243 @@ public sealed class ActiveWorkoutCoordinatorTests : IDisposable
         var pending = await fixture.Outbox.PendingAsync();
         Assert.Equal([earlierId, laterId], pending.Select(item => item.OperationId));
         Assert.All(pending, item => Assert.False(string.IsNullOrWhiteSpace(item.Payload)));
+    }
+
+    [Fact]
+    public async Task Full_graph_order_persistence_supports_swap_middle_insert_and_delete_reindex()
+    {
+        var secondId = Guid.Parse("22222222-2222-2222-2222-222222222222");
+        var thirdId = Guid.Parse("33333333-3333-3333-3333-333333333333");
+        var insertedId = Guid.Parse("44444444-4444-4444-4444-444444444444");
+        var fixture = CreateFixture();
+        var graph = await fixture.Coordinator.StartAsync([
+            new WorkoutExerciseSelection(_exerciseId, TrackingMode.Weighted),
+            new WorkoutExerciseSelection(secondId, TrackingMode.Bodyweight),
+            new WorkoutExerciseSelection(thirdId, TrackingMode.Assisted)
+        ]);
+
+        var swapped = graph with
+        {
+            Version = graph.Version + 1,
+            Exercises = [
+                graph.Exercises[2] with { Order = 0, Version = graph.Exercises[2].Version + 1 },
+                graph.Exercises[1],
+                graph.Exercises[0] with { Order = 2, Version = graph.Exercises[0].Version + 1 }
+            ]
+        };
+        await fixture.Repository.SaveWorkoutAndEnqueueAsync(
+            swapped, ReorderOperation(swapped, graph.Version, 1), default);
+        Assert.Equal(
+            [thirdId, secondId, _exerciseId],
+            (await fixture.Repository.GetActiveAsync(default))!.Exercises
+                .Where(item => item.DeletedAt is null).OrderBy(item => item.Order)
+                .Select(item => item.ExerciseDefinitionId));
+
+        var inserted = new LocalWorkoutExercise(
+            Guid.Parse("55555555-5555-5555-5555-555555555555"),
+            graph.Id,
+            insertedId,
+            TrackingMode.Weighted,
+            1,
+            null,
+            1,
+            0,
+            []);
+        var withMiddle = swapped with
+        {
+            Version = swapped.Version + 1,
+            Exercises = [
+                swapped.Exercises[0],
+                inserted,
+                swapped.Exercises[1] with { Order = 2, Version = swapped.Exercises[1].Version + 1 },
+                swapped.Exercises[2] with { Order = 3, Version = swapped.Exercises[2].Version + 1 }
+            ]
+        };
+        await fixture.Repository.SaveWorkoutAndEnqueueAsync(
+            withMiddle, ReorderOperation(withMiddle, swapped.Version, 2), default);
+
+        var deletedAt = Now.AddMinutes(3);
+        var afterDelete = withMiddle with
+        {
+            Version = withMiddle.Version + 1,
+            Exercises = [
+                withMiddle.Exercises[0],
+                withMiddle.Exercises[1] with { DeletedAt = deletedAt, Version = withMiddle.Exercises[1].Version + 1 },
+                withMiddle.Exercises[2] with { Order = 1, Version = withMiddle.Exercises[2].Version + 1 },
+                withMiddle.Exercises[3] with { Order = 2, Version = withMiddle.Exercises[3].Version + 1 }
+            ]
+        };
+        await fixture.Repository.SaveWorkoutAndEnqueueAsync(
+            afterDelete, ReorderOperation(afterDelete, withMiddle.Version, 3), default);
+
+        var restored = await new LocalWorkoutRepository(
+            new TrackZLocalDatabase(_databasePath)).GetActiveAsync(default);
+        Assert.Equal(
+            [thirdId, secondId, _exerciseId],
+            restored!.Exercises.Where(item => item.DeletedAt is null).OrderBy(item => item.Order)
+                .Select(item => item.ExerciseDefinitionId));
+        Assert.Equal(deletedAt, restored.Exercises.Single(item => item.ExerciseDefinitionId == insertedId).DeletedAt);
+    }
+
+    [Fact]
+    public async Task Reorder_outbox_failure_rolls_back_temporary_and_final_orders()
+    {
+        var secondId = Guid.Parse("22222222-2222-2222-2222-222222222222");
+        var fixture = CreateFixture();
+        var graph = await fixture.Coordinator.StartAsync([
+            new WorkoutExerciseSelection(_exerciseId, TrackingMode.Weighted),
+            new WorkoutExerciseSelection(secondId, TrackingMode.Bodyweight)
+        ]);
+        await ExecuteRawAsync("""
+            CREATE TRIGGER FailReorderOutbox
+            BEFORE INSERT ON OutboxOperation
+            WHEN NEW.OperationType = 7
+            BEGIN
+                SELECT RAISE(ABORT, 'injected reorder outbox failure');
+            END;
+            """);
+        var swapped = graph with
+        {
+            Version = graph.Version + 1,
+            Exercises = [
+                graph.Exercises[1] with { Order = 0, Version = graph.Exercises[1].Version + 1 },
+                graph.Exercises[0] with { Order = 1, Version = graph.Exercises[0].Version + 1 }
+            ]
+        };
+
+        var failure = await Assert.ThrowsAsync<SqliteException>(() =>
+            fixture.Repository.SaveWorkoutAndEnqueueAsync(
+                swapped, ReorderOperation(swapped, graph.Version, 1), default));
+        Assert.Contains("injected reorder outbox failure", failure.Message, StringComparison.Ordinal);
+        var restored = await fixture.Repository.GetActiveAsync(default);
+        Assert.Equal(
+            [_exerciseId, secondId],
+            restored!.Exercises.OrderBy(item => item.Order).Select(item => item.ExerciseDefinitionId));
+        Assert.Equal(graph.Version, restored.Version);
+    }
+
+    [Fact]
+    public async Task Full_graph_write_rejects_omitted_rows_and_same_version_reorders_without_mutation()
+    {
+        var secondId = Guid.Parse("22222222-2222-2222-2222-222222222222");
+        var fixture = CreateFixture();
+        var graph = await fixture.Coordinator.StartAsync([
+            new WorkoutExerciseSelection(_exerciseId, TrackingMode.Weighted),
+            new WorkoutExerciseSelection(secondId, TrackingMode.Bodyweight)
+        ]);
+        var omitted = graph with
+        {
+            Version = graph.Version + 1,
+            Exercises = [graph.Exercises[0]]
+        };
+
+        await Assert.ThrowsAsync<InvalidDataException>(() =>
+            fixture.Repository.SaveWorkoutAndEnqueueAsync(
+                omitted, ReorderOperation(omitted, graph.Version, 2), default));
+
+        var sameVersionSwap = graph with
+        {
+            Version = graph.Version + 1,
+            Exercises = [
+                graph.Exercises[1] with { Order = 0 },
+                graph.Exercises[0] with { Order = 1 }
+            ]
+        };
+        await Assert.ThrowsAsync<InvalidDataException>(() =>
+            fixture.Repository.SaveWorkoutAndEnqueueAsync(
+                sameVersionSwap, ReorderOperation(sameVersionSwap, graph.Version, 3), default));
+
+        var restored = await fixture.Repository.GetActiveAsync(default);
+        Assert.Equal(graph.Version, restored!.Version);
+        Assert.Equal(
+            [_exerciseId, secondId],
+            restored.Exercises.OrderBy(item => item.Order).Select(item => item.ExerciseDefinitionId));
+        Assert.Single(await fixture.Outbox.PendingAsync(default));
+    }
+
+    [Fact]
+    public async Task Full_graph_set_order_supports_swap_middle_insert_and_delete_reindex()
+    {
+        var fixture = CreateFixture();
+        await fixture.Coordinator.StartAsync([new WorkoutExerciseSelection(_exerciseId, TrackingMode.Weighted)]);
+        await fixture.Coordinator.SaveSetAsync(_exerciseId, new LocalSet(50m, null, 12));
+        await fixture.Coordinator.SaveSetAsync(_exerciseId, new LocalSet(60m, null, 10));
+        await fixture.Coordinator.SaveSetAsync(_exerciseId, new LocalSet(70m, null, 8));
+        var graph = (await fixture.Repository.GetActiveAsync(default))!;
+        var exercise = Assert.Single(graph.Exercises);
+        var swappedExercise = exercise with
+        {
+            Version = exercise.Version + 1,
+            Sets = [
+                exercise.Sets[2] with { Order = 0, Version = exercise.Sets[2].Version + 1 },
+                exercise.Sets[1],
+                exercise.Sets[0] with { Order = 2, Version = exercise.Sets[0].Version + 1 }
+            ]
+        };
+        var swapped = graph with
+        {
+            Version = graph.Version + 1,
+            Exercises = [swappedExercise]
+        };
+        await fixture.Repository.SaveWorkoutAndEnqueueAsync(
+            swapped, ReorderOperation(swapped, graph.Version, 4), default);
+
+        var insertedSet = new LocalSet(
+            Guid.NewGuid(),
+            exercise.Id,
+            1,
+            55m,
+            null,
+            11,
+            exercise.Sets.Max(item => item.CompletedAt).AddTicks(1),
+            null,
+            null,
+            1,
+            0,
+            Guid.NewGuid());
+        var middleExercise = swappedExercise with
+        {
+            Version = swappedExercise.Version + 1,
+            Sets = [
+                swappedExercise.Sets[0],
+                insertedSet,
+                swappedExercise.Sets[1] with { Order = 2, Version = swappedExercise.Sets[1].Version + 1 },
+                swappedExercise.Sets[2] with { Order = 3, Version = swappedExercise.Sets[2].Version + 1 }
+            ]
+        };
+        var withMiddle = swapped with
+        {
+            Version = swapped.Version + 1,
+            Exercises = [middleExercise]
+        };
+        await fixture.Repository.SaveWorkoutAndEnqueueAsync(
+            withMiddle, ReorderOperation(withMiddle, swapped.Version, 5), default);
+
+        var deletedAt = Now.AddMinutes(6);
+        var deletedExercise = middleExercise with
+        {
+            Version = middleExercise.Version + 1,
+            Sets = [
+                middleExercise.Sets[0],
+                middleExercise.Sets[1] with { DeletedAt = deletedAt, Version = middleExercise.Sets[1].Version + 1 },
+                middleExercise.Sets[2] with { Order = 1, Version = middleExercise.Sets[2].Version + 1 },
+                middleExercise.Sets[3] with { Order = 2, Version = middleExercise.Sets[3].Version + 1 }
+            ]
+        };
+        var afterDelete = withMiddle with
+        {
+            Version = withMiddle.Version + 1,
+            Exercises = [deletedExercise]
+        };
+        await fixture.Repository.SaveWorkoutAndEnqueueAsync(
+            afterDelete, ReorderOperation(afterDelete, withMiddle.Version, 6), default);
+
+        var restored = await fixture.Repository.GetActiveAsync(default);
+        var restoredSets = Assert.Single(restored!.Exercises).Sets;
+        Assert.Equal([70m, 60m, 50m],
+            restoredSets.Where(item => item.DeletedAt is null).OrderBy(item => item.Order)
+                .Select(item => item.WeightKg!.Value));
+        Assert.Equal(deletedAt, restoredSets.Single(item => item.Id == insertedSet.Id).DeletedAt);
     }
 
     private Fixture CreateFixture()
@@ -298,6 +680,20 @@ public sealed class ActiveWorkoutCoordinatorTests : IDisposable
             0,
             [])]);
 
+    private static OutboxOperation ReorderOperation(LocalWorkout workout, long baseVersion, int minute) =>
+        OutboxOperation.Create(
+            Guid.NewGuid(),
+            workout.Id,
+            OutboxOperationType.ReorderExercises,
+            new
+            {
+                workoutId = workout.Id,
+                order = workout.Exercises.Where(item => item.DeletedAt is null)
+                    .OrderBy(item => item.Order).Select(item => item.Id).ToArray()
+            },
+            baseVersion,
+            Now.AddMinutes(minute));
+
     private async Task CreateOutboxFailureTriggerAsync() => await ExecuteRawAsync("""
         CREATE TRIGGER FailSaveSetOutbox
         BEFORE INSERT ON OutboxOperation
@@ -313,6 +709,55 @@ public sealed class ActiveWorkoutCoordinatorTests : IDisposable
         await using var command = connection.CreateCommand();
         command.CommandText = sql;
         await command.ExecuteNonQueryAsync();
+    }
+
+    private async Task DowngradeLocalSetToLegacyV1Async()
+    {
+        await using var connection = await OpenRawAsync();
+        var hasOperationId = false;
+        await using (var inspect = connection.CreateCommand())
+        {
+            inspect.CommandText = "PRAGMA table_info(LocalSet);";
+            await using var reader = await inspect.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+                hasOperationId |= string.Equals(reader.GetString(1), "OperationId", StringComparison.Ordinal);
+        }
+        if (hasOperationId)
+        {
+            await using var downgrade = connection.CreateCommand();
+            downgrade.CommandText = """
+                DROP INDEX IF EXISTS UX_LocalSet_ActiveOrder;
+                ALTER TABLE LocalSet RENAME TO LocalSetWithOperation;
+                CREATE TABLE LocalSet (
+                    Id TEXT PRIMARY KEY NOT NULL,
+                    WorkoutExerciseId TEXT NOT NULL,
+                    SortOrder INTEGER NOT NULL CHECK (SortOrder >= 0),
+                    WeightKg TEXT NULL CHECK (WeightKg IS NULL OR typeof(WeightKg) = 'text'),
+                    AssistedKg TEXT NULL CHECK (AssistedKg IS NULL OR typeof(AssistedKg) = 'text'),
+                    Reps INTEGER NOT NULL CHECK (Reps BETWEEN 1 AND 999),
+                    CompletedAt TEXT NOT NULL,
+                    UpdatedAt TEXT NULL,
+                    DeletedAt TEXT NULL,
+                    Version INTEGER NOT NULL CHECK (Version >= 0),
+                    BaseVersion INTEGER NOT NULL CHECK (BaseVersion >= 0 AND BaseVersion <= Version),
+                    FOREIGN KEY (WorkoutExerciseId) REFERENCES LocalWorkoutExercise(Id) ON DELETE CASCADE,
+                    CHECK (NOT (WeightKg IS NOT NULL AND AssistedKg IS NOT NULL))
+                );
+                INSERT INTO LocalSet
+                    (Id, WorkoutExerciseId, SortOrder, WeightKg, AssistedKg, Reps,
+                     CompletedAt, UpdatedAt, DeletedAt, Version, BaseVersion)
+                SELECT Id, WorkoutExerciseId, SortOrder, WeightKg, AssistedKg, Reps,
+                       CompletedAt, UpdatedAt, DeletedAt, Version, BaseVersion
+                FROM LocalSetWithOperation;
+                DROP TABLE LocalSetWithOperation;
+                CREATE UNIQUE INDEX UX_LocalSet_ActiveOrder
+                    ON LocalSet(WorkoutExerciseId, SortOrder) WHERE DeletedAt IS NULL;
+                """;
+            await downgrade.ExecuteNonQueryAsync();
+        }
+        await using var markLegacy = connection.CreateCommand();
+        markLegacy.CommandText = "PRAGMA user_version = 1;";
+        await markLegacy.ExecuteNonQueryAsync();
     }
 
     private async Task<SqliteConnection> OpenRawAsync()
@@ -352,6 +797,18 @@ public sealed class ActiveWorkoutCoordinatorTests : IDisposable
         public DateTimeOffset UtcNow => utcNow;
     }
 
+    private sealed class GatedWorkoutReadCheckpoint : ILocalWorkoutReadCheckpoint
+    {
+        public TaskCompletionSource HeaderRead { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public async Task AfterHeaderReadAsync(CancellationToken cancellationToken)
+        {
+            HeaderRead.TrySetResult();
+            await Release.Task.WaitAsync(cancellationToken);
+        }
+    }
+
     private sealed class BlockingWorkoutRepository(ILocalWorkoutRepository inner) : ILocalWorkoutRepository
     {
         public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -378,6 +835,11 @@ public sealed class ActiveWorkoutCoordinatorTests : IDisposable
             }
             return await inner.GetActiveAsync(cancellationToken);
         }
+
+        public Task<OutboxOperation?> GetOperationAsync(
+            Guid operationId,
+            CancellationToken cancellationToken) =>
+            inner.GetOperationAsync(operationId, cancellationToken);
 
         public Task ClearPrivateDataAsync(CancellationToken cancellationToken) =>
             inner.ClearPrivateDataAsync(cancellationToken);

@@ -43,8 +43,18 @@ public sealed class ActiveWorkoutCoordinator(
             LocalWorkout? created = null;
             var committed = await sessionBoundary.TryCommitAsync(generation, async token =>
             {
-                if (await workouts.GetActiveAsync(token) is not null)
-                    throw new InvalidOperationException("An active workout already exists.");
+                if (await workouts.GetActiveAsync(token) is { } active)
+                {
+                    if (workoutId is null || operationId is null)
+                        throw new InvalidOperationException("An active workout already exists.");
+                    created = await ReconcileStartReplayAsync(
+                        active, selections, workoutId.Value, operationId.Value, token);
+                    return;
+                }
+                if (operationId is { } requestedOperation
+                    && await workouts.GetOperationAsync(requestedOperation, token) is not null)
+                    throw new InvalidDataException(
+                        "The start operation exists without its active workout.");
 
                 var startedAt = Utc(clock.UtcNow);
                 var id = workoutId ?? Guid.NewGuid();
@@ -64,7 +74,7 @@ public sealed class ActiveWorkoutCoordinator(
                     startedAt,
                     null,
                     null,
-                    1,
+                    selections.Count,
                     0,
                     exercises);
                 var payload = new StartWorkoutOutboxPayload(
@@ -120,12 +130,28 @@ public sealed class ActiveWorkoutCoordinator(
                 var existing = exercise.Sets.SingleOrDefault(item => item.Id == set.Id);
                 if (existing is not null)
                 {
-                    if (existing.WeightKg != set.WeightKg
+                    if (existing.OperationId != set.OperationId
+                        || existing.WeightKg != set.WeightKg
                         || existing.AssistedKg != set.AssistedKg
                         || existing.Reps != set.Reps
                         || set.CompletedAt != default && existing.CompletedAt != Utc(set.CompletedAt))
                         throw new InvalidDataException("The set ID is already bound to a different measurement.");
                     saved = existing with { OperationId = set.OperationId };
+                    var prior = await workouts.GetOperationAsync(set.OperationId, token)
+                        ?? throw new InvalidDataException("The saved set has no durable outbox operation.");
+                    var priorPayload = prior.DeserializePayload<SaveSetOutboxPayload>();
+                    if (prior.EntityId != active.Id
+                        || prior.Type != OutboxOperationType.SaveSet
+                        || priorPayload.WorkoutId != active.Id
+                        || priorPayload.WorkoutExerciseId != exercise.Id
+                        || priorPayload.SetId != existing.Id
+                        || priorPayload.Order != existing.Order
+                        || priorPayload.WeightKg != DecimalText(existing.WeightKg)
+                        || priorPayload.AssistedKg != DecimalText(existing.AssistedKg)
+                        || priorPayload.Reps != existing.Reps
+                        || priorPayload.CompletedAt != existing.CompletedAt)
+                        throw new InvalidDataException("The saved set and outbox operation contracts diverge.");
+                    return;
                 }
                 else
                 {
@@ -176,7 +202,7 @@ public sealed class ActiveWorkoutCoordinator(
                         DecimalText(durableSet.AssistedKg),
                         durableSet.Reps,
                         durableSet.CompletedAt),
-                    graph.BaseVersion,
+                    active.Version,
                     durableSet.CompletedAt);
                 await workouts.SaveWorkoutAndEnqueueAsync(graph, operation, token);
             }, cancellationToken);
@@ -216,4 +242,40 @@ public sealed class ActiveWorkoutCoordinator(
 
     private static DateTimeOffset Utc(DateTimeOffset value) => value.ToUniversalTime();
     private static string? DecimalText(decimal? value) => value?.ToString(CultureInfo.InvariantCulture);
+
+    private async Task<LocalWorkout> ReconcileStartReplayAsync(
+        LocalWorkout active,
+        IReadOnlyList<WorkoutExerciseSelection> selections,
+        Guid workoutId,
+        Guid operationId,
+        CancellationToken cancellationToken)
+    {
+        var operation = await workouts.GetOperationAsync(operationId, cancellationToken)
+            ?? throw new InvalidDataException("The active workout belongs to a different start operation.");
+        if (active.Id != workoutId
+            || operation.EntityId != workoutId
+            || operation.Type != OutboxOperationType.StartWorkout
+            || operation.BaseVersion != 0)
+            throw new InvalidDataException("The active workout start contract does not match the replay.");
+
+        var payload = operation.DeserializePayload<StartWorkoutOutboxPayload>();
+        if (payload.WorkoutId != workoutId
+            || payload.StartedAt != active.StartedAt
+            || payload.Exercises.Count != selections.Count)
+            throw new InvalidDataException("The active workout start payload does not match the replay.");
+        for (var order = 0; order < selections.Count; order++)
+        {
+            var requested = selections[order];
+            var stored = payload.Exercises[order];
+            var persisted = active.Exercises.SingleOrDefault(item => item.Id == stored.WorkoutExerciseId);
+            if (stored.Order != order
+                || stored.ExerciseDefinitionId != requested.ExerciseDefinitionId
+                || stored.TrackingMode != (int)requested.TrackingMode
+                || persisted is null
+                || persisted.ExerciseDefinitionId != stored.ExerciseDefinitionId
+                || persisted.TrackingMode != requested.TrackingMode)
+                throw new InvalidDataException("The active workout exercise contract does not match the replay.");
+        }
+        return active;
+    }
 }

@@ -15,11 +15,37 @@ public interface ILocalWorkoutRepository
 
     Task<LocalWorkout?> GetActiveAsync(CancellationToken cancellationToken = default);
 
+    Task<OutboxOperation?> GetOperationAsync(
+        Guid operationId,
+        CancellationToken cancellationToken = default);
+
     Task ClearPrivateDataAsync(CancellationToken cancellationToken = default);
 }
 
-public sealed class LocalWorkoutRepository(TrackZLocalDatabase database) : ILocalWorkoutRepository
+internal interface ILocalWorkoutReadCheckpoint
 {
+    Task AfterHeaderReadAsync(CancellationToken cancellationToken);
+}
+
+public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
+{
+    private readonly TrackZLocalDatabase _database;
+    private readonly ILocalWorkoutReadCheckpoint? _readCheckpoint;
+
+    public LocalWorkoutRepository(TrackZLocalDatabase database)
+        : this(database, null)
+    {
+    }
+
+    internal LocalWorkoutRepository(
+        TrackZLocalDatabase database,
+        ILocalWorkoutReadCheckpoint? readCheckpoint)
+    {
+        ArgumentNullException.ThrowIfNull(database);
+        _database = database;
+        _readCheckpoint = readCheckpoint;
+    }
+
     public async Task SaveWorkoutAndEnqueueAsync(
         LocalWorkout workout,
         OutboxOperation operation,
@@ -30,8 +56,11 @@ public sealed class LocalWorkoutRepository(TrackZLocalDatabase database) : ILoca
         ValidateGraph(workout);
         ValidateOperation(workout, operation);
 
-        _ = await database.WriteAsync(async (connection, transaction, token) =>
+        _ = await _database.WriteAsync(async (connection, transaction, token) =>
         {
+            if (await ExistingOperationMatchesOrThrowAsync(
+                    connection, transaction, operation, token)) return true;
+            await ValidateCoverageAndStageOrdersAsync(connection, transaction, workout, token);
             await UpsertWorkoutAsync(connection, transaction, workout, token);
             foreach (var exercise in workout.Exercises)
             {
@@ -41,19 +70,41 @@ public sealed class LocalWorkoutRepository(TrackZLocalDatabase database) : ILoca
                     await UpsertSetAsync(connection, transaction, set, token);
                 }
             }
-            await InsertOrVerifyOperationAsync(connection, transaction, operation, token);
+            await InsertOperationAsync(connection, transaction, operation, token);
             return true;
         }, cancellationToken);
     }
 
     public Task<LocalWorkout?> GetActiveAsync(CancellationToken cancellationToken = default) =>
-        database.ReadAsync(ReadActiveAsync, cancellationToken);
+        _database.ReadTransactionAsync(ReadActiveAsync, cancellationToken);
+
+    public Task<OutboxOperation?> GetOperationAsync(
+        Guid operationId,
+        CancellationToken cancellationToken = default)
+    {
+        if (operationId == Guid.Empty)
+            throw new ArgumentException("Operation ID cannot be empty.", nameof(operationId));
+        return _database.ReadAsync(async (connection, token) =>
+        {
+            await using var command = connection.CreateCommand();
+            command.CommandText = """
+                SELECT OperationId, EntityId, OperationType, Payload, BaseVersion,
+                       CreatedAt, State, DeletedAt, Version
+                FROM OutboxOperation WHERE OperationId = $id;
+                """;
+            Add(command, "$id", Id(operationId));
+            await using var reader = await command.ExecuteReaderAsync(token);
+            if (!await reader.ReadAsync(token)) return null;
+            return ReadOperation(reader);
+        }, cancellationToken);
+    }
 
     public Task ClearPrivateDataAsync(CancellationToken cancellationToken = default) =>
-        database.ClearPrivateDataAsync(cancellationToken);
+        _database.ClearPrivateDataAsync(cancellationToken);
 
-    private static async Task<LocalWorkout?> ReadActiveAsync(
+    private async Task<LocalWorkout?> ReadActiveAsync(
         SqliteConnection connection,
+        SqliteTransaction transaction,
         CancellationToken cancellationToken)
     {
         try
@@ -61,6 +112,7 @@ public sealed class LocalWorkoutRepository(TrackZLocalDatabase database) : ILoca
             LocalWorkout? workout = null;
             await using (var command = connection.CreateCommand())
             {
+                command.Transaction = transaction;
                 command.CommandText = """
                     SELECT Id, Status, StartedAt, CompletedAt, DeletedAt, Version, BaseVersion
                     FROM LocalWorkout
@@ -83,11 +135,14 @@ public sealed class LocalWorkoutRepository(TrackZLocalDatabase database) : ILoca
                         throw new InvalidDataException("More than one active workout was stored.");
                 }
             }
+            if (_readCheckpoint is not null)
+                await _readCheckpoint.AfterHeaderReadAsync(cancellationToken);
             if (workout is null) return null;
 
             var exercises = new List<LocalWorkoutExercise>();
             await using (var command = connection.CreateCommand())
             {
+                command.Transaction = transaction;
                 command.CommandText = """
                     SELECT Id, WorkoutId, ExerciseDefinitionId, TrackingMode, SortOrder,
                            DeletedAt, Version, BaseVersion
@@ -117,8 +172,9 @@ public sealed class LocalWorkoutRepository(TrackZLocalDatabase database) : ILoca
             {
                 var sets = new List<LocalSet>();
                 await using var command = connection.CreateCommand();
+                command.Transaction = transaction;
                 command.CommandText = """
-                    SELECT Id, WorkoutExerciseId, SortOrder, WeightKg, AssistedKg, Reps,
+                    SELECT Id, OperationId, WorkoutExerciseId, SortOrder, WeightKg, AssistedKg, Reps,
                            CompletedAt, UpdatedAt, DeletedAt, Version, BaseVersion
                     FROM LocalSet
                     WHERE WorkoutExerciseId = $exerciseId
@@ -130,17 +186,17 @@ public sealed class LocalWorkoutRepository(TrackZLocalDatabase database) : ILoca
                 {
                     sets.Add(new LocalSet(
                         GuidValue(reader, 0),
-                        GuidValue(reader, 1),
-                        NonNegativeInt32(reader, 2),
-                        DecimalValue(reader, 3),
+                        GuidValue(reader, 2),
+                        NonNegativeInt32(reader, 3),
                         DecimalValue(reader, 4),
-                        PositiveInt32(reader, 5),
-                        Timestamp(reader, 6)!.Value,
-                        Timestamp(reader, 7),
+                        DecimalValue(reader, 5),
+                        PositiveInt32(reader, 6),
+                        Timestamp(reader, 7)!.Value,
                         Timestamp(reader, 8),
-                        NonNegativeInt64(reader, 9),
+                        Timestamp(reader, 9),
                         NonNegativeInt64(reader, 10),
-                        Guid.Empty));
+                        NonNegativeInt64(reader, 11),
+                        GuidValue(reader, 1)));
                 }
                 hydrated.Add(exercise with { Sets = sets });
             }
@@ -214,7 +270,7 @@ public sealed class LocalWorkoutRepository(TrackZLocalDatabase database) : ILoca
                 DeletedAt = excluded.DeletedAt,
                 Version = excluded.Version,
                 BaseVersion = excluded.BaseVersion
-            WHERE excluded.Version > LocalWorkoutExercise.Version;
+            WHERE excluded.Version >= LocalWorkoutExercise.Version;
             """;
         Add(command, "$id", Id(exercise.Id));
         Add(command, "$workoutId", Id(exercise.WorkoutId));
@@ -239,12 +295,13 @@ public sealed class LocalWorkoutRepository(TrackZLocalDatabase database) : ILoca
         command.Transaction = transaction;
         command.CommandText = """
             INSERT INTO LocalSet
-                (Id, WorkoutExerciseId, SortOrder, WeightKg, AssistedKg, Reps,
+                (Id, OperationId, WorkoutExerciseId, SortOrder, WeightKg, AssistedKg, Reps,
                  CompletedAt, UpdatedAt, DeletedAt, Version, BaseVersion)
             VALUES
-                ($id, $exerciseId, $order, $weight, $assisted, $reps,
+                ($id, $operationId, $exerciseId, $order, $weight, $assisted, $reps,
                  $completedAt, $updatedAt, $deletedAt, $version, $baseVersion)
             ON CONFLICT(Id) DO UPDATE SET
+                OperationId = excluded.OperationId,
                 WorkoutExerciseId = excluded.WorkoutExerciseId,
                 SortOrder = excluded.SortOrder,
                 WeightKg = excluded.WeightKg,
@@ -255,9 +312,10 @@ public sealed class LocalWorkoutRepository(TrackZLocalDatabase database) : ILoca
                 DeletedAt = excluded.DeletedAt,
                 Version = excluded.Version,
                 BaseVersion = excluded.BaseVersion
-            WHERE excluded.Version > LocalSet.Version;
+            WHERE excluded.Version >= LocalSet.Version;
             """;
         Add(command, "$id", Id(set.Id));
+        Add(command, "$operationId", Id(set.OperationId));
         Add(command, "$exerciseId", Id(set.WorkoutExerciseId));
         Add(command, "$order", set.Order);
         Add(command, "$weight", DecimalText(set.WeightKg));
@@ -329,26 +387,137 @@ public sealed class LocalWorkoutRepository(TrackZLocalDatabase database) : ILoca
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
-            SELECT WorkoutExerciseId, SortOrder, WeightKg, AssistedKg, Reps,
+            SELECT OperationId, WorkoutExerciseId, SortOrder, WeightKg, AssistedKg, Reps,
                    CompletedAt, UpdatedAt, DeletedAt, Version, BaseVersion
             FROM LocalSet WHERE Id = $id;
             """;
         Add(command, "$id", Id(set.Id));
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         return await reader.ReadAsync(cancellationToken)
-            && reader.GetString(0) == Id(set.WorkoutExerciseId)
-            && reader.GetInt32(1) == set.Order
-            && NullableString(reader, 2) == DecimalText(set.WeightKg)
-            && NullableString(reader, 3) == DecimalText(set.AssistedKg)
-            && reader.GetInt32(4) == set.Reps
-            && reader.GetString(5) == Timestamp(set.CompletedAt)
-            && NullableString(reader, 6) == Timestamp(set.UpdatedAt)
-            && NullableString(reader, 7) == Timestamp(set.DeletedAt)
-            && reader.GetInt64(8) == set.Version
-            && reader.GetInt64(9) == set.BaseVersion;
+            && reader.GetString(0) == Id(set.OperationId)
+            && reader.GetString(1) == Id(set.WorkoutExerciseId)
+            && reader.GetInt32(2) == set.Order
+            && NullableString(reader, 3) == DecimalText(set.WeightKg)
+            && NullableString(reader, 4) == DecimalText(set.AssistedKg)
+            && reader.GetInt32(5) == set.Reps
+            && reader.GetString(6) == Timestamp(set.CompletedAt)
+            && NullableString(reader, 7) == Timestamp(set.UpdatedAt)
+            && NullableString(reader, 8) == Timestamp(set.DeletedAt)
+            && reader.GetInt64(9) == set.Version
+            && reader.GetInt64(10) == set.BaseVersion;
     }
 
-    private static async Task InsertOrVerifyOperationAsync(
+    private static async Task ValidateCoverageAndStageOrdersAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        LocalWorkout workout,
+        CancellationToken cancellationToken)
+    {
+        const int temporaryOrderOffset = 1_000_000_000;
+        if (workout.Exercises.Count >= temporaryOrderOffset
+            || workout.Exercises.SelectMany(item => item.Sets).Any(set => set.Order >= temporaryOrderOffset))
+            throw new InvalidDataException("The workout graph is too large to stage orders safely.");
+
+        var incomingExercises = workout.Exercises.ToDictionary(item => item.Id);
+        var existingExerciseIds = new HashSet<Guid>();
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                SELECT Id, WorkoutId, ExerciseDefinitionId, TrackingMode, SortOrder,
+                       DeletedAt, Version, BaseVersion
+                FROM LocalWorkoutExercise WHERE WorkoutId = $workoutId;
+                """;
+            Add(command, "$workoutId", Id(workout.Id));
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                var id = GuidValue(reader, 0);
+                existingExerciseIds.Add(id);
+                if (!incomingExercises.TryGetValue(id, out var incoming))
+                    throw new InvalidDataException("A full workout graph cannot omit a persisted exercise row.");
+                if (GuidValue(reader, 1) != incoming.WorkoutId
+                    || GuidValue(reader, 2) != incoming.ExerciseDefinitionId
+                    || EnumValue<TrackingMode>(reader, 3) != incoming.TrackingMode)
+                    throw new InvalidDataException("A persisted workout exercise identity cannot be changed.");
+                var existingVersion = NonNegativeInt64(reader, 6);
+                if (incoming.Version < existingVersion
+                    || incoming.Version == existingVersion
+                    && (incoming.Order != NonNegativeInt32(reader, 4)
+                        || Timestamp(incoming.DeletedAt) != NullableString(reader, 5)
+                        || incoming.BaseVersion != NonNegativeInt64(reader, 7)))
+                    throw new InvalidDataException("A workout exercise change requires a newer local version.");
+            }
+        }
+
+        var incomingSets = workout.Exercises.SelectMany(item => item.Sets).ToDictionary(item => item.Id);
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                SELECT localSet.Id, localSet.OperationId, localSet.WorkoutExerciseId,
+                       localSet.SortOrder, localSet.WeightKg, localSet.AssistedKg, localSet.Reps,
+                       localSet.CompletedAt, localSet.UpdatedAt, localSet.DeletedAt,
+                       localSet.Version, localSet.BaseVersion
+                FROM LocalSet AS localSet
+                INNER JOIN LocalWorkoutExercise AS exercise
+                    ON exercise.Id = localSet.WorkoutExerciseId
+                WHERE exercise.WorkoutId = $workoutId;
+                """;
+            Add(command, "$workoutId", Id(workout.Id));
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                var id = GuidValue(reader, 0);
+                if (!incomingSets.TryGetValue(id, out var incoming))
+                    throw new InvalidDataException("A full workout graph cannot omit a persisted set row.");
+                if (GuidValue(reader, 1) != incoming.OperationId
+                    || GuidValue(reader, 2) != incoming.WorkoutExerciseId)
+                    throw new InvalidDataException("A persisted set identity cannot be changed.");
+                var existingVersion = NonNegativeInt64(reader, 10);
+                if (incoming.Version < existingVersion
+                    || incoming.Version == existingVersion
+                    && (incoming.Order != NonNegativeInt32(reader, 3)
+                        || DecimalText(incoming.WeightKg) != NullableString(reader, 4)
+                        || DecimalText(incoming.AssistedKg) != NullableString(reader, 5)
+                        || incoming.Reps != PositiveInt32(reader, 6)
+                        || Timestamp(incoming.CompletedAt) != reader.GetString(7)
+                        || Timestamp(incoming.UpdatedAt) != NullableString(reader, 8)
+                        || Timestamp(incoming.DeletedAt) != NullableString(reader, 9)
+                        || incoming.BaseVersion != NonNegativeInt64(reader, 11)))
+                    throw new InvalidDataException("A set change requires a newer local version.");
+            }
+        }
+
+        if (existingExerciseIds.Count == 0) return;
+        await using (var stageExercises = connection.CreateCommand())
+        {
+            stageExercises.Transaction = transaction;
+            stageExercises.CommandText = """
+                UPDATE LocalWorkoutExercise
+                SET SortOrder = SortOrder + $offset
+                WHERE WorkoutId = $workoutId AND DeletedAt IS NULL;
+                """;
+            Add(stageExercises, "$offset", temporaryOrderOffset);
+            Add(stageExercises, "$workoutId", Id(workout.Id));
+            await stageExercises.ExecuteNonQueryAsync(cancellationToken);
+        }
+        await using var stageSets = connection.CreateCommand();
+        stageSets.Transaction = transaction;
+        stageSets.CommandText = """
+            UPDATE LocalSet
+            SET SortOrder = SortOrder + $offset
+            WHERE DeletedAt IS NULL
+              AND WorkoutExerciseId IN (
+                  SELECT Id FROM LocalWorkoutExercise WHERE WorkoutId = $workoutId
+              );
+            """;
+        Add(stageSets, "$offset", temporaryOrderOffset);
+        Add(stageSets, "$workoutId", Id(workout.Id));
+        await stageSets.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task InsertOperationAsync(
         SqliteConnection connection,
         SqliteTransaction transaction,
         OutboxOperation operation,
@@ -364,7 +533,6 @@ public sealed class LocalWorkoutRepository(TrackZLocalDatabase database) : ILoca
                 VALUES
                     ($id, $entityId, $type, $payload, $baseVersion,
                      $createdAt, $state, $deletedAt, $version)
-                ON CONFLICT(OperationId) DO NOTHING;
                 """;
             Add(insert, "$id", Id(operation.OperationId));
             Add(insert, "$entityId", Id(operation.EntityId));
@@ -375,31 +543,36 @@ public sealed class LocalWorkoutRepository(TrackZLocalDatabase database) : ILoca
             Add(insert, "$state", (int)operation.State);
             Add(insert, "$deletedAt", Timestamp(operation.DeletedAt));
             Add(insert, "$version", operation.Version);
-            if (await insert.ExecuteNonQueryAsync(cancellationToken) == 1) return;
+            await insert.ExecuteNonQueryAsync(cancellationToken);
         }
+    }
 
+    private static async Task<bool> ExistingOperationMatchesOrThrowAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        OutboxOperation operation,
+        CancellationToken cancellationToken)
+    {
         await using var existing = connection.CreateCommand();
         existing.Transaction = transaction;
         existing.CommandText = """
-            SELECT EntityId, OperationType, Payload, BaseVersion, CreatedAt, State, DeletedAt, Version
+            SELECT EntityId, OperationType, Payload, BaseVersion, CreatedAt
             FROM OutboxOperation
             WHERE OperationId = $id;
             """;
         Add(existing, "$id", Id(operation.OperationId));
         await using var reader = await existing.ExecuteReaderAsync(cancellationToken);
-        if (!await reader.ReadAsync(cancellationToken)
-            || reader.GetString(0) != Id(operation.EntityId)
+        if (!await reader.ReadAsync(cancellationToken)) return false;
+        if (reader.GetString(0) != Id(operation.EntityId)
             || reader.GetInt32(1) != (int)operation.Type
             || reader.GetString(2) != operation.Payload
             || reader.GetInt64(3) != operation.BaseVersion
-            || reader.GetString(4) != Timestamp(operation.CreatedAt)
-            || reader.GetInt32(5) != (int)operation.State
-            || NullableString(reader, 6) != Timestamp(operation.DeletedAt)
-            || reader.GetInt64(7) != operation.Version)
+            || reader.GetString(4) != Timestamp(operation.CreatedAt))
         {
             throw new InvalidDataException(
                 "The operation identifier is already bound to a different outbox contract.");
         }
+        return true;
     }
 
     private static void ValidateGraph(LocalWorkout workout)
@@ -432,7 +605,8 @@ public sealed class LocalWorkoutRepository(TrackZLocalDatabase database) : ILoca
 
             foreach (var set in exercise.Sets)
             {
-                if (set.Id == Guid.Empty || set.WorkoutExerciseId != exercise.Id)
+                if (set.Id == Guid.Empty || set.OperationId == Guid.Empty
+                    || set.WorkoutExerciseId != exercise.Id)
                     throw new ArgumentException("Set identity is invalid.", nameof(workout));
                 ValidateVersion(set.Version, set.BaseVersion, nameof(workout));
                 RequireTimestamp(set.CompletedAt, nameof(set.CompletedAt));
@@ -498,6 +672,17 @@ public sealed class LocalWorkoutRepository(TrackZLocalDatabase database) : ILoca
             throw new InvalidDataException("A stored identifier is invalid.");
         return value;
     }
+
+    private static OutboxOperation ReadOperation(SqliteDataReader reader) => new(
+        GuidValue(reader, 0),
+        GuidValue(reader, 1),
+        EnumValue<OutboxOperationType>(reader, 2),
+        reader.GetString(3),
+        NonNegativeInt64(reader, 4),
+        Timestamp(reader, 5)!.Value,
+        EnumValue<OutboxOperationState>(reader, 6),
+        Timestamp(reader, 7),
+        NonNegativeInt64(reader, 8));
 
     private static T EnumValue<T>(SqliteDataReader reader, int ordinal) where T : struct, Enum
     {
