@@ -8,15 +8,15 @@ using TrackZ.Mobile.Features.Workout;
 using TrackZ.Mobile.Identity;
 using TrackZ.Mobile.Sync;
 
-namespace TrackZ.Mobile.Tests.Acceptance;
+namespace TrackZ.Mobile.Tests.Workout;
 
-public sealed class OfflineWorkoutAcceptanceTests : IAsyncDisposable
+public sealed class OfflineWorkoutPersistenceTests : IAsyncDisposable
 {
     private readonly string _path = Path.Combine(
         Path.GetTempPath(), $"trackz-offline-acceptance-{Guid.NewGuid():N}.db");
 
     [Fact]
-    public async Task Offline_log_kill_restore_and_retry_sync_creates_each_set_once()
+    public async Task Local_offline_log_kill_restore_preserves_graph_and_sync_operation_chain()
     {
         var exerciseId = Guid.NewGuid();
         var clock = new MutableClock(new DateTimeOffset(2026, 8, 16, 8, 0, 0, TimeSpan.Zero));

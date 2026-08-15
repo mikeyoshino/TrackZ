@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using TrackZ.Domain.Exercises;
 using TrackZ.Mobile.Data.Models;
+using TrackZ.Mobile.Features.Exercises;
 using TrackZ.Mobile.Features.Workout;
 using TrackZ.Mobile.Identity;
 using TrackZ.Mobile.Sync;
@@ -33,6 +34,7 @@ public sealed class HistorySetItem : INotifyPropertyChanged
     public required DateTimeOffset CompletedAt { get; init; }
     public required bool IsDeleted { get; init; }
     public required bool WorkoutIsDeleted { get; init; }
+    public required bool WorkoutHasPermanentFailure { get; init; }
     public int SetNumber => Order + 1;
     public bool UsesWeight => TrackingMode is TrackingMode.Weighted or TrackingMode.Assisted;
     public bool IsWeighted => TrackingMode == TrackingMode.Weighted;
@@ -62,6 +64,7 @@ public sealed class HistorySetItem : INotifyPropertyChanged
     internal static HistorySetItem From(
         Guid workoutId,
         bool workoutIsDeleted,
+        bool workoutHasPermanentFailure,
         LocalWorkoutExercise exercise,
         LocalSet set) => new()
     {
@@ -73,6 +76,7 @@ public sealed class HistorySetItem : INotifyPropertyChanged
         CompletedAt = set.CompletedAt,
         IsDeleted = set.DeletedAt is not null,
         WorkoutIsDeleted = workoutIsDeleted,
+        WorkoutHasPermanentFailure = workoutHasPermanentFailure,
         WeightKg = set.WeightKg,
         AssistedKg = set.AssistedKg,
         Reps = set.Reps
@@ -104,6 +108,7 @@ public sealed record HistoryWorkoutItem(
     long? ConflictedServerVersion)
 {
     public bool HasConflict => ConflictedOperationId is not null && ConflictedServerVersion is not null;
+    public bool HasPermanentFailure => SyncState == WorkoutSyncState.PermanentFailure;
 }
 
 public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged
@@ -113,6 +118,8 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged
     private readonly IHistoryConfirmation _confirmation;
     private readonly IConflictResolution _conflicts;
     private readonly IAccountSessionBoundary _boundary;
+    private readonly IConnectivityService _connectivity;
+    private readonly Dictionary<Guid, WorkoutSyncState> _durableStates = [];
     private readonly CancellationTokenSource _lifetime = new();
     private bool _isBusy;
     private bool _deactivated;
@@ -123,6 +130,7 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged
         IHistoryOutboxStatusSource outbox,
         IHistoryConfirmation confirmation,
         IAccountSessionBoundary boundary,
+        IConnectivityService connectivity,
         WorkoutTextSet text,
         IConflictResolution conflicts)
     {
@@ -131,18 +139,20 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged
         _confirmation = confirmation;
         _conflicts = conflicts;
         _boundary = boundary;
+        _connectivity = connectivity;
         Text = text;
         EditSetCommand = new AsyncCommand(EditSetAsync, CanMutateSet);
         DeleteSetCommand = new AsyncCommand(DeleteSetAsync, CanMutateSet);
         DeleteWorkoutCommand = new AsyncCommand(DeleteWorkoutAsync,
             item => !_deactivated && !IsBusy
-                && item is HistoryWorkoutItem { IsDeleted: false });
+                && item is HistoryWorkoutItem { IsDeleted: false, HasPermanentFailure: false });
         UndoCommand = new AsyncCommand(UndoAsync,
             item => !_deactivated && !IsBusy
                 && item is HistoryWorkoutItem { LastUndoOperationId: not null });
         KeepServerCommand = new AsyncCommand(KeepServerAsync, CanResolveConflict);
         ApplyLocalCommand = new AsyncCommand(ApplyLocalAsync, CanResolveConflict);
         _boundary.SessionReset += OnSessionReset;
+        _connectivity.ConnectivityChanged += OnConnectivityChanged;
     }
 
     public ObservableCollection<HistoryWorkoutItem> Workouts { get; } = [];
@@ -201,7 +211,9 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged
         if (_deactivated) return;
         _deactivated = true;
         _boundary.SessionReset -= OnSessionReset;
+        _connectivity.ConnectivityChanged -= OnConnectivityChanged;
         _lifetime.Cancel();
+        _durableStates.Clear();
         Workouts.Clear();
         RaiseCommands();
     }
@@ -318,11 +330,15 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged
         var generation = _boundary.Capture();
         var history = await _history.GetHistoryAsync(cancellationToken);
         var projected = new List<HistoryWorkoutItem>(history.Count);
+        var projectedStates = new Dictionary<Guid, WorkoutSyncState>(history.Count);
         foreach (var workout in history)
         {
             var operations = await _outbox.ForHistoryWorkoutAsync(
                 workout.Id, cancellationToken);
-            var state = Status(operations);
+            var durableState = DurableStatus(operations);
+            projectedStates[workout.Id] = durableState;
+            var state = DisplayStatus(durableState);
+            var hasPermanentFailure = durableState == WorkoutSyncState.PermanentFailure;
             var exercises = workout.Exercises
                 .Where(exercise => exercise.DeletedAt is null)
                 .OrderBy(exercise => exercise.Order)
@@ -332,7 +348,11 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged
                     exercise.TrackingMode,
                     exercise.Sets.OrderBy(set => set.Order)
                         .Select(set => HistorySetItem.From(
-                            workout.Id, workout.DeletedAt is not null, exercise, set))
+                            workout.Id,
+                            workout.DeletedAt is not null,
+                            hasPermanentFailure,
+                            exercise,
+                            set))
                         .ToArray()))
                 .ToArray();
             var undo = operations.LastOrDefault(operation => operation.Type is
@@ -353,11 +373,16 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged
         }
         cancellationToken.ThrowIfCancellationRequested();
         if (_deactivated || _boundary.IsCancellationRequested(generation)) return;
+        _durableStates.Clear();
         Workouts.Clear();
-        foreach (var workout in projected) Workouts.Add(workout);
+        foreach (var workout in projected)
+        {
+            _durableStates[workout.WorkoutId] = projectedStates[workout.WorkoutId];
+            Workouts.Add(workout);
+        }
     }
 
-    private static WorkoutSyncState Status(IReadOnlyList<OutboxOperation> operations)
+    private static WorkoutSyncState DurableStatus(IReadOnlyList<OutboxOperation> operations)
     {
         if (operations.Any(operation => operation.State == OutboxOperationState.Rejected))
             return WorkoutSyncState.PermanentFailure;
@@ -371,6 +396,11 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged
         return WorkoutSyncState.Synced;
     }
 
+    private WorkoutSyncState DisplayStatus(WorkoutSyncState durableState) =>
+        durableState is WorkoutSyncState.PermanentFailure or WorkoutSyncState.Conflicted
+            ? durableState
+            : _connectivity.IsOnline ? durableState : WorkoutSyncState.Offline;
+
     private string StatusText(WorkoutSyncState state) => state switch
     {
         WorkoutSyncState.Pending => Text.Pending,
@@ -383,7 +413,12 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged
 
     private bool CanMutateSet(object? parameter) =>
         !_deactivated && !IsBusy
-            && parameter is HistorySetItem { IsDeleted: false, WorkoutIsDeleted: false };
+            && parameter is HistorySetItem
+            {
+                IsDeleted: false,
+                WorkoutIsDeleted: false,
+                WorkoutHasPermanentFailure: false
+            };
 
     private bool CanResolveConflict(object? parameter) =>
         !_deactivated && !IsBusy && parameter is HistoryWorkoutItem { HasConflict: true };
@@ -391,7 +426,25 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged
     private void OnSessionReset(object? sender, EventArgs eventArgs)
     {
         Workouts.Clear();
+        _durableStates.Clear();
         ErrorMessage = null;
+        RaiseCommands();
+    }
+
+    private void OnConnectivityChanged(object? sender, EventArgs eventArgs)
+    {
+        if (_deactivated) return;
+        for (var index = 0; index < Workouts.Count; index++)
+        {
+            var workout = Workouts[index];
+            if (!_durableStates.TryGetValue(workout.WorkoutId, out var durableState)) continue;
+            var state = DisplayStatus(durableState);
+            Workouts[index] = workout with
+            {
+                SyncState = state,
+                SyncStatusText = StatusText(state)
+            };
+        }
         RaiseCommands();
     }
 

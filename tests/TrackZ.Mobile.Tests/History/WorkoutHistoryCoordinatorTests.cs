@@ -194,6 +194,61 @@ public sealed class WorkoutHistoryCoordinatorTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task Exact_no_op_edit_does_not_advance_graph_outbox_or_undo_and_real_successor_syncs()
+    {
+        var exerciseId = Guid.NewGuid();
+        var active = Coordinator();
+        await active.StartAsync([new WorkoutExerciseSelection(exerciseId, TrackingMode.Weighted)]);
+        _clock.UtcNow = _clock.UtcNow.AddMinutes(1);
+        var set = await active.SaveSetAsync(exerciseId, new LocalSet(70m, null, 10));
+        _clock.UtcNow = _clock.UtcNow.AddMinutes(1);
+        var completed = await active.FinishAsync();
+        await new SyncCoordinator(Database(), new AppliedApi(CompletedGraph(completed)), _boundary, _clock)
+            .RunOnceAsync();
+        var exercise = Assert.Single(completed.Exercises);
+        var beforeUndo = await UndoCountAsync();
+        var noOpId = Guid.NewGuid();
+        _clock.UtcNow = _clock.UtcNow.AddHours(1);
+
+        var noOp = await History().EditSetAsync(
+            completed.Id,
+            exercise.Id,
+            set.Id,
+            new HistorySetMeasurement(70m, null, 10),
+            noOpId);
+
+        Assert.Equal(Guid.Empty, noOp.OperationId);
+        Assert.Equal(completed.Version, noOp.Workout.Version);
+        Assert.Equal(set.UpdatedAt, Assert.Single(Assert.Single(noOp.Workout.Exercises).Sets).UpdatedAt);
+        Assert.Null(await new LocalWorkoutRepository(Database()).GetOperationAsync(noOpId));
+        Assert.Equal(beforeUndo, await UndoCountAsync());
+
+        var changed = await History().EditSetAsync(
+            completed.Id,
+            exercise.Id,
+            set.Id,
+            new HistorySetMeasurement(72.5m, null, 8),
+            noOpId);
+        var operation = await new LocalWorkoutRepository(Database()).GetOperationAsync(noOpId);
+        Assert.Equal(noOpId, changed.OperationId);
+        Assert.NotNull(operation);
+        Assert.Equal(completed.Version, operation.BaseVersion);
+        Assert.Equal(completed.Version + 1, changed.Workout.Version);
+
+        var api = new QueueSyncApi();
+        api.PushResponses.Enqueue(new SyncPushResponse([
+            new SyncOperationResultDto(noOpId, SyncOperationStatus.Applied, changed.Workout.Version, null)
+        ]));
+        api.PullResponses.Enqueue(new SyncPullResponse([
+            new SyncChangeDto(
+                2, "Workout", changed.Workout.Id, changed.Workout.Version, false,
+                changed.Workout.CompletedAt!.Value, CompletedGraph(changed.Workout))
+        ], "cursor-2", false));
+        await new SyncCoordinator(Database(), api, _boundary, _clock).RunOnceAsync();
+        Assert.Empty(await Outbox().PendingAsync());
+    }
+
+    [Fact]
     public async Task Tombstone_pull_to_second_cache_hides_acknowledged_set_from_history()
     {
         var workoutId = Guid.NewGuid();
@@ -304,6 +359,56 @@ public sealed class WorkoutHistoryCoordinatorTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task Apply_local_transfers_durable_undo_and_restart_undo_neutralizes_replacement_chain()
+    {
+        var exerciseId = Guid.NewGuid();
+        var active = Coordinator();
+        await active.StartAsync([new WorkoutExerciseSelection(exerciseId, TrackingMode.Bodyweight)]);
+        _clock.UtcNow = _clock.UtcNow.AddMinutes(1);
+        var set = await active.SaveSetAsync(exerciseId, new LocalSet(null, null, 10));
+        _clock.UtcNow = _clock.UtcNow.AddMinutes(1);
+        var completed = await active.FinishAsync();
+        await new SyncCoordinator(Database(), new AppliedApi(CompletedGraph(completed)), _boundary, _clock)
+            .RunOnceAsync();
+        _clock.UtcNow = _clock.UtcNow.AddMinutes(1);
+        var originalId = Guid.NewGuid();
+        await History().EditSetAsync(
+            completed.Id,
+            Assert.Single(completed.Exercises).Id,
+            set.Id,
+            new HistorySetMeasurement(null, null, 12),
+            originalId);
+        var remoteAt = _clock.UtcNow.AddMinutes(1);
+        var remote = EditedGraph(completed, 8, 4, remoteAt);
+        var conflictApi = new QueueSyncApi();
+        conflictApi.PushResponses.Enqueue(new SyncPushResponse([
+            new SyncOperationResultDto(
+                originalId, SyncOperationStatus.Conflict, 4,
+                TrackZ.Contracts.Errors.BusinessErrorCode.VersionConflict)
+        ]));
+        conflictApi.PullResponses.Enqueue(new SyncPullResponse([
+            new SyncChangeDto(2, "Workout", remote.Id, 4, false, remoteAt, remote)
+        ], "cursor-2", false));
+        var sync = new SyncCoordinator(Database(), conflictApi, _boundary, _clock);
+        await sync.RunOnceAsync();
+        var replacement = await new ConflictResolution(sync)
+            .ApplyLocalAgainstVersionAsync(originalId, 4);
+
+        var restored = await new WorkoutHistoryCoordinator(
+                new LocalWorkoutRepository(new TrackZLocalDatabase(_path)), _boundary, _clock)
+            .UndoAsync(replacement.OperationId);
+
+        Assert.Equal(10, Assert.Single(Assert.Single(restored.Exercises).Sets).Reps);
+        Assert.Empty(await Outbox().PendingAsync());
+        Assert.Empty(await Outbox().ConflictedAsync());
+        Assert.Equal(0, await UndoCountAsync());
+        Assert.NotNull((await new LocalWorkoutRepository(Database())
+            .GetOperationAsync(originalId))!.NeutralizedAt);
+        Assert.NotNull((await new LocalWorkoutRepository(Database())
+            .GetOperationAsync(replacement.OperationId))!.NeutralizedAt);
+    }
+
+    [Fact]
     public async Task Two_device_edit_conflict_keep_server_applies_authority_and_cleans_undo()
     {
         var exerciseId = Guid.NewGuid();
@@ -333,14 +438,33 @@ public sealed class WorkoutHistoryCoordinatorTests : IAsyncDisposable
         ], "cursor-2", false));
         var sync = new SyncCoordinator(Database(), api, _boundary, _clock);
         await sync.RunOnceAsync();
+        var replacement = await new ConflictResolution(sync)
+            .ApplyLocalAgainstVersionAsync(editId, 4);
+        var secondRemoteAt = remoteAt.AddMinutes(1);
+        var secondRemote = EditedGraph(completed, 7, 5, secondRemoteAt);
+        api.PushResponses.Enqueue(new SyncPushResponse([
+            new SyncOperationResultDto(
+                replacement.OperationId, SyncOperationStatus.Conflict, 5,
+                TrackZ.Contracts.Errors.BusinessErrorCode.VersionConflict)
+        ]));
+        api.PullResponses.Enqueue(new SyncPullResponse([
+            new SyncChangeDto(
+                3, "Workout", secondRemote.Id, 5, false, secondRemoteAt, secondRemote)
+        ], "cursor-3", false));
+        await sync.RunOnceAsync();
 
-        await new ConflictResolution(sync).KeepServerAsync(editId);
+        await new ConflictResolution(sync).KeepServerAsync(replacement.OperationId);
 
         var kept = Assert.Single(await History().GetHistoryAsync());
-        Assert.Equal(8, Assert.Single(Assert.Single(kept.Exercises).Sets).Reps);
+        Assert.Equal(7, Assert.Single(Assert.Single(kept.Exercises).Sets).Reps);
         Assert.Empty(await Outbox().PendingAsync());
         Assert.Empty(await Outbox().ConflictedAsync());
+        Assert.Empty(await Outbox().ForHistoryWorkoutAsync(completed.Id));
         Assert.Equal(0, await UndoCountAsync());
+        Assert.NotNull((await new LocalWorkoutRepository(Database())
+            .GetOperationAsync(editId))!.NeutralizedAt);
+        Assert.NotNull((await new LocalWorkoutRepository(Database())
+            .GetOperationAsync(replacement.OperationId))!.NeutralizedAt);
     }
 
     private ActiveWorkoutCoordinator Coordinator() => new(

@@ -25,6 +25,11 @@ public interface ILocalWorkoutRepository
         CancellationToken cancellationToken = default) =>
         throw new NotSupportedException("History reads are not supported by this repository.");
 
+    Task<bool> IsExerciseHistorySessionInvalidatedAsync(
+        Guid workoutId,
+        Guid exerciseDefinitionId,
+        CancellationToken cancellationToken = default);
+
     Task SaveHistoryMutationAndEnqueueAsync(
         LocalWorkout previous,
         LocalWorkout workout,
@@ -118,6 +123,43 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
         if (workoutId == Guid.Empty)
             throw new ArgumentException("Workout ID cannot be empty.", nameof(workoutId));
         return (await GetHistoryAsync(cancellationToken)).SingleOrDefault(item => item.Id == workoutId);
+    }
+
+    public Task<bool> IsExerciseHistorySessionInvalidatedAsync(
+        Guid workoutId,
+        Guid exerciseDefinitionId,
+        CancellationToken cancellationToken = default)
+    {
+        if (workoutId == Guid.Empty)
+            throw new ArgumentException("Workout ID cannot be empty.", nameof(workoutId));
+        if (exerciseDefinitionId == Guid.Empty)
+            throw new ArgumentException("Exercise definition ID cannot be empty.", nameof(exerciseDefinitionId));
+        return _database.ReadAsync(async (connection, token) =>
+        {
+            await using var command = connection.CreateCommand();
+            command.CommandText = """
+                SELECT workout.Status, workout.DeletedAt,
+                       EXISTS (
+                           SELECT 1
+                           FROM LocalWorkoutExercise AS exercise
+                           INNER JOIN LocalSet AS workoutSet
+                               ON workoutSet.WorkoutExerciseId = exercise.Id
+                              AND workoutSet.DeletedAt IS NULL
+                           WHERE exercise.WorkoutId = workout.Id
+                             AND exercise.ExerciseDefinitionId = $exerciseDefinitionId
+                             AND exercise.DeletedAt IS NULL
+                       )
+                FROM LocalWorkout AS workout
+                WHERE workout.Id = $workoutId;
+                """;
+            Add(command, "$workoutId", Id(workoutId));
+            Add(command, "$exerciseDefinitionId", Id(exerciseDefinitionId));
+            await using var reader = await command.ExecuteReaderAsync(token);
+            if (!await reader.ReadAsync(token)) return false;
+            return reader.GetInt32(0) != (int)LocalWorkoutStatus.Completed
+                || !reader.IsDBNull(1)
+                || reader.GetInt32(2) == 0;
+        }, cancellationToken);
     }
 
     public async Task SaveHistoryMutationAndEnqueueAsync(
@@ -238,21 +280,25 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
                 throw new InvalidDataException("The undo snapshot belongs to another workout.");
 
             await RestoreSnapshotAsync(connection, transaction, restored, token);
-            await using (var neutralize = connection.CreateCommand())
+            await NeutralizeOperationAsync(
+                connection, transaction, operationId, neutralizedAt, token);
+            var ancestorId = operation.ReplacesOperationId;
+            var visited = new HashSet<Guid> { operation.OperationId };
+            while (ancestorId is { } id)
             {
-                neutralize.Transaction = transaction;
-                neutralize.CommandText = """
-                    UPDATE OutboxOperation
-                    SET State = $state, DeletedAt = $neutralizedAt,
-                        NeutralizedAt = $neutralizedAt, SendStartedAt = NULL,
-                        NextAttemptAt = NULL, Version = Version + 1
-                    WHERE OperationId = $id AND NeutralizedAt IS NULL;
-                    """;
-                Add(neutralize, "$state", (int)OutboxOperationState.Rejected);
-                Add(neutralize, "$neutralizedAt", Timestamp(neutralizedAt));
-                Add(neutralize, "$id", Id(operationId));
-                if (await neutralize.ExecuteNonQueryAsync(token) != 1)
-                    throw new InvalidDataException("The undo operation changed concurrently.");
+                if (!visited.Add(id))
+                    throw new InvalidDataException("The replacement chain is cyclic.");
+                var ancestor = await ReadOperationAsync(connection, transaction, id, token);
+                if (ancestor.NeutralizedAt is null)
+                {
+                    if (ancestor.State is not (
+                            OutboxOperationState.Conflicted or OutboxOperationState.Rejected))
+                        throw new InvalidOperationException(
+                            "A replaced operation may have reached the server and cannot be undone safely.");
+                    await NeutralizeOperationAsync(
+                        connection, transaction, ancestor.OperationId, neutralizedAt, token);
+                }
+                ancestorId = ancestor.ReplacesOperationId;
             }
             await using (var removeUndo = connection.CreateCommand())
             {
@@ -264,6 +310,29 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
             }
             return restored;
         }, cancellationToken);
+    }
+
+    private static async Task NeutralizeOperationAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        Guid operationId,
+        DateTimeOffset neutralizedAt,
+        CancellationToken cancellationToken)
+    {
+        await using var neutralize = connection.CreateCommand();
+        neutralize.Transaction = transaction;
+        neutralize.CommandText = """
+            UPDATE OutboxOperation
+            SET State = $state, DeletedAt = $neutralizedAt,
+                NeutralizedAt = $neutralizedAt, SendStartedAt = NULL,
+                NextAttemptAt = NULL, Version = Version + 1
+            WHERE OperationId = $id AND NeutralizedAt IS NULL;
+            """;
+        Add(neutralize, "$state", (int)OutboxOperationState.Rejected);
+        Add(neutralize, "$neutralizedAt", Timestamp(neutralizedAt));
+        Add(neutralize, "$id", Id(operationId));
+        if (await neutralize.ExecuteNonQueryAsync(cancellationToken) != 1)
+            throw new InvalidDataException("The undo operation changed concurrently.");
     }
 
     public Task<OutboxOperation?> GetOperationAsync(

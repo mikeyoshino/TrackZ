@@ -101,6 +101,51 @@ public sealed class WorkoutHistoryViewModelTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task Connectivity_transition_is_observable_and_subscription_is_released_on_deactivate()
+    {
+        _ = await CompletedWorkoutAsync(TrackingMode.Bodyweight, null, null, 10);
+        var connectivity = new MutableConnectivity(isOnline: true);
+        var viewModel = ViewModel(
+            WorkoutResources.English, new RecordingConfirmation(), connectivity);
+        await viewModel.LoadAsync();
+        Assert.Equal(WorkoutSyncState.Pending, Assert.Single(viewModel.Workouts).SyncState);
+        Assert.Equal(1, connectivity.SubscriptionCount);
+
+        connectivity.SetOnline(false);
+        Assert.Equal(WorkoutSyncState.Offline, Assert.Single(viewModel.Workouts).SyncState);
+        Assert.Equal(WorkoutResources.English.Offline, Assert.Single(viewModel.Workouts).SyncStatusText);
+
+        connectivity.SetOnline(true);
+        Assert.Equal(WorkoutSyncState.Pending, Assert.Single(viewModel.Workouts).SyncState);
+        viewModel.Deactivate();
+        Assert.Equal(0, connectivity.SubscriptionCount);
+    }
+
+    [Fact]
+    public async Task Permanent_completion_failure_after_restart_disables_repeat_mutations_but_keeps_undo()
+    {
+        var completed = await CompletedWorkoutAsync(TrackingMode.Bodyweight, null, null, 10);
+        var completion = (await new OutboxRepository(Database()).PendingAsync())
+            .Single(operation => operation.Type == OutboxOperationType.CompleteWorkout);
+        await RejectAsync(completion.OperationId);
+        var restarted = ViewModel(
+            WorkoutResources.English,
+            new RecordingConfirmation(),
+            new MutableConnectivity(isOnline: true));
+
+        await restarted.LoadAsync();
+
+        var workout = Assert.Single(restarted.Workouts);
+        var set = Assert.Single(Assert.Single(workout.Exercises).Sets);
+        Assert.Equal(completed.Id, workout.WorkoutId);
+        Assert.Equal(WorkoutSyncState.PermanentFailure, workout.SyncState);
+        Assert.False(restarted.EditSetCommand.CanExecute(set));
+        Assert.False(restarted.DeleteSetCommand.CanExecute(set));
+        Assert.False(restarted.DeleteWorkoutCommand.CanExecute(workout));
+        Assert.True(restarted.UndoCommand.CanExecute(workout));
+    }
+
+    [Fact]
     public async Task Account_reset_during_confirmation_cancels_old_session_delete_before_mutation()
     {
         _ = await CompletedWorkoutAsync(TrackingMode.Bodyweight, null, null, 10);
@@ -151,6 +196,7 @@ public sealed class WorkoutHistoryViewModelTests : IAsyncDisposable
             new FixedHistoryStatusSource(operation),
             new RecordingConfirmation(),
             _boundary,
+            new MutableConnectivity(isOnline: true),
             WorkoutResources.English,
             conflicts);
 
@@ -189,11 +235,13 @@ public sealed class WorkoutHistoryViewModelTests : IAsyncDisposable
 
     private WorkoutHistoryViewModel ViewModel(
         WorkoutTextSet text,
-        IHistoryConfirmation confirmation) => new(
+        IHistoryConfirmation confirmation,
+        IConnectivityService? connectivity = null) => new(
         new WorkoutHistoryCoordinator(Repository(), _boundary, _clock),
         new OutboxRepository(Database()),
         confirmation,
         _boundary,
+        connectivity ?? new MutableConnectivity(isOnline: true),
         text,
         new RecordingConflictResolution());
 
@@ -303,5 +351,33 @@ public sealed class WorkoutHistoryViewModelTests : IAsyncDisposable
     private sealed class MutableClock(DateTimeOffset utcNow) : IClock
     {
         public DateTimeOffset UtcNow { get; set; } = utcNow;
+    }
+
+    private sealed class MutableConnectivity(bool isOnline) : IConnectivityService
+    {
+        private EventHandler? _changed;
+
+        public bool IsOnline { get; private set; } = isOnline;
+        public int SubscriptionCount { get; private set; }
+
+        public event EventHandler? ConnectivityChanged
+        {
+            add
+            {
+                _changed += value;
+                SubscriptionCount++;
+            }
+            remove
+            {
+                _changed -= value;
+                SubscriptionCount--;
+            }
+        }
+
+        public void SetOnline(bool isOnline)
+        {
+            IsOnline = isOnline;
+            _changed?.Invoke(this, EventArgs.Empty);
+        }
     }
 }

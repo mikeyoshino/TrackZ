@@ -184,6 +184,13 @@ public sealed class SyncCoordinator(
                             NeutralizedAt = null
                         };
                         await InsertOperationAsync(connection, transaction, next, innerToken);
+                        await ExecuteAsync(connection, transaction, """
+                            UPDATE HistoryUndo
+                            SET OperationId = $replacementId
+                            WHERE OperationId = $originalId;
+                            """, innerToken,
+                            ("$replacementId", Id(next.OperationId)),
+                            ("$originalId", Id(original.OperationId)));
                         return next;
                     }, token);
                 }, cancellationToken);
@@ -324,6 +331,17 @@ public sealed class SyncCoordinator(
                         leaf = replacement;
                         if (replacement.ServerPayload is not null) authority = replacement;
                     }
+                    var ancestorId = leaf.ReplacesOperationId;
+                    var visitedAncestors = new HashSet<Guid>();
+                    while (ancestorId is { } id)
+                    {
+                        if (!visitedAncestors.Add(id))
+                            throw new InvalidDataException("The conflict replacement chain is cyclic.");
+                        chain.Add(id);
+                        var ancestor = await ReadOperationAsync(
+                            connection, transaction, id, innerToken);
+                        ancestorId = ancestor.ReplacesOperationId;
+                    }
                     if (await HasUnrelatedLiveSuccessorAsync(
                             connection, transaction, operation, chain, innerToken))
                         throw new InvalidOperationException(
@@ -332,12 +350,15 @@ public sealed class SyncCoordinator(
                         throw new InvalidOperationException("The conflicted operation has no server authority to keep.");
                     var graph = JsonSerializer.Deserialize<SyncWorkoutDto>(authority.ServerPayload, JsonOptions)
                         ?? throw new InvalidDataException("The stored server authority is malformed.");
+                    var resolvedAt = clock.UtcNow;
                     await ArchiveAsync(
                         connection, transaction, leaf.OperationId,
-                        OutboxOperationState.Rejected, clock.UtcNow, innerToken);
+                        OutboxOperationState.Rejected, resolvedAt, innerToken);
                     await ArchiveReplacementAncestorsAsync(
-                        connection, transaction, leaf, clock.UtcNow, innerToken);
+                        connection, transaction, leaf, resolvedAt, innerToken);
                     await ApplyGraphAsync(connection, transaction, graph, innerToken);
+                    await NeutralizeResolvedChainAsync(
+                        connection, transaction, chain, resolvedAt, innerToken);
                     await DeleteHistoryUndoAsync(
                         connection, transaction, chain, innerToken);
                     return true;
@@ -679,6 +700,30 @@ public sealed class SyncCoordinator(
             command.CommandText = "DELETE FROM HistoryUndo WHERE OperationId = $id;";
             Add(command, "$id", Id(operationId));
             await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+    }
+
+    private static async Task NeutralizeResolvedChainAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        IEnumerable<Guid> operationIds,
+        DateTimeOffset neutralizedAt,
+        CancellationToken cancellationToken)
+    {
+        foreach (var operationId in operationIds)
+        {
+            await using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = """
+                UPDATE OutboxOperation
+                SET NeutralizedAt = $neutralizedAt, SendStartedAt = NULL,
+                    NextAttemptAt = NULL, Version = Version + 1
+                WHERE OperationId = $id AND NeutralizedAt IS NULL;
+                """;
+            Add(command, "$neutralizedAt", Timestamp(neutralizedAt));
+            Add(command, "$id", Id(operationId));
+            if (await command.ExecuteNonQueryAsync(cancellationToken) != 1)
+                throw new InvalidDataException("The resolved operation changed concurrently.");
         }
     }
 

@@ -41,6 +41,11 @@ public interface ISyncPushStore
 
     void AddSyncChange(SyncChange change);
 
+    Task RecomputeExercisePerformancesAsync(
+        Guid userId,
+        IReadOnlyCollection<Guid> exerciseDefinitionIds,
+        CancellationToken cancellationToken);
+
     Task SaveSyncChangesAsync(CancellationToken cancellationToken);
 
     bool IsTransient(Exception exception);

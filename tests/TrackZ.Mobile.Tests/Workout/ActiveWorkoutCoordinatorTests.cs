@@ -922,6 +922,13 @@ public sealed class ActiveWorkoutCoordinatorTests : IDisposable
             CancellationToken cancellationToken) =>
             inner.GetOperationAsync(operationId, cancellationToken);
 
+        public Task<bool> IsExerciseHistorySessionInvalidatedAsync(
+            Guid workoutId,
+            Guid exerciseDefinitionId,
+            CancellationToken cancellationToken) =>
+            inner.IsExerciseHistorySessionInvalidatedAsync(
+                workoutId, exerciseDefinitionId, cancellationToken);
+
         public Task<DateTimeOffset?> GetLatestOperationCreatedAtAsync(
             CancellationToken cancellationToken) =>
             inner.GetLatestOperationCreatedAtAsync(cancellationToken);

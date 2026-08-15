@@ -10,6 +10,7 @@ using TrackZ.Mobile.Data.Models;
 using TrackZ.Mobile.Features.Exercises;
 using TrackZ.Mobile.Features.Exercises.Data;
 using TrackZ.Mobile.Features.Exercises.Services;
+using TrackZ.Mobile.Features.History;
 using TrackZ.Mobile.Features.Workout;
 using TrackZ.Mobile.Identity;
 using TrackZ.Mobile.Sync;
@@ -738,6 +739,111 @@ public sealed class SetLoggerViewModelTests : IDisposable
         }
     }
 
+    [Fact]
+    public async Task Just_finished_local_session_is_exact_previous_session_after_process_recreation()
+    {
+        var workoutPath = Path.Combine(Path.GetTempPath(), $"trackz-local-history-{Guid.NewGuid():N}.db");
+        var cachePath = Path.Combine(Path.GetTempPath(), $"trackz-empty-history-{Guid.NewGuid():N}.db");
+        try
+        {
+            var clock = new FixedClock();
+            var boundary = new AccountSessionBoundary();
+            var active = new ActiveWorkoutCoordinator(
+                new LocalWorkoutRepository(new TrackZLocalDatabase(workoutPath)),
+                boundary,
+                clock);
+            await active.StartAsync([new WorkoutExerciseSelection(ExerciseId, TrackingMode.Weighted)]);
+            var first = await active.SaveSetAsync(ExerciseId, new LocalSet(70.125m, null, 10));
+            var second = await active.SaveSetAsync(ExerciseId, new LocalSet(72.5m, null, 8));
+            var finished = await active.FinishAsync();
+
+            var cache = new ExerciseHistoryCache(cachePath);
+            await cache.ReplaceAsync(ExerciseId, new ExerciseHistorySessionDto(
+                Guid.NewGuid(),
+                finished.CompletedAt!.Value.AddDays(-1),
+                TrackingMode.Weighted,
+                1m,
+                [new WorkoutSetDto(
+                    Guid.NewGuid(), 0, 1m, null, 1,
+                    finished.CompletedAt.Value.AddDays(-1), null)]));
+            var source = new CachedExerciseHistorySource(
+                cache,
+                new ThrowingHistoryApi(),
+                boundary,
+                new LocalWorkoutRepository(new TrackZLocalDatabase(workoutPath)));
+            var previous = await source.GetMostRecentAsync(ExerciseId, refreshIfOnline: false);
+
+            Assert.NotNull(previous);
+            Assert.Equal(finished.Id, previous.WorkoutId);
+            Assert.Equal(finished.CompletedAt, previous.CompletedAt);
+            Assert.Equal(TrackingMode.Weighted, previous.TrackingMode);
+            Assert.Equal([first.Id, second.Id], previous.Sets.Select(set => set.Id));
+            Assert.Equal([0, 1], previous.Sets.Select(set => set.Order));
+            Assert.Equal([70.125m, 72.5m], previous.Sets.Select(set => set.WeightKg));
+            Assert.Equal([10, 8], previous.Sets.Select(set => set.Reps));
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            foreach (var path in new[] { workoutPath, cachePath })
+                if (File.Exists(path)) File.Delete(path);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Local_history_tombstone_suppresses_stale_cached_latest_after_process_recreation(
+        bool deleteWorkout)
+    {
+        var workoutPath = Path.Combine(Path.GetTempPath(), $"trackz-local-tombstone-{Guid.NewGuid():N}.db");
+        var cachePath = Path.Combine(Path.GetTempPath(), $"trackz-stale-history-{Guid.NewGuid():N}.db");
+        try
+        {
+            var boundary = new AccountSessionBoundary();
+            var repository = new LocalWorkoutRepository(new TrackZLocalDatabase(workoutPath));
+            var active = new ActiveWorkoutCoordinator(repository, boundary, new FixedClock());
+            await active.StartAsync([new WorkoutExerciseSelection(ExerciseId, TrackingMode.Bodyweight)]);
+            var set = await active.SaveSetAsync(ExerciseId, new LocalSet(null, null, 12));
+            var finished = await active.FinishAsync();
+            var exercise = Assert.Single(finished.Exercises);
+            var stale = new ExerciseHistorySessionDto(
+                finished.Id,
+                finished.CompletedAt!.Value,
+                exercise.TrackingMode,
+                0m,
+                [new WorkoutSetDto(
+                    set.Id,
+                    set.Order,
+                    set.WeightKg,
+                    set.AssistedKg,
+                    set.Reps,
+                    set.CompletedAt,
+                    set.UpdatedAt)]);
+            var cache = new ExerciseHistoryCache(cachePath);
+            await cache.ReplaceAsync(ExerciseId, stale);
+            var history = new WorkoutHistoryCoordinator(repository, boundary, new FixedClock());
+            if (deleteWorkout)
+                await history.DeleteWorkoutAsync(finished.Id);
+            else
+                await history.DeleteSetAsync(finished.Id, exercise.Id, set.Id);
+
+            var restarted = new CachedExerciseHistorySource(
+                new ExerciseHistoryCache(cachePath),
+                new ThrowingHistoryApi(),
+                boundary,
+                new LocalWorkoutRepository(new TrackZLocalDatabase(workoutPath)));
+
+            Assert.Null(await restarted.GetMostRecentAsync(ExerciseId, refreshIfOnline: false));
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            foreach (var path in new[] { workoutPath, cachePath })
+                if (File.Exists(path)) File.Delete(path);
+        }
+    }
+
     public void Dispose()
     {
         SqliteConnection.ClearAllPools();
@@ -1067,6 +1173,12 @@ public sealed class SetLoggerViewModelTests : IDisposable
 
         public Task<LocalWorkout?> GetActiveAsync(CancellationToken cancellationToken = default) =>
             inner.GetActiveAsync(cancellationToken);
+        public Task<bool> IsExerciseHistorySessionInvalidatedAsync(
+            Guid workoutId,
+            Guid exerciseDefinitionId,
+            CancellationToken cancellationToken = default) =>
+            inner.IsExerciseHistorySessionInvalidatedAsync(
+                workoutId, exerciseDefinitionId, cancellationToken);
         public Task<OutboxOperation?> GetOperationAsync(Guid operationId, CancellationToken cancellationToken = default) =>
             inner.GetOperationAsync(operationId, cancellationToken);
         public Task<DateTimeOffset?> GetLatestOperationCreatedAtAsync(CancellationToken cancellationToken = default) =>

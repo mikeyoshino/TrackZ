@@ -77,6 +77,18 @@ public sealed class PushSyncHandler(
                 serializedResult,
                 timeProvider.GetUtcNow()));
             await store.SaveSyncChangesAsync(cancellationToken);
+            if (result.Mutation?.Workout is { } changedWorkout
+                && RequiresPerformanceRecomputation(operation.Action))
+            {
+                await store.RecomputeExercisePerformancesAsync(
+                    currentUser.UserId,
+                    changedWorkout.ExerciseEntries
+                        .Select(exercise => exercise.ExerciseDefinitionId)
+                        .Distinct()
+                        .ToArray(),
+                    cancellationToken);
+                await store.SaveSyncChangesAsync(cancellationToken);
+            }
             await transaction.CommitAsync(cancellationToken);
             return publicResult;
         }
@@ -230,6 +242,9 @@ public sealed class PushSyncHandler(
         "DeleteWorkout" => HasProperties(payload, "workoutId", "deletedAt"),
         _ => false
     };
+
+    private static bool RequiresPerformanceRecomputation(string action) => action is
+        "CompleteWorkout" or "EditSet" or "DeleteSet" or "DeleteWorkout";
 
     private static bool HasProperties(JsonElement element, params string[] propertyNames) =>
         element.ValueKind == JsonValueKind.Object

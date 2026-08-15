@@ -9,11 +9,13 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Testcontainers.PostgreSql;
+using TrackZ.Contracts.Sync;
 using TrackZ.Domain.Exercises;
 using TrackZ.Infrastructure.Persistence;
 using TrackZ.Mobile.Data;
 using TrackZ.Mobile.Data.Models;
 using TrackZ.Mobile.Features.Exercises;
+using TrackZ.Mobile.Features.History;
 using TrackZ.Mobile.Features.Workout;
 using TrackZ.Mobile.Identity;
 using TrackZ.Mobile.Sync;
@@ -92,7 +94,24 @@ public sealed class EditHistoryTests : IAsyncLifetime
             workoutId = ids.WorkoutId,
             completedAt = startedAt.AddMinutes(10)
         });
-        await AssertAppliedAsync(owner.Token, complete, 4);
+        var concurrentCompletions = await Task.WhenAll(
+            PushDocumentAsync(owner.Token, complete),
+            PushDocumentAsync(owner.Token, complete));
+        AssertResult(concurrentCompletions[0], "Applied", 4, null);
+        Assert.Equal(Result(concurrentCompletions[0]).GetRawText(),
+            Result(concurrentCompletions[1]).GetRawText());
+
+        await using (var projectionScope = _factory!.Services.CreateAsyncScope())
+        {
+            var projectionStore = projectionScope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var performance = await projectionStore.ExercisePerformances.AsNoTracking().SingleAsync(item =>
+                item.UserId == owner.UserId && item.ExerciseDefinitionId == exercise.Id);
+            Assert.Equal(startedAt.AddMinutes(10), performance.LastPerformedAt);
+            Assert.Equal(72.5m, performance.LastBestWeightKg);
+            Assert.Equal(8, performance.LastBestReps);
+            Assert.Equal(72.5m, performance.AllTimeBestWeightKg);
+            Assert.Equal(8, performance.AllTimeBestReps);
+        }
 
         var completedHistory = await ReadJsonAsync(owner.Token, "/api/v1/workouts");
         var completedWorkout = Assert.Single(
@@ -115,6 +134,8 @@ public sealed class EditHistoryTests : IAsyncLifetime
         var editReplay = await PushDocumentAsync(owner.Token, edit);
         AssertResult(firstEdit, "Applied", 5, null);
         Assert.Equal(Result(firstEdit).GetRawText(), Result(editReplay).GetRawText());
+        await AssertPerformanceAsync(
+            owner.UserId, exercise.Id, startedAt.AddMinutes(10), 75.125m, 6, 75.125m, 6);
 
         var alteredReplay = await PushDocumentAsync(owner.Token,
             Operation(editOperationId, "EditSet", 4, new
@@ -149,6 +170,8 @@ public sealed class EditHistoryTests : IAsyncLifetime
             .GetProperty("sets").EnumerateArray());
         Assert.Equal(secondSetId, remainingSet.GetProperty("id").GetGuid());
         Assert.Equal(0, remainingSet.GetProperty("order").GetInt32());
+        await AssertPerformanceAsync(
+            owner.UserId, exercise.Id, startedAt.AddMinutes(10), 72.5m, 8, 72.5m, 8);
 
         var deleteWorkout = Operation(Guid.NewGuid(), "DeleteWorkout", 6, new
         {
@@ -177,6 +200,110 @@ public sealed class EditHistoryTests : IAsyncLifetime
         Assert.Single(sets, set => set.DeletedAt is null);
         Assert.Equal(7, await database.SyncChanges.CountAsync(change =>
             change.OwnerId == owner.UserId && change.EntityId == ids.WorkoutId));
+        Assert.Empty(await database.ExercisePerformances.Where(performance =>
+            performance.UserId == owner.UserId
+            && performance.ExerciseDefinitionId == exercise.Id).ToListAsync());
+    }
+
+    [Fact]
+    public async Task Deleting_latest_sets_and_workout_falls_back_to_prior_completed_session_projection()
+    {
+        var owner = await AuthenticateAsync();
+        var exercise = ExerciseDefinition.CreateSystem(
+            $"Projection Fallback Press {Guid.NewGuid():N}", BodyPart.Chest, TrackingMode.Weighted);
+        await SeedAsync(exercise);
+
+        var prior = new SyncIds(Guid.NewGuid(), Guid.NewGuid());
+        var priorAt = Utc(6);
+        await AssertAppliedAsync(owner.Token, Start(prior, exercise.Id, priorAt), 1);
+        await AssertAppliedAsync(owner.Token, SaveSet(
+            prior, Guid.NewGuid(), Guid.NewGuid(), 1, 0, "60", 12, priorAt.AddMinutes(1)), 2);
+        await AssertAppliedAsync(owner.Token, Operation(Guid.NewGuid(), "CompleteWorkout", 2, new
+        {
+            workoutId = prior.WorkoutId,
+            completedAt = priorAt.AddMinutes(10)
+        }), 3);
+
+        var latest = new SyncIds(Guid.NewGuid(), Guid.NewGuid());
+        var latestAt = Utc(7);
+        var latestSetId = Guid.NewGuid();
+        await AssertAppliedAsync(owner.Token, Start(latest, exercise.Id, latestAt), 1);
+        await AssertAppliedAsync(owner.Token, SaveSet(
+            latest, Guid.NewGuid(), latestSetId, 1, 0, "80", 5, latestAt.AddMinutes(1)), 2);
+        await AssertAppliedAsync(owner.Token, Operation(Guid.NewGuid(), "CompleteWorkout", 2, new
+        {
+            workoutId = latest.WorkoutId,
+            completedAt = latestAt.AddMinutes(10)
+        }), 3);
+        await AssertPerformanceAsync(
+            owner.UserId, exercise.Id, latestAt.AddMinutes(10), 80m, 5, 80m, 5);
+
+        await AssertAppliedAsync(owner.Token, Operation(Guid.NewGuid(), "DeleteSet", 3, new
+        {
+            workoutId = latest.WorkoutId,
+            workoutExerciseId = latest.WorkoutExerciseId,
+            setId = latestSetId,
+            deletedAt = latestAt.AddMinutes(11)
+        }), 4);
+        await AssertPerformanceAsync(
+            owner.UserId, exercise.Id, priorAt.AddMinutes(10), 60m, 12, 60m, 12);
+
+        var newest = new SyncIds(Guid.NewGuid(), Guid.NewGuid());
+        var newestAt = Utc(8);
+        await AssertAppliedAsync(owner.Token, Start(newest, exercise.Id, newestAt), 1);
+        await AssertAppliedAsync(owner.Token, SaveSet(
+            newest, Guid.NewGuid(), Guid.NewGuid(), 1, 0, "90", 3, newestAt.AddMinutes(1)), 2);
+        await AssertAppliedAsync(owner.Token, Operation(Guid.NewGuid(), "CompleteWorkout", 2, new
+        {
+            workoutId = newest.WorkoutId,
+            completedAt = newestAt.AddMinutes(10)
+        }), 3);
+        await AssertAppliedAsync(owner.Token, Operation(Guid.NewGuid(), "DeleteWorkout", 3, new
+        {
+            workoutId = newest.WorkoutId,
+            deletedAt = newestAt.AddMinutes(11)
+        }), 4);
+        await AssertPerformanceAsync(
+            owner.UserId, exercise.Id, priorAt.AddMinutes(10), 60m, 12, 60m, 12);
+    }
+
+    [Theory]
+    [InlineData(TrackingMode.Bodyweight)]
+    [InlineData(TrackingMode.Assisted)]
+    public async Task Completion_materializes_exact_mode_specific_last_and_pr(TrackingMode mode)
+    {
+        var owner = await AuthenticateAsync();
+        var exercise = ExerciseDefinition.CreateSystem(
+            $"Projection {mode} {Guid.NewGuid():N}", BodyPart.Chest, mode);
+        await SeedAsync(exercise);
+        var ids = new SyncIds(Guid.NewGuid(), Guid.NewGuid());
+        var startedAt = Utc(9);
+        await AssertAppliedAsync(owner.Token, Start(ids, exercise.Id, startedAt, mode), 1);
+        await AssertAppliedAsync(owner.Token, SaveSetForMode(
+            ids, Guid.NewGuid(), Guid.NewGuid(), 1, 0,
+            null, mode == TrackingMode.Assisted ? "25" : null, 10,
+            startedAt.AddMinutes(1)), 2);
+        await AssertAppliedAsync(owner.Token, SaveSetForMode(
+            ids, Guid.NewGuid(), Guid.NewGuid(), 2, 1,
+            null, mode == TrackingMode.Assisted ? "20" : null, 12,
+            startedAt.AddMinutes(2)), 3);
+        await AssertAppliedAsync(owner.Token, Operation(Guid.NewGuid(), "CompleteWorkout", 3, new
+        {
+            workoutId = ids.WorkoutId,
+            completedAt = startedAt.AddMinutes(10)
+        }), 4);
+
+        await using var scope = _factory!.Services.CreateAsyncScope();
+        var performance = await scope.ServiceProvider.GetRequiredService<AppDbContext>()
+            .ExercisePerformances.AsNoTracking().SingleAsync(item =>
+                item.UserId == owner.UserId && item.ExerciseDefinitionId == exercise.Id);
+        Assert.Equal(startedAt.AddMinutes(10), performance.LastPerformedAt);
+        Assert.Equal(12, performance.LastBestReps);
+        Assert.Equal(12, performance.AllTimeBestReps);
+        Assert.Equal(mode == TrackingMode.Assisted ? 20m : null, performance.LastBestAssistedKg);
+        Assert.Equal(mode == TrackingMode.Assisted ? 20m : null, performance.AllTimeBestAssistedKg);
+        Assert.Null(performance.LastBestWeightKg);
+        Assert.Null(performance.AllTimeBestWeightKg);
     }
 
     [Fact]
@@ -243,6 +370,12 @@ public sealed class EditHistoryTests : IAsyncLifetime
         var unchangedSet = Assert.Single(unchanged.RootElement.GetProperty("exercises")[0]
             .GetProperty("sets").EnumerateArray());
         Assert.Equal(70m, unchangedSet.GetProperty("weightKg").GetDecimal());
+        await AssertPerformanceAsync(
+            owner.UserId, exercise.Id, startedAt.AddMinutes(10), 70m, 10, 70m, 10);
+        await using var scope = _factory!.Services.CreateAsyncScope();
+        Assert.False(await scope.ServiceProvider.GetRequiredService<AppDbContext>()
+            .ExercisePerformances.AnyAsync(item =>
+                item.UserId == other.UserId && item.ExerciseDefinitionId == exercise.Id));
     }
 
     [Fact]
@@ -266,7 +399,7 @@ public sealed class EditHistoryTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Recreated_mobile_sqlite_syncs_completed_workout_exactly_once_to_real_postgresql()
+    public async Task Offline_log_kill_recreate_commit_then_drop_replays_same_completion_exactly_once_to_postgresql()
     {
         var owner = await AuthenticateAsync();
         var exercise = ExerciseDefinition.CreateSystem(
@@ -295,15 +428,33 @@ public sealed class EditHistoryTests : IAsyncLifetime
             Assert.Equal(started.Id, (await active.RestoreActiveAsync())!.Id);
             clock.UtcNow = clock.UtcNow.AddMinutes(1);
             var completed = await active.FinishAsync();
+            var completeOperation = (await new OutboxRepository(new TrackZLocalDatabase(sqlitePath))
+                    .PendingAsync())
+                .Single(operation => operation.Type == OutboxOperationType.CompleteWorkout);
             using var mobileHttp = _factory!.CreateClient();
             mobileHttp.DefaultRequestHeaders.Authorization =
                 new AuthenticationHeaderValue("Bearer", owner.Token);
-            var sync = new SyncCoordinator(
+            var dropAfterCommit = new CommitThenDropOnActionApi(
+                new TrackZSyncApiClient(mobileHttp), "CompleteWorkout");
+            var ambiguousSync = new SyncCoordinator(
                 new TrackZLocalDatabase(sqlitePath),
-                new TrackZSyncApiClient(mobileHttp),
+                dropAfterCommit,
                 boundary,
                 clock);
 
+            Assert.Equal(SyncRunStatus.Offline, await ambiguousSync.RunOnceAsync());
+            Assert.Equal(completeOperation.OperationId, dropAfterCommit.DroppedOperationId);
+            var ambiguous = await new LocalWorkoutRepository(new TrackZLocalDatabase(sqlitePath))
+                .GetOperationAsync(completeOperation.OperationId);
+            Assert.NotNull(ambiguous!.SendStartedAt);
+
+            // Kill/recreate every SQLite/coordinator object and replay the exact persisted operation ID.
+            var recreatedBoundary = new AccountSessionBoundary();
+            var sync = new SyncCoordinator(
+                new TrackZLocalDatabase(sqlitePath),
+                new TrackZSyncApiClient(mobileHttp),
+                recreatedBoundary,
+                clock);
             Assert.Equal(SyncRunStatus.Completed, await sync.RunOnceAsync());
             Assert.Equal(SyncRunStatus.Completed, await sync.RunOnceAsync());
 
@@ -324,14 +475,86 @@ public sealed class EditHistoryTests : IAsyncLifetime
             Assert.Equal([10, 8], serverWorkout.GetProperty("exercises")[0]
                 .GetProperty("sets").EnumerateArray().Select(set => set.GetProperty("reps").GetInt32()));
 
+            // Exercise the same ambiguous boundary for a durable historical edit.
+            clock.UtcNow = clock.UtcNow.AddMinutes(1);
+            var localExercise = Assert.Single(local.Exercises);
+            var edit = await new WorkoutHistoryCoordinator(
+                    new LocalWorkoutRepository(new TrackZLocalDatabase(sqlitePath)),
+                    recreatedBoundary,
+                    clock)
+                .EditSetAsync(
+                    local.Id,
+                    localExercise.Id,
+                    first.Id,
+                    new HistorySetMeasurement(75.125m, null, 6));
+            var dropAfterEdit = new CommitThenDropOnActionApi(
+                new TrackZSyncApiClient(mobileHttp), "EditSet");
+            Assert.Equal(SyncRunStatus.Offline, await new SyncCoordinator(
+                new TrackZLocalDatabase(sqlitePath), dropAfterEdit, recreatedBoundary, clock)
+                .RunOnceAsync());
+            Assert.Equal(edit.OperationId, dropAfterEdit.DroppedOperationId);
+            Assert.Equal(SyncRunStatus.Completed, await new SyncCoordinator(
+                new TrackZLocalDatabase(sqlitePath),
+                new TrackZSyncApiClient(mobileHttp),
+                new AccountSessionBoundary(),
+                clock).RunOnceAsync());
+
+            // A real tombstone is then pulled into an independent second-device cache.
+            clock.UtcNow = clock.UtcNow.AddMinutes(1);
+            var deletion = await new WorkoutHistoryCoordinator(
+                    new LocalWorkoutRepository(new TrackZLocalDatabase(sqlitePath)),
+                    recreatedBoundary,
+                    clock)
+                .DeleteSetAsync(local.Id, localExercise.Id, first.Id);
+            Assert.NotEqual(Guid.Empty, deletion.OperationId);
+            Assert.Equal(SyncRunStatus.Completed, await new SyncCoordinator(
+                new TrackZLocalDatabase(sqlitePath),
+                new TrackZSyncApiClient(mobileHttp),
+                recreatedBoundary,
+                clock).RunOnceAsync());
+
+            var secondDevicePath = Path.Combine(
+                Path.GetTempPath(), $"trackz-real-sync-second-{Guid.NewGuid():N}.db");
+            try
+            {
+                Assert.Equal(SyncRunStatus.Completed, await new SyncCoordinator(
+                    new TrackZLocalDatabase(secondDevicePath),
+                    new TrackZSyncApiClient(mobileHttp),
+                    new AccountSessionBoundary(),
+                    clock).RunOnceAsync());
+                var secondDeviceHistory = Assert.Single(await new LocalWorkoutRepository(
+                    new TrackZLocalDatabase(secondDevicePath)).GetHistoryAsync());
+                var secondDeviceSet = Assert.Single(Assert.Single(secondDeviceHistory.Exercises).Sets);
+                Assert.Equal(second.Id, secondDeviceSet.Id);
+                Assert.Equal(8, secondDeviceSet.Reps);
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                foreach (var suffix in new[] { string.Empty, "-wal", "-shm" })
+                {
+                    var path = secondDevicePath + suffix;
+                    if (File.Exists(path)) File.Delete(path);
+                }
+            }
+
             await using var scope = _factory.Services.CreateAsyncScope();
             var store = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             var completedExerciseId = Assert.Single(completed.Exercises).Id;
             Assert.Single(await store.WorkoutSessions.Where(item => item.Id == completed.Id).ToListAsync());
             Assert.Equal(2, await store.SetEntries.CountAsync(item =>
                 item.WorkoutExerciseId == completedExerciseId));
-            Assert.Equal(4, await store.ProcessedClientOperations.CountAsync(item =>
+            Assert.Equal(6, await store.ProcessedClientOperations.CountAsync(item =>
                 item.UserId == owner.UserId));
+            Assert.Single(await store.ProcessedClientOperations.Where(item =>
+                item.UserId == owner.UserId
+                && item.OperationId == completeOperation.OperationId).ToListAsync());
+            var performance = await store.ExercisePerformances.AsNoTracking().SingleAsync(item =>
+                item.UserId == owner.UserId && item.ExerciseDefinitionId == exercise.Id);
+            Assert.Equal(completed.CompletedAt, performance.LastPerformedAt);
+            Assert.Equal(72.5m, performance.LastBestWeightKg);
+            Assert.Equal(8, performance.LastBestReps);
+            Assert.Equal(72.5m, performance.AllTimeBestWeightKg);
         }
         finally
         {
@@ -353,7 +576,11 @@ public sealed class EditHistoryTests : IAsyncLifetime
         baseVersion
     };
 
-    private static object Start(SyncIds ids, Guid exerciseId, DateTimeOffset startedAt) =>
+    private static object Start(
+        SyncIds ids,
+        Guid exerciseId,
+        DateTimeOffset startedAt,
+        TrackingMode trackingMode = TrackingMode.Weighted) =>
         Operation(Guid.NewGuid(), "StartWorkout", 0, new
         {
             workoutId = ids.WorkoutId,
@@ -364,7 +591,7 @@ public sealed class EditHistoryTests : IAsyncLifetime
                 {
                     workoutExerciseId = ids.WorkoutExerciseId,
                     exerciseDefinitionId = exerciseId,
-                    trackingMode = 1,
+                    trackingMode = (int)trackingMode,
                     order = 0
                 }
             }
@@ -386,6 +613,27 @@ public sealed class EditHistoryTests : IAsyncLifetime
             order,
             weightKg,
             assistedKg = (string?)null,
+        reps,
+        completedAt
+    });
+
+    private static object SaveSetForMode(
+        SyncIds ids,
+        Guid operationId,
+        Guid setId,
+        long baseVersion,
+        int order,
+        string? weightKg,
+        string? assistedKg,
+        int reps,
+        DateTimeOffset completedAt) => Operation(operationId, "SaveSet", baseVersion, new
+        {
+            workoutId = ids.WorkoutId,
+            workoutExerciseId = ids.WorkoutExerciseId,
+            setId,
+            order,
+            weightKg,
+            assistedKg,
             reps,
             completedAt
         });
@@ -458,6 +706,26 @@ public sealed class EditHistoryTests : IAsyncLifetime
         await database.SaveChangesAsync();
     }
 
+    private async Task AssertPerformanceAsync(
+        Guid ownerId,
+        Guid exerciseId,
+        DateTimeOffset lastPerformedAt,
+        decimal lastWeightKg,
+        int lastReps,
+        decimal allTimeWeightKg,
+        int allTimeReps)
+    {
+        await using var scope = _factory!.Services.CreateAsyncScope();
+        var store = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var performance = await store.ExercisePerformances.AsNoTracking().SingleAsync(item =>
+            item.UserId == ownerId && item.ExerciseDefinitionId == exerciseId);
+        Assert.Equal(lastPerformedAt, performance.LastPerformedAt);
+        Assert.Equal(lastWeightKg, performance.LastBestWeightKg);
+        Assert.Equal(lastReps, performance.LastBestReps);
+        Assert.Equal(allTimeWeightKg, performance.AllTimeBestWeightKg);
+        Assert.Equal(allTimeReps, performance.AllTimeBestReps);
+    }
+
     private static DateTimeOffset Utc(int hour) =>
         new(2026, 8, 16, hour, 0, 0, TimeSpan.Zero);
 
@@ -468,6 +736,35 @@ public sealed class EditHistoryTests : IAsyncLifetime
     private sealed class TestClock(DateTimeOffset utcNow) : IClock
     {
         public DateTimeOffset UtcNow { get; set; } = utcNow;
+    }
+
+    private sealed class CommitThenDropOnActionApi(ISyncApi inner, string action) : ISyncApi
+    {
+        private bool _dropped;
+
+        public Guid? DroppedOperationId { get; private set; }
+
+        public async Task<SyncPushResponse> PushAsync(
+            SyncPushRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            var response = await inner.PushAsync(request, cancellationToken);
+            var operation = request.Operations.Single();
+            if (!_dropped && operation.Action == action)
+            {
+                _dropped = true;
+                DroppedOperationId = operation.OperationId;
+                throw new HttpRequestException(
+                    "The committed server response was lost at the transport boundary.");
+            }
+
+            return response;
+        }
+
+        public Task<SyncPullResponse> PullAsync(
+            string? cursor,
+            CancellationToken cancellationToken = default) =>
+            inner.PullAsync(cursor, cancellationToken);
     }
 
     private sealed class EditHistoryApiFactory(string connectionString) : WebApplicationFactory<Program>

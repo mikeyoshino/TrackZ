@@ -129,6 +129,107 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
     public void AddSyncChange(SyncChange change) => SyncChanges.Add(change);
 
+    public async Task RecomputeExercisePerformancesAsync(
+        Guid userId,
+        IReadOnlyCollection<Guid> exerciseDefinitionIds,
+        CancellationToken cancellationToken)
+    {
+        var affectedIds = exerciseDefinitionIds
+            .Where(id => id != Guid.Empty)
+            .Distinct()
+            .Order()
+            .ToArray();
+        if (affectedIds.Length == 0) return;
+
+        foreach (var exerciseDefinitionId in affectedIds)
+        {
+            await AcquireSyncLockAsync(
+                $"exercise-performance:{userId:D}:{exerciseDefinitionId:D}",
+                cancellationToken);
+        }
+
+        var modes = await Exercises.AsNoTracking()
+            .Where(exercise => affectedIds.Contains(exercise.Id)
+                && (exercise.OwnerId == null || exercise.OwnerId == userId))
+            .ToDictionaryAsync(
+                exercise => exercise.Id,
+                exercise => exercise.TrackingMode,
+                cancellationToken);
+        var rows = await (
+            from workout in WorkoutSessions.AsNoTracking()
+            join exercise in WorkoutExercises.AsNoTracking()
+                on workout.Id equals exercise.WorkoutSessionId
+            join set in SetEntries.AsNoTracking()
+                on exercise.Id equals set.WorkoutExerciseId
+            where workout.OwnerId == userId
+                && workout.Status == WorkoutStatus.Completed
+                && workout.CompletedAt != null
+                && workout.DeletedAt == null
+                && affectedIds.Contains(exercise.ExerciseDefinitionId)
+                && exercise.DeletedAt == null
+                && set.DeletedAt == null
+            select new ExercisePerformanceRow(
+                exercise.ExerciseDefinitionId,
+                exercise.TrackingMode,
+                workout.Id,
+                workout.CompletedAt!.Value,
+                set.Id,
+                set.Order,
+                set.WeightKg,
+                set.AssistedKg,
+                set.Reps))
+            .ToListAsync(cancellationToken);
+
+        foreach (var exerciseDefinitionId in affectedIds)
+        {
+            var existing = await ExercisePerformances.SingleOrDefaultAsync(
+                performance => performance.UserId == userId
+                    && performance.ExerciseDefinitionId == exerciseDefinitionId,
+                cancellationToken);
+            if (!modes.TryGetValue(exerciseDefinitionId, out var trackingMode))
+            {
+                if (existing is not null) ExercisePerformances.Remove(existing);
+                continue;
+            }
+
+            var validRows = rows.Where(row =>
+                row.ExerciseDefinitionId == exerciseDefinitionId
+                && row.TrackingMode == trackingMode).ToArray();
+            if (validRows.Length == 0)
+            {
+                if (existing is not null) ExercisePerformances.Remove(existing);
+                continue;
+            }
+
+            var latestWorkout = validRows
+                .OrderByDescending(row => row.CompletedAt)
+                .ThenByDescending(row => row.WorkoutId)
+                .First();
+            var lastBest = BestPerformanceSet(
+                validRows.Where(row => row.WorkoutId == latestWorkout.WorkoutId),
+                trackingMode);
+            var allTimeBest = BestPerformanceSet(validRows, trackingMode);
+            if (existing is null)
+            {
+                ExercisePerformances.Add(ExercisePerformance.Create(
+                    userId,
+                    exerciseDefinitionId,
+                    trackingMode,
+                    latestWorkout.CompletedAt,
+                    lastBest,
+                    allTimeBest));
+            }
+            else
+            {
+                existing.Recalculate(
+                    trackingMode,
+                    latestWorkout.CompletedAt,
+                    lastBest,
+                    allTimeBest);
+            }
+        }
+    }
+
     public async Task<IReadOnlyList<SyncChange>> ReadChangesAsync(
         Guid ownerId,
         long afterSequence,
@@ -159,6 +260,41 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         return Database.ExecuteSqlInterpolatedAsync(
             $"SELECT pg_advisory_xact_lock({lockKey})", cancellationToken);
     }
+
+    private static ExercisePerformanceSet BestPerformanceSet(
+        IEnumerable<ExercisePerformanceRow> rows,
+        TrackingMode trackingMode)
+    {
+        var ordered = trackingMode switch
+        {
+            TrackingMode.Weighted => rows
+                .OrderByDescending(row => row.WeightKg)
+                .ThenByDescending(row => row.Reps),
+            TrackingMode.Bodyweight => rows
+                .OrderByDescending(row => row.Reps),
+            TrackingMode.Assisted => rows
+                .OrderBy(row => row.AssistedKg)
+                .ThenByDescending(row => row.Reps),
+            _ => throw new ArgumentOutOfRangeException(nameof(trackingMode))
+        };
+        var best = ordered
+            .ThenByDescending(row => row.CompletedAt)
+            .ThenBy(row => row.Order)
+            .ThenBy(row => row.SetId)
+            .First();
+        return new ExercisePerformanceSet(best.WeightKg, best.AssistedKg, best.Reps);
+    }
+
+    private sealed record ExercisePerformanceRow(
+        Guid ExerciseDefinitionId,
+        TrackingMode TrackingMode,
+        Guid WorkoutId,
+        DateTimeOffset CompletedAt,
+        Guid SetId,
+        int Order,
+        decimal? WeightKg,
+        decimal? AssistedKg,
+        int Reps);
 
     public async Task<WorkoutReadSession?> GetOwnedWorkoutAsync(
         Guid ownerId,

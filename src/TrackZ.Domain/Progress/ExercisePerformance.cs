@@ -39,23 +39,37 @@ public sealed class ExercisePerformance
             throw new ArgumentException("A persisted performance projection requires a timestamp, LAST set, and all-time-best set.");
         }
 
-        ValidateSet(trackingMode, lastBestSet, nameof(lastBestSet));
-        ValidateSet(trackingMode, allTimeBest, nameof(allTimeBest));
-
-        return new ExercisePerformance
+        var performance = new ExercisePerformance
         {
             Id = Guid.NewGuid(),
             UserId = userId,
-            ExerciseDefinitionId = exerciseDefinitionId,
-            TrackingMode = trackingMode,
-            LastPerformedAt = lastPerformedAt?.ToUniversalTime(),
-            LastBestWeightKg = lastBestSet?.WeightKg,
-            LastBestAssistedKg = lastBestSet?.AssistedKg,
-            LastBestReps = lastBestSet?.Reps,
-            AllTimeBestWeightKg = allTimeBest?.WeightKg,
-            AllTimeBestAssistedKg = allTimeBest?.AssistedKg,
-            AllTimeBestReps = allTimeBest?.Reps
+            ExerciseDefinitionId = exerciseDefinitionId
         };
+        performance.Recalculate(trackingMode, lastPerformedAt.Value, lastBestSet, allTimeBest);
+        return performance;
+    }
+
+    public void Recalculate(
+        TrackingMode trackingMode,
+        DateTimeOffset lastPerformedAt,
+        ExercisePerformanceSet lastBestSet,
+        ExercisePerformanceSet allTimeBest)
+    {
+        if (!Enum.IsDefined(trackingMode)) throw new ArgumentOutOfRangeException(nameof(trackingMode));
+        if (lastPerformedAt == default) throw new ArgumentOutOfRangeException(nameof(lastPerformedAt));
+        ArgumentNullException.ThrowIfNull(lastBestSet);
+        ArgumentNullException.ThrowIfNull(allTimeBest);
+        ValidateSet(trackingMode, lastBestSet, nameof(lastBestSet));
+        ValidateSet(trackingMode, allTimeBest, nameof(allTimeBest));
+
+        TrackingMode = trackingMode;
+        LastPerformedAt = lastPerformedAt.ToUniversalTime();
+        LastBestWeightKg = lastBestSet.WeightKg;
+        LastBestAssistedKg = lastBestSet.AssistedKg;
+        LastBestReps = lastBestSet.Reps;
+        AllTimeBestWeightKg = allTimeBest.WeightKg;
+        AllTimeBestAssistedKg = allTimeBest.AssistedKg;
+        AllTimeBestReps = allTimeBest.Reps;
     }
 
     private static void ValidateSet(TrackingMode trackingMode, ExercisePerformanceSet? set, string parameterName)

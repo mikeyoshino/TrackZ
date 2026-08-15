@@ -53,6 +53,12 @@ public sealed class WorkoutHistoryCoordinator(
             var exercise = FindExercise(previous, workoutExerciseId);
             var set = FindSet(exercise, setId);
             ValidateMeasurement(exercise.TrackingMode, measurement);
+            if (set.WeightKg == measurement.WeightKg
+                && set.AssistedKg == measurement.AssistedKg
+                && set.Reps == measurement.Reps)
+            {
+                return new HistoryMutationResult(previous, Guid.Empty);
+            }
             var updatedAt = await NextMutationAtAsync(previous, token);
             var updatedSet = set with
             {

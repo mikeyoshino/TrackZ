@@ -42,3 +42,44 @@ Implemented Task 7 from base `5b862caf1f8284ff49abee6c6e6acbfa09a7a8af`. This cl
 
 - Android packaging remains unverified until an Android SDK is installed. Platform-independent Core, native iOS XAML compilation, and the iOS simulator build are green.
 - Two late focused invocations intermittently encountered the sandbox's VSTest TCP bind restriction (`SocketException (13)`) after compilation. The identical isolated test passed once in the default sandbox and the final architecture rerun passed 3/3 with the already-approved `dotnet test` execution outside that socket restriction. All larger sequential suites passed; no product code change was made for the runner environment.
+
+## Fix Round 1
+
+The independent Task 7 review reported one Critical and four Important findings. The fix round closes all five without adding a direct history route or a framework dependency to Application:
+
+- `CompleteWorkout`, `EditSet`, `DeleteSet`, and `DeleteWorkout` now recompute owner-scoped `ExercisePerformance` rows inside the same PostgreSQL transaction as the aggregate, processed-operation replay record, and `SyncChange`. Per-owner/exercise advisory locks serialize concurrent workouts. LAST and PR follow weighted/bodyweight/assisted ranking rules, editing updates the row in place, and deletion falls back to earlier valid completed history or removes the projection.
+- Exact local completed history now participates in `IExerciseHistorySource`. After a kill/recreation it competes with remote/cache data by completion chronology and wins ties, so a just-finished offline workout is immediately the exact previous session without a second crash-prone cache write.
+- An exact no-op history edit returns the unchanged graph with `Guid.Empty` before allocating a timestamp, snapshot, outbox row, or version. The caller-provided ID remains unbound and a later real edit uses the correct predecessor version.
+- Apply Local now moves the durable undo snapshot to the replacement operation in the same SQLite transaction. Restarted Undo restores the exact pre-edit graph and neutralizes the explicitly conflicted replacement ancestry; ambiguous/non-conflict ancestry still fails closed.
+- Keep Server now also marks every archived operation in the resolved original/replacement chain as neutralized in the same transaction. Audit rows remain durable, but they cannot reappear as a permanent failure with a missing Undo snapshot or block a later history mutation.
+- History status now consumes the composed connectivity source, observes offline/online transitions, and releases its subscription on page deactivation. Permanent completion/edit/delete failure remains visible, disables repeat edit/set-delete/workout-delete, and retains Undo/conflict actions. Existing EN/TH status text is used.
+- Local workout and final-set tombstones now suppress a stale cached/remote copy of the same completed exercise session across process recreation; an older still-valid local or remote session remains eligible as the fallback.
+- The named fake acceptance was demoted to a local persistence unit. The authenticated TestServer/PostgreSQL acceptance now drops responses after committed `CompleteWorkout` and `EditSet`, recreates SQLite/coordinators, replays the exact persisted operation IDs through `ProcessedClientOperation`, performs a real set tombstone, and pulls it into an independent second-device SQLite cache.
+
+### Fix-round TDD evidence
+
+1. Projection RED: the completion test failed with `Sequence contains no elements` for `ExercisePerformances`; the real PostgreSQL lifecycle now proves weighted/bodyweight/assisted LAST/PR, concurrent duplicate completion replay, edit recalculation, delete-set/delete-workout fallback, clearing, and owner isolation.
+2. Local-history RED: the restart test could not construct a source with local history; it now restores exact set IDs, order, mode, kg, and reps and selects the newer local completion over an older cache row.
+3. No-op RED: the coordinator returned the supplied operation ID and wrote intent; it now returns `Guid.Empty`, preserves all versions/timestamps/snapshot counts, and the later real successor synchronizes from the unchanged base version.
+4. Apply-Local RED: restarted Undo failed with `The durable undo snapshot is missing`; it now transfers the snapshot and transactionally neutralizes both replacement and conflicted ancestor.
+5. UI RED: connectivity/status tests first failed to compile without a real source; offline transitions, subscription ownership, rejected restart state, mutation disabling, and retained Undo now pass.
+6. The real ambiguity test commits on the server and deliberately throws before mobile acknowledgement for both completion and edit. Recreated coordinators replay the same IDs, and the final PostgreSQL/second-cache assertions prove one aggregate, no duplicate sets/projections, exact history, and a propagated tombstone.
+7. Keep-Server RED: a resolved conflict remained in the history status source as `Rejected`, and invoking Keep Server on a replacement that itself conflicted initially left its ancestor unneutralized. Resolution now walks both directions and neutralizes the original plus replacement while retaining both audit rows.
+8. Local-tombstone RED: both a deleted completed workout and a deleted final set returned the stale cached latest session after SQLite recreation; both now return no invalidated session (or the next valid chronological candidate).
+
+### Fix-round verification
+
+- Domain workout/performance: PASS, 82/82.
+- Application workout/sync: PASS, 7/7.
+- Infrastructure workout/sync/migration parity: PASS, 26/26 against PostgreSQL.
+- API workout/sync: PASS, 29/29 against PostgreSQL, including the real dual-SQLite ambiguity/tombstone acceptance.
+- Mobile workout/sync/history: PASS, 127/127.
+- Application/Domain/Mobile architecture: PASS, 6/6, 2/2, and 3/3.
+- API and Mobile.Core builds: PASS, 0 warnings / 0 errors.
+- iOS MAUI `Compile`: PASS, 0 warnings / 0 errors with XAML source generation.
+- Android: exact external `XA5300` gate because no Android SDK directory is installed; no SDK/emulator was downloaded or started.
+
+### Fix-round concerns
+
+- A full `iossimulator-arm64` packaging attempt emitted the application DLL/XAML successfully, then remained silent in a post-compile tool step and was terminated after cancellation did not exit. The deterministic iOS `Compile` target is green, but this particular full packaging invocation is not counted as verified.
+- Whole-solution `dotnet format --verify-no-changes` reports many whitespace diagnostics in unchanged pre-existing files and cannot load the absent Android restore graph. `git diff --check` is clean; unrelated formatting was deliberately not rewritten.

@@ -72,4 +72,35 @@ public sealed class ExercisePerformanceTests
         Assert.Throws<ArgumentException>(() => ExercisePerformance.Create(
             Guid.NewGuid(), Guid.NewGuid(), TrackingMode.Weighted, null, null, valid));
     }
+
+    [Fact]
+    public void Recalculate_replaces_values_without_changing_projection_identity_or_owner()
+    {
+        var ownerId = Guid.NewGuid();
+        var exerciseId = Guid.NewGuid();
+        var originalAt = new DateTimeOffset(2026, 8, 14, 9, 0, 0, TimeSpan.Zero);
+        var performance = ExercisePerformance.Create(
+            ownerId,
+            exerciseId,
+            TrackingMode.Weighted,
+            originalAt,
+            new ExercisePerformanceSet(70m, null, 8),
+            new ExercisePerformanceSet(80m, null, 5));
+        var projectionId = performance.Id;
+
+        performance.Recalculate(
+            TrackingMode.Weighted,
+            originalAt.AddDays(1),
+            new ExercisePerformanceSet(75m, null, 10),
+            new ExercisePerformanceSet(82.5m, null, 4));
+
+        Assert.Equal(projectionId, performance.Id);
+        Assert.Equal(ownerId, performance.UserId);
+        Assert.Equal(exerciseId, performance.ExerciseDefinitionId);
+        Assert.Equal(originalAt.AddDays(1), performance.LastPerformedAt);
+        Assert.Equal(75m, performance.LastBestWeightKg);
+        Assert.Equal(10, performance.LastBestReps);
+        Assert.Equal(82.5m, performance.AllTimeBestWeightKg);
+        Assert.Equal(4, performance.AllTimeBestReps);
+    }
 }

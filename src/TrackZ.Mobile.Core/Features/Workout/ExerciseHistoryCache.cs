@@ -2,6 +2,8 @@ using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using TrackZ.Contracts.Workouts;
 using TrackZ.Domain.Exercises;
+using TrackZ.Mobile.Data;
+using TrackZ.Mobile.Data.Models;
 using TrackZ.Mobile.Features.Exercises;
 using TrackZ.Mobile.Identity;
 
@@ -153,7 +155,8 @@ public sealed class ExerciseHistoryCache
 public sealed class CachedExerciseHistorySource(
     ExerciseHistoryCache cache,
     IExerciseHistoryApi api,
-    IAccountSessionBoundary boundary) : IExerciseHistorySource
+    IAccountSessionBoundary boundary,
+    ILocalWorkoutRepository? workouts = null) : IExerciseHistorySource
 {
     public async Task<ExerciseHistorySessionDto?> GetMostRecentAsync(
         Guid exerciseId,
@@ -161,17 +164,26 @@ public sealed class CachedExerciseHistorySource(
         CancellationToken cancellationToken = default)
     {
         var generation = boundary.Capture();
-        var cached = await cache.GetMostRecentAsync(exerciseId, cancellationToken);
-        if (!refreshIfOnline) return cached;
         try
         {
             using var lease = boundary.CreateCancellationLease(generation, cancellationToken);
+            var cached = await SuppressInvalidatedAsync(
+                await cache.GetMostRecentAsync(exerciseId, lease.Token), exerciseId, lease.Token);
+            var local = workouts is null
+                ? null
+                : MostRecentLocal(await workouts.GetHistoryAsync(lease.Token), exerciseId);
+            var available = MostRecent(local, cached);
+            if (!refreshIfOnline)
+                return boundary.IsCancellationRequested(generation) ? null : available;
+
             var refreshed = await api.GetMostRecentAsync(exerciseId, lease.Token);
             var committed = await boundary.TryCommitAsync(
                 generation,
                 token => cache.ReplaceAsync(exerciseId, refreshed, token),
                 cancellationToken);
-            return committed ? refreshed : null;
+            if (!committed) return null;
+            refreshed = await SuppressInvalidatedAsync(refreshed, exerciseId, lease.Token);
+            return MostRecent(local, refreshed);
         }
         catch (OperationCanceledException) when (boundary.IsCancellationRequested(generation))
         {
@@ -181,7 +193,75 @@ public sealed class CachedExerciseHistorySource(
             exception is HttpRequestException or IOException
             || exception is MobileApiException { IsRetryable: true })
         {
-            return cached;
+            if (boundary.IsCancellationRequested(generation)) return null;
+            using var lease = boundary.CreateCancellationLease(generation, cancellationToken);
+            var cached = await SuppressInvalidatedAsync(
+                await cache.GetMostRecentAsync(exerciseId, lease.Token), exerciseId, lease.Token);
+            var local = workouts is null
+                ? null
+                : MostRecentLocal(await workouts.GetHistoryAsync(lease.Token), exerciseId);
+            return boundary.IsCancellationRequested(generation) ? null : MostRecent(local, cached);
         }
+    }
+
+    private async Task<ExerciseHistorySessionDto?> SuppressInvalidatedAsync(
+        ExerciseHistorySessionDto? session,
+        Guid exerciseId,
+        CancellationToken cancellationToken)
+    {
+        if (session is null || workouts is null) return session;
+        return await workouts.IsExerciseHistorySessionInvalidatedAsync(
+            session.WorkoutId, exerciseId, cancellationToken)
+            ? null
+            : session;
+    }
+
+    private static ExerciseHistorySessionDto? MostRecentLocal(
+        IReadOnlyList<LocalWorkout> history,
+        Guid exerciseId)
+    {
+        foreach (var workout in history
+                     .Where(item => item.Status == LocalWorkoutStatus.Completed
+                         && item.CompletedAt is not null
+                         && item.DeletedAt is null)
+                     .OrderByDescending(item => item.CompletedAt)
+                     .ThenByDescending(item => item.Id))
+        {
+            var exercise = workout.Exercises.SingleOrDefault(item =>
+                item.ExerciseDefinitionId == exerciseId && item.DeletedAt is null);
+            if (exercise is null) continue;
+            var sets = exercise.Sets
+                .Where(set => set.DeletedAt is null)
+                .OrderBy(set => set.Order)
+                .Select(set => new WorkoutSetDto(
+                    set.Id,
+                    set.Order,
+                    set.WeightKg,
+                    set.AssistedKg,
+                    set.Reps,
+                    set.CompletedAt,
+                    set.UpdatedAt))
+                .ToArray();
+            if (sets.Length == 0) continue;
+            return new ExerciseHistorySessionDto(
+                workout.Id,
+                workout.CompletedAt!.Value,
+                exercise.TrackingMode,
+                exercise.TrackingMode == TrackingMode.Weighted
+                    ? sets.Sum(set => set.WeightKg!.Value * set.Reps)
+                    : 0m,
+                sets);
+        }
+
+        return null;
+    }
+
+    private static ExerciseHistorySessionDto? MostRecent(
+        ExerciseHistorySessionDto? preferredOnTie,
+        ExerciseHistorySessionDto? other)
+    {
+        if (preferredOnTie is null) return other;
+        if (other is null) return preferredOnTie;
+        return preferredOnTie.CompletedAt >= other.CompletedAt ? preferredOnTie : other;
     }
 }
