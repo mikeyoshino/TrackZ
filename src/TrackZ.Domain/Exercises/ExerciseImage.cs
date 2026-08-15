@@ -20,6 +20,8 @@ public sealed class ExerciseImage
 
     public bool IsPrivate { get; private set; }
 
+    public bool IsReadyForUse { get; private set; }
+
     public string MasterObjectKey { get; private set; } = null!;
 
     public string ThumbnailObjectKey { get; private set; } = null!;
@@ -49,17 +51,24 @@ public sealed class ExerciseImage
     public DateTimeOffset CreatedAt { get; private set; }
 
     public static ExerciseImage CreateSystem(
-        Guid exerciseDefinitionId,
+        ExerciseDefinition exerciseDefinition,
         string masterObjectKey,
         string thumbnailObjectKey,
         int version,
         string sourceReference,
         DateTimeOffset? createdAt = null)
     {
+        ArgumentNullException.ThrowIfNull(exerciseDefinition);
+        if (!exerciseDefinition.IsSystem)
+        {
+            throw new ArgumentException("System artwork can only belong to a system exercise.", nameof(exerciseDefinition));
+        }
+
         return Create(
-            exerciseDefinitionId,
+            exerciseDefinition.Id,
             ownerId: null,
             isPrivate: false,
+            isReadyForUse: false,
             masterObjectKey,
             thumbnailObjectKey,
             version,
@@ -69,7 +78,7 @@ public sealed class ExerciseImage
     }
 
     public static ExerciseImage CreateCustomUpload(
-        Guid exerciseDefinitionId,
+        ExerciseDefinition exerciseDefinition,
         Guid ownerId,
         string masterObjectKey,
         string thumbnailObjectKey,
@@ -77,18 +86,29 @@ public sealed class ExerciseImage
         string sourceReference,
         DateTimeOffset? createdAt = null)
     {
-        ArgumentOutOfRangeException.ThrowIfEqual(ownerId, Guid.Empty);
+        ArgumentNullException.ThrowIfNull(exerciseDefinition);
+        if (!exerciseDefinition.IsCustom)
+        {
+            throw new ArgumentException("Private uploads can only belong to custom exercises.", nameof(exerciseDefinition));
+        }
+
+        if (ownerId == Guid.Empty || exerciseDefinition.OwnerId != ownerId)
+        {
+            throw new ArgumentException("The upload owner must match the custom exercise owner.", nameof(ownerId));
+        }
 
         return Create(
-            exerciseDefinitionId,
+            exerciseDefinition.Id,
             ownerId,
             isPrivate: true,
+            isReadyForUse: true,
             masterObjectKey,
             thumbnailObjectKey,
             version,
             ExerciseImageSource.UserUpload,
             sourceReference,
-            createdAt);
+            createdAt,
+            ExerciseImageReviewState.Published);
     }
 
     public void Review(
@@ -99,6 +119,11 @@ public sealed class ExerciseImage
         bool rightsApproved,
         DateTimeOffset reviewedAt)
     {
+        if (IsPrivate || Source != ExerciseImageSource.SystemArtwork)
+        {
+            throw new InvalidOperationException("Only draft system artwork can be reviewed.");
+        }
+
         if (reviewerId == Guid.Empty)
         {
             throw new ArgumentException("A reviewer is required.", nameof(reviewerId));
@@ -115,18 +140,24 @@ public sealed class ExerciseImage
             throw new ArgumentException("Anatomy, movement, and rights approval are all required before review.");
         }
 
+        var normalizedReviewedAt = reviewedAt.ToUniversalTime();
+        if (normalizedReviewedAt < CreatedAt)
+        {
+            throw new ArgumentOutOfRangeException(nameof(reviewedAt), "An image cannot be reviewed before it is created.");
+        }
+
         ReviewedByUserId = reviewerId;
         RightsReference = normalizedRightsReference;
         AnatomyApproved = true;
         MovementApproved = true;
         RightsApproved = true;
-        ReviewedAt = reviewedAt.ToUniversalTime();
+        ReviewedAt = normalizedReviewedAt;
         ReviewState = ExerciseImageReviewState.Reviewed;
     }
 
     public void Publish(DateTimeOffset publishedAt)
     {
-        if (IsPrivate)
+        if (IsPrivate || Source != ExerciseImageSource.SystemArtwork)
         {
             throw new InvalidOperationException("Private images cannot be published.");
         }
@@ -136,26 +167,30 @@ public sealed class ExerciseImage
             throw new InvalidOperationException("Only reviewed images can be published.");
         }
 
+        var reviewedAt = ReviewedAt ?? throw new InvalidOperationException("A reviewed image must record its review timestamp.");
         var normalizedPublishedAt = publishedAt.ToUniversalTime();
-        if (normalizedPublishedAt < ReviewedAt)
+        if (normalizedPublishedAt < CreatedAt || normalizedPublishedAt < reviewedAt)
         {
             throw new ArgumentOutOfRangeException(nameof(publishedAt), "An image cannot be published before its review.");
         }
 
         PublishedAt = normalizedPublishedAt;
         ReviewState = ExerciseImageReviewState.Published;
+        IsReadyForUse = true;
     }
 
     private static ExerciseImage Create(
         Guid exerciseDefinitionId,
         Guid? ownerId,
         bool isPrivate,
+        bool isReadyForUse,
         string masterObjectKey,
         string thumbnailObjectKey,
         int version,
         ExerciseImageSource source,
         string sourceReference,
-        DateTimeOffset? createdAt)
+        DateTimeOffset? createdAt,
+        ExerciseImageReviewState initialReviewState = ExerciseImageReviewState.Draft)
     {
         ArgumentOutOfRangeException.ThrowIfEqual(exerciseDefinitionId, Guid.Empty);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(version);
@@ -165,19 +200,27 @@ public sealed class ExerciseImage
             throw new ArgumentOutOfRangeException(nameof(source));
         }
 
+        if (!Enum.IsDefined(initialReviewState))
+        {
+            throw new ArgumentOutOfRangeException(nameof(initialReviewState));
+        }
+
+        var normalizedCreatedAt = (createdAt ?? DateTimeOffset.UtcNow).ToUniversalTime();
+
         return new ExerciseImage
         {
             Id = Guid.NewGuid(),
             ExerciseDefinitionId = exerciseDefinitionId,
             OwnerId = ownerId,
             IsPrivate = isPrivate,
+            IsReadyForUse = isReadyForUse,
             MasterObjectKey = NormalizeRequiredMetadata(masterObjectKey, nameof(masterObjectKey)),
             ThumbnailObjectKey = NormalizeRequiredMetadata(thumbnailObjectKey, nameof(thumbnailObjectKey)),
             Version = version,
             Source = source,
             SourceReference = NormalizeRequiredMetadata(sourceReference, nameof(sourceReference)),
-            ReviewState = ExerciseImageReviewState.Draft,
-            CreatedAt = (createdAt ?? DateTimeOffset.UtcNow).ToUniversalTime()
+            ReviewState = initialReviewState,
+            CreatedAt = normalizedCreatedAt
         };
     }
 

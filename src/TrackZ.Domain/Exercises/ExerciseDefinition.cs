@@ -22,6 +22,8 @@ public sealed class ExerciseDefinition
 
     public bool IsArchived { get; private set; }
 
+    public bool HasSetHistory { get; private set; }
+
     public DateTimeOffset CreatedAt { get; private set; }
 
     public bool IsSystem => OwnerId is null;
@@ -62,7 +64,12 @@ public sealed class ExerciseDefinition
         IsArchived = true;
     }
 
-    public void ChangeTrackingMode(TrackingMode trackingMode, bool hasSetHistory)
+    public void RecordSetHistory()
+    {
+        HasSetHistory = true;
+    }
+
+    public void ChangeTrackingMode(TrackingMode trackingMode)
     {
         ValidateTrackingMode(trackingMode);
 
@@ -71,7 +78,7 @@ public sealed class ExerciseDefinition
             return;
         }
 
-        if (hasSetHistory)
+        if (HasSetHistory)
         {
             throw new InvalidOperationException("The tracking mode cannot change after set history exists.");
         }

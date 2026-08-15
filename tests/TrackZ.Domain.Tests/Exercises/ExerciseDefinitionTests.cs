@@ -35,6 +35,14 @@ public sealed class ExerciseDefinitionTests
         Assert.Equal(expectedValue, (int)reviewState);
     }
 
+    [Theory]
+    [InlineData(ExerciseImageSource.SystemArtwork, 1)]
+    [InlineData(ExerciseImageSource.UserUpload, 2)]
+    public void Image_source_wire_values_are_stable(ExerciseImageSource source, int expectedValue)
+    {
+        Assert.Equal(expectedValue, (int)source);
+    }
+
     [Fact]
     public void System_exercise_has_no_owner_and_normalizes_its_name()
     {
@@ -111,41 +119,59 @@ public sealed class ExerciseDefinitionTests
     }
 
     [Fact]
-    public void Tracking_mode_can_change_before_set_history_exists()
+    public void Tracking_mode_can_change_before_set_history_is_recorded()
     {
         var exercise = ExerciseDefinition.CreateCustom(Guid.NewGuid(), "My Press", BodyPart.Chest, TrackingMode.Weighted);
 
-        exercise.ChangeTrackingMode(TrackingMode.Bodyweight, hasSetHistory: false);
+        exercise.ChangeTrackingMode(TrackingMode.Bodyweight);
 
         Assert.Equal(TrackingMode.Bodyweight, exercise.TrackingMode);
+        Assert.False(exercise.HasSetHistory);
     }
 
     [Fact]
-    public void Tracking_mode_cannot_change_after_set_history_exists()
+    public void Tracking_mode_cannot_change_after_set_history_is_recorded()
     {
         var exercise = ExerciseDefinition.CreateCustom(Guid.NewGuid(), "My Press", BodyPart.Chest, TrackingMode.Weighted);
+        exercise.RecordSetHistory();
 
         Assert.Throws<InvalidOperationException>(() =>
-            exercise.ChangeTrackingMode(TrackingMode.Bodyweight, hasSetHistory: true));
+            exercise.ChangeTrackingMode(TrackingMode.Bodyweight));
 
         Assert.Equal(TrackingMode.Weighted, exercise.TrackingMode);
     }
 
     [Fact]
+    public void Recording_set_history_is_irreversible_and_cannot_be_bypassed_by_a_boolean_parameter()
+    {
+        var exercise = ExerciseDefinition.CreateCustom(Guid.NewGuid(), "My Press", BodyPart.Chest, TrackingMode.Weighted);
+
+        exercise.RecordSetHistory();
+        exercise.RecordSetHistory();
+
+        Assert.True(exercise.HasSetHistory);
+        var changeMethod = typeof(ExerciseDefinition).GetMethod(nameof(ExerciseDefinition.ChangeTrackingMode));
+        Assert.NotNull(changeMethod);
+        Assert.Single(changeMethod.GetParameters());
+        Assert.NotEqual(typeof(bool), changeMethod.GetParameters()[0].ParameterType);
+        Assert.False(typeof(ExerciseDefinition).GetProperty(nameof(ExerciseDefinition.HasSetHistory))!.SetMethod?.IsPublic == true);
+    }
+
+    [Fact]
     public void System_image_starts_draft_with_system_visibility_and_metadata()
     {
-        var exerciseId = Guid.NewGuid();
         var createdAt = new DateTimeOffset(2026, 8, 15, 10, 30, 0, TimeSpan.FromHours(7));
+        var exercise = CreateSystemExercise(createdAt);
 
         var image = ExerciseImage.CreateSystem(
-            exerciseId,
+            exercise,
             "system/incline-bench/master.webp",
             "system/incline-bench/thumb.webp",
             version: 1,
             sourceReference: "commission-2026-08",
             createdAt: createdAt);
 
-        Assert.Equal(exerciseId, image.ExerciseDefinitionId);
+        Assert.Equal(exercise.Id, image.ExerciseDefinitionId);
         Assert.Null(image.OwnerId);
         Assert.False(image.IsPrivate);
         Assert.Equal(ExerciseImageSource.SystemArtwork, image.Source);
@@ -157,13 +183,41 @@ public sealed class ExerciseDefinitionTests
     public void Custom_upload_is_private_and_owned_by_its_creator()
     {
         var ownerId = Guid.NewGuid();
+        var exercise = ExerciseDefinition.CreateCustom(ownerId, "My Press", BodyPart.Chest, TrackingMode.Weighted);
 
         var image = ExerciseImage.CreateCustomUpload(
-            Guid.NewGuid(), ownerId, "users/owner/master.webp", "users/owner/thumb.webp", version: 1, sourceReference: "upload-1");
+            exercise, ownerId, "users/owner/master.webp", "users/owner/thumb.webp", version: 1, sourceReference: "upload-1");
 
         Assert.Equal(ownerId, image.OwnerId);
         Assert.True(image.IsPrivate);
         Assert.Equal(ExerciseImageSource.UserUpload, image.Source);
+        Assert.True(image.IsReadyForUse);
+        Assert.Equal(ExerciseImageReviewState.Published, image.ReviewState);
+    }
+
+    [Fact]
+    public void System_artwork_cannot_be_created_for_a_custom_exercise()
+    {
+        var customExercise = ExerciseDefinition.CreateCustom(Guid.NewGuid(), "My Press", BodyPart.Chest, TrackingMode.Weighted);
+
+        Assert.Throws<ArgumentException>(() => ExerciseImage.CreateSystem(
+            customExercise, "system/master.webp", "system/thumb.webp", version: 1, sourceReference: "commission-2026-08"));
+    }
+
+    [Fact]
+    public void Private_upload_cannot_be_created_for_a_system_exercise()
+    {
+        Assert.Throws<ArgumentException>(() => ExerciseImage.CreateCustomUpload(
+            CreateSystemExercise(), Guid.NewGuid(), "users/owner/master.webp", "users/owner/thumb.webp", version: 1, sourceReference: "upload-1"));
+    }
+
+    [Fact]
+    public void Private_upload_must_match_the_custom_exercise_owner()
+    {
+        var exercise = ExerciseDefinition.CreateCustom(Guid.NewGuid(), "My Press", BodyPart.Chest, TrackingMode.Weighted);
+
+        Assert.Throws<ArgumentException>(() => ExerciseImage.CreateCustomUpload(
+            exercise, Guid.NewGuid(), "users/other/master.webp", "users/other/thumb.webp", version: 1, sourceReference: "upload-1"));
     }
 
     [Fact]
@@ -176,12 +230,12 @@ public sealed class ExerciseDefinitionTests
     }
 
     [Fact]
-    public void Image_review_requires_complete_human_approval_metadata()
+    public void System_image_review_rejects_each_missing_human_approval()
     {
-        var image = CreateDraftSystemImage();
-
-        Assert.Throws<ArgumentException>(() => image.Review(Guid.Empty, "rights-2026", true, true, true, DateTimeOffset.UtcNow));
-        Assert.Throws<ArgumentException>(() => image.Review(Guid.NewGuid(), "rights-2026", anatomyApproved: false, movementApproved: true, rightsApproved: true, DateTimeOffset.UtcNow));
+        Assert.Throws<ArgumentException>(() => CreateDraftSystemImage().Review(Guid.Empty, "rights-2026", true, true, true, DateTimeOffset.UtcNow));
+        Assert.Throws<ArgumentException>(() => CreateDraftSystemImage().Review(Guid.NewGuid(), "rights-2026", anatomyApproved: false, movementApproved: true, rightsApproved: true, DateTimeOffset.UtcNow));
+        Assert.Throws<ArgumentException>(() => CreateDraftSystemImage().Review(Guid.NewGuid(), "rights-2026", anatomyApproved: true, movementApproved: false, rightsApproved: true, DateTimeOffset.UtcNow));
+        Assert.Throws<ArgumentException>(() => CreateDraftSystemImage().Review(Guid.NewGuid(), "rights-2026", anatomyApproved: true, movementApproved: true, rightsApproved: false, DateTimeOffset.UtcNow));
     }
 
     [Fact]
@@ -206,14 +260,26 @@ public sealed class ExerciseDefinitionTests
     }
 
     [Fact]
-    public void Private_custom_image_cannot_be_published()
+    public void Private_custom_image_cannot_be_reviewed_or_published()
     {
+        var ownerId = Guid.NewGuid();
         var image = ExerciseImage.CreateCustomUpload(
-            Guid.NewGuid(), Guid.NewGuid(), "users/owner/master.webp", "users/owner/thumb.webp", version: 1, sourceReference: "upload-1");
+            ExerciseDefinition.CreateCustom(ownerId, "My Press", BodyPart.Chest, TrackingMode.Weighted), ownerId,
+            "users/owner/master.webp", "users/owner/thumb.webp", version: 1, sourceReference: "upload-1");
 
-        image.Review(Guid.NewGuid(), "rights-2026", anatomyApproved: true, movementApproved: true, rightsApproved: true, DateTimeOffset.UtcNow);
-
+        Assert.Throws<InvalidOperationException>(() => image.Review(Guid.NewGuid(), "rights-2026", anatomyApproved: true, movementApproved: true, rightsApproved: true, DateTimeOffset.UtcNow));
         Assert.Throws<InvalidOperationException>(() => image.Publish(DateTimeOffset.UtcNow));
+    }
+
+    [Fact]
+    public void System_image_cannot_be_reviewed_before_its_creation_time()
+    {
+        var createdAt = new DateTimeOffset(2026, 8, 15, 10, 30, 0, TimeSpan.FromHours(7));
+        var image = ExerciseImage.CreateSystem(
+            CreateSystemExercise(createdAt), "system/master.webp", "system/thumb.webp", version: 1, sourceReference: "commission-2026-08", createdAt: createdAt);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => image.Review(
+            Guid.NewGuid(), "rights-2026", anatomyApproved: true, movementApproved: true, rightsApproved: true, createdAt.AddMinutes(-1)));
     }
 
     [Fact]
@@ -250,9 +316,15 @@ public sealed class ExerciseDefinitionTests
     }
 
     private static ExerciseImage CreateDraftSystemImage() => ExerciseImage.CreateSystem(
-        Guid.NewGuid(),
+        CreateSystemExercise(),
         "system/incline-bench/master.webp",
         "system/incline-bench/thumb.webp",
         version: 1,
         sourceReference: "commission-2026-08");
+
+    private static ExerciseDefinition CreateSystemExercise(DateTimeOffset? createdAt = null) => ExerciseDefinition.CreateSystem(
+        "Incline Barbell Bench Press",
+        BodyPart.Chest,
+        TrackingMode.Weighted,
+        createdAt);
 }
