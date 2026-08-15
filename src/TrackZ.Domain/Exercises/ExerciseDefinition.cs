@@ -39,6 +39,19 @@ public sealed class ExerciseDefinition
         return Create(null, name, bodyPart, trackingMode, createdAt);
     }
 
+    public static ExerciseDefinition CreateSystem(
+        Guid id,
+        string name,
+        BodyPart bodyPart,
+        TrackingMode trackingMode,
+        DateTimeOffset? createdAt = null)
+    {
+        ArgumentOutOfRangeException.ThrowIfEqual(id, Guid.Empty);
+        var exercise = Create(null, name, bodyPart, trackingMode, createdAt);
+        exercise.Id = id;
+        return exercise;
+    }
+
     public static ExerciseDefinition CreateCustom(
         Guid ownerId,
         string name,

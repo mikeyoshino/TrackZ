@@ -1,0 +1,56 @@
+# TrackZ exercise artwork prompt template
+
+Shared invariants for every original image: polished grayscale scientific anatomy illustration on a clean light neutral background; adult athlete with the correct equipment; clear start/end movement using a subtle ghosted second position and one restrained direction arrow; primary target muscle highlighted muted red while secondary anatomy remains grayscale; square 1024×1024 app-card composition with full relevant body and equipment visible, generous padding, consistent viewpoint and lighting. No labels/text/numbers/logos/watermarks; no gore, posters, collages, contact-sheet crops, generic anatomy poses, comic/cartoon styling, or childlike line work.
+
+Use one row verbatim as the exercise-specific completion of the shared prompt. Each source image remains `Draft` and is AI-generated project-owned draft artwork until a human records review and rights approval.
+
+| Exercise | Equipment | Grip / stance | Joint path | Target muscle | Failure to avoid |
+| --- | --- | --- | --- | --- | --- |
+| Barbell Bench Press | flat bench, barbell | pronated shoulder-width grip, feet planted | bar lowers to mid-chest then presses vertically | pectoralis major | elbows flared straight out or bar drifting to neck |
+| Incline Barbell Bench Press | incline bench, barbell | pronated shoulder-width grip, feet planted | bar lowers to upper chest then presses | upper pectoralis major | excessive incline turning it into shoulder press |
+| Dumbbell Bench Press | flat bench, two dumbbells | neutral-to-pronated grip, feet planted | dumbbells descend beside chest then arc upward | pectoralis major | uneven dumbbell heights or locked-out shoulder shrug |
+| Incline Dumbbell Press | incline bench, two dumbbells | neutral-to-pronated grip, feet planted | dumbbells lower to upper chest then press | upper pectoralis major | elbows drifting far behind torso |
+| Chest Press Machine | selectorized chest press | handles at chest height, seated back supported | handles press forward then return controlled | pectoralis major | seat too low and shoulders elevated |
+| Cable Fly | dual cable station | split stance, soft elbows, palms facing | arms sweep inward in a hugging arc | pectoralis major | turning movement into a straight-arm pulldown |
+| Pec Deck Fly | pec deck machine | forearms on pads, seated neutral spine | arms close forward then open controlled | pectoralis major | shoulders rolling forward at end range |
+| Decline Push-Up | decline bench or box | hands shoulder-width, feet elevated | chest lowers between hands then pushes | pectoralis major | sagging hips or head-leading descent |
+| Lat Pulldown | lat pulldown machine | overhand wide grip, thighs secured | bar travels to upper chest then returns overhead | latissimus dorsi | leaning far back and pulling to abdomen |
+| Pull-Up | pull-up bar | overhand grip, hollow body | body rises until chin clears bar then lowers | latissimus dorsi | kicking legs or craning neck |
+| Assisted Pull-Up | assisted pull-up machine | overhand grip, knee or foot platform | body rises until chin clears bar then lowers | latissimus dorsi | using momentum from platform bounce |
+| Seated Cable Row | low cable row | neutral close handle, tall seated torso | handle rows to lower ribs then arms extend | middle back | rocking torso backward |
+| Chest-Supported Row | chest-supported row bench/machine | neutral grip, chest against pad | elbows drive back beside torso then extend | middle back | lifting chest off support |
+| Barbell Row | barbell | pronated grip, hip hinge | bar rows to lower ribs then lowers | middle back | standing upright or jerking bar |
+| One-Arm Dumbbell Row | bench, dumbbell | one hand braced, square hips | elbow rows toward hip then lowers | latissimus dorsi | rotating torso open |
+| Straight-Arm Pulldown | cable station, straight bar | overhand shoulder-width grip, slight hinge | straight arms pull bar to thighs then raise | latissimus dorsi | bending elbows into a row |
+| Overhead Press | barbell | pronated grip, standing braced | bar presses from collarbone overhead then lowers | deltoids | overextending low back |
+| Dumbbell Shoulder Press | bench, two dumbbells | seated neutral-to-pronated grip | dumbbells press from shoulders overhead | deltoids | elbows falling far behind shoulders |
+| Machine Shoulder Press | selectorized shoulder press | seated handles at ear level | handles press upward then return | deltoids | seat too low causing neck compression |
+| Lateral Raise | two dumbbells | soft elbows, standing neutral | arms raise in lateral arc to shoulder height | lateral deltoids | shrugging shoulders or swinging torso |
+| Cable Lateral Raise | low cable, single handle | side-on stance, arm across body | arm raises laterally to shoulder height | lateral deltoids | rotating thumb down aggressively |
+| Rear Delt Fly | rear-delt machine or incline bench | neutral grip, chest supported | arms open outward then return | posterior deltoids | retracting shoulder blades into a row |
+| Face Pull | cable, rope | overhand rope grip, staggered stance | rope pulls toward forehead with external rotation | posterior deltoids | pulling rope to chest with elbows low |
+| Upright Row | barbell or cable bar | narrow pronated grip, tall stance | elbows lift outward to chest height then lower | lateral deltoids | elbows forced high above shoulders |
+| Barbell Curl | barbell | supinated shoulder-width grip, tall stance | elbows flex bar toward shoulders then lower | biceps brachii | swinging hips or elbows traveling forward |
+| Dumbbell Curl | two dumbbells | supinated grip, arms by sides | elbows flex dumbbells toward shoulders | biceps brachii | rotating shoulders forward |
+| Hammer Curl | two dumbbells | neutral grip, arms by sides | elbows flex with thumbs up then lower | brachialis | swinging torso |
+| Preacher Curl | preacher bench, EZ bar | supinated grip, upper arms on pad | elbows flex then lower under control | biceps brachii | hyperextending elbows at bottom |
+| Triceps Pushdown | cable, straight bar or rope | elbows pinned to sides | elbows extend downward then flex | triceps brachii | elbows drifting forward |
+| Overhead Triceps Extension | cable rope or dumbbell | elbows near ears, standing braced | elbows extend overhead then flex | triceps long head | flaring ribs and low-back arch |
+| Skull Crusher | flat bench, EZ bar | supinated/angled grip, elbows vertical | elbows flex bar toward forehead then extend | triceps brachii | upper arms moving toward shoulders |
+| Close-Grip Bench Press | flat bench, barbell | close pronated grip, feet planted | bar lowers to lower chest then presses | triceps brachii | grip so narrow wrists collapse |
+| Back Squat | rack, barbell | bar on upper back, feet shoulder-width | hips and knees flex to depth then extend | quadriceps and gluteus maximus | knees collapsing inward |
+| Front Squat | rack, barbell | front rack, elbows high, feet shoulder-width | hips and knees flex to depth then extend | quadriceps | elbows dropping and torso folding |
+| Leg Press | leg press machine | feet shoulder-width on platform | knees bend toward chest then press platform | quadriceps | pelvis rounding off pad |
+| Romanian Deadlift | barbell | double-overhand grip, soft knees | hips hinge back then extend to stand | hamstrings | squatting knees forward or rounding spine |
+| Leg Extension | leg extension machine | ankles behind pad, seated back supported | knees extend then flex controlled | quadriceps | kicking through momentum |
+| Seated Leg Curl | seated leg curl machine | ankles under pad, hips secured | knees flex down then extend controlled | hamstrings | hips lifting off seat |
+| Bulgarian Split Squat | bench, two dumbbells optional | rear foot elevated, front foot planted | rear knee lowers then front leg extends | quadriceps and gluteus maximus | front knee caving inward |
+| Standing Calf Raise | calf raise machine or step | balls of feet on platform, knees straight | heels lower then plantarflex high | gastrocnemius | bouncing without full range |
+| Cable Crunch | high cable, rope | kneeling, rope beside temples | spine flexes ribs toward pelvis then extends | rectus abdominis | hip hinge instead of spinal flexion |
+| Hanging Knee Raise | pull-up bar | overhand grip, stable torso | knees curl toward chest then lower | rectus abdominis | swinging body or hip thrust |
+| Hanging Leg Raise | pull-up bar | overhand grip, legs straight | straight legs raise toward horizontal then lower | rectus abdominis | swinging or bending knees |
+| Ab Wheel Rollout | ab wheel | kneeling, neutral spine | wheel rolls forward then lats/abs return | rectus abdominis | lumbar hyperextension |
+| Weighted Sit-Up | mat, weight plate | knees bent, plate at chest | trunk flexes upright then lowers | rectus abdominis | yanking neck or using hip swing |
+| Decline Sit-Up | decline bench | feet secured, hands at chest | trunk flexes upward then lowers | rectus abdominis | hyperextending low back at bottom |
+| Reverse Crunch | mat | supine, knees bent | pelvis curls toward ribcage then lowers | rectus abdominis | swinging legs instead of posterior pelvic tilt |
+| Pallof Press | cable, single handle | side-on athletic stance, hands at sternum | hands press straight outward resisting rotation | obliques | rotating torso toward cable |
