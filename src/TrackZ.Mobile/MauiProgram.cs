@@ -46,11 +46,13 @@ public static class MauiProgram
 		builder.Services.AddSingleton<IConnectivityService, MauiConnectivityService>();
 		builder.Services.AddSingleton<IClock, SystemClock>();
 		builder.Services.AddSingleton<IUiDispatcher, MauiUiDispatcher>();
+		builder.Services.AddSingleton<ILocalExerciseImagePicker, MauiLocalExerciseImagePicker>();
 		builder.Services.AddSingleton<IExerciseFileStore, LocalExerciseFileStore>();
 		builder.Services.AddSingleton(services => new ExerciseCache(
 			Path.Combine(FileSystem.AppDataDirectory, "exercise-catalog.db")));
 		builder.Services.AddSingleton<CustomExerciseImageService>();
 		builder.Services.AddSingleton<LocalExerciseImageImporter>();
+		builder.Services.AddSingleton<LocalExerciseImageSelectionCoordinator>();
 		builder.Services.AddTransient<ExercisePickerViewModel>();
 		builder.Services.AddTransient<CustomExerciseViewModel>();
 		builder.Services.AddSingleton<ExercisePickerPage>();

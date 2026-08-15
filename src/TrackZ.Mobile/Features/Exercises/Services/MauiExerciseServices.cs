@@ -20,6 +20,32 @@ public sealed class MauiUiDispatcher : IUiDispatcher
     public Task InvokeAsync(Action action) => MainThread.InvokeOnMainThreadAsync(action);
 }
 
+public sealed class MauiLocalExerciseImagePicker : ILocalExerciseImagePicker
+{
+    public async Task<LocalExerciseImageSelection?> PickAsync(CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var selected = await FilePicker.Default.PickAsync(new PickOptions
+        {
+            PickerTitle = "Choose an exercise image",
+            FileTypes = FilePickerFileType.Images
+        });
+        if (selected is null) return null;
+        return new LocalExerciseImageSelection(
+            selected.FileName,
+            selected.ContentType,
+            async token =>
+            {
+                token.ThrowIfCancellationRequested();
+                var stream = await selected.OpenReadAsync();
+                if (!token.IsCancellationRequested) return stream;
+                await stream.DisposeAsync();
+                token.ThrowIfCancellationRequested();
+                throw new OperationCanceledException(token);
+            });
+    }
+}
+
 public sealed class SecureMobileTokenStorage : IMobileTokenStorage
 {
     public Task<string?> GetAsync(string key, CancellationToken cancellationToken = default)

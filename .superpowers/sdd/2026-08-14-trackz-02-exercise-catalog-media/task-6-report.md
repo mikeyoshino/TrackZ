@@ -450,3 +450,90 @@ Fresh final verification after those changes:
 
 - Mobile project: **71 passed, 0 failed, 0 skipped** in 219 ms.
 - Android `net10.0-android` `Compile`: **Build succeeded, 0 warnings, 0 errors** in 3.47 seconds.
+
+## Controller Review Fix Round 3 (2026-08-15)
+
+The `receiving-code-review`, `test-driven-development`, `writing-good-tests`, and `systematic-debugging` instructions were reread before changing code. The open finding was verified in `CustomExercisePage`: it awaited the native `FilePicker`, copied the returned stream into cache, imported directly into durable files, and called `SelectLocalImage` without capturing or checking the shared account generation.
+
+### RED evidence
+
+The new deterministic `LocalExerciseImageSessionRaceTests` were written first. The focused test command failed at compile time with nine `CS0246` errors because the required platform-free `ILocalExerciseImagePicker`, `LocalExerciseImageSelection`, and `LocalExerciseImageSelectionCoordinator` did not exist. That was the expected missing production boundary: no component captured a generation before the picker and atomically joined import with UI mutation.
+
+```sh
+dotnet test tests/TrackZ.Mobile.Tests/TrackZ.Mobile.Tests.csproj \
+  --filter FullyQualifiedName~LocalExerciseImageSessionRaceTests \
+  --no-restore -v:minimal
+```
+
+After the production API was introduced, the first compile caught one test-fixture property typo (`OriginalImagePath` instead of the real `PendingCustomExercise.LocalImagePath`); correcting that test-only name produced the behavior run below.
+
+### GREEN behavior
+
+- `LocalExerciseImageSelectionCoordinator` captures `AccountSessionGeneration` immediately before invoking the platform-free picker interface. It deliberately holds no account lock while the native picker UI is open.
+- On picker return, stream opening, bounded copy, image decode/preview generation, durable file promotion, managed-file registration, and ViewModel mutation execute through the same generation-checked account boundary. A reset request cancels the in-flight generation before waiting for the mutation gate, so a delayed copy/preview or dispatcher cannot repopulate an old account.
+- `LocalExerciseImageImporter` now copies at most 5 MB into `.staging/session-{generation}/...`, validates the decoded format, generates the preview there, and only then promotes the original/preview pair. Every exception or cancellation removes staging and any partially promoted durable pair.
+- The coordinator retains only the imported paths it created and deletes them on session reset. This is narrowly scoped to the account-race finding: no general managed-file garbage collection was added. SQLite/outbox cleanup remains owned by the existing account reset.
+- `MauiLocalExerciseImagePicker` is the only layer using MAUI `FilePicker`; Core contracts and orchestration contain no platform types. `CustomExercisePage` now delegates to the coordinator and DI supplies the singleton coordinator, picker adapter, shared boundary, importer, and dispatcher.
+- The three races are deterministic: reset while the picker is open never opens the returned stream; reset during a deliberately blocked stream copy cancels and waits for cleanup; reset at a deliberately blocked dispatcher cancels before `SelectLocalImage`. All assert empty draft paths, catalog/outbox, and destination files. The happy case proves original/preview files exist and the offline outbox stores those exact paths.
+- Lock ordering has one direction: selection enters only the account gate after picker return and does not acquire the custom synchronization lock. Reset signals generation cancellation before waiting for the gate. Save/reconnect continue to capture their generation before their own serialization lock, so selection, save, and logout cannot form a lock cycle.
+
+### GREEN commands and counts
+
+Focused race/import tests:
+
+```sh
+dotnet test tests/TrackZ.Mobile.Tests/TrackZ.Mobile.Tests.csproj \
+  --filter FullyQualifiedName~LocalExerciseImageSessionRaceTests \
+  --no-restore -v:minimal
+```
+
+Result: **4 passed, 0 failed, 0 skipped** in 137 ms.
+
+Existing account/session and token-transition regression:
+
+```sh
+dotnet test tests/TrackZ.Mobile.Tests/TrackZ.Mobile.Tests.csproj \
+  --filter "FullyQualifiedName~AccountSessionRaceTests|FullyQualifiedName~IdentityTokenIntegrationTests" \
+  --no-restore -v:minimal
+```
+
+Result: **18 passed, 0 failed, 0 skipped** in 67 ms.
+
+Full Mobile regression (the only project-level suite run):
+
+```sh
+dotnet test tests/TrackZ.Mobile.Tests/TrackZ.Mobile.Tests.csproj --no-restore -v:minimal
+```
+
+Result: **75 passed, 0 failed, 0 skipped** in 171 ms.
+
+Architecture guard:
+
+```sh
+dotnet test tests/TrackZ.Mobile.Tests/TrackZ.Mobile.Tests.csproj \
+  --filter FullyQualifiedName~MobileCoreDependencyTests \
+  --no-restore -v:minimal
+```
+
+Result: **1 passed, 0 failed, 0 skipped** in 4 ms.
+
+Single Android graph/XAML compile with explicit local SDK/JDK:
+
+```sh
+env ANDROID_HOME=/Users/mikeyoshino/Library/Developer/TrackZ/android-sdk \
+    ANDROID_SDK_ROOT=/Users/mikeyoshino/Library/Developer/TrackZ/android-sdk \
+    JAVA_HOME=/Users/mikeyoshino/Library/Developer/TrackZ/jdk \
+    PATH=/Users/mikeyoshino/Library/Developer/TrackZ/jdk/bin:/usr/local/share/dotnet:/usr/bin:/bin \
+  dotnet build src/TrackZ.Mobile/TrackZ.Mobile.csproj \
+    -f net10.0-android -t:Compile --no-restore -m:1 -v:minimal \
+    -p:AndroidSdkDirectory=/Users/mikeyoshino/Library/Developer/TrackZ/android-sdk \
+    -p:JavaSdkDirectory=/Users/mikeyoshino/Library/Developer/TrackZ/jdk
+```
+
+Result: **Build succeeded, 0 warnings, 0 errors** in 3.44 seconds.
+
+No emulator, packaging build, full solution suite, parallel local test process, or additional Android attempt was run. A final `pgrep` found no `dotnet`, `testhost`, `java`, or `aapt2` process. Task 5 assets/review state and Plan 3 remain untouched.
+
+### Round 3 concerns
+
+- The controller-deferred general managed original/preview cleanup remains deferred. Round 3 deletes only files registered by an in-flight/current-session native selection when that account session resets.

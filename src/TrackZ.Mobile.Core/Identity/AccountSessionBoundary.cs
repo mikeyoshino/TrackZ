@@ -53,8 +53,17 @@ public sealed class AccountSessionBoundary : IAccountSessionBoundary
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            if (generation.Value != Interlocked.Read(ref _generation)) return false;
-            await mutation(cancellationToken);
+            CancellationToken generationCancellation;
+            lock (_cancellationLock)
+            {
+                if (generation.Value != Interlocked.Read(ref _generation)
+                    || _generationCancellation.IsCancellationRequested)
+                    return false;
+                generationCancellation = _generationCancellation.Token;
+            }
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken, generationCancellation);
+            await mutation(linked.Token);
             return true;
         }
         finally
@@ -68,6 +77,7 @@ public sealed class AccountSessionBoundary : IAccountSessionBoundary
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(reset);
+        SignalReset();
         await _gate.WaitAsync(cancellationToken);
         try
         {
@@ -85,6 +95,7 @@ public sealed class AccountSessionBoundary : IAccountSessionBoundary
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(reset);
+        if (!SignalReset(generation)) return false;
         await _gate.WaitAsync(cancellationToken);
         try
         {
@@ -110,5 +121,20 @@ public sealed class AccountSessionBoundary : IAccountSessionBoundary
         }
         await reset(cancellationToken);
         SessionReset?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void SignalReset()
+    {
+        lock (_cancellationLock) _generationCancellation.Cancel();
+    }
+
+    private bool SignalReset(AccountSessionGeneration generation)
+    {
+        lock (_cancellationLock)
+        {
+            if (generation.Value != Interlocked.Read(ref _generation)) return false;
+            _generationCancellation.Cancel();
+            return true;
+        }
     }
 }

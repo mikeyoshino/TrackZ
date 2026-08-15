@@ -5,15 +5,15 @@ namespace TrackZ.Mobile.Features.Exercises;
 public partial class CustomExercisePage : ContentPage, IQueryAttributable
 {
     private readonly CustomExerciseViewModel _viewModel;
-    private readonly LocalExerciseImageImporter _imageImporter;
+    private readonly LocalExerciseImageSelectionCoordinator _imageSelection;
 
     public CustomExercisePage(
         CustomExerciseViewModel viewModel,
-        LocalExerciseImageImporter imageImporter)
+        LocalExerciseImageSelectionCoordinator imageSelection)
     {
         InitializeComponent();
         BindingContext = _viewModel = viewModel;
-        _imageImporter = imageImporter;
+        _imageSelection = imageSelection;
     }
 
     public void ApplyQueryAttributes(IDictionary<string, object> query)
@@ -30,37 +30,15 @@ public partial class CustomExercisePage : ContentPage, IQueryAttributable
 
     private async void OnChooseImageClicked(object? sender, EventArgs eventArgs)
     {
-        var selected = await FilePicker.Default.PickAsync(new PickOptions
-        {
-            PickerTitle = "Choose an exercise image",
-            FileTypes = FilePickerFileType.Images
-        });
-        if (selected is null) return;
-        var contentType = ContentType(selected.FileName, selected.ContentType);
-        if (contentType is null)
-        {
-            await DisplayAlertAsync("Unsupported image", "Choose a JPEG, PNG, or WebP image.", "OK");
-            return;
-        }
-        var incoming = Path.Combine(FileSystem.CacheDirectory, $"exercise-import-{Guid.NewGuid():N}");
         try
         {
-            await using (var input = await selected.OpenReadAsync())
-            await using (var output = File.Create(incoming))
-                await input.CopyToAsync(output);
-            var imported = await _imageImporter.ImportAsync(
-                incoming,
-                contentType,
-                Path.Combine(FileSystem.AppDataDirectory, "exercise-images"));
-            _viewModel.SelectLocalImage(imported);
+            await _imageSelection.PickAndSelectAsync(
+                Path.Combine(FileSystem.AppDataDirectory, "exercise-images"),
+                _viewModel.SelectLocalImage);
         }
         catch (Exception exception) when (exception is InvalidDataException or IOException or UnauthorizedAccessException)
         {
             await DisplayAlertAsync("Image not imported", exception.Message, "OK");
-        }
-        finally
-        {
-            if (File.Exists(incoming)) File.Delete(incoming);
         }
     }
 
@@ -76,17 +54,6 @@ public partial class CustomExercisePage : ContentPage, IQueryAttributable
             : string.Join(Environment.NewLine, _viewModel.ValidationErrors.Values.SelectMany(messages => messages));
         await DisplayAlertAsync("Exercise not saved", message, "OK");
     }
-
-    private static string? ContentType(string fileName, string? reported) =>
-        reported is "image/jpeg" or "image/png" or "image/webp"
-            ? reported
-            : Path.GetExtension(fileName).ToLowerInvariant() switch
-            {
-                ".jpg" or ".jpeg" => "image/jpeg",
-                ".png" => "image/png",
-                ".webp" => "image/webp",
-                _ => null
-            };
 
     private async Task LoadForEditAsync(Guid exerciseId)
     {
