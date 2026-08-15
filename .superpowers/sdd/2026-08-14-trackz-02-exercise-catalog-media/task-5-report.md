@@ -28,3 +28,15 @@ Implemented only Plan 2 Task 5's catalog manifest, draft-artwork workflow artifa
 `ExerciseCatalogSeeder` never creates system `ExerciseImage` metadata unless an `IExerciseCatalogAssetDeployment` confirms that the corresponding source asset crossed the documented private-object-storage deployment boundary. Its deterministic keys are internal (`system/exercises/<id>/v1/...`), never local filesystem paths or API URLs. Created metadata stays `Draft` and has no reviewer, rights reference, approvals, or timestamps. Existing conflicting ID/name/ownership/mode/body-part/image history raises `InvalidOperationException` without mutation.
 
 The existing catalog API query returns no thumbnail for Draft system artwork, and existing endpoint coverage already asserts opaque media URLs rather than private object keys for ready custom artwork.
+
+## Draft asset evidence — 2026-08-15
+
+- Built-in `imagegen` generated the 48 original Draft PNGs using the common scientific-educational prompt style recorded in `assets/exercises/prompt-template.md`.
+- The original generated files are retained at `/Users/mikeyoshino/.codex/generated_images/01a000d5-7c02-7380-b403-d93b502b19a9`.
+- Technical normalization used `sips` to resize each source image from 1254×1254 to 1024×1024. The isolated asset test confirms all 48 manifest files exist, decode as PNG/RGBA at 1024×1024, and have unique SHA-256 content hashes.
+- `assets/exercises/contact-sheet.png` follows manifest order as six body-part rows of eight exercises.
+- Every artwork file and manifest row remains `Draft`, pending product-owner, anatomy, and rights review. No reviewer, approval, rights reference, review timestamp, or publication timestamp has been created by this task.
+
+| Command | Result |
+| --- | --- |
+| `dotnet test tests/TrackZ.Infrastructure.Tests --filter "FullyQualifiedName~ExerciseCatalogManifestTests&Category=Asset" --no-restore --verbosity minimal` | PASS — 1 passed |
