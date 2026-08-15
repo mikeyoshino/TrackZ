@@ -80,7 +80,7 @@ public static class MediaEndpoints
         {
             transition = await store.TryMarkUploadedAsync(ticket.Id, currentUser.UserId, claim.UploadLeaseId, cancellationToken);
         }
-        catch (Exception transitionException)
+        catch (UploadTransitionCommitAmbiguousException transitionException)
         {
             try
             {
@@ -99,6 +99,14 @@ public static class MediaEndpoints
                 // accepted it and the cleanup worker must never destroy an indeterminate success.
                 throw new UploadCommitOutcomeUnknownException(reconciliationException);
             }
+            // A commit-phase failure can become visible after this first read. Absence is not
+            // proof of rollback, so retain the lease-scoped object for replay/cleanup recovery.
+            throw new UploadCommitOutcomeUnknownException(transitionException);
+        }
+        catch (Exception transitionException)
+        {
+            // The store boundary guarantees this failure happened before transaction commit.
+            // Only a definitely uncommitted attempt may compensate its own lease-scoped key.
             await DeleteStagingBestEffortAsync(storage, currentUser.UserId, claim.StagingObjectKey);
             System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(transitionException).Throw();
             throw;
@@ -125,6 +133,10 @@ public static class MediaEndpoints
             return Bad(context, "contentType");
         if (request.ContentLength != ticket.DeclaredLength)
             return Bad(context, "length");
+        // Completion is the durable terminal acknowledgement and intentionally removes staging.
+        // Exact owned replays therefore do not require bytes that no longer belong in storage.
+        if (ticket.State == ImageUploadState.Completed)
+            return Results.NoContent();
         var accepted = await storage.GetAsync(
             $"staging/{ownerId:D}/", ticket.StagingObjectKey, cancellationToken);
         if (accepted is null) return Missing(context);

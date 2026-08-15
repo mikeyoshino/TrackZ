@@ -16,6 +16,10 @@ public interface IExerciseImageUploadStore
     Task<ExerciseImage?> FindSignedReadableImageAsync(Guid imageId, CancellationToken cancellationToken);
     Task<StagingUploadTransition> TryMarkUploadedAsync(Guid ticketId, Guid ownerId, CancellationToken cancellationToken);
     Task<UploadClaim> TryClaimUploadAsync(Guid ticketId, Guid ownerId, TimeSpan lease, CancellationToken cancellationToken);
+    /// <summary>
+    /// Accepts the lease-scoped upload. Throws <see cref="UploadTransitionCommitAmbiguousException"/>
+    /// only after entering transaction commit; any other exception is a definite pre-commit failure.
+    /// </summary>
     Task<StagingUploadTransition> TryMarkUploadedAsync(Guid ticketId, Guid ownerId, Guid uploadLeaseId, CancellationToken cancellationToken);
     /// <summary>Reconciles a possibly committed content transition against the exact accepted staging contract.</summary>
     Task<bool> IsAcceptedUploadAttemptDurableAsync(

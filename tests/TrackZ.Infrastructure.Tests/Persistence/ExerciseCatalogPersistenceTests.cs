@@ -1,4 +1,6 @@
+using System.Data.Common;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Migrations;
@@ -6,11 +8,92 @@ using TrackZ.Application.Common.Interfaces;
 using TrackZ.Application.Media;
 using TrackZ.Domain.Exercises;
 using TrackZ.Domain.Progress;
+using TrackZ.Infrastructure.Persistence;
 
 namespace TrackZ.Infrastructure.Tests.Persistence;
 
 public sealed class ExerciseCatalogPersistenceTests
 {
+    [Fact]
+    public async Task Accepted_upload_commit_phase_failure_is_classified_as_ambiguous()
+    {
+        await using var database = await PostgreSqlFixture.StartAsync();
+        var ownerId = Guid.NewGuid();
+        var exercise = ExerciseDefinition.CreateCustom(
+            ownerId, "Ambiguous Commit Press", BodyPart.Chest, TrackingMode.Weighted);
+        var ticket = ImageUploadTicket.Create(
+            ownerId,
+            exercise.Id,
+            $"staging/{ownerId:D}/reserved",
+            "image/png",
+            4,
+            DateTimeOffset.UtcNow.AddMinutes(5));
+        await database.Db.Exercises.AddAsync(exercise);
+        await database.Db.AddTicketAsync(ticket, default);
+        await database.Db.SaveAsync(default);
+        UploadClaim claim;
+        await using (var claiming = database.CreateDbContext())
+            claim = await claiming.TryClaimUploadAsync(
+                ticket.Id, ownerId, TimeSpan.FromMinutes(2), default);
+
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseNpgsql(database.ConnectionString)
+            .AddInterceptors(new ThrowingCommitInterceptor())
+            .Options;
+        await using var failing = new AppDbContext(options);
+
+        var exception = await Assert.ThrowsAsync<UploadTransitionCommitAmbiguousException>(() =>
+            failing.TryMarkUploadedAsync(
+                ticket.Id, ownerId, claim.UploadLeaseId, default));
+
+        Assert.IsType<IOException>(exception.InnerException);
+        await using var verify = database.CreateDbContext();
+        var persisted = await verify.ImageUploadTickets.AsNoTracking()
+            .SingleAsync(candidate => candidate.Id == ticket.Id);
+        Assert.Equal(ImageUploadState.Uploading, persisted.State);
+        Assert.Equal(claim.UploadLeaseId, persisted.UploadLeaseId);
+    }
+
+    [Fact]
+    public async Task Accepted_upload_save_failure_remains_a_definite_pre_commit_exception()
+    {
+        await using var database = await PostgreSqlFixture.StartAsync();
+        var ownerId = Guid.NewGuid();
+        var exercise = ExerciseDefinition.CreateCustom(
+            ownerId, "Definite Save Press", BodyPart.Chest, TrackingMode.Weighted);
+        var ticket = ImageUploadTicket.Create(
+            ownerId,
+            exercise.Id,
+            $"staging/{ownerId:D}/reserved",
+            "image/png",
+            4,
+            DateTimeOffset.UtcNow.AddMinutes(5));
+        await database.Db.Exercises.AddAsync(exercise);
+        await database.Db.AddTicketAsync(ticket, default);
+        await database.Db.SaveAsync(default);
+        UploadClaim claim;
+        await using (var claiming = database.CreateDbContext())
+            claim = await claiming.TryClaimUploadAsync(
+                ticket.Id, ownerId, TimeSpan.FromMinutes(2), default);
+
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseNpgsql(database.ConnectionString)
+            .AddInterceptors(new ThrowingSaveChangesInterceptor())
+            .Options;
+        await using var failing = new AppDbContext(options);
+
+        var exception = await Assert.ThrowsAsync<IOException>(() =>
+            failing.TryMarkUploadedAsync(
+                ticket.Id, ownerId, claim.UploadLeaseId, default));
+
+        Assert.IsNotType<UploadTransitionCommitAmbiguousException>(exception);
+        await using var verify = database.CreateDbContext();
+        var persisted = await verify.ImageUploadTickets.AsNoTracking()
+            .SingleAsync(candidate => candidate.Id == ticket.Id);
+        Assert.Equal(ImageUploadState.Uploading, persisted.State);
+        Assert.Equal(claim.UploadLeaseId, persisted.UploadLeaseId);
+    }
+
     [Fact]
     public async Task Accepted_upload_attempt_remains_durable_through_monotonic_successor_states_and_requires_the_exact_contract()
     {
@@ -200,6 +283,27 @@ public sealed class ExerciseCatalogPersistenceTests
             DeletedKeys.Add(key);
             return Task.CompletedTask;
         }
+    }
+
+    private sealed class ThrowingCommitInterceptor : DbTransactionInterceptor
+    {
+        public override ValueTask<InterceptionResult> TransactionCommittingAsync(
+            DbTransaction transaction,
+            TransactionEventData eventData,
+            InterceptionResult result,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<InterceptionResult>(
+                new IOException("Simulated PostgreSQL commit acknowledgement failure."));
+    }
+
+    private sealed class ThrowingSaveChangesInterceptor : SaveChangesInterceptor
+    {
+        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<InterceptionResult<int>>(
+                new IOException("Simulated pre-commit SaveChanges failure."));
     }
 
     [Fact]

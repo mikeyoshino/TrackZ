@@ -215,6 +215,75 @@ public sealed class MediaEndpointTests : IAsyncLifetime
         Assert.Equal(ImageUploadState.Uploaded, ticket.State);
     }
 
+    [Fact]
+    public async Task Completed_content_put_can_be_replayed_after_completion_deleted_staging()
+    {
+        var account = await AuthenticateAsync(
+            $"media-completed-replay-{Guid.NewGuid():N}@example.com");
+        var completed = await CreateCompletedUploadAsync(
+            _factory!.Services, _client, account, "Completed replay");
+        var storage = Assert.IsType<FakeObjectStorage>(
+            _factory.Services.GetRequiredService<IObjectStorage>());
+        Assert.Null(await storage.GetAsync(
+            $"staging/{account.UserId:D}/", completed.StagingKey, default));
+        var writesBeforeReplay = storage.PutCount;
+
+        using var replayBytes = new ByteArrayContent([1, 2, 3, 4]);
+        replayBytes.Headers.ContentType = new MediaTypeHeaderValue("image/png");
+        var replay = await SendAuthorizedAsync(
+            account.Token, HttpMethod.Put, completed.ContentRoute, replayBytes);
+
+        Assert.Equal(HttpStatusCode.NoContent, replay.StatusCode);
+        Assert.Equal(writesBeforeReplay, storage.PutCount);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Completed_content_put_replay_still_requires_the_exact_request_contract(
+        bool mismatchContentType)
+    {
+        var account = await AuthenticateAsync(
+            $"media-completed-request-mismatch-{mismatchContentType}-{Guid.NewGuid():N}@example.com");
+        var completed = await CreateCompletedUploadAsync(
+            _factory!.Services, _client, account, $"Completed mismatch {mismatchContentType}");
+        var storage = Assert.IsType<FakeObjectStorage>(
+            _factory.Services.GetRequiredService<IObjectStorage>());
+        var writesBeforeReplay = storage.PutCount;
+        using var replayBytes = new ByteArrayContent(
+            mismatchContentType ? [1, 2, 3, 4] : [1, 2, 3, 4, 5]);
+        replayBytes.Headers.ContentType = new MediaTypeHeaderValue(
+            mismatchContentType ? "image/jpeg" : "image/png");
+
+        var replay = await SendAuthorizedAsync(
+            account.Token, HttpMethod.Put, completed.ContentRoute, replayBytes);
+
+        Assert.Equal(HttpStatusCode.BadRequest, replay.StatusCode);
+        Assert.Equal(writesBeforeReplay, storage.PutCount);
+    }
+
+    [Fact]
+    public async Task Completed_content_put_replay_does_not_disclose_a_foreign_ticket()
+    {
+        var owner = await AuthenticateAsync(
+            $"media-completed-owner-{Guid.NewGuid():N}@example.com");
+        var foreign = await AuthenticateAsync(
+            $"media-completed-foreign-{Guid.NewGuid():N}@example.com");
+        var completed = await CreateCompletedUploadAsync(
+            _factory!.Services, _client, owner, "Completed foreign replay");
+        var storage = Assert.IsType<FakeObjectStorage>(
+            _factory.Services.GetRequiredService<IObjectStorage>());
+        var writesBeforeReplay = storage.PutCount;
+        using var replayBytes = new ByteArrayContent([1, 2, 3, 4]);
+        replayBytes.Headers.ContentType = new MediaTypeHeaderValue("image/png");
+
+        var replay = await SendAuthorizedAsync(
+            foreign.Token, HttpMethod.Put, completed.ContentRoute, replayBytes);
+
+        Assert.Equal(HttpStatusCode.NotFound, replay.StatusCode);
+        Assert.Equal(writesBeforeReplay, storage.PutCount);
+    }
+
     [Theory]
     [InlineData(ImageUploadState.Processing)]
     [InlineData(ImageUploadState.Completed)]
@@ -331,10 +400,10 @@ public sealed class MediaEndpointTests : IAsyncLifetime
     }
 
     [Theory]
+    [InlineData(ImageUploadState.Uploaded, "image/jpeg", 4)]
+    [InlineData(ImageUploadState.Uploaded, "image/png", 3)]
     [InlineData(ImageUploadState.Processing, "image/jpeg", 4)]
     [InlineData(ImageUploadState.Processing, "image/png", 3)]
-    [InlineData(ImageUploadState.Completed, "image/jpeg", 4)]
-    [InlineData(ImageUploadState.Completed, "image/png", 3)]
     public async Task Content_put_replay_rejects_a_stored_object_that_no_longer_matches_the_accepted_contract(
         ImageUploadState successorState,
         string storedContentType,
@@ -587,6 +656,58 @@ public sealed class MediaEndpointTests : IAsyncLifetime
             $"staging/{account.UserId:D}/", unrelatedKey, default);
         Assert.NotNull(unrelated);
         await unrelated!.Content.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task Ambiguous_commit_with_delayed_visibility_never_deletes_the_eventually_accepted_lease_key()
+    {
+        var delayedCommit = new DelayedCommitCoordinator();
+        await using var factory = new MediaApiFactory(
+            _container!.GetConnectionString(),
+            reconciliationBehavior: ReconciliationBehavior.DelayedVisibility,
+            delayedCommitCoordinator: delayedCommit);
+        using var client = factory.CreateClient();
+        var account = await AuthenticateAsync(
+            client, $"media-delayed-commit-{Guid.NewGuid():N}@example.com");
+        var exercise = ExerciseDefinition.CreateCustom(
+            account.UserId, "Delayed commit visibility", BodyPart.Chest, TrackingMode.Weighted);
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await db.Exercises.AddAsync(exercise);
+            await db.SaveChangesAsync();
+        }
+
+        var reservation = await SendAuthorizedAsync(
+            client,
+            account.Token,
+            HttpMethod.Post,
+            "/api/v1/media/exercise-images/uploads",
+            JsonContent.Create(new { exerciseId = exercise.Id, contentType = "image/png", length = 4L }));
+        using var reservationJson = JsonDocument.Parse(await reservation.Content.ReadAsStringAsync());
+        var uploadId = reservationJson.RootElement.GetProperty("uploadId").GetGuid();
+        var contentRoute = reservationJson.RootElement.GetProperty("uploadUri").GetString()!;
+        using var bytes = new ByteArrayContent([1, 2, 3, 4]);
+        bytes.Headers.ContentType = new MediaTypeHeaderValue("image/png");
+
+        var put = await SendAuthorizedAsync(
+            client, account.Token, HttpMethod.Put, contentRoute, bytes);
+        var eventualTransition = await delayedCommit.Completion.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(HttpStatusCode.InternalServerError, put.StatusCode);
+        Assert.False(delayedCommit.FirstReconciliationResult);
+        Assert.Equal(StagingUploadTransition.Uploaded, eventualTransition);
+        var storage = Assert.IsType<FakeObjectStorage>(
+            factory.Services.GetRequiredService<IObjectStorage>());
+        Assert.Empty(storage.DeletedKeys);
+        await using var verifyScope = factory.Services.CreateAsyncScope();
+        var ticket = await verifyScope.ServiceProvider.GetRequiredService<AppDbContext>()
+            .ImageUploadTickets.AsNoTracking().SingleAsync(candidate => candidate.Id == uploadId);
+        Assert.Equal(ImageUploadState.Uploaded, ticket.State);
+        var accepted = await storage.GetAsync(
+            $"staging/{account.UserId:D}/", ticket.StagingObjectKey, default);
+        Assert.NotNull(accepted);
+        await accepted!.Content.DisposeAsync();
     }
 
     [Fact]
@@ -885,6 +1006,56 @@ public sealed class MediaEndpointTests : IAsyncLifetime
         return await client.SendAsync(request);
     }
 
+    private static async Task<(Guid UploadId, string ContentRoute, string StagingKey)> CreateCompletedUploadAsync(
+        IServiceProvider services,
+        HttpClient client,
+        (Guid UserId, string Token) account,
+        string exerciseName)
+    {
+        var exercise = ExerciseDefinition.CreateCustom(
+            account.UserId, exerciseName, BodyPart.Chest, TrackingMode.Weighted);
+        await using (var scope = services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await db.Exercises.AddAsync(exercise);
+            await db.SaveChangesAsync();
+        }
+
+        var reservation = await SendAuthorizedAsync(
+            client,
+            account.Token,
+            HttpMethod.Post,
+            "/api/v1/media/exercise-images/uploads",
+            JsonContent.Create(new { exerciseId = exercise.Id, contentType = "image/png", length = 4L }));
+        Assert.Equal(HttpStatusCode.OK, reservation.StatusCode);
+        using var reservationJson = JsonDocument.Parse(await reservation.Content.ReadAsStringAsync());
+        var uploadId = reservationJson.RootElement.GetProperty("uploadId").GetGuid();
+        var contentRoute = reservationJson.RootElement.GetProperty("uploadUri").GetString()!;
+        using var bytes = new ByteArrayContent([1, 2, 3, 4]);
+        bytes.Headers.ContentType = new MediaTypeHeaderValue("image/png");
+        Assert.Equal(
+            HttpStatusCode.NoContent,
+            (await SendAuthorizedAsync(
+                client, account.Token, HttpMethod.Put, contentRoute, bytes)).StatusCode);
+
+        string stagingKey;
+        await using (var scope = services.CreateAsyncScope())
+        {
+            stagingKey = (await scope.ServiceProvider.GetRequiredService<AppDbContext>()
+                .ImageUploadTickets.AsNoTracking()
+                .SingleAsync(ticket => ticket.Id == uploadId)).StagingObjectKey;
+        }
+        Assert.Equal(
+            HttpStatusCode.OK,
+            (await SendAuthorizedAsync(
+                client,
+                account.Token,
+                HttpMethod.Post,
+                $"/api/v1/media/exercise-images/uploads/{uploadId:D}/complete",
+                null)).StatusCode);
+        return (uploadId, contentRoute, stagingKey);
+    }
+
     private static async Task AdvanceAcceptedTicketAsync(
         IServiceProvider services,
         Guid uploadId,
@@ -903,6 +1074,8 @@ public sealed class MediaEndpointTests : IAsyncLifetime
         ImageUploadState successorState)
     {
         var ticket = await db.ImageUploadTickets.SingleAsync(candidate => candidate.Id == uploadId);
+        if (successorState == ImageUploadState.Uploaded)
+            return;
         Assert.True(ticket.TryClaim(DateTimeOffset.UtcNow, TimeSpan.FromMinutes(2)));
         if (successorState == ImageUploadState.Processing)
         {
@@ -931,7 +1104,37 @@ public sealed class MediaEndpointTests : IAsyncLifetime
     {
         Delegate,
         Throw,
-        ConclusiveFalse
+        ConclusiveFalse,
+        DelayedVisibility
+    }
+
+    private sealed class DelayedCommitCoordinator
+    {
+        private readonly TaskCompletionSource _release = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        private Task<StagingUploadTransition>? _completion;
+
+        public bool? FirstReconciliationResult { get; private set; }
+        public Task<StagingUploadTransition> Completion =>
+            _completion ?? throw new InvalidOperationException("Delayed commit was not started.");
+
+        public void Start(Func<Task<StagingUploadTransition>> commit) =>
+            _completion = CommitAfterReleaseAsync(commit);
+
+        public async Task<bool> ObserveThenReleaseAsync(Func<Task<bool>> reconcile)
+        {
+            var result = await reconcile();
+            FirstReconciliationResult = result;
+            _release.TrySetResult();
+            return result;
+        }
+
+        private async Task<StagingUploadTransition> CommitAfterReleaseAsync(
+            Func<Task<StagingUploadTransition>> commit)
+        {
+            await _release.Task;
+            return await commit();
+        }
     }
 
     private sealed class MediaApiFactory(
@@ -941,7 +1144,8 @@ public sealed class MediaEndpointTests : IAsyncLifetime
         ReconciliationBehavior reconciliationBehavior = ReconciliationBehavior.Delegate,
         TimeProvider? timeProvider = null,
         IObjectStorage? objectStorage = null,
-        ServerBodyGate? bodyGate = null) : WebApplicationFactory<Program>
+        ServerBodyGate? bodyGate = null,
+        DelayedCommitCoordinator? delayedCommitCoordinator = null) : WebApplicationFactory<Program>
     {
         protected override void ConfigureWebHost(IWebHostBuilder builder) => builder.UseEnvironment("Testing")
             .ConfigureAppConfiguration(configuration => configuration.AddInMemoryCollection(new Dictionary<string, string?>
@@ -974,7 +1178,9 @@ public sealed class MediaEndpointTests : IAsyncLifetime
                         new AmbiguousMarkUploadStore(
                             provider.GetRequiredService<AppDbContext>(),
                             ambiguousSuccessorState,
-                            reconciliationBehavior));
+                            reconciliationBehavior,
+                            connectionString,
+                            delayedCommitCoordinator));
                 }
             });
     }
@@ -989,7 +1195,9 @@ public sealed class MediaEndpointTests : IAsyncLifetime
     private sealed class AmbiguousMarkUploadStore(
         AppDbContext inner,
         ImageUploadState? successorState,
-        ReconciliationBehavior reconciliationBehavior) : IExerciseImageUploadStore
+        ReconciliationBehavior reconciliationBehavior,
+        string connectionString,
+        DelayedCommitCoordinator? delayedCommitCoordinator) : IExerciseImageUploadStore
     {
         private bool _failed;
 
@@ -1019,6 +1227,23 @@ public sealed class MediaEndpointTests : IAsyncLifetime
                     "Simulated original transition failure.",
                     409);
             }
+            if (!_failed && reconciliationBehavior == ReconciliationBehavior.DelayedVisibility)
+            {
+                _failed = true;
+                var delayed = delayedCommitCoordinator
+                    ?? throw new InvalidOperationException("A delayed commit coordinator is required.");
+                delayed.Start(async () =>
+                {
+                    await using var durable = new AppDbContext(
+                        new DbContextOptionsBuilder<AppDbContext>()
+                            .UseNpgsql(connectionString)
+                            .Options);
+                    return await durable.TryMarkUploadedAsync(
+                        ticketId, ownerId, uploadLeaseId, CancellationToken.None);
+                });
+                throw new UploadTransitionCommitAmbiguousException(
+                    new IOException("Simulated delayed PostgreSQL commit acknowledgement."));
+            }
 
             var transition = await inner.TryMarkUploadedAsync(ticketId, ownerId, uploadLeaseId, cancellationToken);
             if (!_failed && transition == StagingUploadTransition.Uploaded)
@@ -1026,7 +1251,8 @@ public sealed class MediaEndpointTests : IAsyncLifetime
                 _failed = true;
                 if (successorState is not null)
                     await AdvanceAcceptedTicketAsync(inner, ticketId, ownerId, successorState.Value);
-                throw new IOException("Simulated lost PostgreSQL commit acknowledgement.");
+                throw new UploadTransitionCommitAmbiguousException(
+                    new IOException("Simulated lost PostgreSQL commit acknowledgement."));
             }
             return transition;
         }
@@ -1038,6 +1264,11 @@ public sealed class MediaEndpointTests : IAsyncLifetime
                 ReconciliationBehavior.Throw => Task.FromException<bool>(
                     new IOException("Simulated reconciliation read failure.")),
                 ReconciliationBehavior.ConclusiveFalse => Task.FromResult(false),
+                ReconciliationBehavior.DelayedVisibility =>
+                    (delayedCommitCoordinator
+                        ?? throw new InvalidOperationException("A delayed commit coordinator is required."))
+                    .ObserveThenReleaseAsync(() => inner.IsAcceptedUploadAttemptDurableAsync(
+                        ticketId, ownerId, stagingObjectKey, contentType, length, cancellationToken)),
                 _ => inner.IsAcceptedUploadAttemptDurableAsync(
                     ticketId, ownerId, stagingObjectKey, contentType, length, cancellationToken)
             };

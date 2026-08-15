@@ -92,7 +92,14 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             return StagingUploadTransition.Rejected;
         }
         await SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
+        try
+        {
+            await transaction.CommitAsync(cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            throw new UploadTransitionCommitAmbiguousException(exception);
+        }
         return StagingUploadTransition.Uploaded;
     }
     public async Task<UploadClaim> TryClaimUploadAsync(Guid ticketId, Guid ownerId, TimeSpan lease, CancellationToken cancellationToken)
@@ -140,7 +147,14 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             return StagingUploadTransition.Rejected;
         }
         await SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
+        try
+        {
+            await transaction.CommitAsync(cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            throw new UploadTransitionCommitAmbiguousException(exception);
+        }
         return StagingUploadTransition.Uploaded;
     }
     public async Task<bool> IsAcceptedUploadAttemptDurableAsync(
