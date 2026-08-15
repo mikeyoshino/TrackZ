@@ -50,6 +50,25 @@ public sealed class WorkoutCursorCodecTests
         Assert.Equal(BusinessErrorCode.InvalidRequest, future.Code);
     }
 
+    [Fact]
+    public void Cursor_rejects_noncanonical_signature_alias_for_the_same_owner_and_purpose()
+    {
+        var codec = CreateCodec(new MutableTimeProvider(Now));
+        var scope = new WorkoutCursorScope(
+            OwnerId,
+            WorkoutCursorPurpose.WorkoutHistory,
+            null);
+        var cursor = codec.Encode(scope, Now.AddDays(-1), Guid.NewGuid());
+        var alias = NonCanonicalSignatureAlias(cursor);
+
+        Assert.NotEqual(cursor, alias);
+        Assert.Equal(DecodeSegments(cursor), DecodeSegments(alias));
+        Assert.Equal(scope.OwnerId, codec.Decode(cursor, scope).OwnerId);
+        var error = Assert.Throws<BusinessException>(() => codec.Decode(alias, scope));
+        Assert.Equal(BusinessErrorCode.InvalidRequest, error.Code);
+        Assert.Equal(400, error.StatusCode);
+    }
+
     [Theory]
     [InlineData(4)]
     [InlineData(1441)]
@@ -69,6 +88,21 @@ public sealed class WorkoutCursorCodecTests
         }),
         Options.Create(new WorkoutCursorOptions { LifetimeMinutes = 60 }),
         timeProvider);
+
+    private static string NonCanonicalSignatureAlias(string cursor)
+    {
+        const string alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+        var lastValue = alphabet.IndexOf(cursor[^1]);
+        var aliasValue = (lastValue & ~3) | ((lastValue + 1) & 3);
+        return cursor[..^1] + alphabet[aliasValue];
+    }
+
+    private static byte[][] DecodeSegments(string cursor) => cursor
+        .Split('.')
+        .Select(value => Convert.FromBase64String(
+            value.Replace('-', '+').Replace('_', '/')
+                .PadRight(value.Length + (4 - value.Length % 4) % 4, '=')))
+        .ToArray();
 
     private sealed class MutableTimeProvider(DateTimeOffset utcNow) : TimeProvider
     {

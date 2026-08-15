@@ -119,3 +119,30 @@ The second independent review found a resolution race in a rebased conflict: aft
 
 - Android packaging remains unverified until an Android SDK is installed.
 - The earlier full `iossimulator-arm64` post-compile packaging stall remains an environment/tooling concern; deterministic iOS XAML `Compile` is green and is the only iOS result claimed in this round.
+
+## Fix Round 3
+
+The third review found that the workout-history and exercise-catalog signed cursor decoders accepted noncanonical base64url spellings. Altering only unused padding bits in the final signature character produced different cursor text that decoded to the identical payload and HMAC bytes, so signature verification alone accepted it.
+
+- `HmacWorkoutCursorCodec` and `HmacExerciseCursorCodec` now require each decoded segment to re-encode to the exact supplied base64url text, matching the Task 7 sync cursor defense. Invalid aliases continue through the existing invalid-cursor exception and localized cursor-field problem path without exposing codec details.
+- Valid same-owner/same-purpose workout cursors and valid catalog cursors still round-trip. Real API tests retrieve canonical cursors from first pages, traverse the next page successfully, then prove a byte-identical noncanonical alias is rejected on the same authenticated route and scope.
+- The change stays inside the two private decode helpers; no cross-layer helper or unrelated cursor refactor was introduced.
+
+### Fix-round-3 TDD evidence
+
+1. Codec RED: both focused tests proved canonical and aliased cursor segments decoded to identical byte arrays, then failed because no `BusinessException` was thrown for either alias.
+2. API RED: authenticated PostgreSQL-backed workout-history and exercise-catalog routes expected `400 Bad Request`, but both aliases returned `200 OK`.
+3. GREEN: the same focused codec tests pass 2/2 and the same real API tests pass 2/2 after canonical re-encode equality validation.
+
+### Fix-round-3 verification
+
+- All Infrastructure cursor tests: PASS, 9/9.
+- API workout/sync/catalog: PASS, 70/70 against PostgreSQL.
+- Complete Infrastructure suite: PASS, 109/109, including PostgreSQL and migration coverage.
+- Domain/Application/Mobile architecture: PASS, 2/2, 6/6, and 3/3.
+- API and Mobile.Core builds: PASS, 0 warnings / 0 errors.
+- iOS MAUI `Compile`: PASS, 0 warnings / 0 errors with XAML source generation.
+
+### Fix-round-3 concerns
+
+- No new cursor-specific concerns. The earlier external Android SDK gate and full iOS simulator packaging stall remain unchanged; deterministic iOS XAML `Compile` is green.

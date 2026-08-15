@@ -281,6 +281,45 @@ public sealed class ListExercisesEndpointTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Noncanonical_catalog_cursor_alias_is_rejected_while_canonical_paging_remains_valid()
+    {
+        var account = await AuthenticateAsync($"catalog-cursor-alias-{Guid.NewGuid():N}@example.com");
+        await using (var scope = _factory!.Services.CreateAsyncScope())
+        {
+            var database = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await database.Exercises.AddRangeAsync(
+                ExerciseDefinition.CreateSystem("Alias Curl A", BodyPart.Arms, TrackingMode.Weighted),
+                ExerciseDefinition.CreateSystem("Alias Curl B", BodyPart.Arms, TrackingMode.Weighted));
+            await database.SaveChangesAsync();
+        }
+
+        using var firstRequest = new HttpRequestMessage(
+            HttpMethod.Get, "/api/v1/exercises?bodyPart=Arms&search=Alias%20Curl&pageSize=1");
+        firstRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", account.Token);
+        var first = await _client.SendAsync(firstRequest);
+        var firstPage = await first.Content.ReadFromJsonAsync<JsonDocument>();
+        var cursor = firstPage!.RootElement.GetProperty("nextCursor").GetString();
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+        Assert.NotNull(cursor);
+
+        using var validRequest = new HttpRequestMessage(HttpMethod.Get,
+            $"/api/v1/exercises?bodyPart=Arms&search=Alias%20Curl&pageSize=1&cursor={Uri.EscapeDataString(cursor)}");
+        validRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", account.Token);
+        var valid = await _client.SendAsync(validRequest);
+        var alias = NonCanonicalSignatureAlias(cursor!);
+        using var aliasRequest = new HttpRequestMessage(HttpMethod.Get,
+            $"/api/v1/exercises?bodyPart=Arms&search=Alias%20Curl&pageSize=1&cursor={Uri.EscapeDataString(alias)}");
+        aliasRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", account.Token);
+        var rejected = await _client.SendAsync(aliasRequest);
+        var problem = await rejected.Content.ReadFromJsonAsync<TrackZ.Contracts.Errors.ApiProblemDetails>();
+
+        Assert.Equal(HttpStatusCode.OK, valid.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, rejected.StatusCode);
+        Assert.Equal(10009, (int)problem!.ErrorCode);
+        Assert.Equal(["cursor"], problem.FieldErrors!.Keys);
+    }
+
+    [Fact]
     public async Task Traverses_equal_names_without_duplicates_or_skips()
     {
         var account = await AuthenticateAsync("catalog-equal-traversal@example.com");
@@ -689,6 +728,14 @@ public sealed class ListExercisesEndpointTests : IAsyncLifetime
     }
 
     private static string Base64Url(byte[] bytes) => Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+
+    private static string NonCanonicalSignatureAlias(string cursor)
+    {
+        const string alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+        var lastValue = alphabet.IndexOf(cursor[^1]);
+        var aliasValue = (lastValue & ~3) | ((lastValue + 1) & 3);
+        return cursor[..^1] + alphabet[aliasValue];
+    }
 
     private static string CatalogPath => Path.Combine(RepositoryRoot, "assets", "exercises", "catalog.json");
 

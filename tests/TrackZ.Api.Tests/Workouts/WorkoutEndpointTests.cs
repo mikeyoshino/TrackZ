@@ -171,6 +171,36 @@ public sealed class WorkoutEndpointTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Noncanonical_workout_history_cursor_alias_is_rejected_for_same_owner_and_scope()
+    {
+        var owner = await AuthenticateAsync($"cursor-alias-{Guid.NewGuid():N}@example.com");
+        var exercise = ExerciseDefinition.CreateSystem(
+            "Canonical Cursor Press", BodyPart.Chest, TrackingMode.Weighted);
+        var completedAt = _factory!.Time.UtcNow.AddMinutes(-1);
+        await SeedAsync(exercise,
+            CompletedWorkout(owner.UserId, exercise, completedAt, (70m, 8)),
+            CompletedWorkout(owner.UserId, exercise, completedAt.AddMinutes(-1), (72m, 6)));
+
+        var first = await SendAsync(owner.Token, "/api/v1/workouts?pageSize=1");
+        var firstPage = await first.Content.ReadFromJsonAsync<JsonDocument>();
+        var cursor = firstPage!.RootElement.GetProperty("nextCursor").GetString();
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+        Assert.NotNull(cursor);
+
+        var valid = await SendAsync(owner.Token,
+            $"/api/v1/workouts?pageSize=1&cursor={Uri.EscapeDataString(cursor)}");
+        var alias = NonCanonicalSignatureAlias(cursor!);
+        var rejected = await SendAsync(owner.Token,
+            $"/api/v1/workouts?pageSize=1&cursor={Uri.EscapeDataString(alias)}");
+        var problem = await rejected.Content.ReadFromJsonAsync<ApiProblemDetails>();
+
+        Assert.Equal(HttpStatusCode.OK, valid.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, rejected.StatusCode);
+        Assert.Equal(BusinessErrorCode.InvalidRequest, problem!.ErrorCode);
+        Assert.Equal(["cursor"], problem.FieldErrors!.Keys);
+    }
+
+    [Fact]
     public async Task Exercise_history_keeps_mode_values_and_counts_only_weighted_volume()
     {
         var owner = await AuthenticateAsync($"exercise-history-{Guid.NewGuid():N}@example.com");
@@ -207,6 +237,14 @@ public sealed class WorkoutEndpointTests : IAsyncLifetime
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         if (language is not null) request.Headers.AcceptLanguage.ParseAdd(language);
         return await _client.SendAsync(request);
+    }
+
+    private static string NonCanonicalSignatureAlias(string cursor)
+    {
+        const string alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+        var lastValue = alphabet.IndexOf(cursor[^1]);
+        var aliasValue = (lastValue & ~3) | ((lastValue + 1) & 3);
+        return cursor[..^1] + alphabet[aliasValue];
     }
 
     private async Task SeedAsync(ExerciseDefinition exercise, params WorkoutSession[] workouts) =>
