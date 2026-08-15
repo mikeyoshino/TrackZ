@@ -154,6 +154,11 @@ public sealed class SyncCoordinator(
                         if (await HasLiveReplacementAsync(
                                 connection, transaction, original.OperationId, innerToken))
                             throw new InvalidOperationException("The conflict already has a live replacement.");
+                        if (await HasUnrelatedLiveSuccessorAsync(
+                                connection, transaction, original,
+                                new HashSet<Guid> { original.OperationId }, innerToken))
+                            throw new InvalidOperationException(
+                                "Resolve later sync intent before rebasing this conflict.");
                         var server = JsonSerializer.Deserialize<SyncWorkoutDto>(
                             original.ServerPayload, JsonOptions)
                             ?? throw new InvalidDataException("The stored server authority is malformed.");
@@ -214,12 +219,19 @@ public sealed class SyncCoordinator(
                         throw new InvalidOperationException("The conflicted operation has no server authority to keep.");
                     var authority = operation;
                     var leaf = operation;
+                    var chain = new HashSet<Guid> { operation.OperationId };
                     while (await ReadLiveReplacementAsync(
                                connection, transaction, leaf.OperationId, innerToken) is { } replacement)
                     {
+                        if (!chain.Add(replacement.OperationId))
+                            throw new InvalidDataException("The conflict replacement chain is cyclic.");
                         leaf = replacement;
                         if (replacement.ServerPayload is not null) authority = replacement;
                     }
+                    if (await HasUnrelatedLiveSuccessorAsync(
+                            connection, transaction, operation, chain, innerToken))
+                        throw new InvalidOperationException(
+                            "Resolve later sync intent before keeping server authority.");
                     if (authority.ServerPayload is null)
                         throw new InvalidOperationException("The conflicted operation has no server authority to keep.");
                     var graph = JsonSerializer.Deserialize<SyncWorkoutDto>(authority.ServerPayload, JsonOptions)
@@ -264,6 +276,12 @@ public sealed class SyncCoordinator(
                 await using var reader = await command.ExecuteReaderAsync(innerToken);
                 while (await reader.ReadAsync(innerToken)) rows.Add(ReadOperation(reader));
                 if (rows.Count == 0) return null;
+                for (var index = 0; index < rows.Count; index++)
+                {
+                    if (rows[index].ReplacesOperationId is not { } predecessorId) continue;
+                    var predecessorIndex = rows.FindIndex(item => item.OperationId == predecessorId);
+                    if (predecessorIndex != index - 1) return null;
+                }
                 var candidate = rows[0];
                 var visited = new HashSet<Guid>();
                 while (candidate.State == OutboxOperationState.Conflicted)
@@ -362,6 +380,8 @@ public sealed class SyncCoordinator(
                 foreach (var change in response.Changes)
                 {
                     ValidateGraph(change.Workout);
+                    await ValidateGraphIdentityAsync(
+                        connection, transaction, change.Workout, innerToken);
                     var serverPayload = JsonSerializer.Serialize(change.Workout, JsonOptions);
                     var conflicts = await ReadActiveOperationsAsync(
                         connection, transaction, change.EntityId, innerToken);
@@ -413,12 +433,25 @@ public sealed class SyncCoordinator(
                 || result.OperationId != operations[index].OperationId
                 || !seen.Add(result.OperationId)
                 || !Enum.IsDefined(result.Status)
-                || result.Status is SyncOperationStatus.Applied or SyncOperationStatus.Conflict
-                    && result.ServerVersion is null
-                || result.Status == SyncOperationStatus.Conflict
-                    && result.ErrorCode != BusinessErrorCode.VersionConflict)
+                || !HasValidResultContract(result))
                 throw new InvalidDataException("The push result mapping is invalid.");
         }
+
+        static bool HasValidResultContract(SyncOperationResultDto result) => result.Status switch
+        {
+            SyncOperationStatus.Applied =>
+                result.ServerVersion is > 0 && result.ErrorCode is null,
+            SyncOperationStatus.Rejected =>
+                result.ServerVersion is null
+                && result.ErrorCode == BusinessErrorCode.InvalidRequest,
+            SyncOperationStatus.Conflict =>
+                result.ServerVersion is > 0
+                && result.ErrorCode == BusinessErrorCode.VersionConflict,
+            SyncOperationStatus.Retryable =>
+                result.ServerVersion is null
+                && result.ErrorCode == BusinessErrorCode.InternalServerError,
+            _ => false
+        };
     }
 
     private static void ValidatePull(SyncPullResponse response, string? priorCursor)
@@ -640,6 +673,7 @@ public sealed class SyncCoordinator(
         CancellationToken cancellationToken)
     {
         ValidateGraph(graph);
+        await ValidateGraphIdentityAsync(connection, transaction, graph, cancellationToken);
         await DeleteAbsentChildrenAsync(connection, transaction, graph, cancellationToken);
         await ExecuteAsync(connection, transaction, """
             UPDATE LocalWorkoutExercise SET SortOrder = SortOrder + 1000000000
@@ -696,6 +730,49 @@ public sealed class SyncCoordinator(
                     ("$weight", set.WeightKg), ("$assisted", set.AssistedKg), ("$reps", set.Reps),
                     ("$completedAt", Timestamp(set.CompletedAt)), ("$updatedAt", Timestamp(set.UpdatedAt)),
                     ("$deletedAt", Timestamp(set.DeletedAt)), ("$version", set.Version));
+            }
+        }
+    }
+
+    private static async Task ValidateGraphIdentityAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        SyncWorkoutDto graph,
+        CancellationToken cancellationToken)
+    {
+        foreach (var exercise in graph.Exercises)
+        {
+            await using (var command = connection.CreateCommand())
+            {
+                command.Transaction = transaction;
+                command.CommandText = """
+                    SELECT WorkoutId, ExerciseDefinitionId
+                    FROM LocalWorkoutExercise
+                    WHERE Id = $id;
+                    """;
+                Add(command, "$id", Id(exercise.Id));
+                await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+                if (await reader.ReadAsync(cancellationToken)
+                    && (reader.GetString(0) != Id(graph.Id)
+                        || reader.GetString(1) != Id(exercise.ExerciseDefinitionId)))
+                    throw new InvalidDataException(
+                        "The authoritative exercise identifier belongs to another graph.");
+            }
+
+            foreach (var set in exercise.Sets)
+            {
+                await using var command = connection.CreateCommand();
+                command.Transaction = transaction;
+                command.CommandText = """
+                    SELECT WorkoutExerciseId
+                    FROM LocalSet
+                    WHERE Id = $id;
+                    """;
+                Add(command, "$id", Id(set.Id));
+                var existingExerciseId = await command.ExecuteScalarAsync(cancellationToken);
+                if (existingExerciseId is string value && value != Id(exercise.Id))
+                    throw new InvalidDataException(
+                        "The authoritative set identifier belongs to another exercise.");
             }
         }
     }
@@ -784,6 +861,10 @@ public sealed class SyncCoordinator(
             var activeSets = exercise.Sets.Where(item => item.DeletedAt is null).ToArray();
             if (!Contiguous(activeSets.Select(item => item.Order)))
                 throw new InvalidDataException("The authoritative set order is malformed.");
+            if (graph.DeletedAt is { } deletedWorkoutAfterExercise
+                && exercise.DeletedAt is { } deletedExerciseAfterWorkout
+                && deletedWorkoutAfterExercise < deletedExerciseAfterWorkout)
+                throw new InvalidDataException("The authoritative mutation chronology is malformed.");
             foreach (var set in exercise.Sets)
             {
                 if (set.Id == Guid.Empty
@@ -803,15 +884,9 @@ public sealed class SyncCoordinator(
                     throw new InvalidDataException("The authoritative set is malformed.");
                 var lastMutation = set.DeletedAt ?? set.UpdatedAt ?? set.CompletedAt;
                 if (exercise.DeletedAt is { } deletedExercise
-                        && (deletedExercise < lastMutation
-                            || graph.CompletedAt is { } completedBeforeExerciseDelete
-                                && deletedExercise < completedBeforeExerciseDelete)
+                        && deletedExercise < lastMutation
                     || graph.CompletedAt is { } completedWorkout
-                        && (completedWorkout < set.CompletedAt
-                            || set.UpdatedAt is { } updateAfterCompletion
-                                && updateAfterCompletion < completedWorkout
-                            || set.DeletedAt is { } deleteAfterCompletion
-                                && deleteAfterCompletion < completedWorkout)
+                        && completedWorkout < set.CompletedAt
                     || graph.DeletedAt is { } deletedWorkout && deletedWorkout < lastMutation)
                     throw new InvalidDataException("The authoritative mutation chronology is malformed.");
             }
@@ -902,6 +977,32 @@ public sealed class SyncCoordinator(
         return value is string text
             ? DateTimeOffset.ParseExact(text, "O", CultureInfo.InvariantCulture)
             : DateTimeOffset.MinValue;
+    }
+
+    private static async Task<bool> HasUnrelatedLiveSuccessorAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        OutboxOperation original,
+        IReadOnlySet<Guid> replacementChain,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT OperationId, CreatedAt
+            FROM OutboxOperation
+            WHERE State IN (1, 4) AND DeletedAt IS NULL
+              AND (CreatedAt > $createdAt
+                   OR (CreatedAt = $createdAt AND OperationId > $operationId));
+            """;
+        Add(command, "$createdAt", Timestamp(original.CreatedAt));
+        Add(command, "$operationId", Id(original.OperationId));
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            if (!replacementChain.Contains(Guid.Parse(reader.GetString(0)))) return true;
+        }
+        return false;
     }
 
     private static async Task InsertOperationAsync(

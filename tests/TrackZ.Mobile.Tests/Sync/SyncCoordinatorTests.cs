@@ -203,6 +203,70 @@ public sealed class SyncCoordinatorTests
     }
 
     [Fact]
+    public async Task Apply_local_is_blocked_when_conflict_has_two_causal_successors()
+    {
+        await using var context = await SyncContext.CreateAsync();
+        var (_, conflict, successors) = await PrepareConflictWithSuccessorsAsync(context);
+        var before = (await context.Workouts.GetActiveAsync())!;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            new ConflictResolution(context.Coordinator)
+                .ApplyLocalAgainstVersionAsync(conflict.OperationId, 4));
+
+        Assert.Equal([conflict, .. successors], await context.Outbox.ConflictedAsync());
+        Assert.Empty(await context.Outbox.PendingAsync());
+        AssertWorkoutIntentEqual(before, (await context.Workouts.GetActiveAsync())!);
+    }
+
+    [Fact]
+    public async Task Keep_server_is_blocked_when_conflict_has_two_causal_successors()
+    {
+        await using var context = await SyncContext.CreateAsync();
+        var (_, conflict, successors) = await PrepareConflictWithSuccessorsAsync(context);
+        var before = (await context.Workouts.GetActiveAsync())!;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            new ConflictResolution(context.Coordinator).KeepServerAsync(conflict.OperationId));
+
+        Assert.Equal([conflict, .. successors], await context.Outbox.ConflictedAsync());
+        Assert.Empty(await context.Outbox.PendingAsync());
+        AssertWorkoutIntentEqual(before, (await context.Workouts.GetActiveAsync())!);
+    }
+
+    [Fact]
+    public async Task Restart_does_not_jump_causal_successors_to_a_later_replacement()
+    {
+        await using var context = await SyncContext.CreateAsync();
+        var (_, conflict, successors) = await PrepareConflictWithSuccessorsAsync(context);
+        var replacement = conflict with
+        {
+            OperationId = Guid.NewGuid(),
+            BaseVersion = 4,
+            CreatedAt = successors[^1].CreatedAt.AddTicks(1),
+            State = OutboxOperationState.Pending,
+            ServerVersion = null,
+            ServerPayload = null,
+            ReplacesOperationId = conflict.OperationId
+        };
+        await InsertOperationAsync(context.Path, replacement);
+        var restartedApi = new FakeSyncApi
+        {
+            PushResponse = new SyncPushResponse([
+                new(replacement.OperationId, SyncOperationStatus.Applied, 5, null)
+            ])
+        };
+        var restarted = new SyncCoordinator(
+            new TrackZLocalDatabase(context.Path), restartedApi, context.Boundary, context.Clock);
+
+        var status = await restarted.RunOnceAsync();
+
+        Assert.Equal(SyncRunStatus.Completed, status);
+        Assert.Empty(restartedApi.PushRequests);
+        Assert.Equal([conflict, .. successors], await context.Outbox.ConflictedAsync());
+        Assert.Equal(replacement, Assert.Single(await context.Outbox.PendingAsync()));
+    }
+
+    [Fact]
     public async Task Retryable_result_persists_bounded_backoff_across_restart()
     {
         await using var context = await SyncContext.CreateAsync();
@@ -239,6 +303,41 @@ public sealed class SyncCoordinatorTests
         Assert.Empty(context.Api.PullRequests);
     }
 
+    public static TheoryData<SyncOperationStatus, long?, BusinessErrorCode?> MalformedPushResults => new()
+    {
+        { SyncOperationStatus.Applied, null, null },
+        { SyncOperationStatus.Applied, 0, null },
+        { SyncOperationStatus.Applied, 1, BusinessErrorCode.InvalidRequest },
+        { SyncOperationStatus.Rejected, null, null },
+        { SyncOperationStatus.Rejected, 1, BusinessErrorCode.InvalidRequest },
+        { SyncOperationStatus.Rejected, null, BusinessErrorCode.InternalServerError },
+        { SyncOperationStatus.Conflict, 1, BusinessErrorCode.InvalidRequest },
+        { SyncOperationStatus.Conflict, 0, BusinessErrorCode.VersionConflict },
+        { SyncOperationStatus.Retryable, null, null },
+        { SyncOperationStatus.Retryable, 1, BusinessErrorCode.InternalServerError }
+    };
+
+    [Theory]
+    [MemberData(nameof(MalformedPushResults))]
+    public async Task Malformed_push_result_fields_fail_closed_without_mutating_sync_state(
+        SyncOperationStatus status,
+        long? serverVersion,
+        BusinessErrorCode? errorCode)
+    {
+        await using var context = await SyncContext.CreateAsync();
+        await context.StartAsync();
+        var operation = Assert.Single(await context.Outbox.PendingAsync());
+        context.Api.PushResponse = new SyncPushResponse([
+            new(operation.OperationId, status, serverVersion, errorCode)
+        ]);
+
+        await Assert.ThrowsAsync<InvalidDataException>(() => context.Coordinator.RunOnceAsync());
+
+        Assert.Equal(operation, Assert.Single(await context.Outbox.PendingAsync()));
+        Assert.Empty(await context.Outbox.ConflictedAsync());
+        Assert.Empty(context.Api.PullRequests);
+    }
+
     [Fact]
     public async Task Pull_graph_and_cursor_roll_back_together_when_later_change_is_malformed()
     {
@@ -252,6 +351,160 @@ public sealed class SyncCoordinatorTests
         context.Api.PullResponses.Enqueue(new SyncPullResponse([
             Change(valid, 1), Change(invalid, 2)
         ], "cursor-after-two", false));
+
+        await Assert.ThrowsAsync<InvalidDataException>(() => context.Coordinator.RunOnceAsync());
+
+        await using var connection = new SqliteConnection($"Data Source={context.Path};Pooling=False");
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM LocalWorkout; SELECT COUNT(*) FROM SyncCursor;";
+        await using var reader = await command.ExecuteReaderAsync();
+        Assert.True(await reader.ReadAsync());
+        Assert.Equal(0L, reader.GetInt64(0));
+        Assert.True(await reader.NextResultAsync());
+        Assert.True(await reader.ReadAsync());
+        Assert.Equal(0L, reader.GetInt64(0));
+    }
+
+    [Fact]
+    public async Task Pull_rejects_exercise_id_collision_with_another_cached_workout()
+    {
+        await using var context = await SyncContext.CreateAsync();
+        var cached = CompletedServerGraph(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), 1);
+        context.Api.PullResponses.Enqueue(new SyncPullResponse([
+            Change(cached, 1)
+        ], "cursor-cached", false));
+        await context.Coordinator.RunOnceAsync();
+        var colliding = CompletedGraphWithDeletedExercise(
+            Guid.NewGuid(), cached.Exercises[0].Id, Guid.NewGuid(), 1);
+        context.Api.PullResponses.Enqueue(new SyncPullResponse([
+            Change(colliding, 2)
+        ], "cursor-collision", false));
+
+        await Assert.ThrowsAsync<InvalidDataException>(() => context.Coordinator.RunOnceAsync());
+
+        await AssertOnlyCachedGraphRemainsAsync(context.Path, cached, "cursor-cached");
+    }
+
+    [Fact]
+    public async Task Pull_rejects_set_id_collision_with_another_cached_exercise()
+    {
+        await using var context = await SyncContext.CreateAsync();
+        var cached = CompletedServerGraph(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), 1);
+        context.Api.PullResponses.Enqueue(new SyncPullResponse([
+            Change(cached, 1)
+        ], "cursor-cached", false));
+        await context.Coordinator.RunOnceAsync();
+        var colliding = CompletedGraphWithDeletedSet(
+            Guid.NewGuid(), Guid.NewGuid(), cached.Exercises[0].Sets[0].Id, 1);
+        context.Api.PullResponses.Enqueue(new SyncPullResponse([
+            Change(colliding, 2)
+        ], "cursor-collision", false));
+
+        await Assert.ThrowsAsync<InvalidDataException>(() => context.Coordinator.RunOnceAsync());
+
+        await AssertOnlyCachedGraphRemainsAsync(context.Path, cached, "cursor-cached");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Pull_collision_with_active_outbox_rolls_back_payload_and_cursor(bool collideSet)
+    {
+        await using var context = await SyncContext.CreateAsync();
+        var cached = CompletedServerGraph(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), 1);
+        context.Api.PullResponses.Enqueue(new SyncPullResponse([
+            Change(cached, 1)
+        ], "cursor-cached", false));
+        await context.Coordinator.RunOnceAsync();
+        var local = await context.StartAsync();
+        var operation = Assert.Single(await context.Outbox.PendingAsync());
+        var graph = ServerGraph(local, 4);
+        graph = graph with
+        {
+            Exercises = collideSet
+                ? [graph.Exercises[0] with
+                {
+                    Sets = [new SyncSetDto(
+                        cached.Exercises[0].Sets[0].Id, 0, "70", null, 8,
+                        local.StartedAt.AddMinutes(1), null, null, 1)]
+                }]
+                : [graph.Exercises[0] with { Id = cached.Exercises[0].Id }]
+        };
+        context.Api.PushResponse = new SyncPushResponse([
+            new(operation.OperationId, SyncOperationStatus.Conflict, 4,
+                BusinessErrorCode.VersionConflict)
+        ]);
+        context.Api.PullResponses.Enqueue(new SyncPullResponse([
+            Change(graph, 2)
+        ], "cursor-collision", false));
+
+        await Assert.ThrowsAsync<InvalidDataException>(() => context.Coordinator.RunOnceAsync());
+
+        var conflict = Assert.Single(await context.Outbox.ConflictedAsync());
+        Assert.Equal(operation.Payload, conflict.Payload);
+        Assert.Null(conflict.ServerPayload);
+        await AssertOnlyCachedGraphRemainsAsync(
+            context.Path, cached, "cursor-cached", expectedWorkoutCount: 2);
+    }
+
+    [Fact]
+    public async Task Pull_accepts_active_mutations_that_precede_later_workout_completion()
+    {
+        await using var context = await SyncContext.CreateAsync();
+        var graph = CompletedGraphWithPreCompletionHistory(Guid.NewGuid(), 7);
+        context.Api.PullResponses.Enqueue(new SyncPullResponse([
+            Change(graph, 1)
+        ], "cursor-history", false));
+
+        var status = await context.Coordinator.RunOnceAsync();
+
+        Assert.Equal(SyncRunStatus.Completed, status);
+        await using var connection = new SqliteConnection($"Data Source={context.Path};Pooling=False");
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT CompletedAt FROM LocalWorkout WHERE Id = $workoutId;
+            SELECT DeletedAt FROM LocalWorkoutExercise WHERE Id = $exerciseId;
+            SELECT UpdatedAt, DeletedAt FROM LocalSet WHERE Id = $setId;
+            SELECT Cursor FROM SyncCursor WHERE Scope = 'workouts';
+            """;
+        command.Parameters.AddWithValue("$workoutId", graph.Id.ToString("D"));
+        command.Parameters.AddWithValue("$exerciseId", graph.Exercises[0].Id.ToString("D"));
+        command.Parameters.AddWithValue("$setId", graph.Exercises[0].Sets[0].Id.ToString("D"));
+        await using var reader = await command.ExecuteReaderAsync();
+        Assert.True(await reader.ReadAsync());
+        Assert.Equal(graph.CompletedAt!.Value.ToString("O"), reader.GetString(0));
+        Assert.True(await reader.NextResultAsync());
+        Assert.True(await reader.ReadAsync());
+        Assert.Equal(graph.Exercises[0].DeletedAt!.Value.ToString("O"), reader.GetString(0));
+        Assert.True(await reader.NextResultAsync());
+        Assert.True(await reader.ReadAsync());
+        Assert.Equal(graph.Exercises[0].Sets[0].UpdatedAt!.Value.ToString("O"), reader.GetString(0));
+        Assert.Equal(graph.Exercises[0].Sets[0].DeletedAt!.Value.ToString("O"), reader.GetString(1));
+        Assert.True(await reader.NextResultAsync());
+        Assert.True(await reader.ReadAsync());
+        Assert.Equal("cursor-history", reader.GetString(0));
+    }
+
+    [Fact]
+    public async Task Pull_still_rejects_child_mutation_before_workout_start()
+    {
+        await using var context = await SyncContext.CreateAsync();
+        var graph = CompletedServerGraph(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), 1);
+        graph = graph with
+        {
+            Exercises = [graph.Exercises[0] with
+            {
+                Sets = [graph.Exercises[0].Sets[0] with
+                {
+                    CompletedAt = graph.StartedAt.AddTicks(-1)
+                }]
+            }]
+        };
+        context.Api.PullResponses.Enqueue(new SyncPullResponse([
+            Change(graph, 1)
+        ], "cursor-invalid", false));
 
         await Assert.ThrowsAsync<InvalidDataException>(() => context.Coordinator.RunOnceAsync());
 
@@ -458,6 +711,202 @@ public sealed class SyncCoordinatorTests
         null,
         null, version, [new SyncWorkoutExerciseDto(
             Guid.NewGuid(), Guid.NewGuid(), (int)TrackingMode.Bodyweight, 0, null, 1, [])]);
+
+    private static SyncWorkoutDto CompletedServerGraph(
+        Guid workoutId,
+        Guid exerciseId,
+        Guid setId,
+        long version)
+    {
+        var startedAt = new DateTimeOffset(2026, 8, 16, 7, 0, 0, TimeSpan.Zero);
+        return new SyncWorkoutDto(
+            workoutId, 3, startedAt, startedAt.AddMinutes(10), null, version,
+            [new SyncWorkoutExerciseDto(
+                exerciseId, Guid.NewGuid(), (int)TrackingMode.Weighted, 0, null, 1,
+                [new SyncSetDto(
+                    setId, 0, "70", null, 8, startedAt.AddMinutes(2), null, null, 1)])]);
+    }
+
+    private static SyncWorkoutDto CompletedGraphWithDeletedExercise(
+        Guid workoutId,
+        Guid collidingExerciseId,
+        Guid activeSetId,
+        long version)
+    {
+        var startedAt = new DateTimeOffset(2026, 8, 16, 8, 0, 0, TimeSpan.Zero);
+        var completedAt = startedAt.AddMinutes(10);
+        return new SyncWorkoutDto(
+            workoutId, 3, startedAt, completedAt, null, version,
+            [
+                new SyncWorkoutExerciseDto(
+                    collidingExerciseId, Guid.NewGuid(), (int)TrackingMode.Bodyweight,
+                    0, completedAt.AddMinutes(1), 2, []),
+                new SyncWorkoutExerciseDto(
+                    Guid.NewGuid(), Guid.NewGuid(), (int)TrackingMode.Weighted,
+                    0, null, 1,
+                    [new SyncSetDto(
+                        activeSetId, 0, "75", null, 9,
+                        startedAt.AddMinutes(3), null, null, 1)])
+            ]);
+    }
+
+    private static SyncWorkoutDto CompletedGraphWithDeletedSet(
+        Guid workoutId,
+        Guid deletedExerciseId,
+        Guid collidingSetId,
+        long version)
+    {
+        var startedAt = new DateTimeOffset(2026, 8, 16, 8, 0, 0, TimeSpan.Zero);
+        var completedAt = startedAt.AddMinutes(10);
+        var deletedAt = completedAt.AddMinutes(1);
+        return new SyncWorkoutDto(
+            workoutId, 3, startedAt, completedAt, null, version,
+            [
+                new SyncWorkoutExerciseDto(
+                    deletedExerciseId, Guid.NewGuid(), (int)TrackingMode.Weighted,
+                    0, deletedAt, 2,
+                    [new SyncSetDto(
+                        collidingSetId, 0, "80", null, 10,
+                        startedAt.AddMinutes(3), null, deletedAt, 2)]),
+                new SyncWorkoutExerciseDto(
+                    Guid.NewGuid(), Guid.NewGuid(), (int)TrackingMode.Weighted,
+                    0, null, 1,
+                    [new SyncSetDto(
+                        Guid.NewGuid(), 0, "75", null, 9,
+                        startedAt.AddMinutes(4), null, null, 1)])
+            ]);
+    }
+
+    private static SyncWorkoutDto CompletedGraphWithPreCompletionHistory(
+        Guid workoutId,
+        long version)
+    {
+        var startedAt = new DateTimeOffset(2026, 8, 16, 9, 0, 0, TimeSpan.Zero);
+        return new SyncWorkoutDto(
+            workoutId, 3, startedAt, startedAt.AddMinutes(10), null, version,
+            [
+                new SyncWorkoutExerciseDto(
+                    Guid.NewGuid(), Guid.NewGuid(), (int)TrackingMode.Weighted,
+                    0, startedAt.AddMinutes(8), 5,
+                    [new SyncSetDto(
+                        Guid.NewGuid(), 0, "72", null, 10,
+                        startedAt.AddMinutes(1), startedAt.AddMinutes(2),
+                        startedAt.AddMinutes(3), 3)]),
+                new SyncWorkoutExerciseDto(
+                    Guid.NewGuid(), Guid.NewGuid(), (int)TrackingMode.Weighted,
+                    0, null, 2,
+                    [new SyncSetDto(
+                        Guid.NewGuid(), 0, "80", null, 8,
+                        startedAt.AddMinutes(4), null, null, 1)])
+            ]);
+    }
+
+    private static async Task AssertOnlyCachedGraphRemainsAsync(
+        string path,
+        SyncWorkoutDto cached,
+        string expectedCursor,
+        long expectedWorkoutCount = 1)
+    {
+        await using var connection = new SqliteConnection($"Data Source={path};Pooling=False");
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT COUNT(*) FROM LocalWorkout;
+            SELECT WorkoutId, DeletedAt FROM LocalWorkoutExercise WHERE Id = $exerciseId;
+            SELECT WorkoutExerciseId, WeightKg, DeletedAt FROM LocalSet WHERE Id = $setId;
+            SELECT Cursor FROM SyncCursor WHERE Scope = 'workouts';
+            """;
+        command.Parameters.AddWithValue("$exerciseId", cached.Exercises[0].Id.ToString("D"));
+        command.Parameters.AddWithValue("$setId", cached.Exercises[0].Sets[0].Id.ToString("D"));
+        await using var reader = await command.ExecuteReaderAsync();
+        Assert.True(await reader.ReadAsync());
+        Assert.Equal(expectedWorkoutCount, reader.GetInt64(0));
+        Assert.True(await reader.NextResultAsync());
+        Assert.True(await reader.ReadAsync());
+        Assert.Equal(cached.Id.ToString("D"), reader.GetString(0));
+        Assert.True(reader.IsDBNull(1));
+        Assert.True(await reader.NextResultAsync());
+        Assert.True(await reader.ReadAsync());
+        Assert.Equal(cached.Exercises[0].Id.ToString("D"), reader.GetString(0));
+        Assert.Equal("70", reader.GetString(1));
+        Assert.True(reader.IsDBNull(2));
+        Assert.True(await reader.NextResultAsync());
+        Assert.True(await reader.ReadAsync());
+        Assert.Equal(expectedCursor, reader.GetString(0));
+    }
+
+    private static async Task<(
+        LocalWorkout ServerGraph,
+        OutboxOperation Conflict,
+        IReadOnlyList<OutboxOperation> Successors)> PrepareConflictWithSuccessorsAsync(
+        SyncContext context)
+    {
+        var serverGraph = await context.StartAsync();
+        var active = new ActiveWorkoutCoordinator(
+            context.Workouts, context.Boundary, context.Clock);
+        for (var index = 0; index < 3; index++)
+        {
+            context.Clock.UtcNow = context.Clock.UtcNow.AddMinutes(1);
+            await active.SaveSetAsync(
+                serverGraph.Exercises[0].ExerciseDefinitionId,
+                new LocalSet(70m + index, null, 8 + index));
+        }
+
+        var pending = await context.Outbox.PendingAsync();
+        context.Api.PushResponses.Enqueue(new SyncPushResponse([
+            new(pending[0].OperationId, SyncOperationStatus.Applied, 1, null)
+        ]));
+        context.Api.PushResponses.Enqueue(new SyncPushResponse([
+            new(pending[1].OperationId, SyncOperationStatus.Conflict, 4,
+                BusinessErrorCode.VersionConflict)
+        ]));
+        context.Api.PullResponses.Enqueue(new SyncPullResponse([
+            Change(ServerGraph(serverGraph, 4), 1)
+        ], "cursor-conflict", false));
+
+        await context.Coordinator.RunOnceAsync();
+
+        var conflicts = await context.Outbox.ConflictedAsync();
+        Assert.Equal(3, conflicts.Count);
+        return (serverGraph, conflicts[0], conflicts.Skip(1).ToArray());
+    }
+
+    private static async Task InsertOperationAsync(string path, OutboxOperation operation)
+    {
+        await using var connection = new SqliteConnection($"Data Source={path};Pooling=False");
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO OutboxOperation
+                (OperationId, EntityId, OperationType, Payload, BaseVersion, CreatedAt,
+                 State, DeletedAt, Version, ServerVersion, RetryCount, NextAttemptAt,
+                 ServerPayload, ReplacesOperationId)
+            VALUES ($id, $entityId, $type, $payload, $baseVersion, $createdAt,
+                    $state, NULL, $version, NULL, 0, NULL, NULL, $replaces);
+            """;
+        command.Parameters.AddWithValue("$id", operation.OperationId.ToString("D"));
+        command.Parameters.AddWithValue("$entityId", operation.EntityId.ToString("D"));
+        command.Parameters.AddWithValue("$type", (int)operation.Type);
+        command.Parameters.AddWithValue("$payload", operation.Payload);
+        command.Parameters.AddWithValue("$baseVersion", operation.BaseVersion);
+        command.Parameters.AddWithValue("$createdAt", operation.CreatedAt.ToUniversalTime().ToString("O"));
+        command.Parameters.AddWithValue("$state", (int)operation.State);
+        command.Parameters.AddWithValue("$version", operation.Version);
+        command.Parameters.AddWithValue("$replaces", operation.ReplacesOperationId!.Value.ToString("D"));
+        await command.ExecuteNonQueryAsync();
+    }
+
+    private static void AssertWorkoutIntentEqual(LocalWorkout expected, LocalWorkout actual)
+    {
+        Assert.Equal(expected.Id, actual.Id);
+        Assert.Equal(expected.Version, actual.Version);
+        Assert.Equal(
+            expected.Exercises.SelectMany(exercise => exercise.Sets).Select(set => set.Id),
+            actual.Exercises.SelectMany(exercise => exercise.Sets).Select(set => set.Id));
+        Assert.Equal(
+            expected.Exercises.SelectMany(exercise => exercise.Sets).Select(set => set.WeightKg),
+            actual.Exercises.SelectMany(exercise => exercise.Sets).Select(set => set.WeightKg));
+    }
 
     private sealed class SyncContext : IAsyncDisposable
     {
