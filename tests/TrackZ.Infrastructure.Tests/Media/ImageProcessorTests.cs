@@ -64,6 +64,18 @@ public sealed class ImageProcessorTests
         await Assert.ThrowsAsync<InvalidDataException>(() => processor.ProcessExerciseImageAsync(malformed, default));
     }
 
+    [Theory]
+    [InlineData(ImageKind.Jpeg)]
+    [InlineData(ImageKind.Png)]
+    [InlineData(ImageKind.Webp)]
+    public async Task Supported_containers_with_trailing_or_forged_terminal_payload_are_rejected(ImageKind kind)
+    {
+        var bytes = CreateImage(kind, 20, 10).Concat(new byte[] { 0xDE, 0xAD, 0xBE, 0xEF }).ToArray();
+        await using var source = new MemoryStream(bytes);
+
+        await Assert.ThrowsAsync<InvalidDataException>(() => new ImageProcessor().ProcessExerciseImageAsync(source, default));
+    }
+
     [Fact]
     public async Task Multi_frame_webp_is_rejected()
     {
@@ -94,6 +106,21 @@ public sealed class ImageProcessorTests
         await Assert.ThrowsAsync<InvalidDataException>(() => new ImageProcessor().ProcessExerciseImageAsync(source, default));
 
         Assert.True(source.BytesRead < 100_000, $"Identify read {source.BytesRead} bytes from a {payload.Length}-byte payload.");
+    }
+
+    [Theory]
+    [InlineData(20_000_000, 1)]
+    [InlineData(1, 20_000_000)]
+    public async Task Extreme_png_header_dimensions_are_rejected_before_decode(uint width, uint height)
+    {
+        var png = CreateImage(ImageKind.Png, 1, 1);
+        WriteBigEndian(png, 16, width);
+        WriteBigEndian(png, 20, height);
+        WriteBigEndian(png, 29, Crc32(png.AsSpan(12, 17)));
+        await using var source = new CountingStream(png);
+
+        await Assert.ThrowsAsync<InvalidDataException>(() => new ImageProcessor().ProcessExerciseImageAsync(source, default));
+        Assert.True(source.BytesRead < 100_000);
     }
 
     [Fact]

@@ -5,7 +5,7 @@ namespace TrackZ.Domain.Tests.Exercises;
 public sealed class ImageUploadTicketTests
 {
     [Fact]
-    public void Expired_processing_lease_can_be_reclaimed_but_active_lease_cannot()
+    public void Expired_processing_lease_is_blocked_until_its_attempt_cleanup_is_complete()
     {
         var now = DateTimeOffset.Parse("2026-08-15T00:00:00Z");
         var ticket = ImageUploadTicket.Create(Guid.NewGuid(), Guid.NewGuid(), "staging/a/b", "image/jpeg", 100, now.AddMinutes(5));
@@ -13,7 +13,7 @@ public sealed class ImageUploadTicketTests
 
         Assert.True(ticket.TryClaim(now, TimeSpan.FromMinutes(1)));
         Assert.False(ticket.TryClaim(now.AddSeconds(30), TimeSpan.FromMinutes(1)));
-        Assert.True(ticket.TryClaim(now.AddMinutes(2), TimeSpan.FromMinutes(1)));
+        Assert.False(ticket.TryClaim(now.AddMinutes(2), TimeSpan.FromMinutes(1)));
     }
 
     [Fact]
@@ -37,10 +37,22 @@ public sealed class ImageUploadTicketTests
 
         Assert.True(ticket.TryClaim(now, TimeSpan.FromMinutes(1)));
         var firstLease = ticket.ProcessingLeaseId;
-        Assert.True(ticket.TryClaim(now.AddMinutes(2), TimeSpan.FromMinutes(1)));
+        Assert.False(ticket.TryClaim(now.AddMinutes(2), TimeSpan.FromMinutes(1)));
 
         Assert.NotNull(firstLease);
-        Assert.NotNull(ticket.ProcessingLeaseId);
-        Assert.NotEqual(firstLease, ticket.ProcessingLeaseId);
+        Assert.Null(ticket.ProcessingLeaseId);
+        Assert.Equal(firstLease, ticket.CleanupProcessingLeaseId);
+    }
+
+    [Fact]
+    public void Cleanup_claim_terminalizes_expired_ticket_and_prevents_repeat_claims()
+    {
+        var now = DateTimeOffset.Parse("2026-08-15T00:00:00Z");
+        var ticket = ImageUploadTicket.Create(Guid.NewGuid(), Guid.NewGuid(), "staging/a/b", "image/jpeg", 100, now.AddMinutes(1));
+
+        Assert.True(ticket.TryClaimCleanup(now.AddMinutes(2), "staging/a/b", null, out var cleanupClaim));
+        Assert.Equal(ImageUploadState.Expired, ticket.State);
+        Assert.True(ticket.CompleteCleanupClaim(cleanupClaim));
+        Assert.False(ticket.TryClaimCleanup(now.AddMinutes(3), "staging/a/b", null, out _));
     }
 }

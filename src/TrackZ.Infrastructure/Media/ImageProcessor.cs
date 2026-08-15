@@ -20,7 +20,7 @@ public sealed class ImageProcessor : IImageProcessor
             var format = Image.DetectFormat(source) ?? throw new InvalidDataException("Unknown image format.");
             var detected = format.DefaultMimeType;
             if (detected is not ("image/jpeg" or "image/png" or "image/webp")) throw new InvalidDataException("Unsupported image format.");
-            EnsurePngDimensionsBeforeDecode(source, detected);
+            EnsureDimensionsBeforeDecode(source, detected);
             if (!HasCompleteContainer(source, detected)) throw new InvalidDataException("Malformed image.");
             source.Position = 0;
             var info = Image.Identify(new DecoderOptions { MaxFrames = 2 }, source) ?? throw new InvalidDataException("Malformed image.");
@@ -65,8 +65,9 @@ public sealed class ImageProcessor : IImageProcessor
         Span<byte> size = stackalloc byte[4];
         return source.Read(size) == size.Length && BinaryPrimitives.ReadUInt32LittleEndian(size) == source.Length - 8;
     }
-    private static void EnsurePngDimensionsBeforeDecode(Stream source, string contentType)
+    private static void EnsureDimensionsBeforeDecode(Stream source, string contentType)
     {
+        if (contentType == "image/jpeg") { EnsureJpegDimensionsBeforeDecode(source); return; }
         if (contentType != "image/png") return;
         source.Position = 8;
         Span<byte> header = stackalloc byte[16];
@@ -74,6 +75,36 @@ public sealed class ImageProcessor : IImageProcessor
         var width = BinaryPrimitives.ReadUInt32BigEndian(header[8..12]);
         var height = BinaryPrimitives.ReadUInt32BigEndian(header[12..16]);
         if (width == 0 || height == 0 || width > MaxDimension || height > MaxDimension || (long)width * height > MaxPixels) throw new InvalidDataException("Image dimensions exceed the processing limit.");
+    }
+    private static void EnsureJpegDimensionsBeforeDecode(Stream source)
+    {
+        source.Position = 0;
+        if (source.ReadByte() != 0xFF || source.ReadByte() != 0xD8) throw new InvalidDataException("Malformed image.");
+        Span<byte> lengthBytes = stackalloc byte[2];
+        Span<byte> dimensions = stackalloc byte[5];
+        while (source.Position + 4 <= source.Length)
+        {
+            var prefix = source.ReadByte();
+            if (prefix != 0xFF) throw new InvalidDataException("Malformed image.");
+            int marker;
+            do { marker = source.ReadByte(); } while (marker == 0xFF);
+            if (marker < 0 || marker == 0xD9 || marker == 0xDA) break;
+            if (marker is >= 0xD0 and <= 0xD7 or 0x01) continue;
+            if (source.Read(lengthBytes) != 2) throw new InvalidDataException("Malformed image.");
+            var length = BinaryPrimitives.ReadUInt16BigEndian(lengthBytes);
+            if (length < 2 || length - 2 > source.Length - source.Position) throw new InvalidDataException("Malformed image.");
+            var isSof = marker is >= 0xC0 and <= 0xC3 or >= 0xC5 and <= 0xC7 or >= 0xC9 and <= 0xCB or >= 0xCD and <= 0xCF;
+            if (isSof)
+            {
+                if (length < 8) throw new InvalidDataException("Malformed image.");
+                if (source.Read(dimensions) != 5) throw new InvalidDataException("Malformed image.");
+                var height = BinaryPrimitives.ReadUInt16BigEndian(dimensions[1..3]);
+                var width = BinaryPrimitives.ReadUInt16BigEndian(dimensions[3..5]);
+                if (width == 0 || height == 0 || width > MaxDimension || height > MaxDimension || (long)width * height > MaxPixels) throw new InvalidDataException("Image dimensions exceed the processing limit.");
+                return;
+            }
+            source.Position += length - 2;
+        }
     }
     private static bool IsExactPng(Stream source)
     {

@@ -35,12 +35,14 @@ namespace TrackZ.Infrastructure.Persistence.Migrations
                     UploadLeaseExpiresAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
                     CleanupStagingObjectKey = table.Column<string>(type: "character varying(512)", maxLength: 512, nullable: true),
                     CleanupProcessingLeaseId = table.Column<Guid>(type: "uuid", nullable: true),
+                    CleanupClaimId = table.Column<Guid>(type: "uuid", nullable: true),
+                    CleanupClaimedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
                     ConcurrencyToken = table.Column<byte[]>(type: "bytea", nullable: false)
                 },
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_image_upload_tickets", x => x.Id);
-                    table.CheckConstraint("CK_image_upload_tickets_state", "\"State\" IN (1, 2, 3, 4, 5, 6)");
+                    table.CheckConstraint("CK_image_upload_tickets_state", "\"State\" IN (1, 2, 3, 4, 5, 6, 7)");
                     table.CheckConstraint("CK_image_upload_tickets_processing_lease", "(\"State\" = 4 AND \"ProcessingStartedAt\" IS NOT NULL AND \"LeaseExpiresAt\" IS NOT NULL AND \"ProcessingLeaseId\" IS NOT NULL) OR (\"State\" <> 4 AND \"ProcessingStartedAt\" IS NULL AND \"LeaseExpiresAt\" IS NULL AND \"ProcessingLeaseId\" IS NULL)");
                     table.ForeignKey(
                         name: "FK_image_upload_tickets_exercise_definitions_ExerciseDefinitio~",

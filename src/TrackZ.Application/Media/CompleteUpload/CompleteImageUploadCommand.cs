@@ -42,9 +42,12 @@ public sealed class CompleteImageUploadHandler(IExerciseImageUploadStore store, 
             ExerciseImage image;
             try
             {
-                image = await store.CommitCompletionAsync(ticket.Id, owner, processingLeaseId, masterKey, thumbnailKey, cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+                // Once the durable phase begins it cannot be cancelled: an ambiguous acknowledgement
+                // is reconciled against the database instead of compensating potentially committed keys.
+                image = await store.CommitCompletionAsync(ticket.Id, owner, processingLeaseId, masterKey, thumbnailKey, CancellationToken.None);
             }
-            catch (Exception commitException) when (commitException is not OperationCanceledException)
+            catch (Exception)
             {
                 // Commit acknowledgement can be lost after PostgreSQL has made the row durable.
                 // A fresh store query is the authority; never compensate until it proves no row exists.
@@ -98,15 +101,17 @@ public sealed class CompleteImageUploadHandler(IExerciseImageUploadStore store, 
     private async Task FailAndCleanAsync(ImageUploadTicket ticket, Guid owner, Guid leaseId, string? master, string? thumbnail, CancellationToken ct)
     {
         var failed = await store.TryFailClaimAsync(ticket.Id, owner, leaseId, CancellationToken.None);
-        await CleanupAttemptAsync(owner, master, thumbnail, CancellationToken.None);
-        if (failed) await DeleteBestEffortAsync($"staging/{owner:D}/", ticket.StagingObjectKey);
+        var cleaned = await CleanupAttemptAsync(owner, master, thumbnail, CancellationToken.None);
+        if (failed && await DeleteBestEffortAsync($"staging/{owner:D}/", ticket.StagingObjectKey)) cleaned = true;
+        if (failed && cleaned) await store.MarkCleanupCompleteAsync(ticket.Id, ticket.StagingObjectKey, leaseId, CancellationToken.None);
     }
     private async Task ReleaseAsync(ImageUploadTicket ticket, Guid owner, Guid leaseId, string? master, string? thumbnail, CancellationToken ct)
     {
-        _ = await store.TryReleaseClaimAsync(ticket.Id, owner, leaseId, CancellationToken.None);
-        await CleanupAttemptAsync(owner, master, thumbnail, CancellationToken.None);
+        var cleaned = await CleanupAttemptAsync(owner, master, thumbnail, CancellationToken.None);
+        // A failed synchronous cleanup durably retains the lease marker before the retryable claim is released.
+        _ = await store.TryReleaseClaimAsync(ticket.Id, owner, leaseId, CancellationToken.None, retainAttemptForCleanup: !cleaned);
     }
-    private async Task CleanupAttemptAsync(Guid owner, string? master, string? thumbnail, CancellationToken ct)
-    { try { if (master is not null) await storage.DeleteAsync($"private/{owner:D}/", master, ct); } catch { } try { if (thumbnail is not null) await storage.DeleteAsync($"private/{owner:D}/", thumbnail, ct); } catch { } }
-    private async Task DeleteBestEffortAsync(string prefix, string key) { try { await storage.DeleteAsync(prefix, key, CancellationToken.None); } catch { } }
+    private async Task<bool> CleanupAttemptAsync(Guid owner, string? master, string? thumbnail, CancellationToken ct)
+    { var success = true; try { if (master is not null) await storage.DeleteAsync($"private/{owner:D}/", master, ct); } catch { success = false; } try { if (thumbnail is not null) await storage.DeleteAsync($"private/{owner:D}/", thumbnail, ct); } catch { success = false; } return success; }
+    private async Task<bool> DeleteBestEffortAsync(string prefix, string key) { try { await storage.DeleteAsync(prefix, key, CancellationToken.None); return true; } catch { return false; } }
 }

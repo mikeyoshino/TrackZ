@@ -1,6 +1,6 @@
 namespace TrackZ.Domain.Exercises;
 
-public enum ImageUploadState { Pending = 1, Uploading = 2, Uploaded = 3, Processing = 4, Completed = 5, Failed = 6 }
+public enum ImageUploadState { Pending = 1, Uploading = 2, Uploaded = 3, Processing = 4, Completed = 5, Failed = 6, Expired = 7 }
 
 public sealed class ImageUploadTicket
 {
@@ -18,6 +18,8 @@ public sealed class ImageUploadTicket
     public DateTimeOffset? UploadLeaseExpiresAt { get; private set; }
     public string? CleanupStagingObjectKey { get; private set; }
     public Guid? CleanupProcessingLeaseId { get; private set; }
+    public Guid? CleanupClaimId { get; private set; }
+    public DateTimeOffset? CleanupClaimedAt { get; private set; }
     public DateTimeOffset? ProcessingStartedAt { get; private set; }
     public DateTimeOffset? LeaseExpiresAt { get; private set; }
     public Guid? ProcessingLeaseId { get; private set; }
@@ -66,8 +68,18 @@ public sealed class ImageUploadTicket
     }
     public bool TryClaim(DateTimeOffset now, TimeSpan lease)
     {
-        if (IsExpired(now) || (State != ImageUploadState.Uploaded && (State != ImageUploadState.Processing || LeaseExpiresAt is null || LeaseExpiresAt > now))) return false;
-        if (State == ImageUploadState.Processing) CleanupProcessingLeaseId = ProcessingLeaseId;
+        if (CleanupProcessingLeaseId is not null || CleanupStagingObjectKey is not null || IsExpired(now) || (State != ImageUploadState.Uploaded && (State != ImageUploadState.Processing || LeaseExpiresAt is null || LeaseExpiresAt > now))) return false;
+        if (State == ImageUploadState.Processing)
+        {
+            // Do not hand an expired attempt to a new completion claim until its token-scoped
+            // final-object namespace has been durably scheduled for cleanup.
+            CleanupProcessingLeaseId = ProcessingLeaseId;
+            CleanupStagingObjectKey = StagingObjectKey;
+            State = ImageUploadState.Expired;
+            ProcessingStartedAt = null; LeaseExpiresAt = null; ProcessingLeaseId = null;
+            Touch();
+            return false;
+        }
         State = ImageUploadState.Processing; ProcessingStartedAt = now; LeaseExpiresAt = now.Add(lease); ProcessingLeaseId = Guid.NewGuid(); Touch(); return true;
     }
     public bool HasActiveLease(DateTimeOffset now) => State == ImageUploadState.Processing && LeaseExpiresAt is { } expiry && expiry > now;
@@ -78,9 +90,10 @@ public sealed class ImageUploadTicket
         CleanupStagingObjectKey = StagingObjectKey;
         State = ImageUploadState.Completed; ExerciseImageId = imageId; ProcessingStartedAt = null; LeaseExpiresAt = null; ProcessingLeaseId = null; Touch();
     }
-    public bool ReleaseForRetry(Guid leaseId)
+    public bool ReleaseForRetry(Guid leaseId, bool retainAttemptForCleanup = false)
     {
         if (State != ImageUploadState.Processing || ProcessingLeaseId != leaseId) return false;
+        if (retainAttemptForCleanup) CleanupProcessingLeaseId = ProcessingLeaseId;
         State = ImageUploadState.Uploaded; ProcessingStartedAt = null; LeaseExpiresAt = null; ProcessingLeaseId = null; Touch(); return true;
     }
     public bool Fail(Guid leaseId)
@@ -104,6 +117,38 @@ public sealed class ImageUploadTicket
             ProcessingLeaseId = null;
         }
         Touch();
+    }
+    public bool TryClaimCleanup(DateTimeOffset now, string? expectedStagingKey, Guid? expectedProcessingLeaseId, out Guid cleanupClaimId)
+    {
+        cleanupClaimId = Guid.Empty;
+        if (State == ImageUploadState.Completed || CleanupClaimId is not null) return false;
+        if (CleanupStagingObjectKey is null && CleanupProcessingLeaseId is null)
+        {
+            if (!IsExpired(now) || State is ImageUploadState.Failed or ImageUploadState.Expired) return false;
+            CleanupStagingObjectKey = StagingObjectKey;
+            if (State == ImageUploadState.Processing)
+            {
+                if (LeaseExpiresAt is null || LeaseExpiresAt > now) return false;
+                CleanupProcessingLeaseId = ProcessingLeaseId;
+                ProcessingStartedAt = null; LeaseExpiresAt = null; ProcessingLeaseId = null;
+            }
+            State = ImageUploadState.Expired;
+        }
+        if (expectedStagingKey != CleanupStagingObjectKey || expectedProcessingLeaseId != CleanupProcessingLeaseId) return false;
+        CleanupClaimId = Guid.NewGuid(); CleanupClaimedAt = now; Touch();
+        cleanupClaimId = CleanupClaimId.Value;
+        return true;
+    }
+    public bool CompleteCleanupClaim(Guid cleanupClaimId)
+    {
+        if (CleanupClaimId != cleanupClaimId) return false;
+        CleanupStagingObjectKey = null; CleanupProcessingLeaseId = null; CleanupClaimId = null; CleanupClaimedAt = null;
+        Touch(); return true;
+    }
+    public bool ReleaseCleanupClaim(Guid cleanupClaimId)
+    {
+        if (CleanupClaimId != cleanupClaimId) return false;
+        CleanupClaimId = null; CleanupClaimedAt = null; Touch(); return true;
     }
     private void Touch() => ConcurrencyToken = System.Security.Cryptography.RandomNumberGenerator.GetBytes(16);
 }

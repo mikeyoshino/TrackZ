@@ -161,6 +161,12 @@ namespace TrackZ.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("CleanupProcessingLeaseId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("CleanupClaimId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("CleanupClaimedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("CleanupStagingObjectKey")
                         .HasMaxLength(512)
                         .HasColumnType("character varying(512)");
@@ -219,7 +225,7 @@ namespace TrackZ.Infrastructure.Persistence.Migrations
                     b.ToTable("image_upload_tickets", (string)null, t =>
                         {
                             t.HasCheckConstraint("CK_image_upload_tickets_processing_lease", "(\"State\" = 4 AND \"ProcessingStartedAt\" IS NOT NULL AND \"LeaseExpiresAt\" IS NOT NULL AND \"ProcessingLeaseId\" IS NOT NULL) OR (\"State\" <> 4 AND \"ProcessingStartedAt\" IS NULL AND \"LeaseExpiresAt\" IS NULL AND \"ProcessingLeaseId\" IS NULL)");
-                            t.HasCheckConstraint("CK_image_upload_tickets_state", "\"State\" IN (1, 2, 3, 4, 5, 6)");
+                            t.HasCheckConstraint("CK_image_upload_tickets_state", "\"State\" IN (1, 2, 3, 4, 5, 6, 7)");
                         });
                 });
 

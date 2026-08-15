@@ -23,7 +23,7 @@ public sealed class ImageUploadCleanupService(IServiceScopeFactory scopes, IOpti
         {
             try { await RunOnceAsync(stoppingToken); }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { return; }
-            catch (Exception exception) { logger.LogWarning(exception, "Exercise image upload cleanup scan failed."); }
+            catch (Exception exception) { logger.LogWarning("Exercise image upload cleanup scan failed ({ExceptionType}).", exception.GetType().Name); }
         } while (await timer.WaitForNextTickAsync(stoppingToken));
     }
 
@@ -35,22 +35,27 @@ public sealed class ImageUploadCleanupService(IServiceScopeFactory scopes, IOpti
         var candidates = await store.ListCleanupCandidatesAsync(DateTimeOffset.UtcNow, cancellationToken);
         foreach (var candidate in candidates)
         {
+            ImageUploadCleanupCandidate? claim = null;
             try
             {
-                if (candidate.StagingKey is not null)
-                    await storage.DeleteAsync($"staging/{candidate.OwnerId:D}/", candidate.StagingKey, CancellationToken.None);
-                if (candidate.ProcessingLeaseId is { } lease)
+                claim = await store.TryClaimCleanupAsync(candidate, DateTimeOffset.UtcNow, cancellationToken);
+                if (claim is null) continue;
+                if (claim.StagingKey is not null)
+                    await storage.DeleteAsync($"staging/{claim.OwnerId:D}/", claim.StagingKey, CancellationToken.None);
+                if (claim.ProcessingLeaseId is { } lease)
                 {
-                    var root = $"private/{candidate.OwnerId:D}/{candidate.ExerciseId:D}/{candidate.TicketId:D}/{lease:D}";
-                    await storage.DeleteAsync($"private/{candidate.OwnerId:D}/", root + "/master.jpg", CancellationToken.None);
-                    await storage.DeleteAsync($"private/{candidate.OwnerId:D}/", root + "/thumbnail.jpg", CancellationToken.None);
+                    var root = $"private/{claim.OwnerId:D}/{claim.ExerciseId:D}/{claim.TicketId:D}/{lease:D}";
+                    await storage.DeleteAsync($"private/{claim.OwnerId:D}/", root + "/master.jpg", CancellationToken.None);
+                    await storage.DeleteAsync($"private/{claim.OwnerId:D}/", root + "/thumbnail.jpg", CancellationToken.None);
                 }
-                await store.MarkCleanupCompleteAsync(candidate.TicketId, candidate.StagingKey, candidate.ProcessingLeaseId, CancellationToken.None);
+                await store.CompleteCleanupClaimAsync(claim.TicketId, claim.CleanupClaimId!.Value, CancellationToken.None);
             }
             catch (Exception exception)
             {
-                // Do not log object keys or owner identifiers. The durable candidate remains for the next run.
-                logger.LogWarning(exception, "Exercise image upload cleanup attempt failed.");
+                if (claim?.CleanupClaimId is { } claimId)
+                    await store.ReleaseCleanupClaimAsync(claim.TicketId, claimId, CancellationToken.None);
+                // Do not log object keys, owner identifiers, or SDK exception text.
+                logger.LogWarning("Exercise image upload cleanup attempt failed ({ExceptionType}).", exception.GetType().Name);
             }
         }
     }

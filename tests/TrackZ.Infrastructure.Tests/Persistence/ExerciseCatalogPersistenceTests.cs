@@ -102,7 +102,7 @@ public sealed class ExerciseCatalogPersistenceTests
     }
 
     [Fact]
-    public async Task Stale_processing_lease_cannot_commit_after_an_expired_lease_is_reclaimed()
+    public async Task Stale_processing_lease_cannot_commit_after_expiry_cleanup_claim_terminalizes_it()
     {
         await using var database = await PostgreSqlFixture.StartAsync();
         var ownerId = Guid.NewGuid();
@@ -127,28 +127,25 @@ public sealed class ExerciseCatalogPersistenceTests
             await first.SaveAsync(default);
         }
 
-        Guid winnerLease;
-        await using (var winner = database.CreateDbContext())
+        await using (var cleanup = database.CreateDbContext())
         {
-            var winnerTicket = (await winner.FindOwnedTicketAsync(ticket.Id, ownerId, default))!;
-            Assert.True(winnerTicket.TryClaim(now.AddMinutes(2), TimeSpan.FromMinutes(1)));
-            winnerLease = winnerTicket.ProcessingLeaseId!.Value;
-            await winner.SaveAsync(default);
+            var expiredTicket = (await cleanup.FindOwnedTicketAsync(ticket.Id, ownerId, default))!;
+            Assert.False(expiredTicket.TryClaim(now.AddMinutes(2), TimeSpan.FromMinutes(1)));
+            await cleanup.SaveAsync(default);
+            var candidate = Assert.Single(await cleanup.ListCleanupCandidatesAsync(now.AddMinutes(2), default));
+            var claim = await cleanup.TryClaimCleanupAsync(candidate, now.AddMinutes(2), default);
+            Assert.NotNull(claim);
+            Assert.True(await cleanup.CompleteCleanupClaimAsync(ticket.Id, claim!.CleanupClaimId!.Value, default));
         }
 
         await using (var stale = database.CreateDbContext())
         {
             await Assert.ThrowsAsync<InvalidOperationException>(() => stale.CommitCompletionAsync(ticket.Id, ownerId, firstLease, "private/old/master.jpg", "private/old/thumbnail.jpg", default));
         }
-        await using (var winner = database.CreateDbContext())
-        {
-            await winner.CommitCompletionAsync(ticket.Id, ownerId, winnerLease, "private/new/master.jpg", "private/new/thumbnail.jpg", default);
-        }
         await using var verify = database.CreateDbContext();
         var persisted = await verify.ImageUploadTickets.SingleAsync();
-        var image = await verify.ExerciseImages.SingleAsync();
-        Assert.Equal(ImageUploadState.Completed, persisted.State);
-        Assert.Equal("private/new/master.jpg", image.MasterObjectKey);
+        Assert.Equal(ImageUploadState.Expired, persisted.State);
+        Assert.Empty(await verify.ExerciseImages.ToListAsync());
     }
 
     [Fact]

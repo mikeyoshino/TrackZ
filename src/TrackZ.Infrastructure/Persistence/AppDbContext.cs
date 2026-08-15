@@ -126,33 +126,57 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public async Task<IReadOnlyList<ImageUploadCleanupCandidate>> ListCleanupCandidatesAsync(DateTimeOffset now, CancellationToken cancellationToken)
     {
         return await ImageUploadTickets.AsNoTracking()
-            .Where(x => x.CleanupStagingObjectKey != null || x.CleanupProcessingLeaseId != null ||
+            .Where(x => x.CleanupClaimId == null && (x.CleanupStagingObjectKey != null || x.CleanupProcessingLeaseId != null ||
                 ((x.State == ImageUploadState.Pending || x.State == ImageUploadState.Uploading || x.State == ImageUploadState.Uploaded) && x.ExpiresAt <= now) ||
-                (x.State == ImageUploadState.Processing && x.LeaseExpiresAt <= now))
+                (x.State == ImageUploadState.Processing && x.LeaseExpiresAt <= now)))
             .Select(x => new ImageUploadCleanupCandidate(x.Id, x.OwnerId, x.ExerciseDefinitionId, x.State,
                 x.CleanupStagingObjectKey ?? (x.ExpiresAt <= now ? x.StagingObjectKey : null),
                 x.CleanupProcessingLeaseId ?? (x.State == ImageUploadState.Processing && x.LeaseExpiresAt <= now ? x.ProcessingLeaseId : null)))
             .ToListAsync(cancellationToken);
     }
+    public async Task<ImageUploadCleanupCandidate?> TryClaimCleanupAsync(ImageUploadCleanupCandidate candidate, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        await using var transaction = await Database.BeginTransactionAsync(cancellationToken);
+        var ticket = await LockTicketAnyAsync(candidate.TicketId, cancellationToken);
+        if (ticket is null || !ticket.TryClaimCleanup(now, candidate.StagingKey, candidate.ProcessingLeaseId, out var claimId))
+        {
+            await transaction.RollbackAsync(CancellationToken.None);
+            return null;
+        }
+        await SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return new ImageUploadCleanupCandidate(ticket.Id, ticket.OwnerId, ticket.ExerciseDefinitionId, ticket.State, ticket.CleanupStagingObjectKey, ticket.CleanupProcessingLeaseId, claimId);
+    }
+    public async Task<bool> CompleteCleanupClaimAsync(Guid ticketId, Guid cleanupClaimId, CancellationToken cancellationToken)
+    {
+        await using var transaction = await Database.BeginTransactionAsync(cancellationToken);
+        var ticket = await LockTicketAnyAsync(ticketId, cancellationToken);
+        if (ticket is null || !ticket.CompleteCleanupClaim(cleanupClaimId)) { await transaction.RollbackAsync(CancellationToken.None); return false; }
+        await SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return true;
+    }
+    public async Task ReleaseCleanupClaimAsync(Guid ticketId, Guid cleanupClaimId, CancellationToken cancellationToken)
+    {
+        await using var transaction = await Database.BeginTransactionAsync(cancellationToken);
+        var ticket = await LockTicketAnyAsync(ticketId, cancellationToken);
+        if (ticket is null || !ticket.ReleaseCleanupClaim(cleanupClaimId)) { await transaction.RollbackAsync(CancellationToken.None); return; }
+        await SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+    }
     public async Task MarkCleanupCompleteAsync(Guid ticketId, string? stagingKey, Guid? processingLeaseId, CancellationToken cancellationToken)
     {
         await using var transaction = await Database.BeginTransactionAsync(cancellationToken);
-        var ticket = await LockTicketAsync(ticketId, Guid.Empty, cancellationToken);
-        // Lock by id without owner filtering because this is an internal worker.
-        if (ticket is null)
-        {
-            ChangeTracker.Clear();
-            ticket = await ImageUploadTickets.FromSqlInterpolated($"SELECT * FROM image_upload_tickets WHERE \"Id\" = {ticketId} FOR UPDATE").SingleOrDefaultAsync(cancellationToken);
-        }
-        if (ticket is null) { await transaction.RollbackAsync(CancellationToken.None); return; }
+        var ticket = await LockTicketAnyAsync(ticketId, cancellationToken);
+        if (ticket is null || ticket.CleanupClaimId is not null) { await transaction.RollbackAsync(CancellationToken.None); return; }
         ticket.MarkCleanupComplete(stagingKey, processingLeaseId);
         await SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
     }
     public Task<bool> TryFailClaimAsync(Guid ticketId, Guid ownerId, Guid processingLeaseId, CancellationToken cancellationToken) =>
         TransitionClaimAsync(ticketId, ownerId, processingLeaseId, ticket => ticket.Fail(processingLeaseId), cancellationToken);
-    public Task<bool> TryReleaseClaimAsync(Guid ticketId, Guid ownerId, Guid processingLeaseId, CancellationToken cancellationToken) =>
-        TransitionClaimAsync(ticketId, ownerId, processingLeaseId, ticket => ticket.ReleaseForRetry(processingLeaseId), cancellationToken);
+    public Task<bool> TryReleaseClaimAsync(Guid ticketId, Guid ownerId, Guid processingLeaseId, CancellationToken cancellationToken, bool retainAttemptForCleanup = false) =>
+        TransitionClaimAsync(ticketId, ownerId, processingLeaseId, ticket => ticket.ReleaseForRetry(processingLeaseId, retainAttemptForCleanup), cancellationToken);
     public Task SaveAsync(CancellationToken cancellationToken) => SaveChangesAsync(cancellationToken);
 
     private async Task<ImageUploadTicket?> LockTicketAsync(Guid ticketId, Guid ownerId, CancellationToken cancellationToken)
@@ -162,6 +186,12 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         // the stale entity and defeat both the state check and the fencing token.
         ChangeTracker.Clear();
         return await ImageUploadTickets.FromSqlInterpolated($"SELECT * FROM image_upload_tickets WHERE \"Id\" = {ticketId} AND \"OwnerId\" = {ownerId} FOR UPDATE")
+            .SingleOrDefaultAsync(cancellationToken);
+    }
+    private async Task<ImageUploadTicket?> LockTicketAnyAsync(Guid ticketId, CancellationToken cancellationToken)
+    {
+        ChangeTracker.Clear();
+        return await ImageUploadTickets.FromSqlInterpolated($"SELECT * FROM image_upload_tickets WHERE \"Id\" = {ticketId} FOR UPDATE")
             .SingleOrDefaultAsync(cancellationToken);
     }
 

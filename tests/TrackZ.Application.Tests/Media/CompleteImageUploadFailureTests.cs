@@ -115,6 +115,20 @@ public sealed class CompleteImageUploadFailureTests
     }
 
     [Fact]
+    public async Task Cancellation_reported_after_durable_commit_is_reconciled_as_completed()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var harness = Harness.Create(cancellation: cancellation);
+        harness.Store.CancelAfterDurableCommit = true;
+
+        var dto = await harness.Handler.Handle(new(harness.Ticket.Id), cancellation.Token);
+
+        Assert.Equal(harness.Store.CommittedImageId, dto.Id);
+        Assert.Equal(ImageUploadState.Completed, harness.Ticket.State);
+        Assert.Contains(harness.Storage.FinalKeys, key => key.EndsWith("master.jpg", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task Completed_upload_stays_completed_when_postcommit_staging_delete_fails()
     {
         var harness = Harness.Create();
@@ -337,6 +351,7 @@ public sealed class CompleteImageUploadFailureTests
         public bool CancelOnCommit { get; set; }
         public bool LoseLeaseDuringCommit { get; set; }
         public bool ThrowAfterDurableCommit { get; set; }
+        public bool CancelAfterDurableCommit { get; set; }
         public Guid? CommittedImageId { get; private set; }
         public ExerciseImage? DurablyCompletedImage { get; private set; }
         public Guid? WinnerLeaseId { get; private set; }
@@ -355,7 +370,7 @@ public sealed class CompleteImageUploadFailureTests
             if (CancelOnCommit)
             {
                 cancellation!.Cancel();
-                return Task.FromCanceled<ExerciseImage>(ct);
+                return Task.FromCanceled<ExerciseImage>(cancellation.Token);
             }
             if (LoseLeaseDuringCommit)
             {
@@ -371,6 +386,11 @@ public sealed class CompleteImageUploadFailureTests
             Ticket.Complete(image.Id, lease, DateTimeOffset.UtcNow);
             CommittedImageId = image.Id;
             DurablyCompletedImage = image;
+            if (CancelAfterDurableCommit)
+            {
+                cancellation!.Cancel();
+                return Task.FromCanceled<ExerciseImage>(cancellation.Token);
+            }
             if (ThrowAfterDurableCommit) return Task.FromException<ExerciseImage>(new IOException("commit acknowledgement lost"));
             return Task.FromResult(image);
         }
@@ -380,6 +400,9 @@ public sealed class CompleteImageUploadFailureTests
             return Task.FromResult(DurablyCompletedImage);
         }
         public Task<IReadOnlyList<ImageUploadCleanupCandidate>> ListCleanupCandidatesAsync(DateTimeOffset now, CancellationToken ct) => Task.FromResult<IReadOnlyList<ImageUploadCleanupCandidate>>([]);
+        public Task<ImageUploadCleanupCandidate?> TryClaimCleanupAsync(ImageUploadCleanupCandidate candidate, DateTimeOffset now, CancellationToken ct) => Task.FromResult<ImageUploadCleanupCandidate?>(null);
+        public Task<bool> CompleteCleanupClaimAsync(Guid id, Guid claim, CancellationToken ct) => Task.FromResult(false);
+        public Task ReleaseCleanupClaimAsync(Guid id, Guid claim, CancellationToken ct) => Task.CompletedTask;
         public Task MarkCleanupCompleteAsync(Guid id, string? staging, Guid? lease, CancellationToken ct) => Task.CompletedTask;
 
         public Task<bool> TryFailClaimAsync(Guid id, Guid owner, Guid lease, CancellationToken ct)
@@ -388,10 +411,10 @@ public sealed class CompleteImageUploadFailureTests
             return Task.FromResult(Ticket.Fail(lease));
         }
 
-        public Task<bool> TryReleaseClaimAsync(Guid id, Guid owner, Guid lease, CancellationToken ct)
+        public Task<bool> TryReleaseClaimAsync(Guid id, Guid owner, Guid lease, CancellationToken ct, bool retainAttemptForCleanup = false)
         {
             ct.ThrowIfCancellationRequested();
-            return Task.FromResult(Ticket.ReleaseForRetry(lease));
+            return Task.FromResult(Ticket.ReleaseForRetry(lease, retainAttemptForCleanup));
         }
 
         public Task SaveAsync(CancellationToken ct)
