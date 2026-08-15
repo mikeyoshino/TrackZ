@@ -53,7 +53,6 @@ public sealed class CustomExerciseViewModelTests : IAsyncLifetime
         var cached = Assert.Single(await new ExerciseCache(_databasePath).GetAllAsync());
         Assert.True(cached.IsPendingSync);
         Assert.Equal("/local/preview.jpg", cached.ThumbnailUri);
-        Assert.Equal("Pending Sync", cached.SyncLabel);
         Assert.Empty(customApi.Saved);
     }
 
@@ -237,7 +236,7 @@ public sealed class CustomExerciseViewModelTests : IAsyncLifetime
             var result = await new LocalExerciseImageImporter().ImportAsync(_imagePath, "image/png", destination);
 
             Assert.Equal(expectedOriginal, await File.ReadAllBytesAsync(result.OriginalPath));
-            using var preview = await Image.LoadAsync(result.PreviewPath);
+            using var preview = await SixLabors.ImageSharp.Image.LoadAsync(result.PreviewPath);
             Assert.Equal(512, preview.Width);
             Assert.Equal(256, preview.Height);
         }

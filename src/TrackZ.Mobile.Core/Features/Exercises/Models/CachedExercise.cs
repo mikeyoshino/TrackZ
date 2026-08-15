@@ -1,5 +1,4 @@
 using System.ComponentModel;
-using System.Globalization;
 using System.Runtime.CompilerServices;
 using TrackZ.Contracts.Exercises;
 using TrackZ.Domain.Exercises;
@@ -22,10 +21,6 @@ public sealed class CachedExercise : INotifyPropertyChanged
     public bool IsCustom { get; init; }
     public bool IsPendingSync { get; init; }
     public DateTimeOffset LastSyncedAt { get; init; }
-    public string? SyncLabel => IsPendingSync ? "Pending Sync" : null;
-    public string LastDisplay => FormatPerformance(LastBestSet);
-    public string PersonalRecordDisplay => FormatPerformance(AllTimeBest);
-
     public bool IsSelected
     {
         get => _isSelected;
@@ -53,18 +48,6 @@ public sealed class CachedExercise : INotifyPropertyChanged
         IsCustom = source.IsCustom,
         LastSyncedAt = lastSyncedAt
     };
-
-    private string FormatPerformance(PerformanceSetDto? performance)
-    {
-        if (performance is null) return "—";
-        return TrackingMode switch
-        {
-            TrackingMode.Weighted => $"{performance.WeightKg?.ToString("0.##", CultureInfo.InvariantCulture)} kg × {performance.Reps}",
-            TrackingMode.Assisted => $"{performance.AssistedKg?.ToString("0.##", CultureInfo.InvariantCulture)} kg assist × {performance.Reps}",
-            TrackingMode.Bodyweight => $"{performance.Reps} reps",
-            _ => "—"
-        };
-    }
 
     private void OnPropertyChanged([CallerMemberName] string? name = null) =>
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));

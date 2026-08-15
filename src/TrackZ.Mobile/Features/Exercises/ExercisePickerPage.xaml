@@ -42,7 +42,7 @@
                     VerticalTextAlignment="Center" />
             </CollectionView.EmptyView>
             <CollectionView.ItemTemplate>
-                <DataTemplate x:DataType="models:CachedExercise">
+                <DataTemplate x:DataType="models:ExercisePickerItem">
                     <components:ExercisePerformanceCard
                         Margin="0,0,0,10"
                         EditCommand="{Binding Source={x:Reference Page}, Path=EditCustomCommand}"

@@ -21,6 +21,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\TrackZ.Mobile.Core\TrackZ.Mobile.Core.csproj" />
+    <ProjectReference Include="..\..\src\TrackZ.Mobile\TrackZ.Mobile.csproj" />
   </ItemGroup>
 
 </Project>

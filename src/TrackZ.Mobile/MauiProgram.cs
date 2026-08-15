@@ -11,7 +11,7 @@ namespace TrackZ.Mobile;
 
 public static class MauiProgram
 {
-	public static MauiApp CreateMauiApp()
+	public static MauiApp CreateMauiApp(Action<IServiceCollection>? configureTestServices = null)
 	{
 		var builder = MauiApp.CreateBuilder();
 		builder
@@ -76,6 +76,8 @@ public static class MauiProgram
 		builder.Services.AddSingleton<ILocalWorkoutRepository>(services =>
 			services.GetRequiredService<LocalWorkoutRepository>());
 		builder.Services.AddSingleton<OutboxRepository>();
+		builder.Services.AddSingleton<IWorkoutOutboxStatusSource>(services =>
+			services.GetRequiredService<OutboxRepository>());
 		builder.Services.AddSingleton<ActiveWorkoutCoordinator>();
 		builder.Services.AddSingleton<IExerciseHistorySource, CachedExerciseHistorySource>();
 		builder.Services.AddSingleton<IWorkoutSyncRunner, WorkoutSyncRunner>();
@@ -98,6 +100,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<WorkoutPage>();
 		builder.Services.AddTransient<SetLoggerPage>();
 		builder.Services.AddSingleton<AppShell>();
+		configureTestServices?.Invoke(builder.Services);
 
 #if DEBUG
 		builder.Logging.AddDebug();

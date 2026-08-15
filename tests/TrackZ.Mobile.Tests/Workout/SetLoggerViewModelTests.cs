@@ -278,6 +278,83 @@ public sealed class SetLoggerViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task Reset_starting_after_the_final_generation_check_cancels_feedback_without_faulting_the_saved_command()
+    {
+        var database = new TrackZLocalDatabase(_databasePath);
+        var repository = new LocalWorkoutRepository(database);
+        var boundary = new CheckUseRaceBoundary();
+        var coordinator = new ActiveWorkoutCoordinator(repository, boundary, new FixedClock());
+        await coordinator.StartAsync([new WorkoutExerciseSelection(ExerciseId, TrackingMode.Weighted)]);
+        var feedback = new RecordingFeedback { Throw = true };
+        var status = new RaceStatusSource(new OutboxRepository(database));
+        var sut = new SetLoggerViewModel(
+            coordinator,
+            new StubHistory(null),
+            feedback,
+            boundary,
+            new StubConnectivity(true),
+            status,
+            WorkoutResources.English);
+        await sut.LoadAsync(ExerciseId, "Bench Press");
+        status.OnPendingRead = () => boundary.ArmReset(coordinator.ClearPrivateDataAsync);
+        sut.WeightKg = 65m;
+        sut.Reps = 10;
+
+        var exception = await Record.ExceptionAsync(() => sut.CompleteSetCommand.ExecuteAsync());
+        await boundary.ResetCompletion;
+
+        Assert.Null(exception);
+        Assert.Equal(0, feedback.CallCount);
+        Assert.Null(await repository.GetActiveAsync());
+        Assert.Empty(sut.TodaySets);
+        Assert.Null(sut.ErrorMessage);
+        Assert.False(sut.IsBusy);
+    }
+
+    [Fact]
+    public async Task Real_feedback_adapter_releases_the_session_boundary_promptly_when_reset_cancels_motion()
+    {
+        var fixture = await CreateFixtureAsync(TrackingMode.Weighted);
+        var feedback = new MauiSetSavedFeedback(() => false);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var laterPhaseCount = 0;
+        feedback.Saved += async (_, token) =>
+        {
+            entered.TrySetResult();
+            await Task.Delay(Timeout.InfiniteTimeSpan, token);
+        };
+        feedback.Saved += (_, _) =>
+        {
+            laterPhaseCount++;
+            return Task.CompletedTask;
+        };
+        var sut = new SetLoggerViewModel(
+            fixture.Coordinator,
+            new StubHistory(null),
+            feedback,
+            fixture.Boundary,
+            new StubConnectivity(true),
+            new OutboxRepository(fixture.Database),
+            WorkoutResources.English);
+        await sut.LoadAsync(ExerciseId, "Bench Press");
+        sut.WeightKg = 65m;
+        sut.Reps = 10;
+
+        var save = sut.CompleteSetCommand.ExecuteAsync();
+        await entered.Task;
+        var reset = fixture.Boundary.ResetAsync(fixture.Coordinator.ClearPrivateDataAsync);
+        var exception = await Record.ExceptionAsync(
+            () => Task.WhenAll(save, reset).WaitAsync(TimeSpan.FromSeconds(2)));
+
+        Assert.Null(exception);
+        Assert.Equal(0, laterPhaseCount);
+        Assert.Empty(sut.TodaySets);
+        Assert.Null(await fixture.Repository.GetActiveAsync());
+        Assert.Null(sut.ErrorMessage);
+        Assert.False(sut.IsBusy);
+    }
+
+    [Fact]
     public async Task Offline_load_uses_cached_exact_previous_sets_without_an_error_toast()
     {
         var fixture = await CreateFixtureAsync(TrackingMode.Bodyweight);
@@ -509,7 +586,7 @@ public sealed class SetLoggerViewModelTests : IDisposable
             await logger.LoadAsync(ExerciseId, "Bench Press");
             logger.WeightKg = 60m;
             logger.Reps = 10;
-            logger.Dispose();
+            logger.Deactivate();
             disposed.Add(logger);
         }
 
@@ -524,6 +601,71 @@ public sealed class SetLoggerViewModelTests : IDisposable
 
         await fixture.Boundary.ResetAsync(fixture.Coordinator.ClearPrivateDataAsync);
         Assert.All(disposed, logger => Assert.Equal("Bench Press", logger.ExerciseName));
+    }
+
+    [Fact]
+    public async Task Page_pop_cancels_in_flight_history_load_without_post_disposal_state_or_status_reads()
+    {
+        var fixture = await CreateFixtureAsync(TrackingMode.Weighted);
+        var history = new GatedHistory(Previous(
+            TrackingMode.Weighted,
+            Set(0, 80m, null, 8)));
+        var status = new CountingStatusSource(new OutboxRepository(fixture.Database));
+        var sut = new SetLoggerViewModel(
+            fixture.Coordinator,
+            history,
+            fixture.Feedback,
+            fixture.Boundary,
+            new StubConnectivity(true),
+            status,
+            WorkoutResources.English);
+        var changes = 0;
+        sut.PropertyChanged += (_, _) => changes++;
+
+        var loading = sut.LoadAsync(ExerciseId, "Bench Press");
+        await history.Entered.Task;
+        sut.Deactivate();
+        var changesAtDispose = changes;
+        var cancellationRequested = history.ObservedToken.IsCancellationRequested;
+        history.Release.TrySetResult();
+
+        var exception = await Record.ExceptionAsync(() => loading.WaitAsync(TimeSpan.FromSeconds(2)));
+
+        Assert.Null(exception);
+        Assert.True(cancellationRequested);
+        Assert.Equal(changesAtDispose, changes);
+        Assert.Equal(string.Empty, sut.ExerciseName);
+        Assert.Empty(sut.LastSets);
+        Assert.Empty(sut.TodaySets);
+        Assert.Equal(0, status.ReadCount);
+        Assert.False(sut.IsBusy);
+    }
+
+    [Fact]
+    public async Task Page_pop_cancels_background_sync_without_post_disposal_status_refresh_or_fault()
+    {
+        var fixture = await CreateFixtureAsync(TrackingMode.Weighted);
+        var status = new CountingStatusSource(new OutboxRepository(fixture.Database));
+        var sync = new BlockingSyncRunner(() => { });
+        var sut = fixture.CreateLogger(null, sync: sync, status: status);
+        await sut.LoadAsync(ExerciseId, "Bench Press");
+        sut.WeightKg = 60m;
+        sut.Reps = 12;
+        await sut.CompleteSetCommand.ExecuteAsync();
+        await sync.Entered.Task;
+        var readsBeforeDispose = status.ReadCount;
+
+        sut.Deactivate();
+        var cancellationRequested = sync.ObservedToken.IsCancellationRequested;
+        sync.Release.TrySetResult();
+        var exception = await Record.ExceptionAsync(
+            () => sut.SyncCompletion.WaitAsync(TimeSpan.FromSeconds(2)));
+
+        Assert.Null(exception);
+        Assert.True(cancellationRequested);
+        Assert.Equal(readsBeforeDispose, status.ReadCount);
+        Assert.Equal(WorkoutSyncState.Syncing, sut.SyncState);
+        Assert.False(sut.IsBusy);
     }
 
     [Fact]
@@ -728,6 +870,24 @@ public sealed class SetLoggerViewModelTests : IDisposable
             CancellationToken cancellationToken = default) => Task.FromResult(previous);
     }
 
+    private sealed class GatedHistory(ExerciseHistorySessionDto? previous) : IExerciseHistorySource
+    {
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public CancellationToken ObservedToken { get; private set; }
+
+        public async Task<ExerciseHistorySessionDto?> GetMostRecentAsync(
+            Guid exerciseId,
+            bool refreshIfOnline,
+            CancellationToken cancellationToken = default)
+        {
+            ObservedToken = cancellationToken;
+            Entered.TrySetResult();
+            await Release.Task.WaitAsync(cancellationToken);
+            return previous;
+        }
+    }
+
     private sealed class FailingHistory : IExerciseHistorySource
     {
         public Task<ExerciseHistorySessionDto?> GetMostRecentAsync(
@@ -793,6 +953,53 @@ public sealed class SetLoggerViewModelTests : IDisposable
             ReadCount++;
             return inner.RejectedAsync(workoutId, cancellationToken);
         }
+    }
+
+    private sealed class RaceStatusSource(IWorkoutOutboxStatusSource inner) : IWorkoutOutboxStatusSource
+    {
+        public Action? OnPendingRead { get; set; }
+        public Task<IReadOnlyList<OutboxOperation>> ConflictedAsync(Guid workoutId, CancellationToken cancellationToken = default) =>
+            inner.ConflictedAsync(workoutId, cancellationToken);
+        public Task<IReadOnlyList<OutboxOperation>> RejectedAsync(Guid workoutId, CancellationToken cancellationToken = default) =>
+            inner.RejectedAsync(workoutId, cancellationToken);
+        public async Task<IReadOnlyList<OutboxOperation>> PendingAsync(Guid workoutId, CancellationToken cancellationToken = default)
+        {
+            var result = await inner.PendingAsync(workoutId, cancellationToken);
+            OnPendingRead?.Invoke();
+            return result;
+        }
+    }
+
+    private sealed class CheckUseRaceBoundary : IAccountSessionBoundary
+    {
+        private readonly AccountSessionBoundary _inner = new();
+        private Func<CancellationToken, Task>? _reset;
+        public Task ResetCompletion { get; private set; } = Task.CompletedTask;
+        public event EventHandler? SessionReset
+        {
+            add => _inner.SessionReset += value;
+            remove => _inner.SessionReset -= value;
+        }
+        public AccountSessionGeneration Capture() => _inner.Capture();
+        public AccountSessionCancellationLease CreateCancellationLease(AccountSessionGeneration generation, CancellationToken cancellationToken = default) =>
+            _inner.CreateCancellationLease(generation, cancellationToken);
+        public void ArmReset(Func<CancellationToken, Task> reset) => _reset = reset;
+        public bool IsCancellationRequested(AccountSessionGeneration generation)
+        {
+            var reset = Interlocked.Exchange(ref _reset, null);
+            if (reset is not null)
+            {
+                ResetCompletion = _inner.ResetAsync(reset);
+                return false;
+            }
+            return _inner.IsCancellationRequested(generation);
+        }
+        public Task<bool> TryCommitAsync(AccountSessionGeneration generation, Func<CancellationToken, Task> mutation, CancellationToken cancellationToken = default) =>
+            _inner.TryCommitAsync(generation, mutation, cancellationToken);
+        public Task ResetAsync(Func<CancellationToken, Task> reset, CancellationToken cancellationToken = default) =>
+            _inner.ResetAsync(reset, cancellationToken);
+        public Task<bool> TryResetAsync(AccountSessionGeneration generation, Func<CancellationToken, Task> reset, CancellationToken cancellationToken = default) =>
+            _inner.TryResetAsync(generation, reset, cancellationToken);
     }
 
     private sealed class MemoryWorkoutPreferenceStore : IWorkoutPreferenceStore
@@ -872,9 +1079,11 @@ public sealed class SetLoggerViewModelTests : IDisposable
     {
         public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public CancellationToken ObservedToken { get; private set; }
 
         public async Task<SyncRunStatus> RunOnceAsync(CancellationToken cancellationToken = default)
         {
+            ObservedToken = cancellationToken;
             onEntered();
             Entered.TrySetResult();
             await Release.Task.WaitAsync(cancellationToken);

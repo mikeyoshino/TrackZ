@@ -65,7 +65,7 @@ public sealed record SetDisplayRow(
     public int SetNumber => Order + 1;
 }
 
-public sealed class SetLoggerViewModel : INotifyPropertyChanged, IDisposable
+public sealed class SetLoggerViewModel : INotifyPropertyChanged
 {
     private const decimal PoundsPerKilogram = 2.204622621848775807m;
     private readonly ActiveWorkoutCoordinator _coordinator;
@@ -77,6 +77,7 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged, IDisposable
     private readonly WorkoutTextSet _text;
     private readonly IWorkoutSyncRunner? _syncRunner;
     private readonly IWeightUnitPreference? _unitPreference;
+    private readonly CancellationTokenSource _lifetime = new();
     private Guid _workoutId;
     private Guid _exerciseId;
     private string _exerciseName = string.Empty;
@@ -307,19 +308,23 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged, IDisposable
         if (_disposed) return;
         if (exerciseId == Guid.Empty) throw new ArgumentException("Exercise ID is required.", nameof(exerciseId));
         ArgumentException.ThrowIfNullOrWhiteSpace(exerciseName);
+        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken, _lifetime.Token);
+        var token = lifetime.Token;
         var generation = _boundary.Capture();
         IsBusy = true;
         ErrorMessage = null;
         try
         {
-            var active = await _coordinator.RestoreActiveAsync(cancellationToken)
+            var active = await _coordinator.RestoreActiveAsync(token)
                 ?? throw new InvalidOperationException("No active workout exists.");
             var exercise = active.Exercises.SingleOrDefault(item =>
                 item.DeletedAt is null && item.ExerciseDefinitionId == exerciseId)
                 ?? throw new ArgumentException("Exercise is not in the active workout.", nameof(exerciseId));
             var previous = await _history.GetMostRecentAsync(
-                exerciseId, _connectivity.IsOnline, cancellationToken);
-            if (_boundary.IsCancellationRequested(generation)) return;
+                exerciseId, _connectivity.IsOnline, token);
+            token.ThrowIfCancellationRequested();
+            if (_disposed || _boundary.IsCancellationRequested(generation)) return;
 
             _workoutId = active.Id;
             _exerciseId = exerciseId;
@@ -337,13 +342,15 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged, IDisposable
             foreach (var set in exercise.Sets.Where(item => item.DeletedAt is null).OrderBy(item => item.Order))
                 TodaySets.Add(Row(set, exercise.TrackingMode));
             MatchLast();
-            await RefreshSyncStateAsync(cancellationToken);
+            await RefreshSyncStateCoreAsync(token);
         }
-        catch (OperationCanceledException) when (_boundary.IsCancellationRequested(generation))
+        catch (OperationCanceledException) when (token.IsCancellationRequested
+            || _boundary.IsCancellationRequested(generation))
         {
-            ClearPrivateState();
+            if (!_disposed && _boundary.IsCancellationRequested(generation))
+                ClearPrivateState();
         }
-        catch (Exception) when (!_boundary.IsCancellationRequested(generation))
+        catch (Exception) when (!_disposed && !_boundary.IsCancellationRequested(generation))
         {
             _exerciseId = Guid.Empty;
             LastSets.Clear();
@@ -352,19 +359,38 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged, IDisposable
         }
         finally
         {
-            IsBusy = false;
-            MeasurementChanged();
+            if (!_disposed)
+            {
+                IsBusy = false;
+                MeasurementChanged();
+            }
         }
     }
 
-    public void MarkSyncing() => SyncState = WorkoutSyncState.Syncing;
+    public void MarkSyncing()
+    {
+        if (!_disposed) SyncState = WorkoutSyncState.Syncing;
+    }
 
-    public Task RefreshSyncStateAsync(CancellationToken cancellationToken = default) =>
-        RefreshSyncStateCoreAsync(cancellationToken);
+    public async Task RefreshSyncStateAsync(CancellationToken cancellationToken = default)
+    {
+        if (_disposed) return;
+        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken, _lifetime.Token);
+        try
+        {
+            await RefreshSyncStateCoreAsync(lifetime.Token);
+        }
+        catch (OperationCanceledException) when (lifetime.IsCancellationRequested)
+        {
+        }
+    }
 
     private async Task CompleteSetAsync()
     {
         if (_disposed || !IsValidMeasurement() || _exerciseId == Guid.Empty) return;
+        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+        var token = lifetime.Token;
         var generation = _boundary.Capture();
         IsBusy = true;
         ErrorMessage = null;
@@ -380,14 +406,16 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged, IDisposable
                     TrackingMode.Bodyweight => new LocalSet(null, null, Reps),
                     _ => throw new InvalidOperationException("Tracking mode is invalid.")
                 };
-                saved = await _coordinator.SaveSetAsync(_exerciseId, set);
+                saved = await _coordinator.SaveSetAsync(_exerciseId, set, token);
             }
-            catch (OperationCanceledException) when (_boundary.IsCancellationRequested(generation))
+            catch (OperationCanceledException) when (token.IsCancellationRequested
+                || _boundary.IsCancellationRequested(generation))
             {
-                ClearPrivateState();
+                if (!_disposed && _boundary.IsCancellationRequested(generation))
+                    ClearPrivateState();
                 return;
             }
-            catch (Exception) when (!_boundary.IsCancellationRequested(generation))
+            catch (Exception) when (!_disposed && !_boundary.IsCancellationRequested(generation))
             {
                 ErrorMessage = _text.SaveFailed;
                 return;
@@ -398,7 +426,7 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged, IDisposable
             OnPropertyChanged(nameof(CanMatchLast));
             try
             {
-                await RefreshSyncStateCoreAsync(CancellationToken.None);
+                await RefreshSyncStateCoreAsync(token);
             }
             catch (Exception)
             {
@@ -407,9 +435,13 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged, IDisposable
             if (_disposed || _boundary.IsCancellationRequested(generation)) return;
             try
             {
-                await _feedback.SetSavedAsync(saved, CancellationToken.None);
+                var current = await _boundary.TryCommitAsync(
+                    generation,
+                    feedbackToken => _feedback.SetSavedAsync(saved, feedbackToken),
+                    token);
+                if (!current) return;
             }
-            catch (Exception) when (!_boundary.IsCancellationRequested(generation))
+            catch (Exception)
             {
                 // Feedback is best-effort. The set is already durably persisted, so a
                 // haptic or animation failure must never invite the user to save it again.
@@ -420,8 +452,11 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged, IDisposable
         }
         finally
         {
-            IsBusy = false;
-            MeasurementChanged();
+            if (!_disposed)
+            {
+                IsBusy = false;
+                MeasurementChanged();
+            }
         }
     }
 
@@ -436,6 +471,8 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged, IDisposable
 
     private async Task RefreshSyncStateCoreAsync(CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (_disposed) return;
         if (!_connectivity.IsOnline)
         {
             SyncState = WorkoutSyncState.Offline;
@@ -443,40 +480,59 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged, IDisposable
         }
         if ((await _outbox.ConflictedAsync(_workoutId, cancellationToken)).Count != 0)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (_disposed) return;
             SyncState = WorkoutSyncState.Conflicted;
             return;
         }
         if ((await _outbox.RejectedAsync(_workoutId, cancellationToken)).Count != 0)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (_disposed) return;
             SyncState = WorkoutSyncState.PermanentFailure;
             return;
         }
-        SyncState = (await _outbox.PendingAsync(_workoutId, cancellationToken)).Count == 0
+        var pending = await _outbox.PendingAsync(_workoutId, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (_disposed) return;
+        SyncState = pending.Count == 0
             ? WorkoutSyncState.Synced
             : WorkoutSyncState.Pending;
     }
 
     private async Task SynchronizeBestEffortAsync(AccountSessionGeneration generation)
     {
+        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+        var token = lifetime.Token;
+        if (_disposed || token.IsCancellationRequested) return;
         SyncState = WorkoutSyncState.Syncing;
         try
         {
-            var result = await _syncRunner!.RunOnceAsync(CancellationToken.None);
-            if (_boundary.IsCancellationRequested(generation)) return;
+            var result = await _syncRunner!.RunOnceAsync(token);
+            if (_disposed || token.IsCancellationRequested
+                || _boundary.IsCancellationRequested(generation)) return;
             if (result == SyncRunStatus.Offline)
             {
                 SyncState = WorkoutSyncState.Offline;
                 return;
             }
-            await RefreshSyncStateCoreAsync(CancellationToken.None);
+            await RefreshSyncStateCoreAsync(token);
         }
-        catch (OperationCanceledException) when (_boundary.IsCancellationRequested(generation))
+        catch (OperationCanceledException) when (_disposed || token.IsCancellationRequested
+            || _boundary.IsCancellationRequested(generation))
         {
         }
         catch (Exception)
         {
-            if (!_boundary.IsCancellationRequested(generation))
-                await RefreshSyncStateCoreAsync(CancellationToken.None);
+            if (_disposed || token.IsCancellationRequested
+                || _boundary.IsCancellationRequested(generation)) return;
+            try
+            {
+                await RefreshSyncStateCoreAsync(token);
+            }
+            catch (Exception) when (_disposed || token.IsCancellationRequested)
+            {
+            }
         }
     }
 
@@ -573,12 +629,18 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged, IDisposable
         (UsePoundsCommand as RelayCommand)?.RaiseCanExecuteChanged();
     }
 
-    public void Dispose()
+    public void Deactivate()
     {
         if (_disposed) return;
         _disposed = true;
+        _lifetime.Cancel();
         _boundary.SessionReset -= OnSessionReset;
         _connectivity.ConnectivityChanged -= OnConnectivityChanged;
+        if (_isBusy)
+        {
+            _isBusy = false;
+            OnPropertyChanged(nameof(IsBusy));
+        }
         MeasurementChanged();
     }
 
@@ -605,7 +667,7 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged, IDisposable
     private async void OnConnectivityChanged(object? sender, EventArgs eventArgs)
     {
         if (_disposed) return;
-        try { await RefreshSyncStateCoreAsync(CancellationToken.None); }
+        try { await RefreshSyncStateAsync(_lifetime.Token); }
         catch (Exception) { if (!_disposed) SyncState = WorkoutSyncState.Offline; }
     }
 

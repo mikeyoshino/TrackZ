@@ -54,4 +54,13 @@
   <data name="IncreaseAssistance" xml:space="preserve"><value>เพิ่มน้ำหนักช่วย</value></data>
   <data name="DecreaseReps" xml:space="preserve"><value>ลดจำนวนครั้ง</value></data>
   <data name="IncreaseReps" xml:space="preserve"><value>เพิ่มจำนวนครั้ง</value></data>
+  <data name="PerformanceLastFormat" xml:space="preserve"><value>ครั้งก่อน  {0}</value></data>
+  <data name="PerformancePrFormat" xml:space="preserve"><value>สถิติสูงสุด  {0}</value></data>
+  <data name="Edit" xml:space="preserve"><value>แก้ไข</value></data>
+  <data name="PendingSync" xml:space="preserve"><value>รอซิงค์</value></data>
+  <data name="WeightedPerformanceFormat" xml:space="preserve"><value>{0} {1} × {2}</value></data>
+  <data name="AssistedPerformanceFormat" xml:space="preserve"><value>{0} {1} ช่วย × {2}</value></data>
+  <data name="BodyweightPerformanceFormat" xml:space="preserve"><value>{0} {1}</value></data>
+  <data name="RepSingular" xml:space="preserve"><value>ครั้ง</value></data>
+  <data name="RepPlural" xml:space="preserve"><value>ครั้ง</value></data>
 </root>

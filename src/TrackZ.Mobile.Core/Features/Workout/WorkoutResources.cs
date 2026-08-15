@@ -53,7 +53,16 @@ public sealed record WorkoutTextSet(
     string DecreaseAssistance,
     string IncreaseAssistance,
     string DecreaseReps,
-    string IncreaseReps);
+    string IncreaseReps,
+    string PerformanceLastFormat,
+    string PerformancePrFormat,
+    string Edit,
+    string PendingSync,
+    string WeightedPerformanceFormat,
+    string AssistedPerformanceFormat,
+    string BodyweightPerformanceFormat,
+    string RepSingular,
+    string RepPlural);
 
 public static class WorkoutResources
 {
@@ -85,7 +94,12 @@ public static class WorkoutResources
             Value("BodyPartLegs", culture), Value("BodyPartCore", culture),
             Value("DecreaseWeight", culture), Value("IncreaseWeight", culture),
             Value("DecreaseAssistance", culture), Value("IncreaseAssistance", culture),
-            Value("DecreaseReps", culture), Value("IncreaseReps", culture));
+            Value("DecreaseReps", culture), Value("IncreaseReps", culture),
+            Value("PerformanceLastFormat", culture), Value("PerformancePrFormat", culture),
+            Value("Edit", culture), Value("PendingSync", culture),
+            Value("WeightedPerformanceFormat", culture), Value("AssistedPerformanceFormat", culture),
+            Value("BodyweightPerformanceFormat", culture), Value("RepSingular", culture),
+            Value("RepPlural", culture));
     }
 
     private static string Value(string key, CultureInfo culture) =>

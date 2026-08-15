@@ -7,6 +7,7 @@ public partial class SetLoggerPage : ContentPage, IQueryAttributable
     private readonly SetLoggerViewModel _viewModel;
     private readonly MauiSetSavedFeedback _feedback;
     private bool _wasParented;
+    private bool _deactivated;
 
     public SetLoggerPage(SetLoggerViewModel viewModel, MauiSetSavedFeedback feedback)
     {
@@ -19,7 +20,7 @@ public partial class SetLoggerPage : ContentPage, IQueryAttributable
     protected override void OnAppearing()
     {
         base.OnAppearing();
-        _feedback.Saved += OnSetSavedAsync;
+        if (!_deactivated) _feedback.Saved += OnSetSavedAsync;
     }
 
     protected override void OnDisappearing()
@@ -36,7 +37,16 @@ public partial class SetLoggerPage : ContentPage, IQueryAttributable
             _wasParented = true;
             return;
         }
-        if (_wasParented) _viewModel.Dispose();
+        if (_wasParented) Deactivate();
+    }
+
+    public void Deactivate()
+    {
+        if (_deactivated) return;
+        _deactivated = true;
+        _feedback.Saved -= OnSetSavedAsync;
+        _viewModel.Deactivate();
+        BindingContext = null;
     }
 
     public async void ApplyQueryAttributes(IDictionary<string, object> query)
@@ -49,18 +59,26 @@ public partial class SetLoggerPage : ContentPage, IQueryAttributable
         await _viewModel.LoadAsync(exerciseId, Uri.UnescapeDataString(rawName.ToString()!));
     }
 
-    private Task OnSetSavedAsync(LocalSet savedSet) => MainThread.InvokeOnMainThreadAsync(async () =>
+    private Task OnSetSavedAsync(LocalSet savedSet, CancellationToken cancellationToken) =>
+        MainThread.InvokeOnMainThreadAsync(() => AnimateSavedAsync(cancellationToken));
+
+    private async Task AnimateSavedAsync(CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+        using var cancellation = cancellationToken.Register(() =>
+            MainThread.BeginInvokeOnMainThread(SavedPulse.CancelAnimations));
         SavedPulse.CancelAnimations();
         SavedPulse.Opacity = 1;
         if (Preferences.Default.Get("trackz_reduce_motion", false))
         {
             await SavedPulse.FadeToAsync(0, 180, Easing.Linear);
+            cancellationToken.ThrowIfCancellationRequested();
             return;
         }
         SavedPulse.Scale = 0.97;
         await Task.WhenAll(
             SavedPulse.ScaleToAsync(1, 160, Easing.CubicOut),
             SavedPulse.FadeToAsync(0, 520, Easing.CubicIn));
-    });
+        cancellationToken.ThrowIfCancellationRequested();
+    }
 }

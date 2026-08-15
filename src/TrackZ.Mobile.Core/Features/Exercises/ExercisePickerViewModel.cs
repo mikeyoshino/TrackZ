@@ -63,7 +63,7 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged
         ToggleSelectionCommand = new RelayCommand(ToggleSelection);
     }
 
-    public ObservableCollection<CachedExercise> Exercises { get; } = [];
+    public ObservableCollection<ExercisePickerItem> Exercises { get; } = [];
     public IReadOnlyList<BodyPart> BodyParts { get; } = Enum.GetValues<BodyPart>();
     public IReadOnlyList<BodyPartFilterOption> BodyPartOptions { get; }
     public IReadOnlyCollection<Guid> SelectedExerciseIds => _selectedIds;
@@ -238,6 +238,7 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged
     {
         var id = parameter switch
         {
+            ExercisePickerItem item => item.Id,
             CachedExercise exercise => exercise.Id,
             Guid exerciseId => exerciseId,
             _ => Guid.Empty
@@ -252,7 +253,7 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged
             _selectedIdSet.Remove(id);
             _selectedIds.Remove(id);
         }
-        foreach (var exercise in _catalog.Where(item => item.Id == id))
+        foreach (var exercise in Exercises.Where(item => item.Id == id))
             exercise.IsSelected = _selectedIdSet.Contains(id);
         OnPropertyChanged(nameof(SelectedExerciseIds));
         OnPropertyChanged(nameof(SelectedCountText));
@@ -271,7 +272,7 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged
         foreach (var exercise in filtered)
         {
             exercise.IsSelected = _selectedIdSet.Contains(exercise.Id);
-            Exercises.Add(exercise);
+            Exercises.Add(new ExercisePickerItem(exercise, _text));
         }
     }
 

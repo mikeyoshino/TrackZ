@@ -6,6 +6,7 @@ using SixLabors.ImageSharp.Formats.Png;
 using SixLabors.ImageSharp.Formats.Webp;
 using SixLabors.ImageSharp.PixelFormats;
 using TrackZ.Mobile.Features.Exercises.Services;
+using ImageSharpImage = SixLabors.ImageSharp.Image;
 
 namespace TrackZ.Mobile.Tests.Exercises;
 
@@ -29,7 +30,7 @@ public sealed class LocalExerciseImageImporterSecurityTests
                 source, contentType, root, "valid-fixture");
 
             Assert.Equal(bytes, await File.ReadAllBytesAsync(imported.OriginalPath));
-            using var preview = Image.Load(imported.PreviewPath);
+            using var preview = ImageSharpImage.Load(imported.PreviewPath);
             Assert.Equal((512, 256), (preview.Width, preview.Height));
             Assert.Single(preview.Frames);
         }

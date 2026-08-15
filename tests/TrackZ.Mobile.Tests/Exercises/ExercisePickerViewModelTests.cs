@@ -39,8 +39,8 @@ public sealed class ExercisePickerViewModelTests : IAsyncLifetime
 
         Assert.Equal(70m, sut.Exercises[0].LastBestSet!.WeightKg);
         Assert.Equal(75m, sut.Exercises[0].AllTimeBest!.WeightKg);
-        Assert.Equal("70 kg × 8", sut.Exercises[0].LastDisplay);
-        Assert.Equal("75 kg × 5", sut.Exercises[0].PersonalRecordDisplay);
+        Assert.Equal("LAST  70 kg × 8", sut.Exercises[0].LastText);
+        Assert.Equal("PR  75 kg × 5", sut.Exercises[0].PersonalRecordText);
         Assert.Single(sut.SelectedExerciseIds);
     }
 
@@ -131,6 +131,92 @@ public sealed class ExercisePickerViewModelTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Picker_card_presentation_localizes_performance_and_actions_in_English_and_Thai()
+    {
+        var weighted = ChestPressWithPerformance();
+        var assisted = new ExerciseSummaryDto(
+            Guid.Parse("22222222-2222-2222-2222-222222222222"),
+            "Assisted Pull-up",
+            BodyPart.Back,
+            TrackingMode.Assisted,
+            null,
+            DateTimeOffset.UtcNow,
+            new PerformanceSetDto(null, 27.5m, 8),
+            new PerformanceSetDto(null, 25m, 10),
+            true);
+        var bodyweight = new ExerciseSummaryDto(
+            Guid.Parse("33333333-3333-3333-3333-333333333333"),
+            "Pull-up",
+            BodyPart.Back,
+            TrackingMode.Bodyweight,
+            null,
+            DateTimeOffset.UtcNow,
+            new PerformanceSetDto(null, null, 1),
+            new PerformanceSetDto(null, null, 8),
+            false);
+        await _cache.ReplaceAllAsync([weighted, assisted, bodyweight], DateTimeOffset.UtcNow);
+
+        var english = new ExercisePickerViewModel(
+            _cache,
+            new StubCatalogApi(),
+            new StubConnectivity(false),
+            new FixedClock(),
+            text: WorkoutResources.ForCulture(System.Globalization.CultureInfo.GetCultureInfo("en-US")));
+        await english.LoadAsync();
+
+        Assert.Equal("LAST  70 kg × 8", english.Exercises.Single(item => item.Id == weighted.Id).LastText);
+        Assert.Equal("PR  75 kg × 5", english.Exercises.Single(item => item.Id == weighted.Id).PersonalRecordText);
+        Assert.Equal("LAST  27.5 kg assist × 8", english.Exercises.Single(item => item.Id == assisted.Id).LastText);
+        Assert.Equal("Edit", english.Exercises.Single(item => item.Id == assisted.Id).EditLabel);
+        Assert.Equal("LAST  1 rep", english.Exercises.Single(item => item.Id == bodyweight.Id).LastText);
+        Assert.Equal("PR  8 reps", english.Exercises.Single(item => item.Id == bodyweight.Id).PersonalRecordText);
+
+        var thai = new ExercisePickerViewModel(
+            _cache,
+            new StubCatalogApi(),
+            new StubConnectivity(false),
+            new FixedClock(),
+            text: WorkoutResources.ForCulture(System.Globalization.CultureInfo.GetCultureInfo("th-TH")));
+        await thai.LoadAsync();
+
+        Assert.Equal("ครั้งก่อน  70 กก. × 8", thai.Exercises.Single(item => item.Id == weighted.Id).LastText);
+        Assert.Equal("สถิติสูงสุด  75 กก. × 5", thai.Exercises.Single(item => item.Id == weighted.Id).PersonalRecordText);
+        Assert.Equal("ครั้งก่อน  27.5 กก. ช่วย × 8", thai.Exercises.Single(item => item.Id == assisted.Id).LastText);
+        Assert.Equal("แก้ไข", thai.Exercises.Single(item => item.Id == assisted.Id).EditLabel);
+        Assert.Equal("ครั้งก่อน  1 ครั้ง", thai.Exercises.Single(item => item.Id == bodyweight.Id).LastText);
+        Assert.Equal("สถิติสูงสุด  8 ครั้ง", thai.Exercises.Single(item => item.Id == bodyweight.Id).PersonalRecordText);
+    }
+
+    [Fact]
+    public async Task Pending_custom_exercise_exposes_a_localized_sync_label_through_picker_presentation()
+    {
+        var id = Guid.Parse("77777777-7777-7777-7777-777777777777");
+        await _cache.QueueAsync(new PendingCustomExercise(
+            Guid.NewGuid(), id, id, "Pending Press", BodyPart.Chest, TrackingMode.Weighted,
+            null, "/local/original.png", "image/png", DateTimeOffset.UtcNow));
+        var sut = new ExercisePickerViewModel(
+            _cache,
+            new StubCatalogApi(),
+            new StubConnectivity(false),
+            new FixedClock(),
+            text: WorkoutResources.ForCulture(System.Globalization.CultureInfo.GetCultureInfo("th-TH")));
+
+        await sut.LoadAsync();
+
+        Assert.Equal("รอซิงค์", Assert.Single(sut.Exercises).SyncLabel);
+
+        var english = new ExercisePickerViewModel(
+            _cache,
+            new StubCatalogApi(),
+            new StubConnectivity(false),
+            new FixedClock(),
+            text: WorkoutResources.ForCulture(System.Globalization.CultureInfo.GetCultureInfo("en-US")));
+        await english.LoadAsync();
+
+        Assert.Equal("Pending Sync", Assert.Single(english.Exercises).SyncLabel);
+    }
+
+    [Fact]
     public async Task Failed_replacement_leaves_the_previous_catalog_intact()
     {
         var cached = ChestPressWithPerformance();
@@ -192,7 +278,6 @@ public sealed class ExercisePickerViewModelTests : IAsyncLifetime
         var cached = Assert.Single(await _cache.GetAllAsync());
         Assert.True(cached.IsPendingSync);
         Assert.Equal("/local/original.png", cached.ThumbnailUri);
-        Assert.Equal("Pending Sync", cached.SyncLabel);
     }
 
     [Fact]

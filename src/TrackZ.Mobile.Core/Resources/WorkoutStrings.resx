@@ -54,4 +54,13 @@
   <data name="IncreaseAssistance" xml:space="preserve"><value>Increase assistance</value></data>
   <data name="DecreaseReps" xml:space="preserve"><value>Decrease reps</value></data>
   <data name="IncreaseReps" xml:space="preserve"><value>Increase reps</value></data>
+  <data name="PerformanceLastFormat" xml:space="preserve"><value>LAST  {0}</value></data>
+  <data name="PerformancePrFormat" xml:space="preserve"><value>PR  {0}</value></data>
+  <data name="Edit" xml:space="preserve"><value>Edit</value></data>
+  <data name="PendingSync" xml:space="preserve"><value>Pending Sync</value></data>
+  <data name="WeightedPerformanceFormat" xml:space="preserve"><value>{0} {1} × {2}</value></data>
+  <data name="AssistedPerformanceFormat" xml:space="preserve"><value>{0} {1} assist × {2}</value></data>
+  <data name="BodyweightPerformanceFormat" xml:space="preserve"><value>{0} {1}</value></data>
+  <data name="RepSingular" xml:space="preserve"><value>rep</value></data>
+  <data name="RepPlural" xml:space="preserve"><value>reps</value></data>
 </root>

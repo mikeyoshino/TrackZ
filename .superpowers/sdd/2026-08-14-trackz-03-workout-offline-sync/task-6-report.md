@@ -9,7 +9,7 @@ Implemented Task 6 from base `39f083e3795996f12d824a60401048c9aed274dd`. No Task
 - Added native MAUI `WorkoutPage` and `SetLoggerPage` plus code-native `LastSetTable`, `WeightStepper`, `RepsStepper`, and `SyncStatusPill` components.
 - Added nonvisual `WorkoutViewModel`, `SetLoggerViewModel`, serialized `AsyncCommand`, workout resources, exact previous-session cache/source, and sync runner in `TrackZ.Mobile.Core`.
 - Moved the existing nonvisual exercise/cache/view-model and sync sources into `TrackZ.Mobile.Core`, removing the linked-source project workaround. MAUI-only pages, code-behind, connectivity, secure storage, motion, and haptics remain in `TrackZ.Mobile`.
-- Added English and Thai resource-backed workout and exercise-picker copy. Numeric input has 52 px controls with 44 px minimum targets, numeric keyboards, distinct localized increment/decrement semantics, mode-specific captions, and canonical kilogram state with pounds as display conversion only.
+- Added English and Thai resource-backed workout and exercise-picker copy, including picker-card Last/PR measurements, assisted/bodyweight wording, edit actions, and pending-sync state through a culture-bound presentation model. Persisted `CachedExercise` data no longer emits UI copy. Numeric input has 52 px controls with 44 px minimum targets, numeric keyboards, distinct localized increment/decrement semantics, mode-specific captions, and canonical kilogram state with pounds as display conversion only.
 - Wired DI and Shell routes without removing the exercise catalog. Workout thumbnails come only from the existing authenticated/local cache path.
 
 ## Behavior and boundaries
@@ -20,7 +20,7 @@ Implemented Task 6 from base `39f083e3795996f12d824a60401048c9aed274dd`. No Task
 - Rapid taps are ignored while the command is executing. Save failure, pre-commit account reset, stale account generation, or invalid measurement cannot invoke feedback. A haptic/motion adapter failure after the durable commit is isolated as best-effort feedback: Today remains saved, no save-error retry prompt is shown, and no duplicate local write occurs.
 - Offline is represented by the pill, not an error toast. Pill states cover offline, pending, conflicted, permanently rejected, syncing, and synced. Archived rejected rows are projected durably by current workout after restart and are never reported as synced. The Task 5 conflict barrier remains authoritative because all writes still pass through `ActiveWorkoutCoordinator`.
 - A persisted `IWeightUnitPreference` is composed through MAUI Preferences. The native selector updates that preference; entry plus Last/Today rows consistently display kg or lb, while ViewModel and SQLite values remain canonical kg with Domain scale.
-- The transient set logger deterministically unsubscribes singleton account/connectivity events when its routed page leaves the visual tree. Disposed commands cannot save and repeated navigation does not accumulate status reads.
+- The routed page explicitly owns a non-`IDisposable` transient logger, deactivates it when removed from the visual tree, and clears its binding context. This avoids Microsoft DI root-capturing disposable transients. Deactivation deterministically unsubscribes singleton account/connectivity events and cancels the logger lifetime. Load/history/status, durable-save continuations, feedback, connectivity refresh, and background sync all receive linked cancellation. Deactivated commands cannot save; in-flight work returns without surfacing cancellation or mutating detached state; repeated navigation does not accumulate status reads or retained ViewModels.
 - Exact previous-session sets use the authorized `/api/v1/exercises/{id}/history?pageSize=1` endpoint, validate and cache the full ordered session in private SQLite, and fall back to that cache offline. Account cleanup clears this cache.
 - Exercise add/remove/reorder is intentionally pre-start only. Stable selected IDs have explicit order, and a single existing `StartWorkout` operation preserves it. No active-session reorder command or rejected `ReorderExercises` outbox action is emitted.
 - No XP, levels, streaks, badges, poster-derived images, or other server-owned/fake achievements were added.
@@ -40,20 +40,27 @@ Implemented Task 6 from base `39f083e3795996f12d824a60401048c9aed274dd`. No Task
 11. Thai picker behavior/resource coverage initially could not compile without localized picker text/options/count. All visible picker flow copy and body-part filters now bind EN/TH resources.
 12. Stepper accessibility coverage initially could not compile without action-specific descriptions; localized weight/assistance/reps increment and decrement descriptions are distinct and bound to the native controls.
 13. Navigation-cycle coverage initially could not compile without disposal; five create/load/dispose cycles now leave zero connectivity subscribers, no later SQLite status reads, and disabled save commands.
+14. Round 2 real-composition coverage first failed with `Unable to resolve service for type 'IWorkoutOutboxStatusSource' while attempting to activate 'SetLoggerViewModel'`. MAUI now maps the interface to the same singleton `OutboxRepository`; a real built `MauiApp` resolves two independent routed pages/ViewModels and proves singleton identity.
+15. A deterministic reset starting in the former final-check/feedback gap first let a feedback exception escape. Feedback now executes under the account-session boundary with its generation token, so reset and feedback are mutually ordered and feedback failures remain best effort after durable success.
+16. EN/TH picker-card behavior coverage initially failed to compile because the cache entity had no localized presentation properties. A culture-bound `ExercisePickerItem` now formats weighted, assisted, bodyweight singular/plural, Last, PR, Edit, and Pending Sync copy while `CachedExercise` remains raw.
+17. Deterministic page-pop tests first observed uncanceled history and sync tokens. A ViewModel lifetime token now cancels both paths; the completed tests prove no post-disposal property changes, outbox reads, or surfaced task fault.
+18. The real MAUI feedback adapter test first failed because its event accepted no cancellation token. The adapter now observes cancellation before/after haptics and between handlers; the page registers cancellation to abort its active animation and rechecks after every awaited phase. A real adapter/ViewModel/reset test proves reset promptly releases the account gate, no later feedback phase runs, and durable-save cancellation remains best effort to the command.
+19. Real-provider weak-reference coverage first found 8/8 manually disposed logger ViewModels still alive before app-provider disposal. The page-owned non-disposable deactivation pattern now makes 8/8 repeated route instances collectible before app shutdown while preserving transient pages/ViewModels and singleton outbox status identity.
 
 ## Verification
 
-- `dotnet test tests/TrackZ.Mobile.Tests/TrackZ.Mobile.Tests.csproj --filter Workout --no-restore -m:1 -nr:false` — PASS, 60/60.
-- `dotnet test tests/TrackZ.Mobile.Tests/TrackZ.Mobile.Tests.csproj --filter "FullyQualifiedName~ExercisePickerViewModelTests|FullyQualifiedName~ExerciseCache|FullyQualifiedName~CustomExerciseViewModelTests" --no-restore -m:1 -nr:false` — PASS, 64/64 moved picker/cache regressions.
-- `dotnet test tests/TrackZ.Mobile.Tests/TrackZ.Mobile.Tests.csproj --no-restore -m:1 -nr:false` — PASS, 202/202.
-- `dotnet test tests/TrackZ.Mobile.Tests/TrackZ.Mobile.Tests.csproj --filter FullyQualifiedName~Architecture --no-restore -m:1 -nr:false` — PASS, 2/2.
+- `dotnet test tests/TrackZ.Mobile.Tests/TrackZ.Mobile.Tests.csproj --filter Workout --no-restore -m:1 -nr:false` — PASS, 65/65.
+- `dotnet test tests/TrackZ.Mobile.Tests/TrackZ.Mobile.Tests.csproj --filter "FullyQualifiedName~SetLoggerViewModelTests|FullyQualifiedName~MauiSetSavedFeedbackTests|FullyQualifiedName~ExercisePickerViewModelTests|FullyQualifiedName~MauiCompositionTests" --no-restore -m:1 -nr:false` — PASS, 73/73.
+- `dotnet test tests/TrackZ.Mobile.Tests/TrackZ.Mobile.Tests.csproj --filter "FullyQualifiedName~ExercisePickerViewModelTests|FullyQualifiedName~ExerciseCache|FullyQualifiedName~CustomExerciseViewModelTests|FullyQualifiedName~LocalExerciseImageImporterSecurityTests" --no-restore -m:1 -nr:false` — PASS, 74/74 moved picker/cache regressions.
+- `dotnet test tests/TrackZ.Mobile.Tests/TrackZ.Mobile.Tests.csproj --no-restore -m:1 -nr:false` — PASS, 210/210.
+- `dotnet test tests/TrackZ.Mobile.Tests/TrackZ.Mobile.Tests.csproj --filter FullyQualifiedName~Architecture --no-restore -m:1 -nr:false` — PASS, 3/3, including real MAUI provider/route activation.
 - `dotnet build src/TrackZ.Mobile.Core/TrackZ.Mobile.Core.csproj --no-restore -m:1 -nr:false` — PASS, 0 warnings / 0 errors.
 - `dotnet msbuild src/TrackZ.Mobile/TrackZ.Mobile.csproj -t:Compile -p:TargetFramework=net10.0-ios -p:BuildProjectReferences=false -m:1 -nr:false -v:minimal` — PASS, including MAUI XAML source generation.
-- Full iOS build was attempted and reached `actool`, then was environment-gated: no iPhone simulator runtime and CoreSimulatorService unavailable.
+- `dotnet build src/TrackZ.Mobile/TrackZ.Mobile.csproj --no-restore -f net10.0-ios -m:1 -nr:false` — PASS, 0 warnings / 0 errors for `iossimulator-arm64`, including MAUI XAML source generation.
 - Android build was attempted and environment-gated with `XA5300`: Android SDK directory not found.
 - Server projects were not changed.
 
 ## Notes
 
 - Mobile tests now disable test-collection parallelism, matching the requested sequential verification. This also removes a reproducible false failure where the existing gated thumbnail test saw only two of four workers during full-suite parallel contention; the test passed in isolation before this setting.
-- Full device packaging still requires an installed Android SDK and an available iOS simulator runtime. The platform-independent Core build and iOS MAUI/XAML Compile target are green.
+- Android packaging still requires an installed Android SDK. The platform-independent Core build, iOS MAUI/XAML Compile target, and full iOS simulator build are green.
