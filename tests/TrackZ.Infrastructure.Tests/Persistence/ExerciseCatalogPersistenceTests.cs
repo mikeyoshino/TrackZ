@@ -356,7 +356,7 @@ public sealed class ExerciseCatalogPersistenceTests
     }
 
     [Fact]
-    public async Task Latest_custom_exercise_migration_target_matches_current_snapshot_relational_metadata()
+    public async Task Custom_exercise_migration_remains_historical_after_later_workout_migration()
     {
         await using var database = await PostgreSqlFixture.StartAsync();
         var migrations = database.Db.GetService<IMigrationsAssembly>();
@@ -364,7 +364,8 @@ public sealed class ExerciseCatalogPersistenceTests
             migrations.Migrations["20260815143000_AddCustomExerciseSyncIdentityAndLibraryImage"],
             database.Db.Database.ProviderName!)!;
 
-        Assert.Equal(
+        Assert.Null(migration.TargetModel.FindEntityType(typeof(TrackZ.Domain.Workouts.WorkoutSession).FullName!));
+        Assert.NotEqual(
             DescribeRelationalModel(migrations.ModelSnapshot!.Model),
             DescribeRelationalModel(migration.TargetModel));
     }

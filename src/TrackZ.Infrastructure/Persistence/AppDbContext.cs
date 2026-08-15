@@ -8,10 +8,12 @@ using TrackZ.Domain.Identity;
 using TrackZ.Domain.Exercises;
 using TrackZ.Domain.Progress;
 using TrackZ.Application.Media;
+using TrackZ.Application.Workouts;
+using TrackZ.Domain.Workouts;
 
 namespace TrackZ.Infrastructure.Persistence;
 
-public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options), IAppDbContext, IExerciseCatalogReadStore, ICustomExerciseStore, IExerciseImageUploadStore
+public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options), IAppDbContext, IExerciseCatalogReadStore, ICustomExerciseStore, IExerciseImageUploadStore, IWorkoutReadStore
 {
     public DbSet<User> Users => Set<User>();
 
@@ -23,6 +25,140 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
     public DbSet<ExercisePerformance> ExercisePerformances => Set<ExercisePerformance>();
     public DbSet<ImageUploadTicket> ImageUploadTickets => Set<ImageUploadTicket>();
+
+    public DbSet<WorkoutSession> WorkoutSessions => Set<WorkoutSession>();
+
+    public DbSet<WorkoutExercise> WorkoutExercises => Set<WorkoutExercise>();
+
+    public DbSet<SetEntry> SetEntries => Set<SetEntry>();
+
+    public async Task<WorkoutReadSession?> GetOwnedWorkoutAsync(
+        Guid ownerId,
+        Guid workoutId,
+        CancellationToken cancellationToken)
+    {
+        var workout = await WorkoutSessions.AsNoTracking().SingleOrDefaultAsync(
+            item => item.Id == workoutId && item.OwnerId == ownerId && item.DeletedAt == null,
+            cancellationToken);
+        return workout is null
+            ? null
+            : (await LoadWorkoutReadSessionsAsync([workout], cancellationToken))[0];
+    }
+
+    public async Task<IReadOnlyList<WorkoutReadSession>> ListOwnedCompletedWorkoutsAsync(
+        Guid ownerId,
+        WorkoutCursor? after,
+        int take,
+        CancellationToken cancellationToken)
+    {
+        var query = WorkoutSessions.AsNoTracking().Where(workout =>
+            workout.OwnerId == ownerId
+            && workout.Status == WorkoutStatus.Completed
+            && workout.CompletedAt != null
+            && workout.DeletedAt == null);
+        if (after is not null)
+        {
+            query = query.Where(workout =>
+                workout.CompletedAt < after.CompletedAt
+                || workout.CompletedAt == after.CompletedAt && workout.Id.CompareTo(after.WorkoutId) < 0);
+        }
+
+        var workouts = await query
+            .OrderByDescending(workout => workout.CompletedAt)
+            .ThenByDescending(workout => workout.Id)
+            .Take(take)
+            .ToListAsync(cancellationToken);
+        return await LoadWorkoutReadSessionsAsync(workouts, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<WorkoutReadSession>> ListOwnedExerciseHistoryAsync(
+        Guid ownerId,
+        Guid exerciseDefinitionId,
+        WorkoutCursor? after,
+        int take,
+        CancellationToken cancellationToken)
+    {
+        var query =
+            from workout in WorkoutSessions.AsNoTracking()
+            join exercise in WorkoutExercises.AsNoTracking() on workout.Id equals exercise.WorkoutSessionId
+            where workout.OwnerId == ownerId
+                && workout.Status == WorkoutStatus.Completed
+                && workout.CompletedAt != null
+                && workout.DeletedAt == null
+                && exercise.ExerciseDefinitionId == exerciseDefinitionId
+                && exercise.DeletedAt == null
+            select workout;
+        if (after is not null)
+        {
+            query = query.Where(workout =>
+                workout.CompletedAt < after.CompletedAt
+                || workout.CompletedAt == after.CompletedAt && workout.Id.CompareTo(after.WorkoutId) < 0);
+        }
+
+        var workouts = await query
+            .OrderByDescending(workout => workout.CompletedAt)
+            .ThenByDescending(workout => workout.Id)
+            .Take(take)
+            .ToListAsync(cancellationToken);
+        return await LoadWorkoutReadSessionsAsync(workouts, cancellationToken, exerciseDefinitionId);
+    }
+
+    private async Task<IReadOnlyList<WorkoutReadSession>> LoadWorkoutReadSessionsAsync(
+        IReadOnlyList<WorkoutSession> workouts,
+        CancellationToken cancellationToken,
+        Guid? onlyExerciseDefinitionId = null)
+    {
+        if (workouts.Count == 0) return [];
+        var workoutIds = workouts.Select(workout => workout.Id).ToArray();
+        var exerciseQuery = WorkoutExercises.AsNoTracking().Where(exercise =>
+            workoutIds.Contains(exercise.WorkoutSessionId)
+            && exercise.DeletedAt == null);
+        if (onlyExerciseDefinitionId is not null)
+        {
+            exerciseQuery = exerciseQuery.Where(exercise => exercise.ExerciseDefinitionId == onlyExerciseDefinitionId);
+        }
+
+        var workoutExercises = await exerciseQuery.OrderBy(exercise => exercise.Order).ToListAsync(cancellationToken);
+        var workoutExerciseIds = workoutExercises.Select(exercise => exercise.Id).ToArray();
+        var sets = await SetEntries.AsNoTracking()
+            .Where(set => workoutExerciseIds.Contains(set.WorkoutExerciseId) && set.DeletedAt == null)
+            .OrderBy(set => set.Order)
+            .ToListAsync(cancellationToken);
+        var definitionIds = workoutExercises.Select(exercise => exercise.ExerciseDefinitionId).Distinct().ToArray();
+        var names = await Exercises.AsNoTracking()
+            .Where(exercise => definitionIds.Contains(exercise.Id))
+            .ToDictionaryAsync(exercise => exercise.Id, exercise => exercise.Name, cancellationToken);
+
+        return workouts.Select(workout => new WorkoutReadSession(
+            workout.Id,
+            workout.OwnerId,
+            workout.Status,
+            workout.StartedAt,
+            workout.CompletedAt,
+            workout.Version,
+            workoutExercises
+                .Where(exercise => exercise.WorkoutSessionId == workout.Id)
+                .OrderBy(exercise => exercise.Order)
+                .Select(exercise => new WorkoutExerciseReadRow(
+                    exercise.Id,
+                    exercise.ExerciseDefinitionId,
+                    names[exercise.ExerciseDefinitionId],
+                    exercise.TrackingMode,
+                    exercise.Order,
+                    sets.Where(set => set.WorkoutExerciseId == exercise.Id)
+                        .OrderBy(set => set.Order)
+                        .Select(set => new WorkoutSetReadRow(
+                            set.Id,
+                            set.Order,
+                            set.WeightKg,
+                            set.AssistedKg,
+                            set.Reps,
+                            set.CompletedAt,
+                            set.UpdatedAt))
+                        .ToList()))
+                .ToList()))
+            .ToList();
+    }
 
     public Task<ExerciseDefinition?> FindOwnedActiveExerciseAsync(Guid exerciseId, Guid ownerId, CancellationToken cancellationToken) => Exercises.SingleOrDefaultAsync(x => x.Id == exerciseId && x.OwnerId == ownerId && !x.IsArchived, cancellationToken);
     public Task AddTicketAsync(ImageUploadTicket ticket, CancellationToken cancellationToken) => ImageUploadTickets.AddAsync(ticket, cancellationToken).AsTask();

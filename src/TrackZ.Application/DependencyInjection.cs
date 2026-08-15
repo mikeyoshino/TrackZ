@@ -8,7 +8,10 @@ public static class DependencyInjection
     {
         services.AddLogging();
         services.AddMediatR(configuration =>
-            configuration.RegisterServicesFromAssembly(typeof(AssemblyMarker).Assembly));
+        {
+            configuration.RegisterServicesFromAssembly(typeof(AssemblyMarker).Assembly);
+            configuration.AddOpenBehavior(typeof(Workouts.WorkoutRuleExceptionBehavior<,>));
+        });
 
         return services;
     }

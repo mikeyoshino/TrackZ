@@ -35,6 +35,19 @@ public sealed class DependencyRulesTests
     }
 
     [Fact]
+    public void Application_Must_Not_Reference_EfCore_Or_Npgsql_Assemblies()
+    {
+        var references = typeof(TrackZ.Application.AssemblyMarker).Assembly
+            .GetReferencedAssemblies()
+            .Select(reference => reference.Name)
+            .ToHashSet(StringComparer.Ordinal);
+
+        Assert.DoesNotContain("Microsoft.EntityFrameworkCore", references);
+        Assert.DoesNotContain("Npgsql", references);
+        Assert.DoesNotContain("Npgsql.EntityFrameworkCore.PostgreSQL", references);
+    }
+
+    [Fact]
     public void AppDbContext_Port_Must_Not_Expose_Entity_Framework_Core_Types()
     {
         var exposedEfType = typeof(TrackZ.Application.Common.Interfaces.IAppDbContext)

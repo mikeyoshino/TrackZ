@@ -9,6 +9,9 @@
   <data name="InvalidRequest" xml:space="preserve"><value>ข้อมูลคำขอไม่ถูกต้อง</value></data>
   <data name="ExerciseNotFound" xml:space="preserve"><value>ไม่พบรายการท่าออกกำลังกาย</value></data>
   <data name="ExerciseNameDuplicate" xml:space="preserve"><value>มีท่าออกกำลังกายแบบกำหนดเองที่ใช้งานอยู่ชื่อนี้แล้ว</value></data>
+  <data name="WorkoutNotFound" xml:space="preserve"><value>ไม่พบรายการออกกำลังกาย</value></data>
+  <data name="WorkoutAlreadyCompleted" xml:space="preserve"><value>รายการออกกำลังกายนี้เสร็จสิ้นแล้ว</value></data>
+  <data name="InvalidSetValue" xml:space="preserve"><value>ค่าน้ำหนักหรือจำนวนครั้งไม่ถูกต้อง</value></data>
   <data name="ImageTooLarge" xml:space="preserve"><value>ไฟล์รูปภาพมีขนาดใหญ่เกินไป</value></data>
   <data name="ImageTypeNotSupported" xml:space="preserve"><value>ไม่รองรับชนิดของรูปภาพ</value></data>
   <data name="RequiredField" xml:space="preserve"><value>ต้องระบุข้อมูล {0}</value></data>

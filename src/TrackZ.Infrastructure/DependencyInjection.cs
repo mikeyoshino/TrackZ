@@ -14,6 +14,8 @@ using TrackZ.Application.Exercises.Custom;
 using TrackZ.Application.Media;
 using TrackZ.Infrastructure.Media;
 using TrackZ.Infrastructure.Persistence.Seed;
+using TrackZ.Application.Workouts;
+using TrackZ.Infrastructure.Workouts;
 
 namespace TrackZ.Infrastructure;
 
@@ -31,6 +33,7 @@ public static class DependencyInjection
         services.AddScoped<IExerciseCatalogReadStore>(provider => provider.GetRequiredService<AppDbContext>());
         services.AddScoped<ICustomExerciseStore>(provider => provider.GetRequiredService<AppDbContext>());
         services.AddScoped<IExerciseImageUploadStore>(provider => provider.GetRequiredService<AppDbContext>());
+        services.AddScoped<IWorkoutReadStore>(provider => provider.GetRequiredService<AppDbContext>());
         services.AddSingleton<ObjectStorage>();
         services.AddSingleton<IObjectStorage>(provider => provider.GetRequiredService<ObjectStorage>());
         services.AddSingleton<IStagingObjectLifecycle>(provider => provider.GetRequiredService<ObjectStorage>());
@@ -56,6 +59,7 @@ public static class DependencyInjection
             .Validate(static options => options.IsValid(), "Object storage settings must provide an HTTP(S) service URL, DNS-compatible bucket, access key, and secret key.")
             .ValidateOnStart();
         services.AddSingleton<IExerciseCursorCodec, HmacExerciseCursorCodec>();
+        services.AddSingleton<IWorkoutCursorCodec, HmacWorkoutCursorCodec>();
         services.AddSingleton<IPasswordHasher, PasswordHasher>();
         services.AddSingleton<ITokenService, JwtTokenService>();
 
