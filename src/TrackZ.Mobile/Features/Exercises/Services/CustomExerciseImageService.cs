@@ -221,9 +221,9 @@ public sealed class CustomExerciseImageService : IDisposable
         AccountSessionGeneration generation,
         CancellationToken cancellationToken)
     {
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(
-            cancellationToken, _boundary.GetCancellationToken(generation));
-        cancellationToken = linked.Token;
+        using var sessionCancellation = _boundary.CreateCancellationLease(
+            generation, cancellationToken);
+        cancellationToken = sessionCancellation.Token;
         var current = pending;
         if (current.Phase is PendingCustomSyncPhase.PendingDetails
             or PendingCustomSyncPhase.PendingDetailsUploadReserved

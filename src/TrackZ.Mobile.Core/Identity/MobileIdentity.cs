@@ -127,7 +127,8 @@ public sealed class TrackZIdentityApiClient(
     public async Task LogoutAsync(CancellationToken cancellationToken = default)
     {
         var generation = sessionBoundary.Capture();
-        var sessionCancellation = sessionBoundary.GetCancellationToken(generation);
+        using var sessionCancellation = sessionBoundary.CreateCancellationLease(
+            generation, cancellationToken);
         try
         {
             string? sessionId = null;
@@ -137,15 +138,14 @@ public sealed class TrackZIdentityApiClient(
             }, cancellationToken)) return;
             if (Guid.TryParse(sessionId, out var parsed) && parsed != Guid.Empty)
             {
-                using var linked = CancellationTokenSource.CreateLinkedTokenSource(
-                    cancellationToken, sessionCancellation);
                 using var response = await httpClient.PostAsJsonAsync(
-                    "/api/v1/auth/logout", new { sessionId = parsed }, linked.Token);
-                await EnsureSuccessAsync(response, linked.Token);
+                    "/api/v1/auth/logout", new { sessionId = parsed }, sessionCancellation.Token);
+                await EnsureSuccessAsync(response, sessionCancellation.Token);
             }
         }
         catch (OperationCanceledException) when (
-            !cancellationToken.IsCancellationRequested && sessionCancellation.IsCancellationRequested)
+            !cancellationToken.IsCancellationRequested
+            && sessionBoundary.IsCancellationRequested(generation))
         {
             // A newer identity transition owns the current session.
         }

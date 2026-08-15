@@ -80,7 +80,7 @@ public sealed class LocalExerciseImageSelectionCoordinator
         }
         catch (OperationCanceledException) when (
             !cancellationToken.IsCancellationRequested
-            && _boundary.GetCancellationToken(generation).IsCancellationRequested)
+            && _boundary.IsCancellationRequested(generation))
         {
             if (imported is not null) UnregisterAndDelete(imported);
             return false;

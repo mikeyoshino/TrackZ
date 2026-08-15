@@ -189,12 +189,13 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged
     {
         try
         {
-            using var linked = CancellationTokenSource.CreateLinkedTokenSource(
-                cancellationToken, _boundary.GetCancellationToken(generation));
-            var local = await _thumbnailCache!.CacheAsync(exercise.ThumbnailUrl, linked.Token);
+            using var sessionCancellation = _boundary.CreateCancellationLease(
+                generation, cancellationToken);
+            var local = await _thumbnailCache!.CacheAsync(
+                exercise.ThumbnailUrl, sessionCancellation.Token);
             if (local is not null)
                 await _boundary.TryCommitAsync(generation, token =>
-                    _cache.SetServerThumbnailAsync(exercise.Id, local, token), linked.Token);
+                    _cache.SetServerThumbnailAsync(exercise.Id, local, token), sessionCancellation.Token);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

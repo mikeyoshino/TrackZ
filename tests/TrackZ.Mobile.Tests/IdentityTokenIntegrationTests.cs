@@ -212,6 +212,54 @@ public sealed class IdentityTokenIntegrationTests
         Assert.Equal(newUser.ToString("D"), await store.GetUserIdAsync());
     }
 
+    [Fact]
+    public async Task Login_canceled_after_session_invalidation_cannot_poison_later_login_or_commit()
+    {
+        var firstUser = Guid.Parse("11111111-1111-1111-1111-111111111111");
+        var secondUser = Guid.Parse("22222222-2222-2222-2222-222222222222");
+        var firstToken = JwtWithSession(Guid.NewGuid(), firstUser);
+        var secondToken = JwtWithSession(Guid.NewGuid(), secondUser);
+        var handler = new QueueHandler(
+            Json(HttpStatusCode.OK,
+                $$"""{"accessToken":"{{firstToken}}","refreshToken":"first-refresh","expiresAt":"2026-08-15T12:00:00Z"}"""),
+            Json(HttpStatusCode.OK,
+                $$"""{"accessToken":"{{secondToken}}","refreshToken":"second-refresh","expiresAt":"2026-08-15T12:15:00Z"}"""));
+        var store = new MobileTokenStore(new MemoryTokenStorage());
+        var boundary = new AccountSessionBoundary();
+        var identity = new TrackZIdentityApiClient(
+            new HttpClient(handler) { BaseAddress = new Uri("https://trackz.test") },
+            store, new RecordingPrivateDataCleaner(), boundary);
+        var generation = boundary.Capture();
+        var commitEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var generationCanceled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseCommit = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var activeCommit = boundary.TryCommitAsync(generation, async token =>
+        {
+            commitEntered.TrySetResult();
+            using var registration = token.Register(() => generationCanceled.TrySetResult());
+            await releaseCommit.Task;
+            token.ThrowIfCancellationRequested();
+        });
+        await commitEntered.Task;
+        using var callerCancellation = new CancellationTokenSource();
+
+        var firstLogin = identity.LoginAsync(
+            "first@example.com", "Password!42", "phone", callerCancellation.Token);
+        await generationCanceled.Task;
+        callerCancellation.Cancel();
+
+        Assert.False(firstLogin.IsCompleted);
+        releaseCommit.TrySetResult();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => activeCommit);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => firstLogin);
+        Assert.True(await boundary.TryCommitAsync(boundary.Capture(), _ => Task.CompletedTask));
+
+        await identity.LoginAsync("second@example.com", "Password!42", "phone");
+
+        Assert.Equal(secondToken, await store.GetAccessTokenAsync());
+        Assert.Equal("second-refresh", await store.GetRefreshTokenAsync());
+    }
+
     private static TrackZIdentityApiClient Identity(
         QueueHandler handler,
         out MobileTokenStore store,

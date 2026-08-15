@@ -117,11 +117,11 @@ public sealed class CustomExerciseViewModel : INotifyPropertyChanged
                 LastErrorCode = null;
             }, cancellationToken)) return;
 
-            using var linked = CancellationTokenSource.CreateLinkedTokenSource(
-                cancellationToken, _boundary.GetCancellationToken(generation));
+            using var sessionCancellation = _boundary.CreateCancellationLease(
+                generation, cancellationToken);
             await Parallel.ForEachAsync(
                 published,
-                new ParallelOptions { CancellationToken = linked.Token, MaxDegreeOfParallelism = 4 },
+                new ParallelOptions { CancellationToken = sessionCancellation.Token, MaxDegreeOfParallelism = 4 },
                 async (exercise, token) =>
                 {
                 try
@@ -158,7 +158,7 @@ public sealed class CustomExerciseViewModel : INotifyPropertyChanged
         }
         catch (OperationCanceledException) when (
             !cancellationToken.IsCancellationRequested
-            && _boundary.GetCancellationToken(generation).IsCancellationRequested)
+            && _boundary.IsCancellationRequested(generation))
         {
             // A session reset owns the UI reset and invalidates this refresh.
         }
@@ -252,7 +252,7 @@ public sealed class CustomExerciseViewModel : INotifyPropertyChanged
         }
         catch (OperationCanceledException) when (
             !cancellationToken.IsCancellationRequested
-            && _boundary.GetCancellationToken(generation).IsCancellationRequested)
+            && _boundary.IsCancellationRequested(generation))
         {
             return false;
         }

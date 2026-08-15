@@ -537,3 +537,124 @@ No emulator, packaging build, full solution suite, parallel local test process, 
 ### Round 3 concerns
 
 - The controller-deferred general managed original/preview cleanup remains deferred. Round 3 deletes only files registered by an in-flight/current-session native selection when that account session resets.
+
+## Controller Review Fix Round 4 (2026-08-15)
+
+The `receiving-code-review`, `test-driven-development`, `writing-good-tests`, and `systematic-debugging` instructions were reread before changes. The single open finding was reproduced in `AccountSessionBoundary`: both reset entry points canceled the active generation before awaiting the account gate with the caller token. Cancellation while an active commit held that gate therefore skipped generation replacement, cleanup, and `SessionReset`, leaving the current generation token permanently canceled.
+
+### Atomic reset contract
+
+- A caller may cancel while waiting for reset serialization or immediately before invalidation begins; that path does not cancel the current generation, run cleanup, increment the generation, or publish `SessionReset`.
+- Invalidation is the transition's linearization point. Once the active generation is selected and canceled, the reset waits for the account gate without the caller token and must replace the generation, retire the invalidated cancellation state, run cleanup, and notify every `SessionReset` subscriber before it completes. The retired CTS is disposed immediately when no cancellation lease remains, or by the last lease release when an old operation still owns one.
+- Cleanup receives a non-cancelable token because late caller cancellation cannot abort an in-progress account transition. A late cancellation is rethrown with the caller token only after the boundary is fresh and both gates are released.
+- Cancellation-callback, cleanup, immediate retirement-disposal, and notification failures are retained while the remaining transition work runs. One failure is rethrown with its original identity/stack; multiple failures are aggregated. Transition failures take precedence over a concurrent late caller cancellation.
+- Conditional reset returns `false` without mutation when its captured generation is already stale. Reset initiators are serialized separately from the existing commit gate, preserving cancel-before-wait behavior without adding a reverse lock edge to picker/import or custom synchronization.
+
+### RED evidence
+
+The five new deterministic `AccountSessionBoundaryTests` all failed against `8959d8e`:
+
+```sh
+dotnet test tests/TrackZ.Mobile.Tests/TrackZ.Mobile.Tests.csproj \
+  --filter FullyQualifiedName~AccountSessionBoundaryTests \
+  --no-restore -v:minimal
+```
+
+Result: **5 failed, 0 passed**. The canceled waiting reset ran no cleanup, cleanup failure skipped reset notification, a pre-canceled conditional reset left the current generation unusable, a throwing generation-cancellation callback prevented cleanup/notification, and a throwing first reset subscriber skipped the later subscriber.
+
+The production login race was then run separately. The first sandboxed attempt was blocked by MSBuild named-pipe permissions; the approved single-node retry reached the behavior assertion:
+
+```sh
+dotnet test tests/TrackZ.Mobile.Tests/TrackZ.Mobile.Tests.csproj \
+  --filter FullyQualifiedName~Login_canceled_after_session_invalidation_cannot_poison_later_login_or_commit \
+  --no-restore -m:1 -v:minimal
+```
+
+Result: **1 failed, 0 passed** with `Expected: True, Actual: False` when the test attempted a current-generation commit after canceling login while `TryResetAsync` waited behind an active commit. This proved the production login path could poison the boundary.
+
+The first independent read-only review then identified that directly exposed generation tokens could outlive reset-time CTS disposal. A sequential retained-token characterization passed on .NET 10, but the runtime contract does not permit CTS disposal while source-backed token operations may still race. The replacement lease API test was written first and failed compilation twice with `CS1061` because `CreateCancellationLease` did not exist:
+
+```sh
+dotnet test tests/TrackZ.Mobile.Tests/TrackZ.Mobile.Tests.csproj \
+  --filter FullyQualifiedName~Generation_cancellation_lease_remains_usable_until_released_after_reset \
+  --no-restore -m:1 -v:minimal
+```
+
+### GREEN behavior and evidence
+
+- `AccountSessionBoundary` now has a reset-only serialization gate. Caller cancellation applies while waiting for that gate and is checked atomically before selecting the current CTS for invalidation.
+- After invalidation, account-gate acquisition is non-cancelable. The boundary installs a fresh generation cancellation state and increments the generation under its cancellation lock, retires the old state after the active commit exits, runs cleanup, and invokes every reset subscriber while the account gate remains held.
+- `CreateCancellationLease` atomically links caller and generation cancellation under the boundary lock. Reset cancels every old lease immediately but defers disposal of the retired CTS until the last lease is released. Status-only callers use `IsCancellationRequested`; no production caller retains a raw generation token.
+- Exceptions no longer short-circuit state repair. The account and reset gates are always released before a retained reset failure or late caller cancellation is surfaced.
+- The real `TrackZIdentityApiClient.LoginAsync` test cancels only after its conditional reset has invalidated an active generation. The canceled login completes the transition, a fresh commit succeeds, and a subsequent login stores the second account's access and refresh tokens.
+- Existing FilePicker/import behavior is unchanged: picker UI remains outside the account gate; import/promotion/UI selection still commit through the captured generation; reset cancels that generation before waiting and does not acquire the custom synchronization lock.
+
+Focused new boundary tests:
+
+```sh
+dotnet test tests/TrackZ.Mobile.Tests/TrackZ.Mobile.Tests.csproj \
+  --filter FullyQualifiedName~AccountSessionBoundaryTests \
+  --no-restore -m:1 -v:minimal
+```
+
+Result: **6 passed, 0 failed, 0 skipped** in 18 ms. This includes the retained cancellation-lease lifetime case added after review.
+
+Focused production login cancellation test:
+
+```sh
+dotnet test tests/TrackZ.Mobile.Tests/TrackZ.Mobile.Tests.csproj \
+  --filter FullyQualifiedName~Login_canceled_after_session_invalidation_cannot_poison_later_login_or_commit \
+  --no-restore -m:1 -v:minimal
+```
+
+Result: **1 passed, 0 failed, 0 skipped** in 21 ms.
+
+Combined boundary, identity, and FilePicker/import race regression:
+
+```sh
+dotnet test tests/TrackZ.Mobile.Tests/TrackZ.Mobile.Tests.csproj \
+  --filter "FullyQualifiedName~AccountSessionBoundaryTests|FullyQualifiedName~AccountSessionRaceTests|FullyQualifiedName~IdentityTokenIntegrationTests|FullyQualifiedName~LocalExerciseImageSessionRaceTests" \
+  --no-restore -m:1 -v:minimal
+```
+
+Result after the lease follow-up: **29 passed, 0 failed, 0 skipped** in 139 ms.
+
+Full Mobile regression (the only project-level suite run):
+
+```sh
+dotnet test tests/TrackZ.Mobile.Tests/TrackZ.Mobile.Tests.csproj \
+  --no-restore -m:1 -v:minimal
+```
+
+Result after the lease follow-up: **82 passed, 0 failed, 0 skipped** in 198 ms.
+
+Architecture guard:
+
+```sh
+dotnet test tests/TrackZ.Mobile.Tests/TrackZ.Mobile.Tests.csproj \
+  --filter FullyQualifiedName~MobileCoreDependencyTests \
+  --no-restore -m:1 -v:minimal
+```
+
+Result after the lease follow-up: **1 passed, 0 failed, 0 skipped** in 5 ms.
+
+Final Android graph/XAML compile after the cancellation-lease production change:
+
+```sh
+env ANDROID_HOME=/Users/mikeyoshino/Library/Developer/TrackZ/android-sdk \
+    ANDROID_SDK_ROOT=/Users/mikeyoshino/Library/Developer/TrackZ/android-sdk \
+    JAVA_HOME=/Users/mikeyoshino/Library/Developer/TrackZ/jdk \
+    PATH=/Users/mikeyoshino/Library/Developer/TrackZ/jdk/bin:/usr/local/share/dotnet:/usr/bin:/bin \
+  dotnet build src/TrackZ.Mobile/TrackZ.Mobile.csproj \
+    -f net10.0-android -t:Compile --no-restore -m:1 -v:minimal \
+    -p:AndroidSdkDirectory=/Users/mikeyoshino/Library/Developer/TrackZ/android-sdk \
+    -p:JavaSdkDirectory=/Users/mikeyoshino/Library/Developer/TrackZ/jdk
+```
+
+Result: **Build succeeded, 0 warnings, 0 errors** in 3.96 seconds. An earlier pre-review compile also passed in 3.41 seconds; the final compile was required because the review follow-up changed the production graph.
+
+The read-only follow-up review reported no remaining Critical or Important code finding after the cancellation-lease change and this report correction. No emulator, packaging build, full solution suite, or parallel local test process was run. Task 5 assets/review state and Plan 3 remain untouched.
+
+### Round 4 concerns
+
+- The controller-deferred general managed original/preview cleanup remains deferred. Round 4 changes only account reset atomicity and its regression coverage.
