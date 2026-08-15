@@ -62,7 +62,10 @@ namespace TrackZ.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("OwnerId", "IsArchived");
 
-                    b.ToTable("exercise_definitions", (string)null);
+                    b.ToTable("exercise_definitions", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_exercise_definitions_tracking_mode", "\"TrackingMode\" IN (1, 2, 3)");
+                        });
                 });
 
             modelBuilder.Entity("TrackZ.Domain.Exercises.ExerciseImage", b =>
@@ -253,16 +256,18 @@ namespace TrackZ.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ExerciseDefinitionId");
+                    b.HasIndex("ExerciseDefinitionId", "TrackingMode");
 
                     b.HasIndex("UserId", "ExerciseDefinitionId")
                         .IsUnique();
 
                     b.ToTable("exercise_performances", null, t =>
                         {
-                            t.HasCheckConstraint("CK_exercise_performances_all_time_best_shape", "(\"AllTimeBestReps\" IS NULL AND \"AllTimeBestWeightKg\" IS NULL AND \"AllTimeBestAssistedKg\" IS NULL) OR (\"AllTimeBestReps\" IS NOT NULL AND \"AllTimeBestReps\" > 0 AND ((\"TrackingMode\" = 1 AND \"AllTimeBestWeightKg\" IS NOT NULL AND \"AllTimeBestWeightKg\" > 0 AND \"AllTimeBestAssistedKg\" IS NULL) OR (\"TrackingMode\" = 2 AND \"AllTimeBestWeightKg\" IS NULL AND \"AllTimeBestAssistedKg\" IS NULL) OR (\"TrackingMode\" = 3 AND \"AllTimeBestWeightKg\" IS NULL AND \"AllTimeBestAssistedKg\" IS NOT NULL AND \"AllTimeBestAssistedKg\" > 0)))");
+                            t.HasCheckConstraint("CK_exercise_performances_all_time_best_shape", "\"AllTimeBestReps\" IS NOT NULL AND \"AllTimeBestReps\" > 0 AND ((\"TrackingMode\" = 1 AND \"AllTimeBestWeightKg\" IS NOT NULL AND \"AllTimeBestWeightKg\" > 0 AND \"AllTimeBestAssistedKg\" IS NULL) OR (\"TrackingMode\" = 2 AND \"AllTimeBestWeightKg\" IS NULL AND \"AllTimeBestAssistedKg\" IS NULL) OR (\"TrackingMode\" = 3 AND \"AllTimeBestWeightKg\" IS NULL AND \"AllTimeBestAssistedKg\" IS NOT NULL AND \"AllTimeBestAssistedKg\" > 0))");
 
-                            t.HasCheckConstraint("CK_exercise_performances_last_best_shape", "(\"LastBestReps\" IS NULL AND \"LastBestWeightKg\" IS NULL AND \"LastBestAssistedKg\" IS NULL) OR (\"LastBestReps\" IS NOT NULL AND \"LastBestReps\" > 0 AND ((\"TrackingMode\" = 1 AND \"LastBestWeightKg\" IS NOT NULL AND \"LastBestWeightKg\" > 0 AND \"LastBestAssistedKg\" IS NULL) OR (\"TrackingMode\" = 2 AND \"LastBestWeightKg\" IS NULL AND \"LastBestAssistedKg\" IS NULL) OR (\"TrackingMode\" = 3 AND \"LastBestWeightKg\" IS NULL AND \"LastBestAssistedKg\" IS NOT NULL AND \"LastBestAssistedKg\" > 0)))");
+                            t.HasCheckConstraint("CK_exercise_performances_last_best_shape", "\"LastPerformedAt\" IS NOT NULL AND \"LastBestReps\" IS NOT NULL AND \"LastBestReps\" > 0 AND ((\"TrackingMode\" = 1 AND \"LastBestWeightKg\" IS NOT NULL AND \"LastBestWeightKg\" > 0 AND \"LastBestAssistedKg\" IS NULL) OR (\"TrackingMode\" = 2 AND \"LastBestWeightKg\" IS NULL AND \"LastBestAssistedKg\" IS NULL) OR (\"TrackingMode\" = 3 AND \"LastBestWeightKg\" IS NULL AND \"LastBestAssistedKg\" IS NOT NULL AND \"LastBestAssistedKg\" > 0))");
+
+                            t.HasCheckConstraint("CK_exercise_performances_tracking_mode", "\"TrackingMode\" IN (1, 2, 3)");
                         });
                 });
 
@@ -290,8 +295,9 @@ namespace TrackZ.Infrastructure.Persistence.Migrations
                 {
                     b.HasOne("TrackZ.Domain.Exercises.ExerciseDefinition", null)
                         .WithMany()
-                        .HasForeignKey("ExerciseDefinitionId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .HasForeignKey("ExerciseDefinitionId", "TrackingMode")
+                        .HasPrincipalKey("Id", "TrackingMode")
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 

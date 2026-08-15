@@ -34,9 +34,9 @@ public sealed class ExercisePerformance
         ArgumentOutOfRangeException.ThrowIfEqual(userId, Guid.Empty);
         ArgumentOutOfRangeException.ThrowIfEqual(exerciseDefinitionId, Guid.Empty);
         if (!Enum.IsDefined(trackingMode)) throw new ArgumentOutOfRangeException(nameof(trackingMode));
-        if (lastPerformedAt is null && lastBestSet is not null)
+        if (lastPerformedAt is null || lastBestSet is null || allTimeBest is null)
         {
-            throw new ArgumentException("A last-best set requires a last-performed timestamp.", nameof(lastPerformedAt));
+            throw new ArgumentException("A persisted performance projection requires a timestamp, LAST set, and all-time-best set.");
         }
 
         ValidateSet(trackingMode, lastBestSet, nameof(lastBestSet));

@@ -28,6 +28,8 @@ namespace TrackZ.Infrastructure.Persistence.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_exercise_definitions", x => x.Id);
+                    table.UniqueConstraint("AK_exercise_definitions_Id_TrackingMode", x => new { x.Id, x.TrackingMode });
+                    table.CheckConstraint("CK_exercise_definitions_tracking_mode", "\"TrackingMode\" IN (1, 2, 3)");
                 });
 
             migrationBuilder.CreateTable(
@@ -83,14 +85,15 @@ namespace TrackZ.Infrastructure.Persistence.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_exercise_performances", x => x.Id);
-                    table.CheckConstraint("CK_exercise_performances_all_time_best_shape", "(\"AllTimeBestReps\" IS NULL AND \"AllTimeBestWeightKg\" IS NULL AND \"AllTimeBestAssistedKg\" IS NULL) OR (\"AllTimeBestReps\" IS NOT NULL AND \"AllTimeBestReps\" > 0 AND ((\"TrackingMode\" = 1 AND \"AllTimeBestWeightKg\" IS NOT NULL AND \"AllTimeBestWeightKg\" > 0 AND \"AllTimeBestAssistedKg\" IS NULL) OR (\"TrackingMode\" = 2 AND \"AllTimeBestWeightKg\" IS NULL AND \"AllTimeBestAssistedKg\" IS NULL) OR (\"TrackingMode\" = 3 AND \"AllTimeBestWeightKg\" IS NULL AND \"AllTimeBestAssistedKg\" IS NOT NULL AND \"AllTimeBestAssistedKg\" > 0)))");
-                    table.CheckConstraint("CK_exercise_performances_last_best_shape", "(\"LastBestReps\" IS NULL AND \"LastBestWeightKg\" IS NULL AND \"LastBestAssistedKg\" IS NULL) OR (\"LastBestReps\" IS NOT NULL AND \"LastBestReps\" > 0 AND ((\"TrackingMode\" = 1 AND \"LastBestWeightKg\" IS NOT NULL AND \"LastBestWeightKg\" > 0 AND \"LastBestAssistedKg\" IS NULL) OR (\"TrackingMode\" = 2 AND \"LastBestWeightKg\" IS NULL AND \"LastBestAssistedKg\" IS NULL) OR (\"TrackingMode\" = 3 AND \"LastBestWeightKg\" IS NULL AND \"LastBestAssistedKg\" IS NOT NULL AND \"LastBestAssistedKg\" > 0)))");
+                    table.CheckConstraint("CK_exercise_performances_all_time_best_shape", "\"AllTimeBestReps\" IS NOT NULL AND \"AllTimeBestReps\" > 0 AND ((\"TrackingMode\" = 1 AND \"AllTimeBestWeightKg\" IS NOT NULL AND \"AllTimeBestWeightKg\" > 0 AND \"AllTimeBestAssistedKg\" IS NULL) OR (\"TrackingMode\" = 2 AND \"AllTimeBestWeightKg\" IS NULL AND \"AllTimeBestAssistedKg\" IS NULL) OR (\"TrackingMode\" = 3 AND \"AllTimeBestWeightKg\" IS NULL AND \"AllTimeBestAssistedKg\" IS NOT NULL AND \"AllTimeBestAssistedKg\" > 0))");
+                    table.CheckConstraint("CK_exercise_performances_last_best_shape", "\"LastPerformedAt\" IS NOT NULL AND \"LastBestReps\" IS NOT NULL AND \"LastBestReps\" > 0 AND ((\"TrackingMode\" = 1 AND \"LastBestWeightKg\" IS NOT NULL AND \"LastBestWeightKg\" > 0 AND \"LastBestAssistedKg\" IS NULL) OR (\"TrackingMode\" = 2 AND \"LastBestWeightKg\" IS NULL AND \"LastBestAssistedKg\" IS NULL) OR (\"TrackingMode\" = 3 AND \"LastBestWeightKg\" IS NULL AND \"LastBestAssistedKg\" IS NOT NULL AND \"LastBestAssistedKg\" > 0))");
+                    table.CheckConstraint("CK_exercise_performances_tracking_mode", "\"TrackingMode\" IN (1, 2, 3)");
                     table.ForeignKey(
                         name: "FK_exercise_performances_exercise_definitions_ExerciseDefiniti~",
-                        column: x => x.ExerciseDefinitionId,
+                        columns: x => new { x.ExerciseDefinitionId, x.TrackingMode },
                         principalTable: "exercise_definitions",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
+                        principalColumns: new[] { "Id", "TrackingMode" },
+                        onDelete: ReferentialAction.Restrict);
                 });
 
             migrationBuilder.CreateIndex(
@@ -109,9 +112,9 @@ namespace TrackZ.Infrastructure.Persistence.Migrations
                 columns: new[] { "ExerciseDefinitionId", "Version" });
 
             migrationBuilder.CreateIndex(
-                name: "IX_exercise_performances_ExerciseDefinitionId",
+                name: "IX_exercise_performances_ExerciseDefinitionId_TrackingMode",
                 table: "exercise_performances",
-                column: "ExerciseDefinitionId");
+                columns: new[] { "ExerciseDefinitionId", "TrackingMode" });
 
             migrationBuilder.CreateIndex(
                 name: "IX_exercise_performances_UserId_ExerciseDefinitionId",

@@ -52,4 +52,15 @@ public sealed class ExercisePerformanceTests
         Assert.Throws<ArgumentException>(() => ExercisePerformance.Create(
             Guid.NewGuid(), Guid.NewGuid(), trackingMode, DateTimeOffset.UtcNow, set, null));
     }
+
+    [Fact]
+    public void Create_requires_complete_last_and_all_time_projection_for_a_persisted_row()
+    {
+        var valid = new ExercisePerformanceSet(70m, null, 8);
+
+        Assert.Throws<ArgumentException>(() => ExercisePerformance.Create(
+            Guid.NewGuid(), Guid.NewGuid(), TrackingMode.Weighted, DateTimeOffset.UtcNow, valid, null));
+        Assert.Throws<ArgumentException>(() => ExercisePerformance.Create(
+            Guid.NewGuid(), Guid.NewGuid(), TrackingMode.Weighted, null, null, valid));
+    }
 }
