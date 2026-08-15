@@ -89,6 +89,7 @@ app.MapIdentityEndpoints();
 app.MapExerciseEndpoints();
 app.MapMediaEndpoints();
 app.MapWorkoutEndpoints();
+app.MapSyncEndpoints();
 
 app.Run();
 

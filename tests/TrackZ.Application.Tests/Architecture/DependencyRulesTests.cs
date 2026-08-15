@@ -65,7 +65,30 @@ public sealed class DependencyRulesTests
         Assert.Null(exposedEfType);
     }
 
+    [Fact]
+    public void Sync_push_store_port_must_not_expose_EF_Core_or_Npgsql_types()
+    {
+        var exposedFrameworkType = typeof(TrackZ.Application.Sync.ISyncPushStore)
+            .GetMembers()
+            .SelectMany(member => member switch
+            {
+                System.Reflection.PropertyInfo property => [property.PropertyType],
+                System.Reflection.MethodInfo method => method.GetParameters()
+                    .Select(parameter => parameter.ParameterType)
+                    .Append(method.ReturnType),
+                _ => [],
+            })
+            .FirstOrDefault(IsPersistenceFrameworkType);
+
+        Assert.Null(exposedFrameworkType);
+    }
+
     private static bool IsEntityFrameworkCoreType(Type type) =>
         type.Namespace?.StartsWith("Microsoft.EntityFrameworkCore", StringComparison.Ordinal) == true
         || type.GetGenericArguments().Any(IsEntityFrameworkCoreType);
+
+    private static bool IsPersistenceFrameworkType(Type type) =>
+        type.Namespace?.StartsWith("Microsoft.EntityFrameworkCore", StringComparison.Ordinal) == true
+        || type.Namespace?.StartsWith("Npgsql", StringComparison.Ordinal) == true
+        || type.GetGenericArguments().Any(IsPersistenceFrameworkType);
 }

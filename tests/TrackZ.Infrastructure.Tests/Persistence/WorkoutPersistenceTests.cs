@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 using TrackZ.Domain.Exercises;
 using TrackZ.Domain.Identity;
 using TrackZ.Domain.Workouts;
+using TrackZ.Domain.Sync;
 
 namespace TrackZ.Infrastructure.Tests.Persistence;
 
@@ -298,7 +299,7 @@ public sealed class WorkoutPersistenceTests
     }
 
     [Fact]
-    public async Task Hardening_migration_is_latest_deferred_reversible_and_matches_snapshot()
+    public async Task Hardening_migration_remains_historical_deferred_and_reversible()
     {
         await using var database = await PostgreSqlFixture.StartAsync();
         var migrations = database.Db.GetService<IMigrationsAssembly>();
@@ -315,7 +316,7 @@ public sealed class WorkoutPersistenceTests
         Assert.Equal(2, upSql.Count(sql => sql.Contains("DEFERRABLE INITIALLY DEFERRED", StringComparison.Ordinal)));
         Assert.Contains(upSql, sql => sql.Contains("UPDATE set_entries", StringComparison.Ordinal));
         Assert.Equal(2, downSql.Count(sql => sql.Contains("DROP CONSTRAINT \"UQ_", StringComparison.Ordinal)));
-        Assert.Equal(
+        Assert.NotEqual(
             DescribeRelationalModel(migrations.ModelSnapshot!.Model),
             DescribeRelationalModel(migration.TargetModel));
         Assert.Empty(await database.Db.Database.GetPendingMigrationsAsync());
@@ -363,6 +364,50 @@ public sealed class WorkoutPersistenceTests
         var persisted = await database.Db.SetEntries.AsNoTracking().SingleAsync(set => set.Id == setId);
         Assert.Equal(TrackingMode.Weighted, persisted.TrackingMode);
         Assert.Empty(await database.Db.Database.GetPendingMigrationsAsync());
+    }
+
+    [Fact]
+    public async Task Processed_operation_migration_is_latest_reversible_and_matches_snapshot()
+    {
+        await using var database = await PostgreSqlFixture.StartAsync();
+        var migrations = database.Db.GetService<IMigrationsAssembly>();
+        var ids = migrations.Migrations.Keys.ToArray();
+        var hardening = Array.FindIndex(ids, id => id.EndsWith("_HardenWorkoutPersistence", StringComparison.Ordinal));
+        var processed = Array.FindIndex(ids, id => id.EndsWith("_AddProcessedClientOperations", StringComparison.Ordinal));
+
+        Assert.True(processed > hardening);
+        var migration = migrations.CreateMigration(
+            migrations.Migrations[ids[processed]], database.Db.Database.ProviderName!)!;
+        var created = Assert.Single(migration.UpOperations
+            .OfType<Microsoft.EntityFrameworkCore.Migrations.Operations.CreateTableOperation>());
+        var dropped = Assert.Single(migration.DownOperations
+            .OfType<Microsoft.EntityFrameworkCore.Migrations.Operations.DropTableOperation>());
+        Assert.Equal("processed_client_operations", created.Name);
+        Assert.Equal("processed_client_operations", dropped.Name);
+        Assert.Equal(
+            DescribeRelationalModel(migrations.ModelSnapshot!.Model),
+            DescribeRelationalModel(migration.TargetModel));
+        Assert.Empty(await database.Db.Database.GetPendingMigrationsAsync());
+        Assert.False(database.Db.Database.HasPendingModelChanges());
+    }
+
+    [Fact]
+    public async Task Processed_operation_table_follows_up_down_chronology_after_workout_hardening()
+    {
+        await using var database = await PostgreSqlFixture.StartAsync();
+        const string previous = "20260815161433_HardenWorkoutPersistence";
+
+        Assert.Equal("processed_client_operations", await database.Db.Database
+            .SqlQueryRaw<string>("SELECT to_regclass('processed_client_operations')::text AS \"Value\"")
+            .SingleAsync());
+        await database.Db.Database.MigrateAsync(previous);
+        Assert.Null(await database.Db.Database
+            .SqlQueryRaw<string?>("SELECT to_regclass('processed_client_operations')::text AS \"Value\"")
+            .SingleAsync());
+        await database.Db.Database.MigrateAsync();
+        Assert.Equal("processed_client_operations", await database.Db.Database
+            .SqlQueryRaw<string>("SELECT to_regclass('processed_client_operations')::text AS \"Value\"")
+            .SingleAsync());
     }
 
     private static IReadOnlyList<string> DescribeRelationalModel(IReadOnlyModel model)

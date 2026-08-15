@@ -10,10 +10,14 @@ using TrackZ.Domain.Progress;
 using TrackZ.Application.Media;
 using TrackZ.Application.Workouts;
 using TrackZ.Domain.Workouts;
+using TrackZ.Application.Sync;
+using TrackZ.Domain.Sync;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace TrackZ.Infrastructure.Persistence;
 
-public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options), IAppDbContext, IExerciseCatalogReadStore, ICustomExerciseStore, IExerciseImageUploadStore, IWorkoutReadStore
+public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options), IAppDbContext, IExerciseCatalogReadStore, ICustomExerciseStore, IExerciseImageUploadStore, IWorkoutReadStore, ISyncPushStore
 {
     public DbSet<User> Users => Set<User>();
 
@@ -31,6 +35,115 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<WorkoutExercise> WorkoutExercises => Set<WorkoutExercise>();
 
     public DbSet<SetEntry> SetEntries => Set<SetEntry>();
+
+    public DbSet<ProcessedClientOperation> ProcessedClientOperations => Set<ProcessedClientOperation>();
+
+    public async Task<IAppDbTransaction> BeginSyncTransactionAsync(CancellationToken cancellationToken) =>
+        new AppDbTransaction(await Database.BeginTransactionAsync(cancellationToken));
+
+    public Task AcquireOperationLockAsync(
+        Guid userId,
+        Guid operationId,
+        CancellationToken cancellationToken) =>
+        AcquireSyncLockAsync($"operation:{userId:D}:{operationId:D}", cancellationToken);
+
+    public Task AcquireWorkoutLockAsync(Guid workoutId, CancellationToken cancellationToken) =>
+        AcquireSyncLockAsync($"workout:{workoutId:D}", cancellationToken);
+
+    public Task<ProcessedClientOperation?> FindProcessedOperationAsync(
+        Guid userId,
+        Guid operationId,
+        CancellationToken cancellationToken) =>
+        ProcessedClientOperations.SingleOrDefaultAsync(
+            operation => operation.UserId == userId && operation.OperationId == operationId,
+            cancellationToken);
+
+    public Task<WorkoutSession?> FindOwnedWorkoutAsync(
+        Guid userId,
+        Guid workoutId,
+        CancellationToken cancellationToken) =>
+        WorkoutSessions
+            .Include("_exercises._sets")
+            .SingleOrDefaultAsync(
+                workout => workout.Id == workoutId && workout.OwnerId == userId,
+                cancellationToken);
+
+    public Task<Guid?> FindWorkoutOwnerAsync(Guid workoutId, CancellationToken cancellationToken) =>
+        WorkoutSessions.AsNoTracking()
+            .Where(workout => workout.Id == workoutId)
+            .Select(workout => (Guid?)workout.OwnerId)
+            .SingleOrDefaultAsync(cancellationToken);
+
+    public async Task<bool> AreExerciseDefinitionsAvailableAsync(
+        Guid userId,
+        IReadOnlyList<Guid> exerciseDefinitionIds,
+        CancellationToken cancellationToken)
+    {
+        if (exerciseDefinitionIds.Count == 0
+            || exerciseDefinitionIds.Any(id => id == Guid.Empty)
+            || exerciseDefinitionIds.Distinct().Count() != exerciseDefinitionIds.Count)
+        {
+            return false;
+        }
+
+        var count = await Exercises.AsNoTracking().CountAsync(exercise =>
+            exerciseDefinitionIds.Contains(exercise.Id)
+            && !exercise.IsArchived
+            && (exercise.OwnerId == null || exercise.OwnerId == userId), cancellationToken);
+        return count == exerciseDefinitionIds.Count;
+    }
+
+    public async Task<bool> AreWorkoutExerciseIdentifiersAvailableAsync(
+        IReadOnlyList<Guid> workoutExerciseIds,
+        CancellationToken cancellationToken)
+    {
+        if (workoutExerciseIds.Count == 0
+            || workoutExerciseIds.Any(id => id == Guid.Empty)
+            || workoutExerciseIds.Distinct().Count() != workoutExerciseIds.Count)
+        {
+            return false;
+        }
+
+        foreach (var workoutExerciseId in workoutExerciseIds.Order())
+        {
+            await AcquireSyncLockAsync($"workout-exercise:{workoutExerciseId:D}", cancellationToken);
+        }
+
+        return !await WorkoutExercises.AsNoTracking()
+            .AnyAsync(exercise => workoutExerciseIds.Contains(exercise.Id), cancellationToken);
+    }
+
+    public async Task<bool> IsSetIdentifierAvailableAsync(Guid setId, CancellationToken cancellationToken)
+    {
+        await AcquireSyncLockAsync($"set:{setId:D}", cancellationToken);
+        return !await SetEntries.AsNoTracking().AnyAsync(set => set.Id == setId, cancellationToken);
+    }
+
+    public void AddWorkout(WorkoutSession workout) => WorkoutSessions.Add(workout);
+
+    public void AddProcessedOperation(ProcessedClientOperation operation) =>
+        ProcessedClientOperations.Add(operation);
+
+    public Task SaveSyncChangesAsync(CancellationToken cancellationToken) =>
+        SaveChangesAsync(cancellationToken);
+
+    public bool IsTransient(Exception exception) => exception switch
+    {
+        TimeoutException => true,
+        NpgsqlException postgres => postgres.IsTransient,
+        DbUpdateException update when update.InnerException is not null => IsTransient(update.InnerException),
+        _ when exception.InnerException is not null => IsTransient(exception.InnerException),
+        _ => false
+    };
+
+    public void ClearSyncTracking() => ChangeTracker.Clear();
+
+    private Task AcquireSyncLockAsync(string resource, CancellationToken cancellationToken)
+    {
+        var lockKey = BitConverter.ToInt64(SHA256.HashData(Encoding.UTF8.GetBytes(resource)), 0);
+        return Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT pg_advisory_xact_lock({lockKey})", cancellationToken);
+    }
 
     public async Task<WorkoutReadSession?> GetOwnedWorkoutAsync(
         Guid ownerId,
