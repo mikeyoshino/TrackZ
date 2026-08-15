@@ -39,7 +39,29 @@ public interface IExerciseHistorySource
 
 public interface ISetSavedFeedback
 {
-    Task SetSavedAsync(LocalSet savedSet, CancellationToken cancellationToken = default);
+    Task SetSavedAsync(LocalSet savedSet, SetSavedFeedbackSession session);
+}
+
+public sealed class SetSavedFeedbackSession
+{
+    private readonly Func<Action, bool> _tryStartPhase;
+
+    public SetSavedFeedbackSession(
+        CancellationToken cancellationToken,
+        Func<Action, bool> tryStartPhase)
+    {
+        CancellationToken = cancellationToken;
+        _tryStartPhase = tryStartPhase ?? throw new ArgumentNullException(nameof(tryStartPhase));
+    }
+
+    public CancellationToken CancellationToken { get; }
+
+    public bool TryStartPhase(Action phase)
+    {
+        ArgumentNullException.ThrowIfNull(phase);
+        CancellationToken.ThrowIfCancellationRequested();
+        return _tryStartPhase(phase);
+    }
 }
 
 public interface IWorkoutSyncRunner
@@ -435,11 +457,12 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
             if (_disposed || _boundary.IsCancellationRequested(generation)) return;
             try
             {
-                var current = await _boundary.TryCommitAsync(
-                    generation,
-                    feedbackToken => _feedback.SetSavedAsync(saved, feedbackToken),
-                    token);
-                if (!current) return;
+                using var feedbackLease = _boundary.CreateCancellationLease(generation, token);
+                var feedbackSession = new SetSavedFeedbackSession(
+                    feedbackLease.Token,
+                    phase => _boundary.TryStartSessionPhase(
+                        generation, phase, feedbackLease.Token));
+                await _feedback.SetSavedAsync(saved, feedbackSession);
             }
             catch (Exception)
             {

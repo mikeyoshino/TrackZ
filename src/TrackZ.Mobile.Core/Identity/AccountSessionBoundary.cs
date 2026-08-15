@@ -40,6 +40,10 @@ public interface IAccountSessionBoundary
     AccountSessionCancellationLease CreateCancellationLease(
         AccountSessionGeneration generation,
         CancellationToken cancellationToken = default);
+    bool TryStartSessionPhase(
+        AccountSessionGeneration generation,
+        Action phase,
+        CancellationToken cancellationToken = default);
     event EventHandler? SessionReset;
 
     Task<bool> TryCommitAsync(
@@ -75,6 +79,7 @@ public sealed class AccountSessionBoundary : IAccountSessionBoundary
     private readonly object _cancellationLock = new();
     private long _generation;
     private GenerationCancellation _generationCancellation = new();
+    private bool _resetInProgress;
 
     public event EventHandler? SessionReset;
 
@@ -85,6 +90,7 @@ public sealed class AccountSessionBoundary : IAccountSessionBoundary
         lock (_cancellationLock)
         {
             return generation.Value != Interlocked.Read(ref _generation)
+                || _resetInProgress
                 || _generationCancellation.IsCancellationRequested;
         }
     }
@@ -95,12 +101,30 @@ public sealed class AccountSessionBoundary : IAccountSessionBoundary
     {
         lock (_cancellationLock)
         {
-            if (generation.Value != Interlocked.Read(ref _generation))
+            if (generation.Value != Interlocked.Read(ref _generation) || _resetInProgress)
                 return new AccountSessionCancellationLease(
                     CancellationTokenSource.CreateLinkedTokenSource(
                         cancellationToken, new CancellationToken(canceled: true)),
                     null);
             return _generationCancellation.CreateLease(cancellationToken);
+        }
+    }
+
+    public bool TryStartSessionPhase(
+        AccountSessionGeneration generation,
+        Action phase,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(phase);
+        lock (_cancellationLock)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (generation.Value != Interlocked.Read(ref _generation)
+                || _resetInProgress
+                || _generationCancellation.IsCancellationRequested)
+                return false;
+            phase();
+            return true;
         }
     }
 
@@ -117,6 +141,7 @@ public sealed class AccountSessionBoundary : IAccountSessionBoundary
             lock (_cancellationLock)
             {
                 if (generation.Value != Interlocked.Read(ref _generation)
+                    || _resetInProgress
                     || _generationCancellation.IsCancellationRequested)
                     return false;
                 generationCancellation = _generationCancellation;
@@ -164,6 +189,7 @@ public sealed class AccountSessionBoundary : IAccountSessionBoundary
                 cancellationToken.ThrowIfCancellationRequested();
                 if (expectedGeneration is { } expected
                     && expected.Value != Interlocked.Read(ref _generation)) return false;
+                _resetInProgress = true;
                 invalidated = _generationCancellation;
             }
 
@@ -207,6 +233,7 @@ public sealed class AccountSessionBoundary : IAccountSessionBoundary
             invalidated = _generationCancellation;
             _generationCancellation = replacement;
             Interlocked.Increment(ref _generation);
+            _resetInProgress = false;
         }
 
         var disposalFailure = invalidated.Retire();

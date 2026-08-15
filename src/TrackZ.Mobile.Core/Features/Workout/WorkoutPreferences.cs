@@ -10,6 +10,7 @@ public interface IWeightUnitPreference
 {
     WeightDisplayUnit Current { get; }
     void Set(WeightDisplayUnit unit);
+    event EventHandler? Changed;
 }
 
 public sealed class WeightUnitPreference(IWorkoutPreferenceStore store) : IWeightUnitPreference
@@ -22,9 +23,13 @@ public sealed class WeightUnitPreference(IWorkoutPreferenceStore store) : IWeigh
             ? unit
             : WeightDisplayUnit.Kilograms;
 
+    public event EventHandler? Changed;
+
     public void Set(WeightDisplayUnit unit)
     {
         if (!Enum.IsDefined(unit)) throw new ArgumentOutOfRangeException(nameof(unit));
+        if (Current == unit) return;
         store.Set(PreferenceKey, unit.ToString());
+        Changed?.Invoke(this, EventArgs.Empty);
     }
 }

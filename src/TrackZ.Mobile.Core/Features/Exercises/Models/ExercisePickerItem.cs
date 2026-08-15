@@ -9,12 +9,18 @@ namespace TrackZ.Mobile.Features.Exercises.Models;
 
 public sealed class ExercisePickerItem : INotifyPropertyChanged
 {
+    private const decimal PoundsPerKilogram = 2.204622621848775807m;
     private readonly WorkoutTextSet _text;
+    private readonly IWeightUnitPreference? _unitPreference;
 
-    public ExercisePickerItem(CachedExercise exercise, WorkoutTextSet text)
+    public ExercisePickerItem(
+        CachedExercise exercise,
+        WorkoutTextSet text,
+        IWeightUnitPreference? unitPreference = null)
     {
         Exercise = exercise;
         _text = text;
+        _unitPreference = unitPreference;
     }
 
     public CachedExercise Exercise { get; }
@@ -50,6 +56,12 @@ public sealed class ExercisePickerItem : INotifyPropertyChanged
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
+    public void RefreshUnit()
+    {
+        OnPropertyChanged(nameof(LastText));
+        OnPropertyChanged(nameof(PersonalRecordText));
+    }
+
     private string FormatPerformance(PerformanceSetDto? performance)
     {
         if (performance is null) return "—";
@@ -59,14 +71,14 @@ public sealed class ExercisePickerItem : INotifyPropertyChanged
             TrackingMode.Weighted => string.Format(
                 CultureInfo.CurrentCulture,
                 _text.WeightedPerformanceFormat,
-                FormatDecimal(performance.WeightKg),
-                _text.Kilograms,
+                FormatWeight(performance.WeightKg),
+                UnitLabel,
                 reps),
             TrackingMode.Assisted => string.Format(
                 CultureInfo.CurrentCulture,
                 _text.AssistedPerformanceFormat,
-                FormatDecimal(performance.AssistedKg),
-                _text.Kilograms,
+                FormatWeight(performance.AssistedKg),
+                UnitLabel,
                 reps),
             TrackingMode.Bodyweight => string.Format(
                 CultureInfo.CurrentCulture,
@@ -77,8 +89,22 @@ public sealed class ExercisePickerItem : INotifyPropertyChanged
         };
     }
 
-    private static string FormatDecimal(decimal? value) =>
-        value?.ToString("0.##", CultureInfo.CurrentCulture) ?? "—";
+    private WeightDisplayUnit DisplayUnit => _unitPreference?.Current ?? WeightDisplayUnit.Kilograms;
+
+    private string UnitLabel => DisplayUnit == WeightDisplayUnit.Kilograms
+        ? _text.Kilograms
+        : _text.Pounds;
+
+    private string FormatWeight(decimal? kilograms)
+    {
+        if (kilograms is null) return "—";
+        return DisplayUnit == WeightDisplayUnit.Kilograms
+            ? kilograms.Value.ToString("0.###", CultureInfo.CurrentCulture)
+            : decimal.Round(
+                kilograms.Value * PoundsPerKilogram,
+                2,
+                MidpointRounding.AwayFromZero).ToString("0.00", CultureInfo.CurrentCulture);
+    }
 
     private void OnPropertyChanged([CallerMemberName] string? name = null) =>
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));

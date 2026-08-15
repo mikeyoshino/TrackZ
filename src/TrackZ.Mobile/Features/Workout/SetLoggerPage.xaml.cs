@@ -6,14 +6,19 @@ public partial class SetLoggerPage : ContentPage, IQueryAttributable
 {
     private readonly SetLoggerViewModel _viewModel;
     private readonly MauiSetSavedFeedback _feedback;
+    private readonly ISetSavedPulseDriver _pulse;
     private bool _wasParented;
     private bool _deactivated;
 
-    public SetLoggerPage(SetLoggerViewModel viewModel, MauiSetSavedFeedback feedback)
+    public SetLoggerPage(
+        SetLoggerViewModel viewModel,
+        MauiSetSavedFeedback feedback,
+        ISetSavedPulseDriver? pulse = null)
     {
         _viewModel = viewModel;
         _feedback = feedback;
         InitializeComponent();
+        _pulse = pulse ?? new MauiSetSavedPulseDriver(SavedPulse);
         BindingContext = _viewModel;
     }
 
@@ -59,26 +64,20 @@ public partial class SetLoggerPage : ContentPage, IQueryAttributable
         await _viewModel.LoadAsync(exerciseId, Uri.UnescapeDataString(rawName.ToString()!));
     }
 
-    private Task OnSetSavedAsync(LocalSet savedSet, CancellationToken cancellationToken) =>
-        MainThread.InvokeOnMainThreadAsync(() => AnimateSavedAsync(cancellationToken));
+    private Task OnSetSavedAsync(LocalSet savedSet, SetSavedFeedbackSession session) =>
+        AnimateSavedAsync(session);
 
-    private async Task AnimateSavedAsync(CancellationToken cancellationToken)
+    private async Task AnimateSavedAsync(SetSavedFeedbackSession session)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-        using var cancellation = cancellationToken.Register(() =>
-            MainThread.BeginInvokeOnMainThread(SavedPulse.CancelAnimations));
-        SavedPulse.CancelAnimations();
-        SavedPulse.Opacity = 1;
-        if (Preferences.Default.Get("trackz_reduce_motion", false))
+        using var cancellation = session.CancellationToken.Register(_pulse.Cancel);
+        await _pulse.InvokeAsync(async () =>
         {
-            await SavedPulse.FadeToAsync(0, 180, Easing.Linear);
-            cancellationToken.ThrowIfCancellationRequested();
-            return;
-        }
-        SavedPulse.Scale = 0.97;
-        await Task.WhenAll(
-            SavedPulse.ScaleToAsync(1, 160, Easing.CubicOut),
-            SavedPulse.FadeToAsync(0, 520, Easing.CubicIn));
-        cancellationToken.ThrowIfCancellationRequested();
+            session.CancellationToken.ThrowIfCancellationRequested();
+            Task? running = null;
+            if (!session.TryStartPhase(() =>
+                running = _pulse.StartAsync(session.CancellationToken))) return;
+            await running!;
+            session.CancellationToken.ThrowIfCancellationRequested();
+        });
     }
 }

@@ -188,6 +188,71 @@ public sealed class ExercisePickerViewModelTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Picker_performance_uses_persisted_unit_preserves_kg_precision_and_refreshes_existing_items()
+    {
+        var weightedId = Guid.Parse("44444444-4444-4444-4444-444444444444");
+        var assistedId = Guid.Parse("55555555-5555-5555-5555-555555555555");
+        await _cache.ReplaceAllAsync([
+            new ExerciseSummaryDto(
+                weightedId, "Precise Press", BodyPart.Chest, TrackingMode.Weighted,
+                null, DateTimeOffset.UtcNow,
+                new PerformanceSetDto(70.125m, null, 8),
+                new PerformanceSetDto(70.125m, null, 5),
+                false),
+            new ExerciseSummaryDto(
+                assistedId, "Precise Pull-up", BodyPart.Back, TrackingMode.Assisted,
+                null, DateTimeOffset.UtcNow,
+                new PerformanceSetDto(null, 25.125m, 10),
+                new PerformanceSetDto(null, 25.125m, 8),
+                false)
+        ], DateTimeOffset.UtcNow);
+        var store = new MemoryWorkoutPreferenceStore();
+        var preference = new WeightUnitPreference(store);
+        var sut = new ExercisePickerViewModel(
+            _cache,
+            new StubCatalogApi(),
+            new StubConnectivity(false),
+            new FixedClock(),
+            text: WorkoutResources.ForCulture(System.Globalization.CultureInfo.GetCultureInfo("en-US")),
+            unitPreference: preference);
+        await sut.LoadAsync();
+
+        Assert.Equal("LAST  70.125 kg × 8", sut.Exercises.Single(item => item.Id == weightedId).LastText);
+        Assert.Equal("LAST  25.125 kg assist × 10", sut.Exercises.Single(item => item.Id == assistedId).LastText);
+
+        preference.Set(WeightDisplayUnit.Pounds);
+
+        Assert.Equal("LAST  154.60 lb × 8", sut.Exercises.Single(item => item.Id == weightedId).LastText);
+        Assert.Equal("LAST  55.39 lb assist × 10", sut.Exercises.Single(item => item.Id == assistedId).LastText);
+        Assert.Equal(70.125m, sut.Exercises.Single(item => item.Id == weightedId).LastBestSet!.WeightKg);
+        Assert.Equal(25.125m, sut.Exercises.Single(item => item.Id == assistedId).LastBestSet!.AssistedKg);
+
+        var restored = new ExercisePickerViewModel(
+            _cache,
+            new StubCatalogApi(),
+            new StubConnectivity(false),
+            new FixedClock(),
+            text: WorkoutResources.ForCulture(System.Globalization.CultureInfo.GetCultureInfo("en-US")),
+            unitPreference: new WeightUnitPreference(store));
+        await restored.LoadAsync();
+
+        Assert.Equal("PR  154.60 lb × 5", restored.Exercises.Single(item => item.Id == weightedId).PersonalRecordText);
+        Assert.Equal("PR  55.39 lb assist × 8", restored.Exercises.Single(item => item.Id == assistedId).PersonalRecordText);
+
+        var thai = new ExercisePickerViewModel(
+            _cache,
+            new StubCatalogApi(),
+            new StubConnectivity(false),
+            new FixedClock(),
+            text: WorkoutResources.ForCulture(System.Globalization.CultureInfo.GetCultureInfo("th-TH")),
+            unitPreference: new WeightUnitPreference(store));
+        await thai.LoadAsync();
+
+        Assert.Equal("ครั้งก่อน  154.60 ปอนด์ × 8", thai.Exercises.Single(item => item.Id == weightedId).LastText);
+        Assert.Equal("ครั้งก่อน  55.39 ปอนด์ ช่วย × 10", thai.Exercises.Single(item => item.Id == assistedId).LastText);
+    }
+
+    [Fact]
     public async Task Pending_custom_exercise_exposes_a_localized_sync_label_through_picker_presentation()
     {
         var id = Guid.Parse("77777777-7777-7777-7777-777777777777");
@@ -573,6 +638,13 @@ public sealed class ExercisePickerViewModelTests : IAsyncLifetime
     {
         public bool IsOnline { get; } = isOnline;
         public event EventHandler? ConnectivityChanged { add { } remove { } }
+    }
+
+    private sealed class MemoryWorkoutPreferenceStore : IWorkoutPreferenceStore
+    {
+        private readonly Dictionary<string, string> _values = [];
+        public string? Get(string key) => _values.GetValueOrDefault(key);
+        public void Set(string key, string value) => _values[key] = value;
     }
 
     private sealed class StubCatalogApi : IExerciseCatalogApi

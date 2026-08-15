@@ -318,10 +318,10 @@ public sealed class SetLoggerViewModelTests : IDisposable
         var feedback = new MauiSetSavedFeedback(() => false);
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var laterPhaseCount = 0;
-        feedback.Saved += async (_, token) =>
+        feedback.Saved += async (_, session) =>
         {
             entered.TrySetResult();
-            await Task.Delay(Timeout.InfiniteTimeSpan, token);
+            await Task.Delay(Timeout.InfiniteTimeSpan, session.CancellationToken);
         };
         feedback.Saved += (_, _) =>
         {
@@ -906,13 +906,13 @@ public sealed class SetLoggerViewModelTests : IDisposable
         public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public async Task SetSavedAsync(LocalSet savedSet, CancellationToken cancellationToken = default)
+        public async Task SetSavedAsync(LocalSet savedSet, SetSavedFeedbackSession session)
         {
-            CallCount++;
+            if (!session.TryStartPhase(() => CallCount++)) return;
             if (Throw) throw new InvalidOperationException("Feedback unavailable");
             if (OnSaved is not null) await OnSaved();
             Entered.TrySetResult();
-            if (Block) await Release.Task.WaitAsync(cancellationToken);
+            if (Block) await Release.Task.WaitAsync(session.CancellationToken);
         }
     }
 
@@ -983,6 +983,11 @@ public sealed class SetLoggerViewModelTests : IDisposable
         public AccountSessionGeneration Capture() => _inner.Capture();
         public AccountSessionCancellationLease CreateCancellationLease(AccountSessionGeneration generation, CancellationToken cancellationToken = default) =>
             _inner.CreateCancellationLease(generation, cancellationToken);
+        public bool TryStartSessionPhase(
+            AccountSessionGeneration generation,
+            Action phase,
+            CancellationToken cancellationToken = default) =>
+            _inner.TryStartSessionPhase(generation, phase, cancellationToken);
         public void ArmReset(Func<CancellationToken, Task> reset) => _reset = reset;
         public bool IsCancellationRequested(AccountSessionGeneration generation)
         {

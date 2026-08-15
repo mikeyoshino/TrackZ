@@ -24,6 +24,7 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged
     private readonly IExerciseThumbnailCache? _thumbnailCache;
     private readonly IAccountSessionBoundary _boundary;
     private readonly WorkoutTextSet _text;
+    private readonly IWeightUnitPreference? _unitPreference;
     private readonly List<Guid> _selectedIds = [];
     private readonly HashSet<Guid> _selectedIdSet = [];
     private IReadOnlyList<CachedExercise> _catalog = [];
@@ -40,7 +41,8 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged
         IUiDispatcher? dispatcher = null,
         IExerciseThumbnailCache? thumbnailCache = null,
         IAccountSessionBoundary? boundary = null,
-        WorkoutTextSet? text = null)
+        WorkoutTextSet? text = null,
+        IWeightUnitPreference? unitPreference = null)
     {
         _cache = cache;
         _catalogApi = catalogApi;
@@ -50,6 +52,7 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged
         _thumbnailCache = thumbnailCache;
         _boundary = boundary ?? new AccountSessionBoundary();
         _text = text ?? WorkoutResources.Current;
+        _unitPreference = unitPreference;
         BodyPartOptions =
         [
             new(BodyPart.Chest, _text.BodyPartChest),
@@ -60,6 +63,7 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged
             new(BodyPart.Core, _text.BodyPartCore)
         ];
         _boundary.SessionReset += OnSessionReset;
+        if (_unitPreference is not null) _unitPreference.Changed += OnWeightUnitChanged;
         ToggleSelectionCommand = new RelayCommand(ToggleSelection);
     }
 
@@ -272,9 +276,15 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged
         foreach (var exercise in filtered)
         {
             exercise.IsSelected = _selectedIdSet.Contains(exercise.Id);
-            Exercises.Add(new ExercisePickerItem(exercise, _text));
+            Exercises.Add(new ExercisePickerItem(exercise, _text, _unitPreference));
         }
     }
+
+    private void OnWeightUnitChanged(object? sender, EventArgs eventArgs) =>
+        _dispatcher.InvokeAsync(() =>
+        {
+            foreach (var exercise in Exercises) exercise.RefreshUnit();
+        }).GetAwaiter().GetResult();
 
     private void OnSessionReset(object? sender, EventArgs eventArgs)
     {
