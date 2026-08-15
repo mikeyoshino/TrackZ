@@ -38,7 +38,7 @@ public sealed class ObjectStorageIntegrationTests : IAsyncLifetime
         await _minio.StartAsync();
         _serviceUrl = $"http://127.0.0.1:{_minio.GetMappedPublicPort(9000)}";
 
-        var script = $"set -eu; mc alias set local http://minio:9000 {_rootAccess} {_rootSecret}; mc mb local/{_bucket}; mc anonymous set none local/{_bucket}; printf '{{\"Version\":\"2012-10-17\",\"Statement\":[{{\"Effect\":\"Allow\",\"Action\":[\"s3:GetObject\",\"s3:PutObject\",\"s3:DeleteObject\"],\"Resource\":[\"arn:aws:s3:::{_bucket}/*\"]}}]}}' >/tmp/policy.json; mc admin policy create local trackz-api /tmp/policy.json; mc admin user add local {_appAccess} {_appSecret}; mc admin policy attach local trackz-api --user {_appAccess}; echo bootstrap-complete; tail -f /dev/null";
+        var script = $"set -eu; mc alias set local http://minio:9000 {_rootAccess} {_rootSecret}; mc mb local/{_bucket}; mc anonymous set none local/{_bucket}; printf '{{\"Version\":\"2012-10-17\",\"Statement\":[{{\"Effect\":\"Allow\",\"Action\":[\"s3:GetObject\",\"s3:PutObject\",\"s3:DeleteObject\"],\"Resource\":[\"arn:aws:s3:::{_bucket}/*\"]}},{{\"Effect\":\"Allow\",\"Action\":[\"s3:GetLifecycleConfiguration\",\"s3:PutLifecycleConfiguration\"],\"Resource\":[\"arn:aws:s3:::{_bucket}\"]}}]}}' >/tmp/policy.json; mc admin policy create local trackz-api /tmp/policy.json; mc admin user add local {_appAccess} {_appSecret}; mc admin policy attach local trackz-api --user {_appAccess}; echo bootstrap-complete; tail -f /dev/null";
         _bootstrap = new ContainerBuilder(McImage)
             .WithNetwork(_network)
             .WithEntrypoint("/bin/sh")
@@ -95,4 +95,96 @@ public sealed class ObjectStorageIntegrationTests : IAsyncLifetime
         Assert.Null(await adapter.GetAsync(prefix, key, CancellationToken.None));
         Assert.NotEqual(_rootAccess, _appAccess);
     }
+
+    [Fact]
+    public async Task Staging_lifecycle_is_exact_idempotent_and_preserves_unrelated_private_rules()
+    {
+        using var root = CreateClient(_rootAccess, _rootSecret);
+        var unrelated = new LifecycleRule
+        {
+            Id = "retain-system",
+            Status = LifecycleRuleStatus.Enabled,
+            Filter = new LifecycleFilter
+            {
+                LifecycleFilterPredicate = new LifecyclePrefixPredicate { Prefix = "system/" }
+            },
+            Expiration = new LifecycleRuleExpiration { Days = 30 }
+        };
+        await root.PutLifecycleConfigurationAsync(new PutLifecycleConfigurationRequest
+        {
+            BucketName = _bucket,
+            Configuration = new LifecycleConfiguration { Rules = [unrelated] }
+        });
+        var adapter = CreateAdapter(stagingExpirationDays: 2);
+
+        await adapter.EnsureConfiguredAsync(CancellationToken.None);
+        await adapter.EnsureConfiguredAsync(CancellationToken.None);
+
+        var configuration = (await root.GetLifecycleConfigurationAsync(_bucket)).Configuration;
+        Assert.NotNull(configuration.Rules);
+        Assert.Equal(2, configuration.Rules.Count);
+        var trackZ = Assert.Single(configuration.Rules, rule => rule.Id == ObjectStorage.TrackZStagingLifecycleRuleId);
+        Assert.Equal(LifecycleRuleStatus.Enabled, trackZ.Status);
+        Assert.Equal("staging/", PrefixOf(trackZ));
+        Assert.Equal(2, trackZ.Expiration?.Days);
+        var preserved = Assert.Single(configuration.Rules, rule => rule.Id == "retain-system");
+        Assert.Equal("system/", PrefixOf(preserved));
+        Assert.Equal(30, preserved.Expiration?.Days);
+
+        var anonymous = await new HttpClient().GetAsync($"{_serviceUrl}/{_bucket}/staging/owner/file.png");
+        Assert.Equal(HttpStatusCode.Forbidden, anonymous.StatusCode);
+    }
+
+    [Fact]
+    public async Task Staging_lifecycle_fails_closed_when_the_owned_rule_conflicts()
+    {
+        using var root = CreateClient(_rootAccess, _rootSecret);
+        await root.PutLifecycleConfigurationAsync(new PutLifecycleConfigurationRequest
+        {
+            BucketName = _bucket,
+            Configuration = new LifecycleConfiguration
+            {
+                Rules =
+                [
+                    new LifecycleRule
+                    {
+                        Id = ObjectStorage.TrackZStagingLifecycleRuleId,
+                        Status = LifecycleRuleStatus.Enabled,
+                        Filter = new LifecycleFilter
+                        {
+                            LifecycleFilterPredicate = new LifecyclePrefixPredicate { Prefix = "private/" }
+                        },
+                        Expiration = new LifecycleRuleExpiration { Days = 2 }
+                    }
+                ]
+            }
+        });
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            CreateAdapter(stagingExpirationDays: 2).EnsureConfiguredAsync(CancellationToken.None));
+
+        Assert.Equal("The TrackZ staging lifecycle rule conflicts with the required configuration.", exception.Message);
+        var configuration = (await root.GetLifecycleConfigurationAsync(_bucket)).Configuration;
+        var retained = Assert.Single(configuration.Rules!);
+        Assert.Equal("private/", PrefixOf(retained));
+    }
+
+    private ObjectStorage CreateAdapter(int stagingExpirationDays = 1) => new(Options.Create(new ObjectStorageOptions
+    {
+        ServiceUrl = _serviceUrl,
+        Bucket = _bucket,
+        AccessKey = _appAccess,
+        SecretKey = _appSecret,
+        StagingExpirationDays = stagingExpirationDays
+    }));
+
+    private AmazonS3Client CreateClient(string accessKey, string secretKey) => new(
+        accessKey,
+        secretKey,
+        new AmazonS3Config { ServiceURL = _serviceUrl, ForcePathStyle = true });
+
+    private static string? PrefixOf(LifecycleRule rule) =>
+        rule.Filter?.LifecycleFilterPredicate is LifecyclePrefixPredicate prefix
+            ? prefix.Prefix
+            : rule.Filter?.Prefix;
 }

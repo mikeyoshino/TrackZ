@@ -7,6 +7,8 @@ public interface IExerciseImageUploadStore
     Task<ExerciseDefinition?> FindOwnedActiveExerciseAsync(Guid exerciseId, Guid ownerId, CancellationToken cancellationToken);
     Task AddTicketAsync(ImageUploadTicket ticket, CancellationToken cancellationToken);
     Task<ImageUploadTicket?> FindOwnedTicketAsync(Guid ticketId, Guid ownerId, CancellationToken cancellationToken);
+    /// <summary>Reads the current durable ticket without reusing a tracked request snapshot.</summary>
+    Task<ImageUploadTicket?> FindOwnedTicketSnapshotAsync(Guid ticketId, Guid ownerId, CancellationToken cancellationToken);
     Task<ExerciseImage?> FindImageAsync(Guid imageId, CancellationToken cancellationToken);
     Task<ExerciseImage?> FindOwnedImageAsync(Guid imageId, Guid ownerId, CancellationToken cancellationToken);
     Task<ExerciseImage?> FindReadableImageAsync(Guid imageId, Guid ownerId, CancellationToken cancellationToken);

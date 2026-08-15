@@ -75,12 +75,15 @@ public sealed class LocalizedProblemDetailsTests : IAsyncLifetime
 
     private sealed class LocalizedFactory(string connectionString) : WebApplicationFactory<Program>
     {
-        protected override void ConfigureWebHost(IWebHostBuilder builder) => builder.UseEnvironment("Testing").ConfigureAppConfiguration(configuration => configuration.AddInMemoryCollection(new Dictionary<string, string?>
-        {
-            ["ConnectionStrings:TrackZ"] = connectionString,
-            ["Jwt:Issuer"] = "trackz-api", ["Jwt:Audience"] = "trackz-mobile",
-            ["Jwt:SigningKey"] = "test-signing-key-that-is-at-least-thirty-two-bytes-long",
-            ["Jwt:AccessTokenMinutes"] = "15", ["Jwt:RefreshTokenDays"] = "14"
-        }));
+        protected override void ConfigureWebHost(IWebHostBuilder builder) => builder
+            .UseEnvironment("Testing")
+            .ConfigureAppConfiguration(configuration => configuration.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ConnectionStrings:TrackZ"] = connectionString,
+                ["Jwt:Issuer"] = "trackz-api", ["Jwt:Audience"] = "trackz-mobile",
+                ["Jwt:SigningKey"] = "test-signing-key-that-is-at-least-thirty-two-bytes-long",
+                ["Jwt:AccessTokenMinutes"] = "15", ["Jwt:RefreshTokenDays"] = "14"
+            }))
+            .ConfigureServices(services => services.ReplaceStagingLifecycleWithNoOpForTests());
     }
 }

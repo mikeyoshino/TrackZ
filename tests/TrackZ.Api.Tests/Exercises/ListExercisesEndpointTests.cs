@@ -734,6 +734,7 @@ public sealed class ListExercisesEndpointTests : IAsyncLifetime
                 services.RemoveAll<IObjectStorage>();
                 services.AddSingleton<FakeObjectStorage>();
                 services.AddSingleton<IObjectStorage>(provider => provider.GetRequiredService<FakeObjectStorage>());
+                services.ReplaceStagingLifecycleWithNoOpForTests();
             });
     }
 

@@ -31,7 +31,10 @@ public static class DependencyInjection
         services.AddScoped<IExerciseCatalogReadStore>(provider => provider.GetRequiredService<AppDbContext>());
         services.AddScoped<ICustomExerciseStore>(provider => provider.GetRequiredService<AppDbContext>());
         services.AddScoped<IExerciseImageUploadStore>(provider => provider.GetRequiredService<AppDbContext>());
-        services.AddSingleton<IObjectStorage, ObjectStorage>();
+        services.AddSingleton<ObjectStorage>();
+        services.AddSingleton<IObjectStorage>(provider => provider.GetRequiredService<ObjectStorage>());
+        services.AddSingleton<IStagingObjectLifecycle>(provider => provider.GetRequiredService<ObjectStorage>());
+        services.AddHostedService<StagingObjectLifecycleService>();
         services.AddSingleton<IImageProcessor, ImageProcessor>();
         services.AddScoped<ObjectStorageExerciseCatalogAssetDeployment>();
         services.AddScoped<IExerciseCatalogAssetDeployment>(provider =>

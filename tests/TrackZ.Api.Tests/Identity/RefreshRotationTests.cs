@@ -480,6 +480,7 @@ public sealed class RefreshRotationTests : IAsyncLifetime
                 ["Jwt:AccessTokenMinutes"] = "15",
                 ["Jwt:RefreshTokenDays"] = "14"
             }));
+            builder.ConfigureServices(services => services.ReplaceStagingLifecycleWithNoOpForTests());
         }
     }
 }

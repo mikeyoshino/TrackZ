@@ -3,8 +3,11 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using System.Collections.Concurrent;
 using DotNet.Testcontainers.Builders;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -18,6 +21,7 @@ using TrackZ.Contracts.Errors;
 using TrackZ.Contracts.Exercises;
 using TrackZ.Domain.Exercises;
 using TrackZ.Infrastructure.Persistence;
+using TrackZ.Infrastructure.Media;
 using Xunit.Sdk;
 
 namespace TrackZ.Api.Tests.Media;
@@ -586,6 +590,156 @@ public sealed class MediaEndpointTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Content_put_buffers_the_body_before_claiming_and_replays_a_concurrent_acceptance()
+    {
+        var bodyGate = new ServerBodyGate();
+        await using var factory = new MediaApiFactory(
+            _container!.GetConnectionString(), bodyGate: bodyGate);
+        using var client = factory.CreateClient();
+        var account = await AuthenticateAsync(
+            client, $"media-buffer-before-lease-{Guid.NewGuid():N}@example.com");
+        var exercise = ExerciseDefinition.CreateCustom(
+            account.UserId, "Buffered press", BodyPart.Chest, TrackingMode.Weighted);
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await db.Exercises.AddAsync(exercise);
+            await db.SaveChangesAsync();
+        }
+        var reservation = await SendAuthorizedAsync(
+            client,
+            account.Token,
+            HttpMethod.Post,
+            "/api/v1/media/exercise-images/uploads",
+            JsonContent.Create(new { exerciseId = exercise.Id, contentType = "image/png", length = 4L }));
+        using var reservationJson = JsonDocument.Parse(await reservation.Content.ReadAsStringAsync());
+        var uploadId = reservationJson.RootElement.GetProperty("uploadId").GetGuid();
+        var contentRoute = reservationJson.RootElement.GetProperty("uploadUri").GetString()!;
+        using var blockedBody = new ByteArrayContent([1, 2, 3, 4]);
+        blockedBody.Headers.ContentType = new MediaTypeHeaderValue("image/png");
+
+        var slowPut = SendAuthorizedAsync(
+            client, account.Token, HttpMethod.Put, contentRoute, blockedBody);
+        await bodyGate.ReadStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        try
+        {
+            await using (var pendingScope = factory.Services.CreateAsyncScope())
+            {
+                var pending = await pendingScope.ServiceProvider.GetRequiredService<AppDbContext>()
+                    .ImageUploadTickets.AsNoTracking().SingleAsync(candidate => candidate.Id == uploadId);
+                Assert.Equal(ImageUploadState.Pending, pending.State);
+                Assert.Null(pending.UploadLeaseId);
+            }
+
+            using var winningBytes = new ByteArrayContent([1, 2, 3, 4]);
+            winningBytes.Headers.ContentType = new MediaTypeHeaderValue("image/png");
+            var winningPut = await SendAuthorizedAsync(
+                client, account.Token, HttpMethod.Put, contentRoute, winningBytes);
+            Assert.Equal(HttpStatusCode.NoContent, winningPut.StatusCode);
+        }
+        finally
+        {
+            bodyGate.ReleaseRead.TrySetResult();
+        }
+
+        var replay = await slowPut.WaitAsync(TimeSpan.FromSeconds(5));
+        var storage = Assert.IsType<FakeObjectStorage>(
+            factory.Services.GetRequiredService<IObjectStorage>());
+        Assert.Equal(HttpStatusCode.NoContent, replay.StatusCode);
+        Assert.Equal(1, storage.PutCount);
+    }
+
+    [Fact]
+    public async Task Late_writer_materializes_only_its_unique_lifecycle_managed_staging_key()
+    {
+        var storage = new LateWriterObjectStorage();
+        await using var factory = new MediaApiFactory(
+            _container!.GetConnectionString(), objectStorage: storage);
+        using var client = factory.CreateClient();
+        var account = await AuthenticateAsync(
+            client, $"media-late-writer-{Guid.NewGuid():N}@example.com");
+        var exercise = ExerciseDefinition.CreateCustom(
+            account.UserId, "Late writer press", BodyPart.Chest, TrackingMode.Weighted);
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await db.Exercises.AddAsync(exercise);
+            await db.SaveChangesAsync();
+        }
+        var reservation = await SendAuthorizedAsync(
+            client,
+            account.Token,
+            HttpMethod.Post,
+            "/api/v1/media/exercise-images/uploads",
+            JsonContent.Create(new { exerciseId = exercise.Id, contentType = "image/png", length = 4L }));
+        using var reservationJson = JsonDocument.Parse(await reservation.Content.ReadAsStringAsync());
+        var uploadId = reservationJson.RootElement.GetProperty("uploadId").GetGuid();
+        var contentRoute = reservationJson.RootElement.GetProperty("uploadUri").GetString()!;
+        using var oldBytes = new ByteArrayContent([1, 2, 3, 4]);
+        oldBytes.Headers.ContentType = new MediaTypeHeaderValue("image/png");
+
+        var oldPut = SendAuthorizedAsync(
+            client, account.Token, HttpMethod.Put, contentRoute, oldBytes);
+        await storage.FirstPutStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        try
+        {
+            await using (var expireScope = factory.Services.CreateAsyncScope())
+            {
+                var db = expireScope.ServiceProvider.GetRequiredService<AppDbContext>();
+                await db.ImageUploadTickets
+                    .Where(candidate => candidate.Id == uploadId)
+                    .ExecuteUpdateAsync(setters => setters.SetProperty(
+                        candidate => candidate.UploadLeaseExpiresAt,
+                        DateTimeOffset.UtcNow.AddMinutes(-1)));
+            }
+
+            using (var reclaimBytes = new ByteArrayContent([1, 2, 3, 4]))
+            {
+                reclaimBytes.Headers.ContentType = new MediaTypeHeaderValue("image/png");
+                var schedulesCleanup = await SendAuthorizedAsync(
+                    client, account.Token, HttpMethod.Put, contentRoute, reclaimBytes);
+                Assert.Equal(HttpStatusCode.NotFound, schedulesCleanup.StatusCode);
+            }
+
+            await using (var cleanupScope = factory.Services.CreateAsyncScope())
+            {
+                var store = cleanupScope.ServiceProvider.GetRequiredService<IExerciseImageUploadStore>();
+                var candidate = Assert.Single(
+                    await store.ListCleanupCandidatesAsync(DateTimeOffset.UtcNow, default),
+                    value => value.TicketId == uploadId);
+                var claim = await store.TryClaimCleanupAsync(candidate, DateTimeOffset.UtcNow, default);
+                Assert.NotNull(claim);
+                await storage.DeleteAsync($"staging/{account.UserId:D}/", claim.StagingKey!, default);
+                Assert.True(await store.CompleteCleanupClaimAsync(uploadId, claim.CleanupClaimId!.Value, default));
+            }
+
+            using var newerBytes = new ByteArrayContent([1, 2, 3, 4]);
+            newerBytes.Headers.ContentType = new MediaTypeHeaderValue("image/png");
+            var newerPut = await SendAuthorizedAsync(
+                client, account.Token, HttpMethod.Put, contentRoute, newerBytes);
+            Assert.Equal(HttpStatusCode.NoContent, newerPut.StatusCode);
+        }
+        finally
+        {
+            storage.ReleaseFirstPut.TrySetResult();
+        }
+
+        var lateResult = await oldPut.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(HttpStatusCode.NotFound, lateResult.StatusCode);
+        Assert.Equal(2, storage.MaterializedKeys.Count);
+        var oldKey = Assert.IsType<string>(storage.FirstPutKey);
+        var newerKey = Assert.Single(storage.MaterializedKeys, key => key != oldKey);
+        var managedOwnerPrefix = $"staging/{account.UserId:D}/";
+        Assert.StartsWith(managedOwnerPrefix, oldKey, StringComparison.Ordinal);
+        Assert.StartsWith(managedOwnerPrefix, newerKey, StringComparison.Ordinal);
+        Assert.NotEqual(oldKey, newerKey);
+        await using var verifyScope = factory.Services.CreateAsyncScope();
+        var durable = await verifyScope.ServiceProvider.GetRequiredService<AppDbContext>()
+            .ImageUploadTickets.AsNoTracking().SingleAsync(candidate => candidate.Id == uploadId);
+        Assert.Equal(newerKey, durable.StagingObjectKey);
+    }
+
+    [Fact]
     public async Task Missing_media_routes_are_indistinguishable_and_localized()
     {
         var owner = await AuthenticateAsync("media-owner@example.com");
@@ -785,7 +939,9 @@ public sealed class MediaEndpointTests : IAsyncLifetime
         bool injectAmbiguousMarkFailure = false,
         ImageUploadState? ambiguousSuccessorState = null,
         ReconciliationBehavior reconciliationBehavior = ReconciliationBehavior.Delegate,
-        TimeProvider? timeProvider = null) : WebApplicationFactory<Program>
+        TimeProvider? timeProvider = null,
+        IObjectStorage? objectStorage = null,
+        ServerBodyGate? bodyGate = null) : WebApplicationFactory<Program>
     {
         protected override void ConfigureWebHost(IWebHostBuilder builder) => builder.UseEnvironment("Testing")
             .ConfigureAppConfiguration(configuration => configuration.AddInMemoryCollection(new Dictionary<string, string?>
@@ -804,8 +960,11 @@ public sealed class MediaEndpointTests : IAsyncLifetime
                     services.RemoveAll<TimeProvider>();
                     services.AddSingleton(timeProvider);
                 }
-                services.AddSingleton<IObjectStorage, FakeObjectStorage>();
+                services.AddSingleton<IObjectStorage>(objectStorage ?? new FakeObjectStorage());
+                services.ReplaceStagingLifecycleWithNoOpForTests();
                 services.AddSingleton<IImageProcessor, FakeImageProcessor>();
+                if (bodyGate is not null)
+                    services.AddSingleton<IStartupFilter>(new ServerBodyGateStartupFilter(bodyGate));
                 if (injectAmbiguousMarkFailure
                     || ambiguousSuccessorState is not null
                     || reconciliationBehavior != ReconciliationBehavior.Delegate)
@@ -838,6 +997,7 @@ public sealed class MediaEndpointTests : IAsyncLifetime
             inner.FindOwnedActiveExerciseAsync(exerciseId, ownerId, cancellationToken);
         public Task AddTicketAsync(ImageUploadTicket ticket, CancellationToken cancellationToken) => inner.AddTicketAsync(ticket, cancellationToken);
         public Task<ImageUploadTicket?> FindOwnedTicketAsync(Guid ticketId, Guid ownerId, CancellationToken cancellationToken) => inner.FindOwnedTicketAsync(ticketId, ownerId, cancellationToken);
+        public Task<ImageUploadTicket?> FindOwnedTicketSnapshotAsync(Guid ticketId, Guid ownerId, CancellationToken cancellationToken) => inner.FindOwnedTicketSnapshotAsync(ticketId, ownerId, cancellationToken);
         public Task<ExerciseImage?> FindImageAsync(Guid imageId, CancellationToken cancellationToken) => inner.FindImageAsync(imageId, cancellationToken);
         public Task<ExerciseImage?> FindOwnedImageAsync(Guid imageId, Guid ownerId, CancellationToken cancellationToken) => inner.FindOwnedImageAsync(imageId, ownerId, cancellationToken);
         public Task<ExerciseImage?> FindReadableImageAsync(Guid imageId, Guid ownerId, CancellationToken cancellationToken) => inner.FindReadableImageAsync(imageId, ownerId, cancellationToken);
@@ -902,6 +1062,101 @@ public sealed class MediaEndpointTests : IAsyncLifetime
         public Task DeleteAsync(string prefix, string key, CancellationToken cancellationToken) { _objects.Remove(key); DeletedKeys.Add(key); return Task.CompletedTask; }
         public Task<ObjectStorageObject?> GetAsync(string prefix, string key, CancellationToken cancellationToken) =>
             Task.FromResult(_objects.TryGetValue(key, out var value) ? new ObjectStorageObject(value.Bytes.Length, value.ContentType, new MemoryStream(value.Bytes, writable: false)) : null);
+    }
+
+    private sealed class LateWriterObjectStorage : IObjectStorage
+    {
+        private readonly ConcurrentDictionary<string, (byte[] Bytes, string ContentType)> _objects = new(StringComparer.Ordinal);
+        private int _putCount;
+        public TaskCompletionSource FirstPutStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseFirstPut { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public ConcurrentQueue<string> MaterializedKeys { get; } = [];
+        public string? FirstPutKey { get; private set; }
+
+        public async Task PutAsync(
+            string prefix,
+            string key,
+            Stream content,
+            string contentType,
+            CancellationToken cancellationToken)
+        {
+            using var bytes = new MemoryStream();
+            await content.CopyToAsync(bytes, cancellationToken);
+            if (Interlocked.Increment(ref _putCount) == 1)
+            {
+                FirstPutKey = key;
+                FirstPutStarted.TrySetResult();
+                await ReleaseFirstPut.Task.WaitAsync(cancellationToken);
+            }
+            _objects[key] = (bytes.ToArray(), contentType);
+            MaterializedKeys.Enqueue(key);
+        }
+
+        public Task DeleteAsync(string prefix, string key, CancellationToken cancellationToken)
+        {
+            _objects.TryRemove(key, out _);
+            return Task.CompletedTask;
+        }
+
+        public Task<ObjectStorageObject?> GetAsync(string prefix, string key, CancellationToken cancellationToken) =>
+            Task.FromResult(_objects.TryGetValue(key, out var value)
+                ? new ObjectStorageObject(
+                    value.Bytes.Length,
+                    value.ContentType,
+                    new MemoryStream(value.Bytes, writable: false))
+                : null);
+    }
+
+    private sealed class ServerBodyGate
+    {
+        private int _wrapCount;
+        public TaskCompletionSource ReadStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseRead { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public Stream WrapFirst(Stream inner) =>
+            Interlocked.Increment(ref _wrapCount) == 1
+                ? new GatedReadStream(inner, ReadStarted, ReleaseRead)
+                : inner;
+    }
+
+    private sealed class ServerBodyGateStartupFilter(ServerBodyGate gate) : IStartupFilter
+    {
+        public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) => app =>
+        {
+            app.Use(async (context, continuation) =>
+            {
+                if (context.Request.Method == HttpMethods.Put
+                    && context.Request.Path.Value?.EndsWith("/content", StringComparison.Ordinal) == true)
+                    context.Request.Body = gate.WrapFirst(context.Request.Body);
+                await continuation();
+            });
+            next(app);
+        };
+    }
+
+    private sealed class GatedReadStream(
+        Stream inner,
+        TaskCompletionSource readStarted,
+        TaskCompletionSource releaseRead) : Stream
+    {
+        public override bool CanRead => inner.CanRead;
+        public override bool CanSeek => inner.CanSeek;
+        public override bool CanWrite => false;
+        public override long Length => inner.Length;
+        public override long Position { get => inner.Position; set => inner.Position = value; }
+        public override void Flush() => inner.Flush();
+        public override int Read(byte[] buffer, int offset, int count) =>
+            ReadAsync(buffer.AsMemory(offset, count)).AsTask().GetAwaiter().GetResult();
+        public override async ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            readStarted.TrySetResult();
+            await releaseRead.Task.WaitAsync(cancellationToken);
+            return await inner.ReadAsync(buffer, cancellationToken);
+        }
+        public override long Seek(long offset, SeekOrigin origin) => inner.Seek(offset, origin);
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 
     private sealed class FakeImageProcessor : IImageProcessor

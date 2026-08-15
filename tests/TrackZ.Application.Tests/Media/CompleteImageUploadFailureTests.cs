@@ -359,6 +359,7 @@ public sealed class CompleteImageUploadFailureTests
         public Task<ExerciseDefinition?> FindOwnedActiveExerciseAsync(Guid id, Guid owner, CancellationToken ct) => Task.FromResult<ExerciseDefinition?>(exercise);
         public Task AddTicketAsync(ImageUploadTicket value, CancellationToken ct) => Task.CompletedTask;
         public Task<ImageUploadTicket?> FindOwnedTicketAsync(Guid id, Guid owner, CancellationToken ct) => Task.FromResult<ImageUploadTicket?>(Ticket);
+        public Task<ImageUploadTicket?> FindOwnedTicketSnapshotAsync(Guid id, Guid owner, CancellationToken ct) => Task.FromResult<ImageUploadTicket?>(Ticket);
         public Task<ExerciseImage?> FindImageAsync(Guid id, CancellationToken ct) => Task.FromResult<ExerciseImage?>(null);
         public Task<ExerciseImage?> FindOwnedImageAsync(Guid id, Guid owner, CancellationToken ct) => Task.FromResult<ExerciseImage?>(null);
         public Task<ExerciseImage?> FindReadableImageAsync(Guid id, Guid owner, CancellationToken ct) => Task.FromResult<ExerciseImage?>(null);

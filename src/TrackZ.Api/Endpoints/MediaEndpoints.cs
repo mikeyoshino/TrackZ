@@ -45,31 +45,34 @@ public static class MediaEndpoints
     {
         var ticket = await store.FindOwnedTicketAsync(uploadId, currentUser.UserId, cancellationToken);
         if (ticket is null) return Missing(context);
-        var matchesDeclaredContract =
-            string.Equals(request.ContentType, ticket.DeclaredContentType, StringComparison.Ordinal)
-            && request.ContentLength == ticket.DeclaredLength;
-        if ((ticket.State is ImageUploadState.Uploaded or ImageUploadState.Processing or ImageUploadState.Completed)
-            && matchesDeclaredContract)
-        {
-            var accepted = await storage.GetAsync(
-                $"staging/{currentUser.UserId:D}/", ticket.StagingObjectKey, cancellationToken);
-            if (accepted is null) return Missing(context);
-            await using (accepted.Content)
-            {
-                return accepted.Length == ticket.DeclaredLength
-                    && string.Equals(accepted.ContentType, ticket.DeclaredContentType, StringComparison.Ordinal)
-                    ? Results.NoContent()
-                    : Missing(context);
-            }
-        }
+        if (IsAccepted(ticket.State))
+            return await ReplayAcceptedAsync(ticket, request, context, storage, currentUser.UserId, cancellationToken);
+        if (ticket.IsExpired(DateTimeOffset.UtcNow)) return Missing(context);
+        if (!string.Equals(request.ContentType, ticket.DeclaredContentType, StringComparison.Ordinal)) return Bad(context, "contentType");
+        if (request.ContentLength != ticket.DeclaredLength) return Bad(context, "length");
+        var bytes = await BufferAsync(request.Body, cancellationToken);
+        if (bytes.LongLength != ticket.DeclaredLength) return Bad(context, "length");
+
+        // Buffering can take arbitrarily long and another request may accept the ticket meanwhile.
+        // Refresh before opening the two-minute upload lease so that accepted work replays exactly.
+        ticket = await store.FindOwnedTicketSnapshotAsync(uploadId, currentUser.UserId, cancellationToken);
+        if (ticket is null) return Missing(context);
+        if (IsAccepted(ticket.State))
+            return await ReplayAcceptedAsync(ticket, request, context, storage, currentUser.UserId, cancellationToken);
         if (ticket.IsExpired(DateTimeOffset.UtcNow)) return Missing(context);
         if (!string.Equals(request.ContentType, ticket.DeclaredContentType, StringComparison.Ordinal)) return Bad(context, "contentType");
         if (request.ContentLength != ticket.DeclaredLength) return Bad(context, "length");
         UploadClaim claim;
         try { claim = await store.TryClaimUploadAsync(uploadId, currentUser.UserId, TimeSpan.FromMinutes(2), cancellationToken); }
-        catch (InvalidOperationException) { return Missing(context); }
-        var bytes = await BufferAsync(request.Body, cancellationToken);
-        if (bytes.LongLength != ticket.DeclaredLength) return Bad(context, "length");
+        catch (InvalidOperationException)
+        {
+            var concurrent = await store.FindOwnedTicketSnapshotAsync(
+                uploadId, currentUser.UserId, cancellationToken);
+            return concurrent is not null && IsAccepted(concurrent.State)
+                ? await ReplayAcceptedAsync(
+                    concurrent, request, context, storage, currentUser.UserId, cancellationToken)
+                : Missing(context);
+        }
         await using var content = new MemoryStream(bytes, writable: false);
         await storage.PutAsync($"staging/{currentUser.UserId:D}/", claim.StagingObjectKey, content, ticket.DeclaredContentType, cancellationToken);
         StagingUploadTransition transition;
@@ -105,6 +108,33 @@ public static class MediaEndpoints
         // delete its own bytes without risking the winner's staged object.
         await DeleteStagingBestEffortAsync(storage, currentUser.UserId, claim.StagingObjectKey);
         return Missing(context);
+    }
+
+    private static bool IsAccepted(ImageUploadState state) =>
+        state is ImageUploadState.Uploaded or ImageUploadState.Processing or ImageUploadState.Completed;
+
+    private static async Task<IResult> ReplayAcceptedAsync(
+        ImageUploadTicket ticket,
+        HttpRequest request,
+        HttpContext context,
+        IObjectStorage storage,
+        Guid ownerId,
+        CancellationToken cancellationToken)
+    {
+        if (!string.Equals(request.ContentType, ticket.DeclaredContentType, StringComparison.Ordinal))
+            return Bad(context, "contentType");
+        if (request.ContentLength != ticket.DeclaredLength)
+            return Bad(context, "length");
+        var accepted = await storage.GetAsync(
+            $"staging/{ownerId:D}/", ticket.StagingObjectKey, cancellationToken);
+        if (accepted is null) return Missing(context);
+        await using (accepted.Content)
+        {
+            return accepted.Length == ticket.DeclaredLength
+                && string.Equals(accepted.ContentType, ticket.DeclaredContentType, StringComparison.Ordinal)
+                ? Results.NoContent()
+                : Missing(context);
+        }
     }
     private static async Task<IResult> AuthorizeReadAsync(
         Guid imageId,

@@ -26,6 +26,8 @@ names shown):
 - `ConnectionStrings__TrackZ`: production PostgreSQL connection string.
 - `ObjectStorage__ServiceUrl`, `ObjectStorage__Bucket`, `ObjectStorage__AccessKey`, and
   `ObjectStorage__SecretKey`: the private S3-compatible store.
+- `ObjectStorage__StagingExpirationDays`: whole days before objects below `staging/` expire;
+  required range 1-30 and production default 1.
 - `Jwt__Issuer`, `Jwt__Audience`, `Jwt__SigningKey`, `Jwt__AccessTokenMinutes`, and
   `Jwt__RefreshTokenDays`: normal API authentication settings.
 - `MediaAccess__PublicOrigin`: the externally reachable origin serving `/media/v1/...` routes.
@@ -39,3 +41,11 @@ send API bearer credentials only to the API origin and must use a credential-fre
 the signed URL. That client must not follow redirects; the shipped mobile registration disables
 automatic redirects. An expired capability returns HTTP 410 so the client can authenticate again
 and obtain a fresh URL.
+
+The object-store principal must also have `s3:GetLifecycleConfiguration` and
+`s3:PutLifecycleConfiguration` on the configured bucket. API startup verifies or installs one
+enabled TrackZ-owned expiration rule scoped exactly to `staging/`, while preserving every unrelated
+bucket lifecycle rule. A TrackZ rule with a conflicting prefix, status, expiration, or other action
+causes startup to fail. Authorization failures, connectivity failures, and an unverified write also
+fail startup; the API does not serve traffic without the crash-safe staging cleanup bound. The rule
+does not match `private/` or `system/`, and the bucket remains private.

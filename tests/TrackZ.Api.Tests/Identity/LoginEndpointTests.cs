@@ -230,6 +230,7 @@ public sealed class LoginEndpointTests : IAsyncLifetime
                 ["Jwt:AccessTokenMinutes"] = "15",
                 ["Jwt:RefreshTokenDays"] = "14"
             }));
+            builder.ConfigureServices(services => services.ReplaceStagingLifecycleWithNoOpForTests());
         }
     }
 }
