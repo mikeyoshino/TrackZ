@@ -19,15 +19,13 @@ public sealed class ListWorkoutHistoryHandler(
         CancellationToken cancellationToken)
     {
         var pageSize = Math.Clamp(request.PageSize, 1, 50);
-        var after = string.IsNullOrWhiteSpace(request.Cursor) ? null : cursorCodec.Decode(request.Cursor);
+        var scope = new WorkoutCursorScope(currentUser.UserId, WorkoutCursorPurpose.WorkoutHistory, null);
+        var after = string.IsNullOrWhiteSpace(request.Cursor) ? null : cursorCodec.Decode(request.Cursor, scope);
         var rows = await store.ListOwnedCompletedWorkoutsAsync(
             currentUser.UserId, after, pageSize + 1, cancellationToken);
         var items = rows.Take(pageSize).ToList();
         var nextCursor = rows.Count > pageSize
-            ? cursorCodec.Encode(new WorkoutCursor(
-                1,
-                items[^1].CompletedAt!.Value,
-                items[^1].Id))
+            ? cursorCodec.Encode(scope, items[^1].CompletedAt!.Value, items[^1].Id)
             : null;
         return new CursorPage<WorkoutDetailDto>(items.Select(WorkoutDtoMapper.ToDetail).ToList(), nextCursor);
     }

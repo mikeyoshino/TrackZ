@@ -59,6 +59,10 @@ public static class DependencyInjection
             .Validate(static options => options.IsValid(), "Object storage settings must provide an HTTP(S) service URL, DNS-compatible bucket, access key, and secret key.")
             .ValidateOnStart();
         services.AddSingleton<IExerciseCursorCodec, HmacExerciseCursorCodec>();
+        services.AddOptions<WorkoutCursorOptions>()
+            .Bind(configuration.GetSection(WorkoutCursorOptions.SectionName))
+            .Validate(static options => options.IsValid(), "Workout cursor lifetime must be between 5 and 1440 minutes.")
+            .ValidateOnStart();
         services.AddSingleton<IWorkoutCursorCodec, HmacWorkoutCursorCodec>();
         services.AddSingleton<IPasswordHasher, PasswordHasher>();
         services.AddSingleton<ITokenService, JwtTokenService>();

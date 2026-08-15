@@ -87,6 +87,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
                 && workout.DeletedAt == null
                 && exercise.ExerciseDefinitionId == exerciseDefinitionId
                 && exercise.DeletedAt == null
+                && SetEntries.Any(set => set.WorkoutExerciseId == exercise.Id && set.DeletedAt == null)
             select workout;
         if (after is not null)
         {

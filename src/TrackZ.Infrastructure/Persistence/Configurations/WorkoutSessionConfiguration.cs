@@ -10,8 +10,14 @@ public sealed class WorkoutSessionConfiguration : IEntityTypeConfiguration<Worko
     public void Configure(EntityTypeBuilder<WorkoutSession> builder)
     {
         builder.ToTable("workout_sessions", table =>
-            table.HasCheckConstraint("CK_workout_sessions_status", "\"Status\" IN (1, 2, 3)"));
+        {
+            table.HasCheckConstraint("CK_workout_sessions_status", "\"Status\" IN (1, 2, 3)");
+            table.HasCheckConstraint(
+                "CK_workout_sessions_lifecycle",
+                "(\"Status\" = 3 AND \"CompletedAt\" IS NOT NULL) OR (\"Status\" IN (1, 2) AND \"CompletedAt\" IS NULL)");
+        });
         builder.HasKey(workout => workout.Id);
+        builder.Property(workout => workout.Id).ValueGeneratedNever();
         builder.Property(workout => workout.OwnerId).IsRequired();
         builder.Property(workout => workout.Status).IsRequired();
         builder.Property(workout => workout.StartedAt).IsRequired();

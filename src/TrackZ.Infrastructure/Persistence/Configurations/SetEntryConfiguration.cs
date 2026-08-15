@@ -11,13 +11,20 @@ public sealed class SetEntryConfiguration : IEntityTypeConfiguration<SetEntry>
         builder.ToTable("set_entries", table =>
         {
             table.HasCheckConstraint("CK_set_entries_reps", "\"Reps\" BETWEEN 1 AND 999");
+            table.HasCheckConstraint("CK_set_entries_order", "\"Order\" >= 0");
             table.HasCheckConstraint(
-                "CK_set_entries_measurement",
-                "(\"WeightKg\" > 0 AND \"AssistedKg\" IS NULL) OR (\"WeightKg\" IS NULL AND (\"AssistedKg\" IS NULL OR \"AssistedKg\" > 0))");
+                "CK_set_entries_mode_measurement",
+                "(\"TrackingMode\" = 1 AND \"WeightKg\" > 0 AND \"AssistedKg\" IS NULL) OR " +
+                "(\"TrackingMode\" = 2 AND \"WeightKg\" IS NULL AND \"AssistedKg\" IS NULL) OR " +
+                "(\"TrackingMode\" = 3 AND \"WeightKg\" IS NULL AND \"AssistedKg\" > 0)");
         });
         builder.HasKey(set => set.Id);
+        builder.Property(set => set.Id).ValueGeneratedNever();
         builder.Property(set => set.WorkoutExerciseId).IsRequired();
+        builder.Property(set => set.TrackingMode).IsRequired();
         builder.Property(set => set.Order).IsRequired();
+        builder.Property<int?>("ActiveOrder")
+            .HasComputedColumnSql("CASE WHEN \"DeletedAt\" IS NULL THEN \"Order\" ELSE NULL END", stored: true);
         builder.Property(set => set.WeightKg).HasColumnType("numeric(8,3)");
         builder.Property(set => set.AssistedKg).HasColumnType("numeric(8,3)");
         builder.Property(set => set.Reps).IsRequired();
@@ -28,8 +35,8 @@ public sealed class SetEntryConfiguration : IEntityTypeConfiguration<SetEntry>
         builder.Ignore(set => set.Measurement);
         builder.Ignore(set => set.IsDeleted);
         builder.Ignore("LastMutationAt");
-        builder.HasIndex(set => new { set.WorkoutExerciseId, set.Order })
+        builder.HasIndex(nameof(SetEntry.WorkoutExerciseId), "ActiveOrder")
             .IsUnique()
-            .HasFilter("\"DeletedAt\" IS NULL");
+            .HasDatabaseName("UQ_set_entries_active_order");
     }
 }

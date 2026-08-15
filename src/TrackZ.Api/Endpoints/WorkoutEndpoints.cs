@@ -6,6 +6,7 @@ using TrackZ.Application.Exercises.GetHistory;
 using TrackZ.Application.Workouts;
 using TrackZ.Application.Workouts.GetWorkout;
 using TrackZ.Application.Workouts.ListHistory;
+using TrackZ.Application.Exercises.ListExercises;
 using TrackZ.Contracts.Errors;
 
 namespace TrackZ.Api.Endpoints;
@@ -19,9 +20,11 @@ public static class WorkoutEndpoints
             HttpContext context,
             ISender sender,
             IWorkoutCursorCodec cursorCodec,
+            ICurrentUser currentUser,
             CancellationToken cancellationToken) =>
         {
-            var parsed = ParsePage(request, context, cursorCodec);
+            var parsed = ParsePage(request, context, cursorCodec, new WorkoutCursorScope(
+                currentUser.UserId, WorkoutCursorPurpose.WorkoutHistory, null));
             if (parsed.Error is not null) return parsed.Error;
             var result = await sender.Send(
                 new ListWorkoutHistoryQuery(parsed.Cursor, parsed.PageSize),
@@ -47,9 +50,11 @@ public static class WorkoutEndpoints
             HttpContext context,
             ISender sender,
             IWorkoutCursorCodec cursorCodec,
+            ICurrentUser currentUser,
             CancellationToken cancellationToken) =>
         {
-            var parsed = ParsePage(request, context, cursorCodec);
+            var parsed = ParsePage(request, context, cursorCodec, new WorkoutCursorScope(
+                currentUser.UserId, WorkoutCursorPurpose.ExerciseHistory, id));
             if (parsed.Error is not null) return parsed.Error;
             var result = await sender.Send(
                 new GetExerciseHistoryQuery(id, parsed.Cursor, parsed.PageSize),
@@ -66,7 +71,8 @@ public static class WorkoutEndpoints
     private static (string? Cursor, int PageSize, IResult? Error) ParsePage(
         HttpRequest request,
         HttpContext context,
-        IWorkoutCursorCodec cursorCodec)
+        IWorkoutCursorCodec cursorCodec,
+        WorkoutCursorScope expectedScope)
     {
         var errors = new Dictionary<string, string[]>(StringComparer.Ordinal);
         var pageSize = 20;
@@ -90,7 +96,7 @@ public static class WorkoutEndpoints
             {
                 try
                 {
-                    _ = cursorCodec.Decode(cursor);
+                    _ = cursorCodec.Decode(cursor, expectedScope);
                 }
                 catch (BusinessException)
                 {

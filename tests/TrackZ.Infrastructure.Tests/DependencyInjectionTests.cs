@@ -7,11 +7,37 @@ using Microsoft.EntityFrameworkCore;
 using TrackZ.Application.Common.Interfaces;
 using TrackZ.Infrastructure.Media;
 using TrackZ.Infrastructure.Persistence;
+using TrackZ.Infrastructure.Workouts;
 
 namespace TrackZ.Infrastructure.Tests;
 
 public sealed class DependencyInjectionTests
 {
+    [Theory]
+    [InlineData(4)]
+    [InlineData(1441)]
+    public void Workout_cursor_lifetime_validation_is_enforced_by_dependency_injection(int lifetimeMinutes)
+    {
+        var services = new ServiceCollection();
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ConnectionStrings:TrackZ"] = "Host=localhost;Database=trackz_test;Username=trackz;Password=not-used",
+                ["Jwt:Issuer"] = "trackz-api",
+                ["Jwt:Audience"] = "trackz-mobile",
+                ["Jwt:SigningKey"] = "test-signing-key-that-is-at-least-thirty-two-bytes-long",
+                ["Jwt:AccessTokenMinutes"] = "15",
+                ["Jwt:RefreshTokenDays"] = "14",
+                ["WorkoutCursor:LifetimeMinutes"] = lifetimeMinutes.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            })
+            .Build();
+        services.AddInfrastructure(configuration);
+        using var provider = services.BuildServiceProvider();
+
+        Assert.Throws<OptionsValidationException>(() =>
+            provider.GetRequiredService<IOptions<WorkoutCursorOptions>>().Value);
+    }
+
     [Fact]
     public void Object_storage_options_require_explicit_production_values()
     {

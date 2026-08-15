@@ -9,13 +9,17 @@ using TrackZ.Infrastructure.Identity;
 
 namespace TrackZ.Infrastructure.Workouts;
 
-public sealed class HmacWorkoutCursorCodec(IOptions<JwtOptions> options) : IWorkoutCursorCodec
+public sealed class HmacWorkoutCursorCodec(
+    IOptions<JwtOptions> jwtOptions,
+    IOptions<WorkoutCursorOptions> cursorOptions,
+    TimeProvider timeProvider) : IWorkoutCursorCodec
 {
     private const int Version = 1;
     private readonly byte[] _key = SHA256.HashData(
-        Encoding.UTF8.GetBytes($"trackz.workout.cursor.v1:{options.Value.SigningKey}"));
+        Encoding.UTF8.GetBytes($"trackz.workout.cursor.v1:{jwtOptions.Value.SigningKey}"));
+    private readonly TimeSpan _lifetime = TimeSpan.FromMinutes(cursorOptions.Value.LifetimeMinutes);
 
-    public WorkoutCursor Decode(string cursor)
+    public WorkoutCursor Decode(string cursor, WorkoutCursorScope expectedScope)
     {
         try
         {
@@ -30,15 +34,38 @@ public sealed class HmacWorkoutCursorCodec(IOptions<JwtOptions> options) : IWork
             }
 
             var model = JsonSerializer.Deserialize<Payload>(payload) ?? throw new FormatException();
+            var now = timeProvider.GetUtcNow().ToUniversalTime();
             if (model.Version != Version
+                || !Enum.IsDefined(model.Purpose)
+                || model.OwnerId == Guid.Empty
                 || model.WorkoutId == Guid.Empty
+                || model.IssuedAt == default
+                || model.ExpiresAt == default
                 || model.CompletedAt == default
-                || model.CompletedAt.Offset != TimeSpan.Zero)
+                || model.IssuedAt.Offset != TimeSpan.Zero
+                || model.ExpiresAt.Offset != TimeSpan.Zero
+                || model.CompletedAt.Offset != TimeSpan.Zero
+                || model.ExpiresAt - model.IssuedAt != _lifetime
+                || model.IssuedAt > now
+                || model.ExpiresAt <= now
+                || !IsValidScope(model.OwnerId, model.Purpose, model.ExerciseId)
+                || model.OwnerId != expectedScope.OwnerId
+                || model.Purpose != expectedScope.Purpose
+                || model.ExerciseId != expectedScope.ExerciseId
+                || !IsValidScope(expectedScope.OwnerId, expectedScope.Purpose, expectedScope.ExerciseId))
             {
                 throw new FormatException();
             }
 
-            return new WorkoutCursor(model.Version, model.CompletedAt, model.WorkoutId);
+            return new WorkoutCursor(
+                model.Version,
+                model.Purpose,
+                model.OwnerId,
+                model.ExerciseId,
+                model.IssuedAt,
+                model.ExpiresAt,
+                model.CompletedAt,
+                model.WorkoutId);
         }
         catch (Exception exception) when (exception is FormatException or JsonException or CryptographicException or ArgumentException)
         {
@@ -46,18 +73,27 @@ public sealed class HmacWorkoutCursorCodec(IOptions<JwtOptions> options) : IWork
         }
     }
 
-    public string Encode(WorkoutCursor cursor)
+    public string Encode(WorkoutCursorScope scope, DateTimeOffset completedAt, Guid workoutId)
     {
-        if (cursor.Version != Version
-            || cursor.WorkoutId == Guid.Empty
-            || cursor.CompletedAt == default
-            || cursor.CompletedAt.Offset != TimeSpan.Zero)
+        if (!IsValidScope(scope.OwnerId, scope.Purpose, scope.ExerciseId)
+            || workoutId == Guid.Empty
+            || completedAt == default
+            || completedAt.Offset != TimeSpan.Zero)
         {
             throw InvalidCursor();
         }
 
+        var issuedAt = timeProvider.GetUtcNow().ToUniversalTime();
         var payload = JsonSerializer.SerializeToUtf8Bytes(
-            new Payload(cursor.Version, cursor.CompletedAt, cursor.WorkoutId));
+            new Payload(
+                Version,
+                scope.Purpose,
+                scope.OwnerId,
+                scope.ExerciseId,
+                issuedAt,
+                issuedAt.Add(_lifetime),
+                completedAt,
+                workoutId));
         var signature = HMACSHA256.HashData(_key, payload);
         return $"{EncodeBase64Url(payload)}.{EncodeBase64Url(signature)}";
     }
@@ -66,6 +102,14 @@ public sealed class HmacWorkoutCursorCodec(IOptions<JwtOptions> options) : IWork
         BusinessErrorCode.InvalidRequest,
         "The cursor is invalid.",
         400);
+
+    private static bool IsValidScope(
+        Guid ownerId,
+        WorkoutCursorPurpose purpose,
+        Guid? exerciseId) => ownerId != Guid.Empty
+        && Enum.IsDefined(purpose)
+        && (purpose == WorkoutCursorPurpose.WorkoutHistory && exerciseId is null
+            || purpose == WorkoutCursorPurpose.ExerciseHistory && exerciseId is { } id && id != Guid.Empty);
 
     private static string EncodeBase64Url(byte[] value) => Convert.ToBase64String(value)
         .TrimEnd('=')
@@ -84,5 +128,13 @@ public sealed class HmacWorkoutCursorCodec(IOptions<JwtOptions> options) : IWork
         return Convert.FromBase64String(base64.PadRight(base64.Length + ((4 - base64.Length % 4) % 4), '='));
     }
 
-    private sealed record Payload(int Version, DateTimeOffset CompletedAt, Guid WorkoutId);
+    private sealed record Payload(
+        int Version,
+        WorkoutCursorPurpose Purpose,
+        Guid OwnerId,
+        Guid? ExerciseId,
+        DateTimeOffset IssuedAt,
+        DateTimeOffset ExpiresAt,
+        DateTimeOffset CompletedAt,
+        Guid WorkoutId);
 }

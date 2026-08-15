@@ -1,5 +1,7 @@
 namespace TrackZ.Domain.Workouts;
 
+using TrackZ.Domain.Exercises;
+
 public sealed class SetEntry
 {
     private SetEntry()
@@ -9,6 +11,8 @@ public sealed class SetEntry
     public Guid Id { get; private set; }
 
     public Guid WorkoutExerciseId { get; private set; }
+
+    public TrackingMode TrackingMode { get; private set; }
 
     public int Order { get; private set; }
 
@@ -52,6 +56,7 @@ public sealed class SetEntry
     internal static SetEntry Create(
         Guid id,
         Guid workoutExerciseId,
+        TrackingMode trackingMode,
         int order,
         SetMeasurement measurement,
         DateTimeOffset completedAt)
@@ -60,6 +65,7 @@ public sealed class SetEntry
         {
             Id = id,
             WorkoutExerciseId = workoutExerciseId,
+            TrackingMode = trackingMode,
             Order = order,
             WeightKg = measurement.WeightKg,
             AssistedKg = measurement.AssistedKg,

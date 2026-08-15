@@ -69,7 +69,9 @@ public sealed class WorkoutQueryTests
         Assert.Equal(ids.Skip(2), second.Items.Select(item => item.Id));
         Assert.Equal(3, first.Items.Concat(second.Items).Select(item => item.Id).Distinct().Count());
         Assert.Null(second.NextCursor);
-        Assert.Equal(new WorkoutCursor(1, timestamp, ids[1]), store.LastWorkoutCursor);
+        Assert.Equal(new WorkoutCursor(1, WorkoutCursorPurpose.WorkoutHistory, _ownerId, null,
+            DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch.AddHours(1), timestamp, ids[1]), store.LastWorkoutCursor);
+        Assert.Equal(new WorkoutCursorScope(_ownerId, WorkoutCursorPurpose.WorkoutHistory, null), codec.LastDecodedScope);
     }
 
     [Fact]
@@ -137,13 +139,20 @@ public sealed class WorkoutQueryTests
     private sealed class FakeCursorCodec : IWorkoutCursorCodec
     {
         private readonly Dictionary<string, WorkoutCursor> _values = [];
+        public WorkoutCursorScope? LastDecodedScope { get; private set; }
 
-        public WorkoutCursor Decode(string cursor) => _values[cursor];
+        public WorkoutCursor Decode(string cursor, WorkoutCursorScope expectedScope)
+        {
+            LastDecodedScope = expectedScope;
+            return _values[cursor];
+        }
 
-        public string Encode(WorkoutCursor cursor)
+        public string Encode(WorkoutCursorScope scope, DateTimeOffset completedAt, Guid workoutId)
         {
             var value = Guid.NewGuid().ToString("N");
-            _values[value] = cursor;
+            _values[value] = new WorkoutCursor(
+                1, scope.Purpose, scope.OwnerId, scope.ExerciseId,
+                DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch.AddHours(1), completedAt, workoutId);
             return value;
         }
     }

@@ -21,7 +21,11 @@ public sealed class GetExerciseHistoryHandler(
         CancellationToken cancellationToken)
     {
         var pageSize = Math.Clamp(request.PageSize, 1, 50);
-        var after = string.IsNullOrWhiteSpace(request.Cursor) ? null : cursorCodec.Decode(request.Cursor);
+        var scope = new WorkoutCursorScope(
+            currentUser.UserId,
+            WorkoutCursorPurpose.ExerciseHistory,
+            request.ExerciseId);
+        var after = string.IsNullOrWhiteSpace(request.Cursor) ? null : cursorCodec.Decode(request.Cursor, scope);
         var rows = request.ExerciseId == Guid.Empty
             ? []
             : await store.ListOwnedExerciseHistoryAsync(
@@ -42,10 +46,7 @@ public sealed class GetExerciseHistoryHandler(
                 orderedSets.Select(WorkoutDtoMapper.ToDto).ToList());
         }).ToList();
         var nextCursor = rows.Count > pageSize
-            ? cursorCodec.Encode(new WorkoutCursor(
-                1,
-                pageRows[^1].CompletedAt!.Value,
-                pageRows[^1].Id))
+            ? cursorCodec.Encode(scope, pageRows[^1].CompletedAt!.Value, pageRows[^1].Id)
             : null;
         return new CursorPage<ExerciseHistorySessionDto>(items, nextCursor);
     }

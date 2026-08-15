@@ -2,9 +2,28 @@ namespace TrackZ.Application.Workouts;
 
 public interface IWorkoutCursorCodec
 {
-    WorkoutCursor Decode(string cursor);
+    WorkoutCursor Decode(string cursor, WorkoutCursorScope expectedScope);
 
-    string Encode(WorkoutCursor cursor);
+    string Encode(WorkoutCursorScope scope, DateTimeOffset completedAt, Guid workoutId);
 }
 
-public sealed record WorkoutCursor(int Version, DateTimeOffset CompletedAt, Guid WorkoutId);
+public enum WorkoutCursorPurpose
+{
+    WorkoutHistory = 1,
+    ExerciseHistory = 2
+}
+
+public sealed record WorkoutCursorScope(
+    Guid OwnerId,
+    WorkoutCursorPurpose Purpose,
+    Guid? ExerciseId);
+
+public sealed record WorkoutCursor(
+    int Version,
+    WorkoutCursorPurpose Purpose,
+    Guid OwnerId,
+    Guid? ExerciseId,
+    DateTimeOffset IssuedAt,
+    DateTimeOffset ExpiresAt,
+    DateTimeOffset CompletedAt,
+    Guid WorkoutId);

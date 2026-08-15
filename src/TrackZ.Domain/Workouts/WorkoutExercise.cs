@@ -73,7 +73,7 @@ public sealed class WorkoutExercise
     {
         EnsureNotDeleted();
         ValidateMeasurement(measurement);
-        var set = SetEntry.Create(setId, Id, Sets.Count, measurement, completedAt);
+        var set = SetEntry.Create(setId, Id, TrackingMode, Sets.Count, measurement, completedAt);
         _sets.Add(set);
         Version++;
         return set;

@@ -108,6 +108,7 @@ public sealed class WorkoutEndpointTests : IAsyncLifetime
     public async Task Equal_timestamp_history_pages_have_no_duplicates_and_tampered_cursor_is_localized()
     {
         var owner = await AuthenticateAsync($"paging-owner-{Guid.NewGuid():N}@example.com");
+        var other = await AuthenticateAsync($"paging-other-{Guid.NewGuid():N}@example.com");
         var exercise = ExerciseDefinition.CreateSystem("Paging Press", BodyPart.Chest, TrackingMode.Weighted);
         var completedAt = new DateTimeOffset(2026, 8, 15, 12, 0, 0, TimeSpan.Zero);
         var workouts = Enumerable.Range(0, 3)
@@ -117,6 +118,7 @@ public sealed class WorkoutEndpointTests : IAsyncLifetime
 
         var ids = new List<Guid>();
         string? cursor = null;
+        string? firstCursor = null;
         do
         {
             var path = "/api/v1/workouts?pageSize=1" + (cursor is null ? "" : $"&cursor={Uri.EscapeDataString(cursor)}");
@@ -125,11 +127,38 @@ public sealed class WorkoutEndpointTests : IAsyncLifetime
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
             ids.Add(page!.RootElement.GetProperty("items")[0].GetProperty("id").GetGuid());
             cursor = page.RootElement.GetProperty("nextCursor").GetString();
+            firstCursor ??= cursor;
         } while (cursor is not null);
 
         Assert.Equal(3, ids.Count);
         Assert.Equal(3, ids.Distinct().Count());
         Assert.Equal(ids.OrderByDescending(id => id), ids);
+        Assert.NotNull(firstCursor);
+
+        async Task AssertCursorRejectedAsync(string token, string path)
+        {
+            var rejected = await SendAsync(token, path);
+            var rejectedProblem = await rejected.Content.ReadFromJsonAsync<ApiProblemDetails>();
+            Assert.Equal(HttpStatusCode.BadRequest, rejected.StatusCode);
+            Assert.Equal(BusinessErrorCode.InvalidRequest, rejectedProblem!.ErrorCode);
+            Assert.True(rejectedProblem.FieldErrors!.ContainsKey("cursor"));
+        }
+
+        await AssertCursorRejectedAsync(other.Token,
+            $"/api/v1/workouts?cursor={Uri.EscapeDataString(firstCursor!)}");
+        await AssertCursorRejectedAsync(owner.Token,
+            $"/api/v1/exercises/{exercise.Id:D}/history?cursor={Uri.EscapeDataString(firstCursor!)}");
+
+        var exercisePage = await (await SendAsync(owner.Token,
+            $"/api/v1/exercises/{exercise.Id:D}/history?pageSize=1")).Content.ReadFromJsonAsync<JsonDocument>();
+        var exerciseCursor = exercisePage!.RootElement.GetProperty("nextCursor").GetString();
+        Assert.NotNull(exerciseCursor);
+        await AssertCursorRejectedAsync(owner.Token,
+            $"/api/v1/exercises/{Guid.NewGuid():D}/history?cursor={Uri.EscapeDataString(exerciseCursor!)}");
+
+        _factory!.Time.UtcNow = _factory.Time.UtcNow.AddMinutes(61);
+        await AssertCursorRejectedAsync(owner.Token,
+            $"/api/v1/workouts?cursor={Uri.EscapeDataString(firstCursor!)}");
 
         using var invalidRequest = new HttpRequestMessage(HttpMethod.Get, "/api/v1/workouts?cursor=not-a-cursor");
         invalidRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", owner.Token);
@@ -218,6 +247,8 @@ public sealed class WorkoutEndpointTests : IAsyncLifetime
 
     private sealed class WorkoutApiFactory(string connectionString) : WebApplicationFactory<Program>
     {
+        public MutableTimeProvider Time { get; } = new(DateTimeOffset.UtcNow);
+
         protected override void ConfigureWebHost(IWebHostBuilder builder) => builder
             .UseEnvironment("Testing")
             .ConfigureAppConfiguration(configuration => configuration.AddInMemoryCollection(new Dictionary<string, string?>
@@ -233,8 +264,16 @@ public sealed class WorkoutEndpointTests : IAsyncLifetime
             {
                 services.RemoveAll<IObjectStorage>();
                 services.AddSingleton<IObjectStorage, NoOpStorage>();
+                services.RemoveAll<TimeProvider>();
+                services.AddSingleton<TimeProvider>(Time);
                 services.ReplaceStagingLifecycleWithNoOpForTests();
             });
+    }
+
+    private sealed class MutableTimeProvider(DateTimeOffset utcNow) : TimeProvider
+    {
+        public DateTimeOffset UtcNow { get; set; } = utcNow;
+        public override DateTimeOffset GetUtcNow() => UtcNow;
     }
 
     private sealed class NoOpStorage : IObjectStorage
