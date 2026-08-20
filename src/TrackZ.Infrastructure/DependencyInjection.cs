@@ -23,6 +23,8 @@ using TrackZ.Application.Progress.RebuildExercisePerformance;
 using TrackZ.Application.Gamification.ReconcileWorkoutXp;
 using TrackZ.Application.Gamification.EvaluateStreak;
 using TrackZ.Application.Gamification.EvaluateBadges;
+using TrackZ.Application.Progress.GetSummary;
+using TrackZ.Infrastructure.Progress;
 
 namespace TrackZ.Infrastructure;
 
@@ -46,6 +48,7 @@ public static class DependencyInjection
         services.AddScoped<IGamificationStore>(provider => provider.GetRequiredService<AppDbContext>());
         services.AddScoped<IStreakStore>(provider => provider.GetRequiredService<AppDbContext>());
         services.AddScoped<IBadgeStore>(provider => provider.GetRequiredService<AppDbContext>());
+        services.AddScoped<IProgressReadStore, ProgressReadStore>();
         services.AddScoped<ISyncPullStore>(provider => provider.GetRequiredService<AppDbContext>());
         services.AddSingleton<ISyncCursorCodec, HmacSyncCursorCodec>();
         services.AddSingleton<ObjectStorage>();

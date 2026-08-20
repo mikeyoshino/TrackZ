@@ -90,6 +90,8 @@ app.MapExerciseEndpoints();
 app.MapMediaEndpoints();
 app.MapWorkoutEndpoints();
 app.MapSyncEndpoints();
+app.MapProgressEndpoints();
+app.MapGamificationEndpoints();
 
 app.Run();
 
