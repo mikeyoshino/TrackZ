@@ -2,10 +2,11 @@ using TrackZ.Application.Common.Interfaces;
 using TrackZ.Domain.Sync;
 using TrackZ.Domain.Workouts;
 using TrackZ.Domain.Exercises;
+using TrackZ.Application.Progress.RebuildExercisePerformance;
 
 namespace TrackZ.Application.Sync;
 
-public interface ISyncPushStore
+public interface ISyncPushStore : IExercisePerformanceRebuildStore
 {
     Task<IAppDbTransaction> BeginSyncTransactionAsync(CancellationToken cancellationToken);
 
@@ -41,11 +42,6 @@ public interface ISyncPushStore
     void AddProcessedOperation(ProcessedClientOperation operation);
 
     void AddSyncChange(SyncChange change);
-
-    Task RecomputeExercisePerformancesAsync(
-        Guid userId,
-        IReadOnlyCollection<Guid> exerciseDefinitionIds,
-        CancellationToken cancellationToken);
 
     Task SaveSyncChangesAsync(CancellationToken cancellationToken);
 

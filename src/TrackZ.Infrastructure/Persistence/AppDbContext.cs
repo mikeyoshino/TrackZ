@@ -201,31 +201,31 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
                 continue;
             }
 
-            var latestWorkout = validRows
-                .OrderByDescending(row => row.CompletedAt)
-                .ThenByDescending(row => row.WorkoutId)
-                .First();
-            var lastBest = BestPerformanceSet(
-                validRows.Where(row => row.WorkoutId == latestWorkout.WorkoutId),
-                trackingMode);
-            var allTimeBest = BestPerformanceSet(validRows, trackingMode);
+            var snapshot = PerformanceCalculator.Calculate(
+                trackingMode,
+                validRows.Select(row => new ExercisePerformanceSample(
+                    row.WorkoutId,
+                    row.CompletedAt,
+                    row.SetId,
+                    row.Order,
+                    new ExercisePerformanceSet(row.WeightKg, row.AssistedKg, row.Reps))))!;
             if (existing is null)
             {
                 ExercisePerformances.Add(ExercisePerformance.Create(
                     userId,
                     exerciseDefinitionId,
                     trackingMode,
-                    latestWorkout.CompletedAt,
-                    lastBest,
-                    allTimeBest));
+                    snapshot.LastPerformedAt,
+                    snapshot.LastBestSet,
+                    snapshot.AllTimeBest));
             }
             else
             {
                 existing.Recalculate(
                     trackingMode,
-                    latestWorkout.CompletedAt,
-                    lastBest,
-                    allTimeBest);
+                    snapshot.LastPerformedAt,
+                    snapshot.LastBestSet,
+                    snapshot.AllTimeBest);
             }
         }
     }
@@ -259,30 +259,6 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         var lockKey = BitConverter.ToInt64(SHA256.HashData(Encoding.UTF8.GetBytes(resource)), 0);
         return Database.ExecuteSqlInterpolatedAsync(
             $"SELECT pg_advisory_xact_lock({lockKey})", cancellationToken);
-    }
-
-    private static ExercisePerformanceSet BestPerformanceSet(
-        IEnumerable<ExercisePerformanceRow> rows,
-        TrackingMode trackingMode)
-    {
-        var ordered = trackingMode switch
-        {
-            TrackingMode.Weighted => rows
-                .OrderByDescending(row => row.WeightKg)
-                .ThenByDescending(row => row.Reps),
-            TrackingMode.Bodyweight => rows
-                .OrderByDescending(row => row.Reps),
-            TrackingMode.Assisted => rows
-                .OrderBy(row => row.AssistedKg)
-                .ThenByDescending(row => row.Reps),
-            _ => throw new ArgumentOutOfRangeException(nameof(trackingMode))
-        };
-        var best = ordered
-            .ThenByDescending(row => row.CompletedAt)
-            .ThenBy(row => row.Order)
-            .ThenBy(row => row.SetId)
-            .First();
-        return new ExercisePerformanceSet(best.WeightKg, best.AssistedKg, best.Reps);
     }
 
     private sealed record ExercisePerformanceRow(
