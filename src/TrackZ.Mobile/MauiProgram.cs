@@ -7,6 +7,10 @@ using TrackZ.Mobile.Features.History;
 using TrackZ.Mobile.Features.Workout;
 using TrackZ.Mobile.Identity;
 using TrackZ.Mobile.Sync;
+using TrackZ.Mobile.Features.Gamification;
+using TrackZ.Mobile.Features.Progress;
+using TrackZ.Mobile.Features.Profile;
+using TrackZ.Mobile.Features.Summary;
 
 namespace TrackZ.Mobile;
 
@@ -50,6 +54,8 @@ public static class MauiProgram
 		builder.Services.AddSingleton<TrackZIdentityRefreshClient>();
 		builder.Services.AddSingleton<TrackZIdentityApiClient>();
 		builder.Services.AddSingleton<TrackZSyncApiClient>();
+		builder.Services.AddSingleton<TrackZProgressApiClient>();
+		builder.Services.AddSingleton<IProgressApi>(services => services.GetRequiredService<TrackZProgressApiClient>());
 		builder.Services.AddSingleton<ISyncApi>(services => services.GetRequiredService<TrackZSyncApiClient>());
 		builder.Services.AddSingleton<IExerciseCatalogApi>(services => services.GetRequiredService<TrackZExerciseApiClient>());
 		builder.Services.AddSingleton<IExerciseHistoryApi>(services => services.GetRequiredService<TrackZExerciseApiClient>());
@@ -75,9 +81,14 @@ public static class MauiProgram
 			Path.Combine(FileSystem.AppDataDirectory, "exercise-history.db")));
 		builder.Services.AddSingleton(services => new TrackZLocalDatabase(
 			Path.Combine(FileSystem.AppDataDirectory, "workouts.db")));
+		builder.Services.AddSingleton(services => new ProgressSnapshotCache(
+			Path.Combine(FileSystem.AppDataDirectory, "progress-snapshot.json")));
+		builder.Services.AddSingleton<ProgressSnapshotSource>();
+		builder.Services.AddSingleton<IProgressSnapshotSource>(services => services.GetRequiredService<ProgressSnapshotSource>());
 		builder.Services.AddSingleton<LocalWorkoutRepository>();
 		builder.Services.AddSingleton<ILocalWorkoutRepository>(services =>
 			services.GetRequiredService<LocalWorkoutRepository>());
+		builder.Services.AddSingleton<ICompletedWorkoutSummarySource, CompletedWorkoutSummarySource>();
 		builder.Services.AddSingleton<OutboxRepository>();
 		builder.Services.AddSingleton<IWorkoutOutboxStatusSource>(services =>
 			services.GetRequiredService<OutboxRepository>());
@@ -88,6 +99,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<IExerciseHistorySource, CachedExerciseHistorySource>();
 		builder.Services.AddSingleton<IWorkoutSyncRunner, WorkoutSyncRunner>();
 		builder.Services.AddSingleton(WorkoutResources.Current);
+		builder.Services.AddSingleton(GamificationResources.Current);
 		builder.Services.AddSingleton<IWorkoutPreferenceStore, MauiWorkoutPreferenceStore>();
 		builder.Services.AddSingleton<IWeightUnitPreference, WeightUnitPreference>();
 		builder.Services.AddSingleton<MauiSetSavedFeedback>();
@@ -111,11 +123,17 @@ public static class MauiProgram
 		builder.Services.AddTransient<WorkoutViewModel>();
 		builder.Services.AddTransient<SetLoggerViewModel>();
 		builder.Services.AddTransient<WorkoutHistoryViewModel>();
+		builder.Services.AddTransient<WorkoutSummaryViewModel>();
+		builder.Services.AddTransient<ExerciseProgressViewModel>();
+		builder.Services.AddTransient<ProfileViewModel>();
 		builder.Services.AddSingleton<ExercisePickerPage>();
 		builder.Services.AddTransient<CustomExercisePage>();
 		builder.Services.AddSingleton<WorkoutPage>();
 		builder.Services.AddTransient<SetLoggerPage>();
 		builder.Services.AddTransient<WorkoutHistoryPage>();
+		builder.Services.AddTransient<WorkoutSummaryPage>();
+		builder.Services.AddSingleton<ExerciseProgressPage>();
+		builder.Services.AddSingleton<ProfilePage>();
 		builder.Services.AddSingleton<AppShell>();
 		configureTestServices?.Invoke(builder.Services);
 

@@ -11,6 +11,7 @@ public sealed record ProgressSummaryDto(
 
 public sealed record ExerciseProgressSummaryDto(
     Guid ExerciseId,
+    string ExerciseName,
     TrackingMode TrackingMode,
     DateTimeOffset LastPerformedAt,
     decimal? LastWeightKg,

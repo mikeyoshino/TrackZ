@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using TrackZ.Application.Progress.GetSummary;
+using TrackZ.Application.Gamification.UpdatePreferences;
 using TrackZ.Contracts.Gamification;
 using TrackZ.Contracts.Progress;
 using TrackZ.Domain.Exercises;
@@ -9,8 +10,21 @@ using TrackZ.Infrastructure.Persistence;
 
 namespace TrackZ.Infrastructure.Progress;
 
-public sealed class ProgressReadStore(AppDbContext database, TimeProvider timeProvider) : IProgressReadStore
+public sealed class ProgressReadStore(AppDbContext database, TimeProvider timeProvider) :
+    IProgressReadStore,
+    IMotivationPreferenceStore
 {
+    public async Task UpdateAsync(
+        Guid userId,
+        int weeklyGoal,
+        string timeZoneId,
+        CancellationToken cancellationToken)
+    {
+        var user = await database.Users.SingleAsync(item => item.Id == userId, cancellationToken);
+        user.UpdateMotivationPreferences(weeklyGoal, timeZoneId);
+        await database.SaveChangesAsync(cancellationToken);
+    }
+
     public async Task<ProgressSummaryDto> GetProgressSummaryAsync(
         Guid userId,
         CancellationToken cancellationToken)
@@ -51,12 +65,15 @@ public sealed class ProgressReadStore(AppDbContext database, TimeProvider timePr
             .Where(item => currentWeekWorkoutIds.Contains(item.WorkoutId))
             .Sum(item => item.VolumeKg);
 
-        var records = await database.ExercisePerformances.AsNoTracking()
-            .Where(performance => performance.UserId == userId && performance.LastPerformedAt != null)
-            .OrderByDescending(performance => performance.LastPerformedAt)
-            .ThenBy(performance => performance.ExerciseDefinitionId)
-            .Select(performance => new ExerciseProgressSummaryDto(
+        var records = await (
+            from performance in database.ExercisePerformances.AsNoTracking()
+            join exercise in database.Exercises.AsNoTracking()
+                on performance.ExerciseDefinitionId equals exercise.Id
+            where performance.UserId == userId && performance.LastPerformedAt != null
+            orderby performance.LastPerformedAt descending, performance.ExerciseDefinitionId
+            select new ExerciseProgressSummaryDto(
                 performance.ExerciseDefinitionId,
+                exercise.Name,
                 performance.TrackingMode,
                 performance.LastPerformedAt!.Value,
                 performance.LastBestWeightKg,

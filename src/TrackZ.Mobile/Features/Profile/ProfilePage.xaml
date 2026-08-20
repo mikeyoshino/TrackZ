@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage
+    x:Class="TrackZ.Mobile.Features.Profile.ProfilePage"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:components="clr-namespace:TrackZ.Mobile.Components"
+    xmlns:gamification="clr-namespace:TrackZ.Mobile.Features.Gamification;assembly=TrackZ.Mobile.Core"
+    x:DataType="gamification:ProfileViewModel"
+    BackgroundColor="#0D0F12"
+    Title="{Binding Text.ProfileTitle}">
+    <ScrollView>
+        <VerticalStackLayout Padding="18,20" Spacing="16">
+            <Label FontAttributes="Bold" FontSize="30" Text="{Binding Text.ProfileTitle}" />
+            <Border Padding="16" BackgroundColor="#15181D" Stroke="#343B45" StrokeShape="RoundRectangle 22">
+                <components:XpBar Level="{Binding Level}" TotalXp="{Binding TotalXp}" Progress="{Binding LevelProgress}" />
+            </Border>
+            <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+                <Border Padding="14" BackgroundColor="#15181D" StrokeShape="RoundRectangle 18"><VerticalStackLayout><Label FontSize="26" FontAttributes="Bold" Text="{Binding CurrentStreakWeeks}" TextColor="#C8FF3D" /><Label Text="{Binding Text.CurrentStreak}" /></VerticalStackLayout></Border>
+                <Border Grid.Column="1" Padding="14" BackgroundColor="#15181D" StrokeShape="RoundRectangle 18"><VerticalStackLayout><Label FontSize="26" FontAttributes="Bold" Text="{Binding BestStreakWeeks}" /><Label Text="{Binding Text.BestStreak}" /></VerticalStackLayout></Border>
+            </Grid>
+            <Border Padding="14" BackgroundColor="#15181D" StrokeShape="RoundRectangle 18">
+                <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
+                    <VerticalStackLayout><Label FontAttributes="Bold" Text="{Binding Text.WeeklyGoal}" /><Label Text="{Binding WeeklyCompletedWorkouts, StringFormat='Completed {0} this week'}" TextColor="#8E959F" /></VerticalStackLayout>
+                    <Stepper Grid.Column="1" Minimum="1" Maximum="7" Increment="1" Value="{Binding WeeklyGoal, Mode=TwoWay}" />
+                    <Button Grid.Column="2" Command="{Binding SaveWeeklyGoalCommand}" Text="{Binding Text.Save}" />
+                </Grid>
+            </Border>
+            <Label FontAttributes="Bold" FontSize="20" Text="{Binding Text.Badges}" />
+            <VerticalStackLayout BindableLayout.ItemsSource="{Binding Badges}" Spacing="10">
+                <BindableLayout.ItemTemplate><DataTemplate><components:BadgeTile /></DataTemplate></BindableLayout.ItemTemplate>
+            </VerticalStackLayout>
+            <Label Text="{Binding SyncAccessibilityText}" TextColor="#F2B84B" />
+            <Label Text="{Binding ErrorMessage}" TextColor="#FF6B6B" />
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>

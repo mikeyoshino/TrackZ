@@ -3,6 +3,7 @@ using TrackZ.Mobile.Data;
 using TrackZ.Mobile.Identity;
 using TrackZ.Mobile.Features.Workout;
 using TrackZ.Mobile.Sync;
+using TrackZ.Mobile.Features.Gamification;
 
 namespace TrackZ.Mobile.Features.Exercises.Services;
 
@@ -75,7 +76,8 @@ public sealed class SecureMobileTokenStorage : IMobileTokenStorage
 public sealed class MauiPrivateDataCleaner(
     CustomExerciseImageService exercises,
     TrackZLocalDatabase workouts,
-    ExerciseHistoryCache history) : IMobilePrivateDataCleaner
+    ExerciseHistoryCache history,
+    ProgressSnapshotCache progress) : IMobilePrivateDataCleaner
 {
     public async Task ClearAsync(CancellationToken cancellationToken = default)
     {
@@ -101,6 +103,15 @@ public sealed class MauiPrivateDataCleaner(
         try
         {
             await history.ClearAsync(cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            failures.Add(exception);
+        }
+
+        try
+        {
+            await progress.ClearAsync(cancellationToken);
         }
         catch (Exception exception)
         {

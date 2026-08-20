@@ -18,3 +18,5 @@ public sealed record EarnedBadgeDto(
     string DescriptionResourceKey,
     string IconKey,
     DateTimeOffset EarnedAt);
+
+public sealed record UpdateMotivationPreferencesRequest(int WeeklyGoal, string TimeZoneId);
