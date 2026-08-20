@@ -96,7 +96,8 @@ public sealed record WorkoutTextSet(
     string ArtworkUnavailable,
     string RetryArtwork,
     string SelectExerciseFormat,
-    string ArtworkForExerciseFormat);
+    string ArtworkForExerciseFormat,
+    string SetsLoggedFormat);
 
 public static class WorkoutResources
 {
@@ -149,7 +150,7 @@ public static class WorkoutResources
             Value("TrainTab", culture), Value("SavedSetCountFormat", culture),
             Value("ExerciseCountFormat", culture), Value("ArtworkUnavailable", culture),
             Value("RetryArtwork", culture), Value("SelectExerciseFormat", culture),
-            Value("ArtworkForExerciseFormat", culture));
+            Value("ArtworkForExerciseFormat", culture), Value("SetsLoggedFormat", culture));
     }
 
     private static string Value(string key, CultureInfo culture) =>

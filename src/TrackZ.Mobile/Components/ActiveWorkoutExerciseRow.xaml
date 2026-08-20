@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentView
+    x:Class="TrackZ.Mobile.Components.ActiveWorkoutExerciseRow"
+    x:Name="Root"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:workout="clr-namespace:TrackZ.Mobile.Features.Workout;assembly=TrackZ.Mobile.Core"
+    x:DataType="workout:WorkoutExerciseDraftItem">
+    <SwipeView>
+        <SwipeView.LeftItems>
+            <SwipeItems Mode="Reveal">
+                <SwipeItem
+                    BackgroundColor="{DynamicResource TrackZSurfaceRaised}"
+                    Command="{Binding MoveUpCommand, Source={x:Reference Root}}"
+                    CommandParameter="{Binding Exercise, Source={x:Reference Root}}"
+                    Text="{Binding MoveUpText, Source={x:Reference Root}}" />
+                <SwipeItem
+                    BackgroundColor="{DynamicResource TrackZSurfaceRaised}"
+                    Command="{Binding MoveDownCommand, Source={x:Reference Root}}"
+                    CommandParameter="{Binding Exercise, Source={x:Reference Root}}"
+                    Text="{Binding MoveDownText, Source={x:Reference Root}}" />
+            </SwipeItems>
+        </SwipeView.LeftItems>
+        <SwipeView.RightItems>
+            <SwipeItems Mode="Execute">
+                <SwipeItem
+                    BackgroundColor="{DynamicResource TrackZDanger}"
+                    Command="{Binding RemoveCommand, Source={x:Reference Root}}"
+                    CommandParameter="{Binding Exercise, Source={x:Reference Root}}"
+                    IsDestructive="True"
+                    Text="{Binding RemoveText, Source={x:Reference Root}}" />
+            </SwipeItems>
+        </SwipeView.RightItems>
+
+        <Border
+            MinimumHeightRequest="104"
+            SemanticProperties.Description="{Binding Exercise.AccessibilitySummary, Source={x:Reference Root}}"
+            Style="{DynamicResource TrackZListRowStyle}">
+            <Border.GestureRecognizers>
+                <TapGestureRecognizer Command="{Binding OpenCommand, Source={x:Reference Root}}" CommandParameter="{Binding Exercise, Source={x:Reference Root}}" />
+            </Border.GestureRecognizers>
+            <Grid ColumnDefinitions="80,*,Auto" ColumnSpacing="12">
+                <Grid HeightRequest="72" WidthRequest="72">
+                    <Image Aspect="AspectFit" IsVisible="{Binding Exercise.HasArtwork, Source={x:Reference Root}}" Source="{Binding Exercise.ThumbnailUri, Source={x:Reference Root}}" />
+                    <Border BackgroundColor="{DynamicResource TrackZSurfaceRaised}" IsVisible="{Binding Exercise.ShowsArtworkPlaceholder, Source={x:Reference Root}}" StrokeThickness="0" StrokeShape="RoundRectangle 14">
+                        <Image Aspect="AspectFit" HeightRequest="52" Source="exercise_placeholder.svg" WidthRequest="52" />
+                    </Border>
+                </Grid>
+                <VerticalStackLayout Grid.Column="1" Spacing="4" VerticalOptions="Center">
+                    <Label FontAttributes="Bold" FontSize="17" LineBreakMode="TailTruncation" Text="{Binding Exercise.Name, Source={x:Reference Root}}" />
+                    <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Exercise.TrackingModeText, Source={x:Reference Root}}" />
+                    <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Exercise.LastText, Source={x:Reference Root}}" />
+                    <Label FontAttributes="Bold" FontSize="13" Text="{Binding Exercise.LoggedSetText, Source={x:Reference Root}}" TextColor="{DynamicResource TrackZPrimary}" />
+                </VerticalStackLayout>
+                <Label Grid.Column="2" FontSize="24" Text="›" TextColor="{DynamicResource TrackZTextSecondary}" VerticalOptions="Center" />
+            </Grid>
+        </Border>
+    </SwipeView>
+</ContentView>

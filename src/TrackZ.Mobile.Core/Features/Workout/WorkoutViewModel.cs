@@ -6,6 +6,7 @@ using TrackZ.Domain.Exercises;
 using TrackZ.Mobile.Data.Models;
 using TrackZ.Mobile.Features.Exercises;
 using TrackZ.Mobile.Features.Exercises.Data;
+using TrackZ.Mobile.Features.Exercises.Models;
 using TrackZ.Mobile.Features.History;
 using TrackZ.Mobile.Identity;
 
@@ -17,7 +18,15 @@ public sealed record WorkoutExerciseDraftItem(
     TrackingMode TrackingMode,
     string TrackingModeText,
     string? ThumbnailUri,
-    Guid WorkoutExerciseId = default);
+    Guid WorkoutExerciseId = default,
+    int LoggedSetCount = 0,
+    string LoggedSetText = "",
+    string LastText = "",
+    string AccessibilitySummary = "")
+{
+    public bool HasArtwork => !string.IsNullOrWhiteSpace(ThumbnailUri);
+    public bool ShowsArtworkPlaceholder => !HasArtwork;
+}
 
 public sealed class WorkoutViewModel : INotifyPropertyChanged
 {
@@ -26,6 +35,8 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged
     private readonly IAccountSessionBoundary _boundary;
     private readonly WorkoutTextSet _text;
     private readonly IHistoryConfirmation? _confirmation;
+    private readonly IWeightUnitPreference? _unitPreference;
+    private IReadOnlyDictionary<Guid, CachedExercise> _catalog = new Dictionary<Guid, CachedExercise>();
     private bool _isBusy;
     private bool _hasStarted;
     private string? _errorMessage;
@@ -35,13 +46,15 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged
         ExerciseCache cache,
         IAccountSessionBoundary boundary,
         WorkoutTextSet text,
-        IHistoryConfirmation? confirmation = null)
+        IHistoryConfirmation? confirmation = null,
+        IWeightUnitPreference? unitPreference = null)
     {
         _coordinator = coordinator;
         _cache = cache;
         _boundary = boundary;
         _text = text;
         _confirmation = confirmation;
+        _unitPreference = unitPreference;
         RemoveExerciseCommand = new AsyncCommand(RemoveExerciseAsync,
             item => !IsBusy && Id(item) != Guid.Empty && (!_hasStarted || Exercises.Count > 1));
         MoveUpCommand = new AsyncCommand(item => MoveAsync(item, -1), item => CanMove(item, -1));
@@ -49,6 +62,7 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged
         StartWorkoutCommand = new AsyncCommand(_ => StartAsync(), _ => Exercises.Count != 0 && !_hasStarted && !IsBusy);
         FinishWorkoutCommand = new AsyncCommand(_ => FinishAsync(), _ => _hasStarted && !IsBusy);
         _boundary.SessionReset += OnSessionReset;
+        if (_unitPreference is not null) _unitPreference.Changed += OnWeightUnitChanged;
     }
 
     public ObservableCollection<WorkoutExerciseDraftItem> Exercises { get; } = [];
@@ -58,6 +72,7 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged
     public AsyncCommand StartWorkoutCommand { get; }
     public AsyncCommand FinishWorkoutCommand { get; }
     public WorkoutTextSet Text => _text;
+    public Guid? CompletedWorkoutId { get; private set; }
 
     public bool IsBusy
     {
@@ -88,23 +103,23 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
+    public event EventHandler<Guid>? WorkoutFinished;
 
     public async Task RestoreAsync(CancellationToken cancellationToken = default)
     {
         var active = await _coordinator.RestoreActiveAsync(cancellationToken);
         if (active is null) return;
-        var catalog = (await _cache.GetAllAsync(cancellationToken)).ToDictionary(item => item.Id);
+        _catalog = (await _cache.GetAllAsync(cancellationToken)).ToDictionary(item => item.Id);
         Exercises.Clear();
         foreach (var exercise in active.Exercises.Where(item => item.DeletedAt is null).OrderBy(item => item.Order))
         {
-            catalog.TryGetValue(exercise.ExerciseDefinitionId, out var cached);
-            Exercises.Add(new WorkoutExerciseDraftItem(
+            _catalog.TryGetValue(exercise.ExerciseDefinitionId, out var cached);
+            Exercises.Add(CreateItem(
                 exercise.ExerciseDefinitionId,
-                cached?.Name ?? exercise.ExerciseDefinitionId.ToString("D"),
                 exercise.TrackingMode,
-                ModeText(exercise.TrackingMode),
-                cached?.ThumbnailUri,
-                exercise.Id));
+                cached,
+                exercise.Id,
+                exercise.Sets.Count(set => set.DeletedAt is null)));
         }
         HasStarted = true;
     }
@@ -116,11 +131,11 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged
         ArgumentNullException.ThrowIfNull(exerciseIds);
         var requested = exerciseIds.Where(id => id != Guid.Empty).Distinct().ToArray();
         var existing = Exercises.Select(item => item.ExerciseDefinitionId).ToHashSet();
-        var catalog = (await _cache.GetAllAsync(cancellationToken)).ToDictionary(item => item.Id);
+        _catalog = (await _cache.GetAllAsync(cancellationToken)).ToDictionary(item => item.Id);
         foreach (var id in requested)
         {
             if (existing.Contains(id)) continue;
-            if (!catalog.TryGetValue(id, out var exercise))
+            if (!_catalog.TryGetValue(id, out var exercise))
                 throw new ArgumentException("Exercise is not available in the local catalog.", nameof(exerciseIds));
             var workoutExerciseId = Guid.Empty;
             if (HasStarted)
@@ -130,9 +145,12 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged
                     cancellationToken: cancellationToken);
                 workoutExerciseId = added.Id;
             }
-            Exercises.Add(new WorkoutExerciseDraftItem(
-                id, exercise.Name, exercise.TrackingMode, ModeText(exercise.TrackingMode),
-                exercise.ThumbnailUri, workoutExerciseId));
+            Exercises.Add(CreateItem(
+                id,
+                exercise.TrackingMode,
+                exercise,
+                workoutExerciseId,
+                0));
             existing.Add(id);
         }
         RaiseCommands();
@@ -184,11 +202,13 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged
         ErrorMessage = null;
         try
         {
-            await _coordinator.FinishAsync(cancellationToken: default);
+            var completed = await _coordinator.FinishAsync(cancellationToken: default);
             if (!_boundary.IsCancellationRequested(generation))
             {
+                CompletedWorkoutId = completed.Id;
                 Exercises.Clear();
                 HasStarted = false;
+                WorkoutFinished?.Invoke(this, completed.Id);
             }
         }
         catch (OperationCanceledException) when (_boundary.IsCancellationRequested(generation))
@@ -266,6 +286,47 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged
         _ => string.Empty
     };
 
+    private WorkoutExerciseDraftItem CreateItem(
+        Guid exerciseDefinitionId,
+        TrackingMode trackingMode,
+        CachedExercise? cached,
+        Guid workoutExerciseId,
+        int loggedSetCount)
+    {
+        var name = cached?.Name ?? exerciseDefinitionId.ToString("D");
+        var mode = ModeText(trackingMode);
+        var last = cached is null
+            ? string.Format(_text.PerformanceLastFormat, "—")
+            : new ExercisePickerItem(cached, _text, _unitPreference).LastText;
+        var logged = string.Format(_text.SetsLoggedFormat, loggedSetCount);
+        return new WorkoutExerciseDraftItem(
+            exerciseDefinitionId,
+            name,
+            trackingMode,
+            mode,
+            cached?.ThumbnailUri,
+            workoutExerciseId,
+            loggedSetCount,
+            logged,
+            last,
+            string.Join(", ", name, mode, logged, last));
+    }
+
+    private void OnWeightUnitChanged(object? sender, EventArgs eventArgs)
+    {
+        for (var index = 0; index < Exercises.Count; index++)
+        {
+            var current = Exercises[index];
+            _catalog.TryGetValue(current.ExerciseDefinitionId, out var cached);
+            Exercises[index] = CreateItem(
+                current.ExerciseDefinitionId,
+                current.TrackingMode,
+                cached,
+                current.WorkoutExerciseId,
+                current.LoggedSetCount);
+        }
+    }
+
     private void OnSessionReset(object? sender, EventArgs eventArgs) => Clear();
 
     private void Clear()
@@ -273,6 +334,7 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged
         Exercises.Clear();
         HasStarted = false;
         ErrorMessage = null;
+        CompletedWorkoutId = null;
         RaiseCommands();
     }
 

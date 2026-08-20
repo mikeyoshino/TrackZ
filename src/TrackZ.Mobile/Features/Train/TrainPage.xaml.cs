@@ -30,5 +30,5 @@ public partial class TrainPage : ContentPage
     }
 
     private async void OnResumeClicked(object? sender, EventArgs eventArgs) =>
-        await Shell.Current.GoToAsync(nameof(WorkoutPage));
+        await Shell.Current.GoToAsync("active-workout");
 }

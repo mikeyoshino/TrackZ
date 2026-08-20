@@ -1,4 +1,6 @@
 using TrackZ.Mobile.Features.Exercises;
+using System.Windows.Input;
+using TrackZ.Mobile.Features.Summary;
 
 namespace TrackZ.Mobile.Features.Workout;
 
@@ -11,7 +13,11 @@ public partial class WorkoutPage : ContentPage
         InitializeComponent();
         BindingContext = _viewModel = viewModel;
         exercisePicker.SelectionCompleted += OnSelectionCompleted;
+        _viewModel.WorkoutFinished += OnWorkoutFinished;
+        OpenLoggerCommand = new Command<WorkoutExerciseDraftItem>(OpenLogger);
     }
+
+    public ICommand OpenLoggerCommand { get; }
 
     protected override async void OnAppearing()
     {
@@ -25,13 +31,16 @@ public partial class WorkoutPage : ContentPage
     private async void OnSelectionCompleted(IReadOnlyCollection<Guid> selected)
     {
         await _viewModel.AddExercisesAsync(selected.ToArray());
-        await Shell.Current.GoToAsync("//train");
+        await Shell.Current.GoToAsync("active-workout");
     }
 
-    private async void OnOpenLoggerClicked(object? sender, EventArgs eventArgs)
+    private async void OpenLogger(WorkoutExerciseDraftItem? exercise)
     {
-        if (sender is not Button { CommandParameter: WorkoutExerciseDraftItem exercise }) return;
+        if (exercise is null || !_viewModel.HasStarted) return;
         var query = $"exerciseId={exercise.ExerciseDefinitionId:D}&name={Uri.EscapeDataString(exercise.Name)}";
         await Shell.Current.GoToAsync($"{nameof(SetLoggerPage)}?{query}");
     }
+
+    private async void OnWorkoutFinished(object? sender, Guid workoutId) =>
+        await Shell.Current.GoToAsync($"{nameof(WorkoutSummaryPage)}?workoutId={workoutId:D}");
 }

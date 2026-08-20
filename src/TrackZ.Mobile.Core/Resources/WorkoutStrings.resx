@@ -97,4 +97,5 @@
   <data name="RetryArtwork" xml:space="preserve"><value>Retry image</value></data>
   <data name="SelectExerciseFormat" xml:space="preserve"><value>Select {0}</value></data>
   <data name="ArtworkForExerciseFormat" xml:space="preserve"><value>Movement artwork for {0}</value></data>
+  <data name="SetsLoggedFormat" xml:space="preserve"><value>{0} sets logged</value></data>
 </root>

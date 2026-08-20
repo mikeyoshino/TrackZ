@@ -51,7 +51,7 @@ public partial class AppShell : Shell
 		Items.Add(tabs);
 
 		Routing.RegisterRoute(nameof(ExercisePickerPage), typeof(ExercisePickerPage));
-		Routing.RegisterRoute(nameof(WorkoutPage), typeof(WorkoutPage));
+		Routing.RegisterRoute("active-workout", typeof(WorkoutPage));
 		Routing.RegisterRoute(nameof(CustomExercisePage), typeof(CustomExercisePage));
 		Routing.RegisterRoute(nameof(SetLoggerPage), typeof(SetLoggerPage));
 		Routing.RegisterRoute(nameof(WorkoutHistoryPage), typeof(WorkoutHistoryPage));
