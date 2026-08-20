@@ -20,6 +20,7 @@ using TrackZ.Application.Sync;
 using TrackZ.Application.Sync.Pull;
 using TrackZ.Infrastructure.Sync;
 using TrackZ.Application.Progress.RebuildExercisePerformance;
+using TrackZ.Application.Gamification.ReconcileWorkoutXp;
 
 namespace TrackZ.Infrastructure;
 
@@ -40,6 +41,7 @@ public static class DependencyInjection
         services.AddScoped<IWorkoutReadStore>(provider => provider.GetRequiredService<AppDbContext>());
         services.AddScoped<ISyncPushStore>(provider => provider.GetRequiredService<AppDbContext>());
         services.AddScoped<IExercisePerformanceRebuildStore>(provider => provider.GetRequiredService<AppDbContext>());
+        services.AddScoped<IGamificationStore>(provider => provider.GetRequiredService<AppDbContext>());
         services.AddScoped<ISyncPullStore>(provider => provider.GetRequiredService<AppDbContext>());
         services.AddSingleton<ISyncCursorCodec, HmacSyncCursorCodec>();
         services.AddSingleton<ObjectStorage>();
@@ -51,6 +53,7 @@ public static class DependencyInjection
         services.AddScoped<IExerciseCatalogAssetDeployment>(provider =>
             provider.GetRequiredService<ObjectStorageExerciseCatalogAssetDeployment>());
         services.AddScoped<ExerciseCatalogSeeder>();
+        services.AddScoped<LevelThresholdSeeder>();
         services.AddScoped<ExerciseCatalogDeploymentService>();
         services.AddSingleton(TimeProvider.System);
         services.AddOptions<MediaAccessOptions>()

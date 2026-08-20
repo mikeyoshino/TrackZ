@@ -15,10 +15,12 @@ using TrackZ.Domain.Sync;
 using TrackZ.Application.Sync.Pull;
 using System.Security.Cryptography;
 using System.Text;
+using TrackZ.Application.Gamification.ReconcileWorkoutXp;
+using TrackZ.Domain.Gamification;
 
 namespace TrackZ.Infrastructure.Persistence;
 
-public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options), IAppDbContext, IExerciseCatalogReadStore, ICustomExerciseStore, IExerciseImageUploadStore, IWorkoutReadStore, ISyncPushStore, ISyncPullStore
+public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options), IAppDbContext, IExerciseCatalogReadStore, ICustomExerciseStore, IExerciseImageUploadStore, IWorkoutReadStore, ISyncPushStore, ISyncPullStore, IGamificationStore
 {
     public DbSet<User> Users => Set<User>();
 
@@ -40,6 +42,84 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<ProcessedClientOperation> ProcessedClientOperations => Set<ProcessedClientOperation>();
 
     public DbSet<SyncChange> SyncChanges => Set<SyncChange>();
+
+    public DbSet<XpLedgerEntry> XpLedgerEntries => Set<XpLedgerEntry>();
+
+    public DbSet<UserProgress> UserProgress => Set<UserProgress>();
+
+    public DbSet<LevelThreshold> LevelThresholds => Set<LevelThreshold>();
+
+    public async Task<IAppDbTransaction> BeginGamificationTransactionAsync(CancellationToken cancellationToken) =>
+        new AppDbTransaction(await Database.BeginTransactionAsync(cancellationToken));
+
+    public Task AcquireWorkoutXpLockAsync(Guid workoutId, CancellationToken cancellationToken) =>
+        AcquireSyncLockAsync($"workout-xp:{workoutId:D}", cancellationToken);
+
+    public Task AcquireUserProgressLockAsync(Guid userId, CancellationToken cancellationToken) =>
+        AcquireSyncLockAsync($"user-progress:{userId:D}", cancellationToken);
+
+    public async Task<WorkoutXpState?> GetWorkoutXpStateAsync(
+        Guid workoutId,
+        CancellationToken cancellationToken)
+    {
+        var workout = await WorkoutSessions.AsNoTracking()
+            .Where(item => item.Id == workoutId)
+            .Select(item => new
+            {
+                item.OwnerId,
+                item.Id,
+                item.Version,
+                item.Status,
+                item.DeletedAt
+            })
+            .SingleOrDefaultAsync(cancellationToken);
+        if (workout is null) return null;
+
+        var validSetCount = await (
+            from exercise in WorkoutExercises.AsNoTracking()
+            join set in SetEntries.AsNoTracking() on exercise.Id equals set.WorkoutExerciseId
+            where exercise.WorkoutSessionId == workoutId
+                && exercise.DeletedAt == null
+                && set.DeletedAt == null
+            select set.Id)
+            .CountAsync(cancellationToken);
+        return new WorkoutXpState(
+            workout.OwnerId,
+            workout.Id,
+            workout.Version,
+            workout.Status == WorkoutStatus.Completed && workout.DeletedAt == null,
+            validSetCount);
+    }
+
+    public async Task<IReadOnlyList<XpLedgerEntry>> ListWorkoutXpEntriesAsync(
+        Guid userId,
+        Guid workoutId,
+        CancellationToken cancellationToken) =>
+        await XpLedgerEntries.AsNoTracking()
+            .Where(entry => entry.UserId == userId && entry.OriginId == workoutId)
+            .OrderBy(entry => entry.CreatedAt)
+            .ThenBy(entry => entry.Id)
+            .ToListAsync(cancellationToken);
+
+    public async Task<int> GetUserTotalXpAsync(Guid userId, CancellationToken cancellationToken) =>
+        await XpLedgerEntries.AsNoTracking()
+            .Where(entry => entry.UserId == userId)
+            .SumAsync(entry => (int?)entry.Amount, cancellationToken) ?? 0;
+
+    public async Task<IReadOnlyList<LevelThreshold>> ListLevelThresholdsAsync(CancellationToken cancellationToken) =>
+        await LevelThresholds.AsNoTracking()
+            .OrderBy(threshold => threshold.RulesVersion)
+            .ThenBy(threshold => threshold.Level)
+            .ToListAsync(cancellationToken);
+
+    public Task<UserProgress?> FindUserProgressAsync(Guid userId, CancellationToken cancellationToken) =>
+        UserProgress.SingleOrDefaultAsync(progress => progress.UserId == userId, cancellationToken);
+
+    public void AddXpLedgerEntry(XpLedgerEntry entry) => XpLedgerEntries.Add(entry);
+
+    public void AddUserProgress(UserProgress progress) => UserProgress.Add(progress);
+
+    public Task SaveGamificationAsync(CancellationToken cancellationToken) => SaveChangesAsync(cancellationToken);
 
     public async Task<IAppDbTransaction> BeginSyncTransactionAsync(CancellationToken cancellationToken) =>
         new AppDbTransaction(await Database.BeginTransactionAsync(cancellationToken));
