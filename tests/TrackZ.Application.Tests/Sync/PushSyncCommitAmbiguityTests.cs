@@ -8,6 +8,7 @@ using TrackZ.Application.Sync.Push;
 using TrackZ.Contracts.Sync;
 using TrackZ.Domain.Sync;
 using TrackZ.Domain.Workouts;
+using TrackZ.Domain.Exercises;
 
 namespace TrackZ.Application.Tests.Sync;
 
@@ -79,7 +80,7 @@ public sealed class PushSyncCommitAmbiguityTests
         public Task<Guid?> FindWorkoutOwnerAsync(Guid workoutId, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
-        public Task<bool> AreExerciseDefinitionsAvailableAsync(
+        public Task<IReadOnlyDictionary<Guid, TrackingMode>> GetAvailableExerciseTrackingModesAsync(
             Guid userId,
             IReadOnlyList<Guid> exerciseDefinitionIds,
             CancellationToken cancellationToken) => throw new NotSupportedException();

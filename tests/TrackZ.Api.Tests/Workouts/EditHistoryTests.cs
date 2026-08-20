@@ -336,7 +336,7 @@ public sealed class EditHistoryTests : IAsyncLifetime
             reps = 1,
             updatedAt = startedAt.AddMinutes(11)
         }));
-        AssertResult(foreign, "Rejected", null, 10009);
+        AssertResult(foreign, "Rejected", null, 30001);
 
         var stale = await PushDocumentAsync(owner.Token, Operation(Guid.NewGuid(), "DeleteSet", 2, new
         {

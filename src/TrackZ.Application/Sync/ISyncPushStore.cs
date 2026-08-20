@@ -1,6 +1,7 @@
 using TrackZ.Application.Common.Interfaces;
 using TrackZ.Domain.Sync;
 using TrackZ.Domain.Workouts;
+using TrackZ.Domain.Exercises;
 
 namespace TrackZ.Application.Sync;
 
@@ -24,7 +25,7 @@ public interface ISyncPushStore
 
     Task<Guid?> FindWorkoutOwnerAsync(Guid workoutId, CancellationToken cancellationToken);
 
-    Task<bool> AreExerciseDefinitionsAvailableAsync(
+    Task<IReadOnlyDictionary<Guid, TrackingMode>> GetAvailableExerciseTrackingModesAsync(
         Guid userId,
         IReadOnlyList<Guid> exerciseDefinitionIds,
         CancellationToken cancellationToken);

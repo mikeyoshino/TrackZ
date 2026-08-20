@@ -1,8 +1,10 @@
 using System.Globalization;
+using TrackZ.Contracts.Exercises;
 using TrackZ.Domain.Exercises;
 using TrackZ.Mobile.Data;
 using TrackZ.Mobile.Data.Models;
 using TrackZ.Mobile.Features.Exercises;
+using TrackZ.Mobile.Features.Exercises.Data;
 using TrackZ.Mobile.Features.History;
 using TrackZ.Mobile.Features.Workout;
 using TrackZ.Mobile.Identity;
@@ -14,6 +16,8 @@ public sealed class WorkoutHistoryViewModelTests : IAsyncDisposable
 {
     private readonly string _path = Path.Combine(
         Path.GetTempPath(), $"trackz-history-vm-{Guid.NewGuid():N}.db");
+    private readonly string _exercisePath = Path.Combine(
+        Path.GetTempPath(), $"trackz-history-exercises-{Guid.NewGuid():N}.db");
     private readonly MutableClock _clock = new(
         new DateTimeOffset(2026, 8, 16, 8, 0, 0, TimeSpan.Zero));
     private readonly AccountSessionBoundary _boundary = new();
@@ -55,6 +59,89 @@ public sealed class WorkoutHistoryViewModelTests : IAsyncDisposable
             Repository(), _boundary, _clock).GetHistoryAsync());
         Assert.NotNull(Assert.Single(persisted.Exercises).Sets
             .Single(item => item.Id == set.SetId).DeletedAt);
+    }
+
+    [Fact]
+    public async Task History_uses_cached_name_and_persisted_pound_edit_without_losing_canonical_kg()
+    {
+        var completed = await CompletedWorkoutAsync(TrackingMode.Weighted, 75.125m, null, 10);
+        var definitionId = Assert.Single(completed.Exercises).ExerciseDefinitionId;
+        await CacheAsync(definitionId, "Incline press", TrackingMode.Weighted);
+        var preferenceStore = new DictionaryPreferenceStore();
+        var preference = new WeightUnitPreference(preferenceStore);
+        preference.Set(WeightDisplayUnit.Pounds);
+        var viewModel = ViewModel(
+            WorkoutResources.English,
+            new RecordingConfirmation(),
+            unitPreference: preference);
+
+        await viewModel.LoadAsync();
+
+        var exercise = Assert.Single(Assert.Single(viewModel.Workouts).Exercises);
+        var set = Assert.Single(exercise.Sets);
+        Assert.Equal("Incline press", exercise.Name);
+        Assert.DoesNotContain(definitionId.ToString("D"), exercise.Name);
+        Assert.Equal(165.62m, set.DisplayWeight);
+        Assert.Equal(75.125m, set.WeightKg);
+        Assert.Equal(WorkoutResources.English.Pounds, set.WeightUnitLabel);
+
+        preference.Set(WeightDisplayUnit.Kilograms);
+        Assert.Equal(75.125m, set.DisplayWeight);
+        Assert.Equal(75.125m, set.WeightKg);
+        preference.Set(WeightDisplayUnit.Pounds);
+        set.DisplayWeight = 170m;
+        await viewModel.EditSetCommand.ExecuteAsync(set);
+
+        var persisted = Assert.Single(await new WorkoutHistoryCoordinator(
+            Repository(), _boundary, _clock).GetHistoryAsync());
+        Assert.Equal(77.111m, Assert.Single(Assert.Single(persisted.Exercises).Sets).WeightKg);
+        Assert.Equal(77.111m, Assert.Single(Assert.Single(viewModel.Workouts).Exercises)
+            .Sets.Single().WeightKg);
+    }
+
+    [Fact]
+    public async Task Missing_cached_exercise_uses_localized_fallback_instead_of_identifier()
+    {
+        var completed = await CompletedWorkoutAsync(TrackingMode.Bodyweight, null, null, 12);
+        var definitionId = Assert.Single(completed.Exercises).ExerciseDefinitionId;
+        var viewModel = ViewModel(WorkoutResources.English, new RecordingConfirmation());
+
+        await viewModel.LoadAsync();
+
+        var exercise = Assert.Single(Assert.Single(viewModel.Workouts).Exercises);
+        Assert.Equal(WorkoutResources.English.UnknownExercise, exercise.Name);
+        Assert.DoesNotContain(definitionId.ToString("D"), exercise.Name);
+    }
+
+    [Fact]
+    public async Task Confirmed_exercise_delete_disappears_locally_and_undo_restores_it()
+    {
+        var completed = await CompletedWorkoutAsync(TrackingMode.Bodyweight, null, null, 10);
+        var definitionId = Assert.Single(completed.Exercises).ExerciseDefinitionId;
+        await CacheAsync(definitionId, "Pull-up", TrackingMode.Bodyweight);
+        var confirmation = new RecordingConfirmation { Result = false };
+        var viewModel = ViewModel(WorkoutResources.English, confirmation);
+        await viewModel.LoadAsync();
+        var workout = Assert.Single(viewModel.Workouts);
+        var exercise = Assert.Single(workout.Exercises);
+
+        await viewModel.DeleteWorkoutExerciseCommand.ExecuteAsync(exercise);
+        Assert.Single(Assert.Single(viewModel.Workouts).Exercises);
+        Assert.Equal("Delete exercise?", confirmation.Title);
+
+        confirmation.Result = true;
+        await viewModel.DeleteWorkoutExerciseCommand.ExecuteAsync(exercise);
+        var deleted = Assert.Single(viewModel.Workouts);
+        Assert.Empty(deleted.Exercises);
+        Assert.NotNull(deleted.LastUndoOperationId);
+        var operation = (await new OutboxRepository(Database()).PendingAsync())
+            .Single(item => item.Type == OutboxOperationType.DeleteWorkoutExercise);
+        Assert.Equal(exercise.WorkoutExerciseId,
+            operation.DeserializePayload<DeleteWorkoutExerciseOutboxPayload>().WorkoutExerciseId);
+
+        await viewModel.UndoCommand.ExecuteAsync(deleted);
+
+        Assert.Equal("Pull-up", Assert.Single(Assert.Single(viewModel.Workouts).Exercises).Name);
     }
 
     [Fact]
@@ -300,14 +387,23 @@ public sealed class WorkoutHistoryViewModelTests : IAsyncDisposable
     private WorkoutHistoryViewModel ViewModel(
         WorkoutTextSet text,
         IHistoryConfirmation confirmation,
-        IConnectivityService? connectivity = null) => new(
+        IConnectivityService? connectivity = null,
+        IWeightUnitPreference? unitPreference = null) => new(
         new WorkoutHistoryCoordinator(Repository(), _boundary, _clock),
         new OutboxRepository(Database()),
         confirmation,
         _boundary,
         connectivity ?? new MutableConnectivity(isOnline: true),
         text,
-        new RecordingConflictResolution());
+        new RecordingConflictResolution(),
+        new ExerciseCache(_exercisePath),
+        unitPreference ?? new WeightUnitPreference(new DictionaryPreferenceStore()));
+
+    private Task CacheAsync(Guid id, string name, TrackingMode mode) =>
+        new ExerciseCache(_exercisePath).ReplaceAllAsync([
+            new ExerciseSummaryDto(
+                id, name, BodyPart.Chest, mode, null, null, null, null, false)
+        ], _clock.UtcNow);
 
     private TrackZLocalDatabase Database() => new(_path);
     private LocalWorkoutRepository Repository() => new(Database());
@@ -335,6 +431,8 @@ public sealed class WorkoutHistoryViewModelTests : IAsyncDisposable
         {
             var path = _path + suffix;
             if (File.Exists(path)) File.Delete(path);
+            var exercisePath = _exercisePath + suffix;
+            if (File.Exists(exercisePath)) File.Delete(exercisePath);
         }
         return ValueTask.CompletedTask;
     }
@@ -443,5 +541,14 @@ public sealed class WorkoutHistoryViewModelTests : IAsyncDisposable
             IsOnline = isOnline;
             _changed?.Invoke(this, EventArgs.Empty);
         }
+    }
+
+    private sealed class DictionaryPreferenceStore : IWorkoutPreferenceStore
+    {
+        private readonly Dictionary<string, string> _values = [];
+
+        public string? Get(string key) => _values.GetValueOrDefault(key);
+
+        public void Set(string key, string value) => _values[key] = value;
     }
 }

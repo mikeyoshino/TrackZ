@@ -77,6 +77,28 @@ public sealed class ExerciseDefinitionTests
         Assert.False(exercise.IsSystem);
     }
 
+    [Fact]
+    public void Custom_exercise_preserves_its_nonempty_client_stable_identifier()
+    {
+        var ownerId = Guid.NewGuid();
+        var clientExerciseId = Guid.Parse("5f1b4b65-10e8-4e1a-bf06-c1d4538f57de");
+
+        var exercise = ExerciseDefinition.CreateCustom(
+            ownerId,
+            clientExerciseId,
+            "Offline Press",
+            BodyPart.Chest,
+            TrackingMode.Weighted);
+
+        Assert.Equal(clientExerciseId, exercise.Id);
+        Assert.Throws<ArgumentException>(() => ExerciseDefinition.CreateCustom(
+            ownerId,
+            Guid.Empty,
+            "Offline Press",
+            BodyPart.Chest,
+            TrackingMode.Weighted));
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("   ")]

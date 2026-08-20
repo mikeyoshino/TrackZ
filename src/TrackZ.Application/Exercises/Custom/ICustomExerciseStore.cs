@@ -8,6 +8,8 @@ public interface ICustomExerciseStore
 
     Task<ExerciseDefinition?> FindCustomByOperationAsync(Guid ownerId, Guid operationId, CancellationToken cancellationToken);
 
+    Task<ExerciseDefinition?> FindAnyExerciseByIdAsync(Guid exerciseId, CancellationToken cancellationToken);
+
     Task<ExerciseImage?> FindPublishedLibraryImageAsync(Guid imageId, CancellationToken cancellationToken);
 
     Task<ExerciseDefinition?> FindActiveCustomOwnedAsync(Guid exerciseId, Guid ownerId, CancellationToken cancellationToken);

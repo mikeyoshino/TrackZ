@@ -129,6 +129,55 @@ public sealed class WorkoutHistoryCoordinatorTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task Delete_workout_exercise_queues_typed_intent_and_undo_restores_exact_snapshot()
+    {
+        var firstDefinitionId = Guid.NewGuid();
+        var secondDefinitionId = Guid.NewGuid();
+        var active = Coordinator();
+        await active.StartAsync([
+            new WorkoutExerciseSelection(firstDefinitionId, TrackingMode.Bodyweight),
+            new WorkoutExerciseSelection(secondDefinitionId, TrackingMode.Weighted)
+        ]);
+        _clock.UtcNow = _clock.UtcNow.AddMinutes(1);
+        await active.SaveSetAsync(firstDefinitionId, new LocalSet(null, null, 10));
+        _clock.UtcNow = _clock.UtcNow.AddMinutes(1);
+        await active.SaveSetAsync(secondDefinitionId, new LocalSet(70.125m, null, 8));
+        _clock.UtcNow = _clock.UtcNow.AddMinutes(1);
+        var completed = await active.FinishAsync();
+        var removed = completed.Exercises.Single(item =>
+            item.ExerciseDefinitionId == firstDefinitionId);
+        var remaining = completed.Exercises.Single(item =>
+            item.ExerciseDefinitionId == secondDefinitionId);
+        var operationId = Guid.NewGuid();
+        _clock.UtcNow = _clock.UtcNow.AddMinutes(1);
+
+        var mutation = await History().DeleteWorkoutExerciseAsync(
+            completed.Id, removed.Id, operationId);
+
+        var operation = Assert.Single(
+            await Outbox().PendingAsync(),
+            item => item.OperationId == operationId);
+        var payload = operation.DeserializePayload<DeleteWorkoutExerciseOutboxPayload>();
+        Assert.Equal(OutboxOperationType.DeleteWorkoutExercise, operation.Type);
+        Assert.Equal(completed.Version, operation.BaseVersion);
+        Assert.Equal(completed.Id, payload.WorkoutId);
+        Assert.Equal(removed.Id, payload.WorkoutExerciseId);
+        Assert.Equal(operation.CreatedAt, payload.DeletedAt);
+        Assert.NotNull(mutation.Workout.Exercises.Single(item => item.Id == removed.Id).DeletedAt);
+        Assert.Equal(0, mutation.Workout.Exercises.Single(item => item.Id == remaining.Id).Order);
+        Assert.Equal(2, await UndoCountAsync());
+
+        var restored = await History().UndoAsync(operationId);
+
+        Assert.Null(restored.Exercises.Single(item => item.Id == removed.Id).DeletedAt);
+        Assert.Equal([0, 1], restored.Exercises.OrderBy(item => item.Order).Select(item => item.Order));
+        Assert.Equal(70.125m, Assert.Single(restored.Exercises
+            .Single(item => item.Id == remaining.Id).Sets).WeightKg);
+        Assert.DoesNotContain(await Outbox().PendingAsync(), item => item.OperationId == operationId);
+        Assert.Equal(1, await UndoCountAsync());
+    }
+
+    [Fact]
     public async Task Undo_fails_closed_after_send_starts_and_snapshot_purges_only_after_applied_pull()
     {
         var exerciseId = Guid.NewGuid();

@@ -49,6 +49,46 @@ public sealed class ActiveWorkoutCoordinatorTests : IDisposable
         Assert.Equal(10, payload.Reps);
     }
 
+    [Fact]
+    public async Task Active_add_reorder_and_remove_each_commit_one_typed_operation_and_survive_restart()
+    {
+        var secondDefinitionId = Guid.Parse("22222222-2222-2222-2222-222222222222");
+        var addedExerciseId = Guid.Parse("33333333-3333-3333-3333-333333333333");
+        var addOperationId = Guid.Parse("44444444-4444-4444-8444-444444444444");
+        var reorderOperationId = Guid.Parse("55555555-5555-4555-8555-555555555555");
+        var removeOperationId = Guid.Parse("66666666-6666-4666-8666-666666666666");
+        var fixture = CreateFixture();
+        var started = await fixture.Coordinator.StartAsync([
+            new WorkoutExerciseSelection(_exerciseId, TrackingMode.Weighted)
+        ]);
+
+        var added = await fixture.Coordinator.AddExerciseAsync(
+            new WorkoutExerciseSelection(secondDefinitionId, TrackingMode.Bodyweight),
+            addedExerciseId,
+            addOperationId);
+        await fixture.Coordinator.ReorderExercisesAsync(
+            [addedExerciseId, started.Exercises[0].Id],
+            reorderOperationId);
+        await fixture.Coordinator.RemoveExerciseAsync(addedExerciseId, removeOperationId);
+
+        var restored = await CreateFixture().Coordinator.RestoreActiveAsync();
+        Assert.Equal([started.Exercises[0].Id], restored!.Exercises
+            .Where(item => item.DeletedAt is null).OrderBy(item => item.Order).Select(item => item.Id));
+        Assert.Equal(addedExerciseId, added.Id);
+        var operations = await fixture.Outbox.PendingAsync();
+        Assert.Equal(4, operations.Count);
+        Assert.Equal(
+            [OutboxOperationType.StartWorkout, OutboxOperationType.AddExercise,
+             OutboxOperationType.ReorderExercises, OutboxOperationType.RemoveExercise],
+            operations.Select(item => item.Type));
+        Assert.Single(operations, item => item.Type == OutboxOperationType.ReorderExercises);
+        Assert.Equal(addedExerciseId,
+            operations[1].DeserializePayload<AddExerciseOutboxPayload>().WorkoutExerciseId);
+        Assert.Equal(
+            [addedExerciseId, started.Exercises[0].Id],
+            operations[2].DeserializePayload<ReorderExercisesOutboxPayload>().WorkoutExerciseIds);
+    }
+
     [Theory]
     [InlineData(TrackingMode.Weighted, "82.375", null)]
     [InlineData(TrackingMode.Bodyweight, null, null)]
@@ -239,7 +279,7 @@ public sealed class ActiveWorkoutCoordinatorTests : IDisposable
     }
 
     [Fact]
-    public async Task Durable_replacement_barrier_blocks_generic_graph_edit_and_new_start_without_partial_write()
+    public async Task Durable_replacement_barrier_blocks_only_the_conflicted_workout_aggregate()
     {
         var fixture = CreateFixture();
         var original = await fixture.Coordinator.StartAsync([
@@ -269,13 +309,12 @@ public sealed class ActiveWorkoutCoordinatorTests : IDisposable
             WHERE Id = '{original.Id:D}';
             """);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            fixture.Coordinator.StartAsync([
-                new WorkoutExerciseSelection(Guid.NewGuid(), TrackingMode.Bodyweight)
-            ]));
+        var unrelated = await fixture.Coordinator.StartAsync([
+            new WorkoutExerciseSelection(Guid.NewGuid(), TrackingMode.Bodyweight)
+        ]);
 
-        Assert.Null(await fixture.Repository.GetActiveAsync(default));
-        Assert.Equal(2, (await fixture.Outbox.PendingAsync()).Count);
+        Assert.Equal(unrelated.Id, (await fixture.Repository.GetActiveAsync(default))!.Id);
+        Assert.Equal(3, (await fixture.Outbox.PendingAsync()).Count);
     }
 
     [Fact]

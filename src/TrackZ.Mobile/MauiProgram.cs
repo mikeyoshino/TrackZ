@@ -47,6 +47,7 @@ public static class MauiProgram
 			Timeout = TimeSpan.FromSeconds(30)
 		}));
 		builder.Services.AddSingleton<TrackZExerciseApiClient>();
+		builder.Services.AddSingleton<TrackZIdentityRefreshClient>();
 		builder.Services.AddSingleton<TrackZIdentityApiClient>();
 		builder.Services.AddSingleton<TrackZSyncApiClient>();
 		builder.Services.AddSingleton<ISyncApi>(services => services.GetRequiredService<TrackZSyncApiClient>());
@@ -63,6 +64,7 @@ public static class MauiProgram
 			services.GetRequiredService<IAccountSessionBoundary>()));
 		builder.Services.AddSingleton<IConnectivityService, MauiConnectivityService>();
 		builder.Services.AddSingleton<IClock, SystemClock>();
+		builder.Services.AddSingleton(TimeProvider.System);
 		builder.Services.AddSingleton<IRetryDelay, SystemRetryDelay>();
 		builder.Services.AddSingleton<IUiDispatcher, MauiUiDispatcher>();
 		builder.Services.AddSingleton<ILocalExerciseImagePicker, MauiLocalExerciseImagePicker>();
@@ -91,6 +93,12 @@ public static class MauiProgram
 		builder.Services.AddSingleton<MauiSetSavedFeedback>();
 		builder.Services.AddSingleton<ISetSavedFeedback>(services => services.GetRequiredService<MauiSetSavedFeedback>());
 		builder.Services.AddSingleton<SyncCoordinator>();
+		builder.Services.AddSingleton<ISyncAuthenticationRecovery, MauiSyncAuthenticationRecovery>();
+		builder.Services.AddSingleton<WorkoutSyncOrchestrator>();
+		builder.Services.AddSingleton<IWorkoutSyncTrigger>(services =>
+			services.GetRequiredService<WorkoutSyncOrchestrator>());
+		builder.Services.AddSingleton<IWorkoutSyncLifecycle>(services =>
+			services.GetRequiredService<WorkoutSyncOrchestrator>());
 		builder.Services.AddSingleton<ConflictResolution>();
 		builder.Services.AddSingleton<IConflictResolution>(services =>
 			services.GetRequiredService<ConflictResolution>());

@@ -75,6 +75,72 @@ public sealed class IdentityTokenIntegrationTests
     }
 
     [Fact]
+    public async Task Concurrent_refresh_callers_share_one_rotating_token_exchange()
+    {
+        var sessionId = Guid.Parse("aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb");
+        var storage = new MemoryTokenStorage();
+        var store = new MobileTokenStore(storage);
+        await store.SaveAsync(JwtWithSession(sessionId), "refresh-one");
+        var rotatedAccessToken = JwtWithSession(sessionId);
+        var handler = new ConcurrentRefreshHandler(rotatedAccessToken);
+        var httpClient = new HttpClient(handler) { BaseAddress = new Uri("https://trackz.test") };
+        var boundary = new AccountSessionBoundary();
+        var refresh = new TrackZIdentityRefreshClient(
+            httpClient,
+            store,
+            boundary);
+        var identity = new TrackZIdentityApiClient(
+            httpClient,
+            store,
+            new RecordingPrivateDataCleaner(),
+            boundary,
+            refresh);
+
+        var first = identity.RefreshAsync("phone");
+        await handler.FirstEntered.WaitAsync(TimeSpan.FromSeconds(2));
+        var second = refresh.RefreshAsync("phone");
+        await Task.Delay(100);
+        handler.ReleaseFirst();
+
+        var error = await Record.ExceptionAsync(() => Task.WhenAll(first, second));
+
+        Assert.Null(error);
+        Assert.Equal(1, handler.RequestCount);
+        Assert.Equal("refresh-two", await store.GetRefreshTokenAsync());
+        Assert.Equal(rotatedAccessToken, await store.GetAccessTokenAsync());
+    }
+
+    [Fact]
+    public async Task Account_reset_cancels_inflight_refresh_and_prevents_queued_old_session_post()
+    {
+        var oldUser = Guid.Parse("11111111-1111-1111-1111-111111111111");
+        var newUser = Guid.Parse("22222222-2222-2222-2222-222222222222");
+        var storage = new MemoryTokenStorage();
+        var store = new MobileTokenStore(storage);
+        var boundary = new AccountSessionBoundary();
+        await store.SaveAsync(JwtWithSession(Guid.NewGuid(), oldUser), "old-refresh");
+        var handler = new ConcurrentRefreshHandler(
+            JwtWithSession(Guid.NewGuid(), oldUser));
+        var refresh = new TrackZIdentityRefreshClient(
+            new HttpClient(handler) { BaseAddress = new Uri("https://trackz.test") },
+            store,
+            boundary);
+
+        var first = refresh.RefreshAsync("phone");
+        await handler.FirstEntered.WaitAsync(TimeSpan.FromSeconds(2));
+        var queued = refresh.RefreshAsync("phone");
+        await boundary.ResetAsync(token => store.SaveAsync(
+            JwtWithSession(Guid.NewGuid(), newUser), "new-refresh", token));
+        handler.ReleaseFirst();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => first);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => queued);
+        Assert.Equal(1, handler.RequestCount);
+        Assert.Equal(newUser.ToString("D"), await store.GetUserIdAsync());
+        Assert.Equal("new-refresh", await store.GetRefreshTokenAsync());
+    }
+
+    [Fact]
     public async Task Auth_first_logout_preserves_problem_and_still_clears_private_session()
     {
         var sessionId = Guid.Parse("aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb");
@@ -125,7 +191,6 @@ public sealed class IdentityTokenIntegrationTests
         var accountChange = boundary.ResetAsync(token => store.SaveAsync(
             JwtWithSession(Guid.NewGuid(), newUser), "new-refresh", token));
         storage.ReleaseRefreshRead();
-        await handler.Entered;
         await accountChange;
         handler.Release();
 
@@ -333,6 +398,38 @@ public sealed class IdentityTokenIntegrationTests
         {
             RequestBodies.Add(request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync(cancellationToken));
             return _responses.Dequeue();
+        }
+    }
+
+    private sealed class ConcurrentRefreshHandler(string accessToken) : HttpMessageHandler
+    {
+        private readonly TaskCompletionSource _firstEntered = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _releaseFirst = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _requestCount;
+
+        public Task FirstEntered => _firstEntered.Task;
+        public int RequestCount => Volatile.Read(ref _requestCount);
+        public void ReleaseFirst() => _releaseFirst.TrySetResult();
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            var attempt = Interlocked.Increment(ref _requestCount);
+            if (attempt == 1)
+            {
+                _firstEntered.TrySetResult();
+                await _releaseFirst.Task.WaitAsync(cancellationToken);
+                return Json(HttpStatusCode.OK,
+                    $$"""{"accessToken":"{{accessToken}}","refreshToken":"refresh-two","expiresAt":"2026-08-15T12:15:00Z"}""");
+            }
+
+            return Problem(
+                HttpStatusCode.Unauthorized,
+                BusinessErrorCode.RefreshTokenInvalid,
+                "Refresh token is invalid.");
         }
     }
 

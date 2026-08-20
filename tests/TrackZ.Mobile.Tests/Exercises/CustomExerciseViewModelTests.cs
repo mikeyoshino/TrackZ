@@ -9,6 +9,7 @@ using System.Text;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using TrackZ.Mobile.Identity;
+using TrackZ.Mobile.Sync;
 
 namespace TrackZ.Mobile.Tests.Exercises;
 
@@ -72,6 +73,7 @@ public sealed class CustomExerciseViewModelTests : IAsyncLifetime
             LocalImageContentType = "image/png"
         };
         await sut.SaveAsync();
+        var localExerciseId = Assert.Single(await _cache.GetAllAsync()).Id;
         var original = await File.ReadAllBytesAsync(_imagePath);
 
         connectivity.SetOnline(true);
@@ -81,7 +83,8 @@ public sealed class CustomExerciseViewModelTests : IAsyncLifetime
         Assert.Equal(["request", "content", "complete"], mediaApi.Calls);
         Assert.Equal(0, await new ExerciseCache(_databasePath).CountPendingAsync());
         var cached = Assert.Single(await _cache.GetAllAsync());
-        Assert.Equal(RecordingCustomApi.ServerId, cached.Id);
+        Assert.Equal(localExerciseId, customApi.Saved[0].LocalExerciseId);
+        Assert.Equal(localExerciseId, cached.Id);
         Assert.Equal("/local/cached-upload.jpg", cached.ThumbnailUri);
         Assert.False(cached.IsPendingSync);
     }
@@ -172,6 +175,57 @@ public sealed class CustomExerciseViewModelTests : IAsyncLifetime
 
         Assert.Equal(BusinessErrorCode.ExerciseNameDuplicate, error.ErrorCode);
         Assert.Equal("Duplicate", error.Message);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.Unauthorized)]
+    [InlineData(HttpStatusCode.Forbidden)]
+    public async Task Api_auth_status_is_typed_separately_from_permanent_business_rejection(
+        HttpStatusCode status)
+    {
+        var handler = new SingleHttpHandler(new HttpResponseMessage(status)
+        {
+            Content = new StringContent(
+                $$"""{"type":"about:blank","title":"Authentication required","status":{{(int)status}},"errorCode":10009,"message":"Authentication is required.","traceId":"trace","fieldErrors":null}""",
+                Encoding.UTF8,
+                "application/problem+json")
+        });
+        var client = new TrackZExerciseApiClient(
+            new HttpClient(handler) { BaseAddress = new Uri("https://trackz.test") });
+
+        var error = await Assert.ThrowsAsync<MobileApiException>(() => client.CreateAsync(
+            new CustomExerciseDraft("Press", BodyPart.Chest, TrackingMode.Weighted, null, null, null)));
+
+        Assert.True(error.IsAuthenticationRequired);
+        Assert.False(error.IsRetryable);
+        Assert.Equal(BusinessErrorCode.InvalidRequest, error.ErrorCode);
+    }
+
+    [Fact]
+    public async Task Foreground_auth_failure_refreshes_once_and_retries_the_durable_intent()
+    {
+        var customApi = new AuthenticationRequiredOnceCustomApi();
+        var recovery = new RecordingAuthenticationRecovery();
+        using var service = new CustomExerciseImageService(
+            _cache, new MutableConnectivity(true), customApi, new RecordingMediaApi(),
+            new LocalExerciseFileStore(), new FixedClock(), new RecordingThumbnailCache(),
+            authenticationRecovery: recovery);
+        var sut = new CustomExerciseViewModel(service)
+        {
+            Name = "Authenticated Press",
+            BodyPart = BodyPart.Chest,
+            TrackingMode = TrackingMode.Weighted
+        };
+
+        Assert.True(await sut.SaveAsync());
+
+        Assert.Equal(1, recovery.Attempts);
+        Assert.Equal(2, customApi.CreateCount);
+        Assert.Empty(await _cache.GetPendingAsync());
+        Assert.Empty(await _cache.GetFailedAsync());
+        var cached = Assert.Single(await _cache.GetAllAsync());
+        Assert.Equal(customApi.LocalExerciseId, cached.Id);
+        Assert.False(cached.IsPendingSync);
     }
 
     [Fact]
@@ -513,8 +567,9 @@ public sealed class CustomExerciseViewModelTests : IAsyncLifetime
         var clock = new MutableClock(DateTimeOffset.Parse("2026-08-15T10:00:00Z"));
         var mediaApi = new TransientCompletionConflictMediaApi(clock, succeedOnAttempt: 3);
         var retryDelay = new RecordingRetryDelay();
+        var customApi = new RecordingCustomApi();
         using var service = new CustomExerciseImageService(
-            _cache, new MutableConnectivity(true), new RecordingCustomApi(), mediaApi,
+            _cache, new MutableConnectivity(true), customApi, mediaApi,
             new LocalExerciseFileStore(), clock, new RecordingThumbnailCache(),
             retryDelay: retryDelay);
 
@@ -522,7 +577,7 @@ public sealed class CustomExerciseViewModelTests : IAsyncLifetime
             "Conflict press", BodyPart.Chest, TrackingMode.Weighted, null,
             _imagePath, "image/png", LocalPreviewPath: "/local/conflict-preview.jpg"));
 
-        Assert.Equal(RecordingCustomApi.ServerId, saved);
+        Assert.Equal(customApi.Saved[0].LocalExerciseId, saved);
         Assert.Equal(3, mediaApi.CompleteUploadIds.Count);
         Assert.Single(mediaApi.CompleteUploadIds.Distinct());
         Assert.Equal([TimeSpan.FromMilliseconds(100), TimeSpan.FromMilliseconds(250)], retryDelay.Delays);
@@ -567,7 +622,7 @@ public sealed class CustomExerciseViewModelTests : IAsyncLifetime
             "Missing reservation press", BodyPart.Chest, TrackingMode.Weighted, null,
             _imagePath, "image/png", LocalPreviewPath: "/local/missing-preview.jpg"));
 
-        Assert.Equal(RecordingCustomApi.ServerId, saved);
+        Assert.Equal(customApi.Saved[0].LocalExerciseId, saved);
         Assert.Equal(1, customApi.CreateCount);
         Assert.Equal(2, mediaApi.RequestCount);
         Assert.Equal(2, mediaApi.ContentCount);
@@ -704,7 +759,7 @@ public sealed class CustomExerciseViewModelTests : IAsyncLifetime
 
     private CustomExerciseImageService Service(
         MutableConnectivity connectivity,
-        RecordingCustomApi customApi,
+        ICustomExerciseApi customApi,
         RecordingMediaApi mediaApi,
         IExerciseThumbnailCache? thumbnailCache = null) =>
         new(_cache, connectivity, customApi, mediaApi, new LocalExerciseFileStore(), new FixedClock(),
@@ -749,7 +804,6 @@ public sealed class CustomExerciseViewModelTests : IAsyncLifetime
 
     private sealed class RecordingCustomApi : ICustomExerciseApi
     {
-        public static readonly Guid ServerId = Guid.Parse("22222222-2222-2222-2222-222222222222");
         public List<CustomExerciseDraft> Saved { get; } = [];
         public int CreateCount { get; private set; }
         public int UpdateCount { get; private set; }
@@ -758,7 +812,7 @@ public sealed class CustomExerciseViewModelTests : IAsyncLifetime
         {
             CreateCount++;
             Saved.Add(exercise);
-            return Task.FromResult(ServerId);
+            return Task.FromResult(exercise.LocalExerciseId);
         }
 
         public Task UpdateAsync(Guid exerciseId, CustomExerciseDraft exercise, CancellationToken cancellationToken = default)
@@ -782,7 +836,7 @@ public sealed class CustomExerciseViewModelTests : IAsyncLifetime
             CreateCount++;
             _entered.TrySetResult();
             await _release.Task.WaitAsync(cancellationToken);
-            return RecordingCustomApi.ServerId;
+            return exercise.LocalExerciseId;
         }
 
         public Task UpdateAsync(Guid exerciseId, CustomExerciseDraft exercise, CancellationToken cancellationToken = default)
@@ -801,6 +855,42 @@ public sealed class CustomExerciseViewModelTests : IAsyncLifetime
 
         public Task UpdateAsync(Guid exerciseId, CustomExerciseDraft exercise, CancellationToken cancellationToken = default) =>
             throw new HttpRequestException("connection lost");
+    }
+
+    private sealed class AuthenticationRequiredOnceCustomApi : ICustomExerciseApi
+    {
+        public int CreateCount { get; private set; }
+        public Guid LocalExerciseId { get; private set; }
+
+        public Task<Guid> CreateAsync(
+            CustomExerciseDraft exercise,
+            CancellationToken cancellationToken = default)
+        {
+            CreateCount++;
+            LocalExerciseId = exercise.LocalExerciseId;
+            if (CreateCount == 1)
+                throw new MobileApiException(
+                    BusinessErrorCode.InvalidRequest,
+                    "Authentication is required.",
+                    isAuthenticationRequired: true);
+            return Task.FromResult(exercise.LocalExerciseId);
+        }
+
+        public Task UpdateAsync(
+            Guid exerciseId,
+            CustomExerciseDraft exercise,
+            CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
+    private sealed class RecordingAuthenticationRecovery : ISyncAuthenticationRecovery
+    {
+        public int Attempts { get; private set; }
+
+        public Task<bool> TryRecoverAsync(CancellationToken cancellationToken = default)
+        {
+            Attempts++;
+            return Task.FromResult(true);
+        }
     }
 
     private sealed class FailingCatalogApi : IExerciseCatalogApi

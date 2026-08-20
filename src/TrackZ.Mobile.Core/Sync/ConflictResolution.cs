@@ -10,14 +10,23 @@ public interface IConflictResolution
         CancellationToken cancellationToken = default);
 }
 
-public sealed class ConflictResolution(SyncCoordinator coordinator) : IConflictResolution
+public sealed class ConflictResolution(
+    SyncCoordinator coordinator,
+    IWorkoutSyncTrigger? syncTrigger = null) : IConflictResolution
 {
-    public Task KeepServerAsync(Guid operationId, CancellationToken cancellationToken = default) =>
-        coordinator.KeepServerAsync(operationId, cancellationToken);
+    public async Task KeepServerAsync(Guid operationId, CancellationToken cancellationToken = default)
+    {
+        await coordinator.KeepServerAsync(operationId, cancellationToken);
+        syncTrigger?.NotifyMutation();
+    }
 
-    public Task<OutboxOperation> ApplyLocalAgainstVersionAsync(
+    public async Task<OutboxOperation> ApplyLocalAgainstVersionAsync(
         Guid operationId,
         long serverVersion,
-        CancellationToken cancellationToken = default) =>
-        coordinator.RebaseAsync(operationId, serverVersion, cancellationToken);
+        CancellationToken cancellationToken = default)
+    {
+        var replacement = await coordinator.RebaseAsync(operationId, serverVersion, cancellationToken);
+        syncTrigger?.NotifyMutation();
+        return replacement;
+    }
 }

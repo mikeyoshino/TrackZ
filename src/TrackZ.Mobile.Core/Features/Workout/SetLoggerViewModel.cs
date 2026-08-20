@@ -2,7 +2,9 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Globalization;
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 using System.Windows.Input;
+using TrackZ.Contracts.Sync;
 using TrackZ.Contracts.Workouts;
 using TrackZ.Domain.Exercises;
 using TrackZ.Domain.Workouts;
@@ -100,7 +102,9 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
     private readonly WorkoutTextSet _text;
     private readonly IWorkoutSyncRunner? _syncRunner;
     private readonly IWeightUnitPreference? _unitPreference;
+    private readonly IConflictResolution? _conflicts;
     private readonly CancellationTokenSource _lifetime = new();
+    private CancellationTokenSource? _loadCancellation;
     private Guid _workoutId;
     private Guid _exerciseId;
     private string _exerciseName = string.Empty;
@@ -113,6 +117,11 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
     private WorkoutSyncState _syncState = WorkoutSyncState.Synced;
     private WeightDisplayUnit _displayUnit;
     private bool _disposed;
+    private int _loadGeneration;
+    private DateTimeOffset? _lastHistoryCompletedAt;
+    private OutboxOperation? _activeConflict;
+    private string? _conflictLocalSummary;
+    private string? _conflictServerSummary;
 
     public SetLoggerViewModel(
         ActiveWorkoutCoordinator coordinator,
@@ -123,7 +132,8 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         IWorkoutOutboxStatusSource outbox,
         WorkoutTextSet text,
         IWorkoutSyncRunner? syncRunner = null,
-        IWeightUnitPreference? unitPreference = null)
+        IWeightUnitPreference? unitPreference = null,
+        IConflictResolution? conflicts = null)
     {
         _coordinator = coordinator;
         _history = history;
@@ -134,6 +144,7 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         _text = text;
         _syncRunner = syncRunner;
         _unitPreference = unitPreference;
+        _conflicts = conflicts;
         _displayUnit = unitPreference?.Current ?? WeightDisplayUnit.Kilograms;
         MatchLastCommand = new RelayCommand(_ => MatchLast(), _ => CanMatchLast);
         CompleteSetCommand = new AsyncCommand(_ => CompleteSetAsync(), _ => CanCompleteSet);
@@ -143,6 +154,8 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         DecrementRepsCommand = new RelayCommand(_ => Reps = Math.Max(0, Reps - 1), _ => !_disposed && !IsBusy);
         UseKilogramsCommand = new RelayCommand(_ => DisplayUnit = WeightDisplayUnit.Kilograms, _ => !_disposed && !IsBusy);
         UsePoundsCommand = new RelayCommand(_ => DisplayUnit = WeightDisplayUnit.Pounds, _ => !_disposed && !IsBusy);
+        KeepServerCommand = new AsyncCommand(_ => ResolveConflictAsync(keepServer: true), _ => CanResolveConflict);
+        ApplyLocalCommand = new AsyncCommand(_ => ResolveConflictAsync(keepServer: false), _ => CanResolveConflict);
         _boundary.SessionReset += OnSessionReset;
         _connectivity.ConnectivityChanged += OnConnectivityChanged;
     }
@@ -157,8 +170,25 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
     public ICommand DecrementRepsCommand { get; }
     public ICommand UseKilogramsCommand { get; }
     public ICommand UsePoundsCommand { get; }
+    public AsyncCommand KeepServerCommand { get; }
+    public AsyncCommand ApplyLocalCommand { get; }
     public WorkoutTextSet Text => _text;
     public Task SyncCompletion { get; private set; } = Task.CompletedTask;
+    public Task HistoryRefreshCompletion { get; private set; } = Task.CompletedTask;
+    public bool HasConflict => _activeConflict is not null;
+    public bool IsReconciling => SyncState == WorkoutSyncState.Reconciling;
+    public string? ConflictLocalSummary
+    {
+        get => _conflictLocalSummary;
+        private set => Set(ref _conflictLocalSummary, value);
+    }
+    public string? ConflictServerSummary
+    {
+        get => _conflictServerSummary;
+        private set => Set(ref _conflictServerSummary, value);
+    }
+    private bool CanResolveConflict => !_disposed && !IsBusy && !IsReconciling
+        && _conflicts is not null && _activeConflict?.ServerVersion is not null;
 
     public string ExerciseName
     {
@@ -308,6 +338,8 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         {
             if (!Set(ref _syncState, value)) return;
             OnPropertyChanged(nameof(SyncStatusText));
+            OnPropertyChanged(nameof(IsReconciling));
+            RaiseCommands();
         }
     }
 
@@ -332,10 +364,14 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         if (_disposed) return;
         if (exerciseId == Guid.Empty) throw new ArgumentException("Exercise ID is required.", nameof(exerciseId));
         ArgumentException.ThrowIfNullOrWhiteSpace(exerciseName);
-        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(
+        _loadCancellation?.Cancel();
+        _loadCancellation?.Dispose();
+        _loadCancellation = CancellationTokenSource.CreateLinkedTokenSource(
             cancellationToken, _lifetime.Token);
-        var token = lifetime.Token;
+        var token = _loadCancellation.Token;
+        var loadGeneration = Interlocked.Increment(ref _loadGeneration);
         var generation = _boundary.Capture();
+        var loaded = false;
         IsBusy = true;
         ErrorMessage = null;
         try
@@ -346,7 +382,7 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
                 item.DeletedAt is null && item.ExerciseDefinitionId == exerciseId)
                 ?? throw new ArgumentException("Exercise is not in the active workout.", nameof(exerciseId));
             var previous = await _history.GetMostRecentAsync(
-                exerciseId, _connectivity.IsOnline, token);
+                exerciseId, refreshIfOnline: false, token);
             token.ThrowIfCancellationRequested();
             if (_disposed || _boundary.IsCancellationRequested(generation)) return;
 
@@ -354,6 +390,7 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
             _exerciseId = exerciseId;
             ExerciseName = exerciseName;
             TrackingMode = exercise.TrackingMode;
+            _lastHistoryCompletedAt = previous?.CompletedAt;
             LastSets.Clear();
             if (previous is not null)
             {
@@ -367,6 +404,7 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
                 TodaySets.Add(Row(set, exercise.TrackingMode));
             MatchLast();
             await RefreshSyncStateCoreAsync(token);
+            loaded = true;
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested
             || _boundary.IsCancellationRequested(generation))
@@ -388,6 +426,69 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
                 IsBusy = false;
                 MeasurementChanged();
             }
+        }
+        if (loaded && _connectivity.IsOnline && !_disposed)
+            HistoryRefreshCompletion = RefreshHistoryInBackgroundAsync(
+                exerciseId,
+                activeWorkoutId: _workoutId,
+                expectedMode: TrackingMode,
+                generation,
+                loadGeneration,
+                token);
+        else
+            HistoryRefreshCompletion = Task.CompletedTask;
+    }
+
+    private async Task RefreshHistoryInBackgroundAsync(
+        Guid exerciseId,
+        Guid activeWorkoutId,
+        TrackingMode expectedMode,
+        AccountSessionGeneration generation,
+        int loadGeneration,
+        CancellationToken cancellationToken)
+    {
+        await Task.Yield();
+        try
+        {
+            var refreshed = await _history.GetMostRecentAsync(
+                exerciseId, refreshIfOnline: true, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (refreshed is null
+                || refreshed.TrackingMode != expectedMode
+                || refreshed.CompletedAt <= _lastHistoryCompletedAt
+                || _disposed
+                || loadGeneration != Volatile.Read(ref _loadGeneration)
+                || _boundary.IsCancellationRequested(generation)
+                || _exerciseId != exerciseId
+                || _workoutId != activeWorkoutId)
+                return;
+
+            var ordered = OrderedExact(refreshed.Sets);
+            LastSets.Clear();
+            foreach (var set in ordered) LastSets.Add(Row(set, expectedMode));
+            _lastHistoryCompletedAt = refreshed.CompletedAt;
+            OnPropertyChanged(nameof(CanMatchLast));
+            MeasurementChanged();
+        }
+        catch (OperationCanceledException) when (
+            cancellationToken.IsCancellationRequested
+            || _boundary.IsCancellationRequested(generation))
+        {
+        }
+        catch (Exception exception) when (
+            exception is HttpRequestException or IOException
+            || exception is MobileApiException { IsRetryable: true })
+        {
+            // Cached/local history is already visible; offline refresh is normal.
+        }
+        catch (Exception)
+        {
+            if (!_disposed
+                && loadGeneration == Volatile.Read(ref _loadGeneration)
+                && !_boundary.IsCancellationRequested(generation)
+                && _exerciseId == exerciseId
+                && _workoutId == activeWorkoutId)
+                ErrorMessage = _text.LoadFailed;
         }
     }
 
@@ -498,18 +599,24 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (_disposed) return;
-        if (!_connectivity.IsOnline)
+        var pending = await _outbox.PendingAsync(_workoutId, cancellationToken);
+        if (pending.Any(operation => operation.SendStartedAt is not null))
         {
-            SyncState = WorkoutSyncState.Offline;
+            ClearActiveConflict();
+            SyncState = WorkoutSyncState.Reconciling;
             return;
         }
-        if ((await _outbox.ConflictedAsync(_workoutId, cancellationToken)).Count != 0)
+        var conflicts = await _outbox.ConflictedAsync(_workoutId, cancellationToken);
+        if (conflicts.Count != 0)
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (_disposed) return;
+            SetActiveConflict(conflicts.OrderBy(item => item.CreatedAt)
+                .ThenBy(item => item.OperationId).First());
             SyncState = WorkoutSyncState.Conflicted;
             return;
         }
+        ClearActiveConflict();
         if ((await _outbox.RejectedAsync(_workoutId, cancellationToken)).Count != 0)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -517,12 +624,120 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
             SyncState = WorkoutSyncState.PermanentFailure;
             return;
         }
-        var pending = await _outbox.PendingAsync(_workoutId, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         if (_disposed) return;
-        SyncState = pending.Count == 0
-            ? WorkoutSyncState.Synced
-            : WorkoutSyncState.Pending;
+        SyncState = !_connectivity.IsOnline
+            ? WorkoutSyncState.Offline
+            : pending.Count == 0
+                ? WorkoutSyncState.Synced
+                : WorkoutSyncState.Pending;
+    }
+
+    private async Task ResolveConflictAsync(bool keepServer)
+    {
+        var conflict = _activeConflict;
+        if (!CanResolveConflict || conflict?.ServerVersion is not { } serverVersion) return;
+        IsBusy = true;
+        ErrorMessage = null;
+        try
+        {
+            if (keepServer)
+                await _conflicts!.KeepServerAsync(conflict.OperationId, _lifetime.Token);
+            else
+                _ = await _conflicts!.ApplyLocalAgainstVersionAsync(
+                    conflict.OperationId, serverVersion, _lifetime.Token);
+            await RefreshSyncStateCoreAsync(_lifetime.Token);
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
+        {
+        }
+        catch (Exception) when (!_disposed)
+        {
+            ErrorMessage = _text.HistoryConflictFailed;
+        }
+        finally
+        {
+            if (!_disposed) IsBusy = false;
+        }
+    }
+
+    private void SetActiveConflict(OutboxOperation operation)
+    {
+        _activeConflict = operation;
+        ConflictLocalSummary = LocalConflictSummary(operation);
+        ConflictServerSummary = ServerConflictSummary(operation);
+        OnPropertyChanged(nameof(HasConflict));
+        RaiseCommands();
+    }
+
+    private string LocalConflictSummary(OutboxOperation operation) => operation.Type switch
+    {
+        OutboxOperationType.StartWorkout =>
+            $"Local StartWorkout · {Plural(operation.DeserializePayload<StartWorkoutOutboxPayload>().Exercises.Count, "exercise")} · base {operation.BaseVersion}",
+        OutboxOperationType.SaveSet => SaveSetConflictSummary(operation),
+        OutboxOperationType.CompleteWorkout =>
+            $"Local CompleteWorkout · base {operation.BaseVersion}",
+        OutboxOperationType.AddExercise =>
+            $"Local AddExercise · base {operation.BaseVersion}",
+        OutboxOperationType.RemoveExercise =>
+            $"Local RemoveExercise · base {operation.BaseVersion}",
+        OutboxOperationType.ReorderExercises =>
+            $"Local ReorderExercises · {Plural(operation.DeserializePayload<ReorderExercisesOutboxPayload>().WorkoutExerciseIds.Count, "exercise")} · base {operation.BaseVersion}",
+        _ => $"Local {operation.Type} · base {operation.BaseVersion}"
+    };
+
+    private string SaveSetConflictSummary(OutboxOperation operation)
+    {
+        var payload = operation.DeserializePayload<SaveSetOutboxPayload>();
+        var weight = ParseCanonical(payload.WeightKg);
+        var assisted = ParseCanonical(payload.AssistedKg);
+        var mode = weight is not null
+            ? TrackingMode.Weighted
+            : assisted is not null
+                ? TrackingMode.Assisted
+                : TrackingMode.Bodyweight;
+        return $"Local SaveSet · {Measurement(weight, assisted, payload.Reps, mode)} · base {operation.BaseVersion}";
+    }
+
+    private static string ServerConflictSummary(OutboxOperation operation)
+    {
+        if (operation.ServerPayload is null)
+            return $"Server version {operation.ServerVersion}";
+        try
+        {
+            var graph = JsonSerializer.Deserialize<SyncWorkoutDto>(
+                operation.ServerPayload, JsonSerializerOptions.Web);
+            if (graph is null) return $"Server version {operation.ServerVersion}";
+            var exercises = graph.Exercises.Count(item => item.DeletedAt is null);
+            var sets = graph.Exercises
+                .Where(item => item.DeletedAt is null)
+                .SelectMany(item => item.Sets)
+                .Count(item => item.DeletedAt is null);
+            return $"Server version {operation.ServerVersion} · {Plural(exercises, "exercise")} · {Plural(sets, "set")}";
+        }
+        catch (JsonException)
+        {
+            return $"Server version {operation.ServerVersion}";
+        }
+    }
+
+    private static decimal? ParseCanonical(string? value) => value is null
+        ? null
+        : decimal.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out var parsed)
+            ? parsed
+            : null;
+
+    private static string Plural(int count, string noun) =>
+        $"{count} {noun}{(count == 1 ? string.Empty : "s")}";
+
+    private void ClearActiveConflict()
+    {
+        if (_activeConflict is null && ConflictLocalSummary is null && ConflictServerSummary is null) return;
+        _activeConflict = null;
+        ConflictLocalSummary = null;
+        ConflictServerSummary = null;
+        OnPropertyChanged(nameof(HasConflict));
+        RaiseCommands();
     }
 
     private async Task SynchronizeBestEffortAsync(AccountSessionGeneration generation)
@@ -652,12 +867,17 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         (DecrementRepsCommand as RelayCommand)?.RaiseCanExecuteChanged();
         (UseKilogramsCommand as RelayCommand)?.RaiseCanExecuteChanged();
         (UsePoundsCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        KeepServerCommand.RaiseCanExecuteChanged();
+        ApplyLocalCommand.RaiseCanExecuteChanged();
     }
 
     public void Deactivate()
     {
         if (_disposed) return;
         _disposed = true;
+        Interlocked.Increment(ref _loadGeneration);
+        _loadCancellation?.Cancel();
+        _loadCancellation?.Dispose();
         _lifetime.Cancel();
         _boundary.SessionReset -= OnSessionReset;
         _connectivity.ConnectivityChanged -= OnConnectivityChanged;
@@ -686,6 +906,7 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         Reps = 0;
         ErrorMessage = null;
         SyncState = _connectivity.IsOnline ? WorkoutSyncState.Synced : WorkoutSyncState.Offline;
+        ClearActiveConflict();
         MeasurementChanged();
     }
 

@@ -1,8 +1,10 @@
 using System.Globalization;
 using System.Net;
 using System.Text;
+using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using TrackZ.Contracts.Exercises;
+using TrackZ.Contracts.Sync;
 using TrackZ.Contracts.Workouts;
 using TrackZ.Domain.Exercises;
 using TrackZ.Mobile.Data;
@@ -41,6 +43,121 @@ public sealed class SetLoggerViewModelTests : IDisposable
         Assert.Equal(70m, sut.WeightKg);
         Assert.Equal(9, sut.Reps);
         Assert.Equal([10, 9, 10], sut.LastSets.Select(item => item.Reps));
+    }
+
+    [Fact]
+    public async Task Load_publishes_local_history_and_enables_completion_before_remote_refresh_finishes()
+    {
+        var fixture = await CreateFixtureAsync(TrackingMode.Weighted);
+        var cached = Previous(TrackingMode.Weighted, Set(0, 70m, null, 10));
+        var refreshed = cached with
+        {
+            WorkoutId = Guid.NewGuid(),
+            CompletedAt = cached.CompletedAt.AddDays(1),
+            Sets = [Set(0, 80m, null, 8)]
+        };
+        var history = new GatedRemoteHistory(cached, refreshed);
+        var sut = new SetLoggerViewModel(
+            fixture.Coordinator,
+            history,
+            fixture.Feedback,
+            fixture.Boundary,
+            new StubConnectivity(true),
+            new OutboxRepository(fixture.Database),
+            WorkoutResources.English);
+
+        await sut.LoadAsync(ExerciseId, "Bench Press").WaitAsync(TimeSpan.FromSeconds(1));
+
+        Assert.False(sut.IsBusy);
+        sut.WeightKg = 60m;
+        sut.Reps = 10;
+        Assert.True(sut.CanCompleteSet);
+        Assert.Equal(70m, Assert.Single(sut.LastSets).WeightKg);
+        await history.RemoteEntered.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        history.ReleaseRemote.TrySetResult();
+        await sut.HistoryRefreshCompletion.WaitAsync(TimeSpan.FromSeconds(1));
+        Assert.Equal(80m, Assert.Single(sut.LastSets).WeightKg);
+    }
+
+    [Fact]
+    public async Task Malformed_background_refresh_keeps_local_history_and_exposes_safe_error_state()
+    {
+        var fixture = await CreateFixtureAsync(TrackingMode.Weighted);
+        var cached = Previous(TrackingMode.Weighted, Set(0, 70m, null, 10));
+        var sut = new SetLoggerViewModel(
+            fixture.Coordinator,
+            new RemoteFailingHistory(cached),
+            fixture.Feedback,
+            fixture.Boundary,
+            new StubConnectivity(true),
+            new OutboxRepository(fixture.Database),
+            WorkoutResources.English);
+
+        await sut.LoadAsync(ExerciseId, "Bench Press").WaitAsync(TimeSpan.FromSeconds(1));
+
+        Assert.Equal(70m, Assert.Single(sut.LastSets).WeightKg);
+        await sut.HistoryRefreshCompletion.WaitAsync(TimeSpan.FromSeconds(1));
+        Assert.Equal(70m, Assert.Single(sut.LastSets).WeightKg);
+        Assert.Equal("Could not load workout details", sut.ErrorMessage);
+        Assert.False(sut.IsBusy);
+    }
+
+    [Fact]
+    public async Task Active_conflict_presents_local_and_server_comparison_with_both_resolution_actions()
+    {
+        var fixture = await CreateFixtureAsync(TrackingMode.Weighted);
+        var active = (await fixture.Repository.GetActiveAsync())!;
+        var conflict = OutboxOperation.Create(
+            Guid.NewGuid(),
+            active.Id,
+            OutboxOperationType.SaveSet,
+            new SaveSetOutboxPayload(
+                active.Id, active.Exercises[0].Id, Guid.NewGuid(), 0, "70", null, 10, Now),
+            active.Version,
+            Now) with
+        {
+            State = OutboxOperationState.Conflicted,
+            ServerVersion = 4,
+            ServerPayload = JsonSerializer.Serialize(new SyncWorkoutDto(
+                active.Id,
+                2,
+                active.StartedAt,
+                null,
+                null,
+                4,
+                [new SyncWorkoutExerciseDto(
+                    active.Exercises[0].Id,
+                    ExerciseId,
+                    (int)TrackingMode.Weighted,
+                    0,
+                    null,
+                    1,
+                    [new SyncSetDto(
+                        Guid.NewGuid(), 0, "65", null, 8, Now.AddMinutes(-1), null, null, 1)])]))
+        };
+        var resolution = new RecordingConflictResolution();
+        var sut = new SetLoggerViewModel(
+            fixture.Coordinator,
+            new StubHistory(null),
+            fixture.Feedback,
+            fixture.Boundary,
+            new StubConnectivity(true),
+            new ConflictStatusSource(conflict),
+            WorkoutResources.English,
+            conflicts: resolution);
+
+        await sut.LoadAsync(ExerciseId, "Bench Press");
+
+        Assert.True(sut.HasConflict);
+        Assert.Contains("70 kg × 10", sut.ConflictLocalSummary);
+        Assert.Contains("1 exercise", sut.ConflictServerSummary);
+        Assert.Contains("1 set", sut.ConflictServerSummary);
+        Assert.True(sut.KeepServerCommand.CanExecute(null));
+        Assert.True(sut.ApplyLocalCommand.CanExecute(null));
+        await sut.KeepServerCommand.ExecuteAsync();
+        await sut.ApplyLocalCommand.ExecuteAsync();
+        Assert.Equal([conflict.OperationId], resolution.Kept);
+        Assert.Equal([(conflict.OperationId, 4L)], resolution.Applied);
     }
 
     [Theory]
@@ -994,6 +1111,27 @@ public sealed class SetLoggerViewModelTests : IDisposable
         }
     }
 
+    private sealed class GatedRemoteHistory(
+        ExerciseHistorySessionDto cached,
+        ExerciseHistorySessionDto refreshed) : IExerciseHistorySource
+    {
+        public TaskCompletionSource RemoteEntered { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseRemote { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public async Task<ExerciseHistorySessionDto?> GetMostRecentAsync(
+            Guid exerciseId,
+            bool refreshIfOnline,
+            CancellationToken cancellationToken = default)
+        {
+            if (!refreshIfOnline) return cached;
+            RemoteEntered.TrySetResult();
+            await ReleaseRemote.Task.WaitAsync(cancellationToken);
+            return refreshed;
+        }
+    }
+
     private sealed class FailingHistory : IExerciseHistorySource
     {
         public Task<ExerciseHistorySessionDto?> GetMostRecentAsync(
@@ -1001,6 +1139,18 @@ public sealed class SetLoggerViewModelTests : IDisposable
             bool refreshIfOnline,
             CancellationToken cancellationToken = default) =>
             throw new InvalidDataException("malformed history");
+    }
+
+    private sealed class RemoteFailingHistory(ExerciseHistorySessionDto cached)
+        : IExerciseHistorySource
+    {
+        public Task<ExerciseHistorySessionDto?> GetMostRecentAsync(
+            Guid exerciseId,
+            bool refreshIfOnline,
+            CancellationToken cancellationToken = default) =>
+            refreshIfOnline
+                ? throw new InvalidDataException("malformed remote history")
+                : Task.FromResult<ExerciseHistorySessionDto?>(cached);
     }
 
     private sealed class RecordingFeedback : ISetSavedFeedback
@@ -1059,6 +1209,49 @@ public sealed class SetLoggerViewModelTests : IDisposable
             ReadCount++;
             return inner.RejectedAsync(workoutId, cancellationToken);
         }
+    }
+
+    private sealed class ConflictStatusSource(OutboxOperation conflict) : IWorkoutOutboxStatusSource
+    {
+        public Task<IReadOnlyList<OutboxOperation>> PendingAsync(
+            Guid workoutId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<OutboxOperation>>([]);
+
+        public Task<IReadOnlyList<OutboxOperation>> ConflictedAsync(
+            Guid workoutId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<OutboxOperation>>([conflict]);
+
+        public Task<IReadOnlyList<OutboxOperation>> RejectedAsync(
+            Guid workoutId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<OutboxOperation>>([]);
+    }
+
+    private sealed class RecordingConflictResolution : IConflictResolution
+    {
+        public List<Guid> Kept { get; } = [];
+        public List<(Guid OperationId, long ServerVersion)> Applied { get; } = [];
+
+        public Task KeepServerAsync(Guid operationId, CancellationToken cancellationToken = default)
+        {
+            Kept.Add(operationId);
+            return Task.CompletedTask;
+        }
+
+        public Task<OutboxOperation> ApplyLocalAgainstVersionAsync(
+            Guid operationId,
+            long serverVersion,
+            CancellationToken cancellationToken = default)
+        {
+            Applied.Add((operationId, serverVersion));
+            return Task.FromResult(conflict with { OperationId = Guid.NewGuid() });
+        }
+
+        private readonly OutboxOperation conflict = OutboxOperation.Create(
+            Guid.NewGuid(), Guid.NewGuid(), OutboxOperationType.SaveSet,
+            new { }, 0, Now);
     }
 
     private sealed class RaceStatusSource(IWorkoutOutboxStatusSource inner) : IWorkoutOutboxStatusSource

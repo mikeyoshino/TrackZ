@@ -87,9 +87,12 @@ public sealed class TrackZIdentityApiClient(
     HttpClient httpClient,
     MobileTokenStore tokenStore,
     IMobilePrivateDataCleaner privateDataCleaner,
-    IAccountSessionBoundary sessionBoundary)
+    IAccountSessionBoundary sessionBoundary,
+    TrackZIdentityRefreshClient? refreshClient = null)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private readonly TrackZIdentityRefreshClient _refreshClient = refreshClient
+        ?? new TrackZIdentityRefreshClient(httpClient, tokenStore, sessionBoundary);
 
     public async Task LoginAsync(string email, string password, string deviceName, CancellationToken cancellationToken = default)
     {
@@ -105,24 +108,8 @@ public sealed class TrackZIdentityApiClient(
         }, cancellationToken)) throw new OperationCanceledException("The account session changed.");
     }
 
-    public async Task RefreshAsync(string deviceName, CancellationToken cancellationToken = default)
-    {
-        var generation = sessionBoundary.Capture();
-        string? refreshToken = null;
-        if (!await sessionBoundary.TryCommitAsync(generation, async token =>
-        {
-            refreshToken = await tokenStore.GetRefreshTokenAsync(token);
-        }, cancellationToken)) throw new OperationCanceledException("The account session changed.");
-        if (refreshToken is null)
-            throw new MobileApiException(
-                BusinessErrorCode.InvalidRequest, "No refresh token is available.");
-        using var response = await httpClient.PostAsJsonAsync(
-            "/api/v1/auth/refresh", new { refreshToken, deviceName }, cancellationToken);
-        var tokens = await ReadTokensAsync(response, cancellationToken);
-        if (!await sessionBoundary.TryCommitAsync(generation, token =>
-            tokenStore.SaveAsync(tokens.AccessToken, tokens.RefreshToken, token), cancellationToken))
-            throw new OperationCanceledException("The account session changed.");
-    }
+    public Task RefreshAsync(string deviceName, CancellationToken cancellationToken = default) =>
+        _refreshClient.RefreshAsync(deviceName, cancellationToken);
 
     public async Task LogoutAsync(CancellationToken cancellationToken = default)
     {
@@ -165,7 +152,9 @@ public sealed class TrackZIdentityApiClient(
         }
     }
 
-    private static async Task<TokenResponse> ReadTokensAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    internal static async Task<TokenResponse> ReadTokensAsync(
+        HttpResponseMessage response,
+        CancellationToken cancellationToken)
     {
         await EnsureSuccessAsync(response, cancellationToken);
         try
@@ -210,5 +199,57 @@ public sealed class TrackZIdentityApiClient(
         "The server returned an invalid response.",
         innerException: exception);
 
-    private sealed record TokenResponse(string AccessToken, string RefreshToken, DateTimeOffset ExpiresAt);
+    internal sealed record TokenResponse(
+        string AccessToken,
+        string RefreshToken,
+        DateTimeOffset ExpiresAt);
+}
+
+public sealed class TrackZIdentityRefreshClient(
+    HttpClient httpClient,
+    MobileTokenStore tokenStore,
+    IAccountSessionBoundary sessionBoundary)
+{
+    private readonly SemaphoreSlim _refreshGate = new(1, 1);
+    private long _refreshEpoch;
+
+    public async Task RefreshAsync(
+        string deviceName,
+        CancellationToken cancellationToken = default)
+    {
+        var generation = sessionBoundary.Capture();
+        var observedEpoch = Volatile.Read(ref _refreshEpoch);
+        string? observedRefreshToken = null;
+        if (!await sessionBoundary.TryCommitAsync(generation, async token =>
+        {
+            observedRefreshToken = await tokenStore.GetRefreshTokenAsync(token);
+        }, cancellationToken)) throw new OperationCanceledException("The account session changed.");
+        if (observedRefreshToken is null)
+            throw new MobileApiException(
+                BusinessErrorCode.InvalidRequest, "No refresh token is available.");
+        await _refreshGate.WaitAsync(cancellationToken);
+        try
+        {
+            if (Volatile.Read(ref _refreshEpoch) != observedEpoch) return;
+            using var sessionCancellation = sessionBoundary.CreateCancellationLease(
+                generation, cancellationToken);
+            sessionCancellation.Token.ThrowIfCancellationRequested();
+
+            using var response = await httpClient.PostAsJsonAsync(
+                "/api/v1/auth/refresh",
+                new { refreshToken = observedRefreshToken, deviceName },
+                sessionCancellation.Token);
+            var tokens = await TrackZIdentityApiClient.ReadTokensAsync(
+                response, sessionCancellation.Token);
+            if (!await sessionBoundary.TryCommitAsync(generation, token =>
+                tokenStore.SaveAsync(tokens.AccessToken, tokens.RefreshToken, token),
+                sessionCancellation.Token))
+                throw new OperationCanceledException("The account session changed.");
+            Interlocked.Increment(ref _refreshEpoch);
+        }
+        finally
+        {
+            _refreshGate.Release();
+        }
+    }
 }

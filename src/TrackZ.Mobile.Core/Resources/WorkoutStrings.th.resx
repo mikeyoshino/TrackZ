@@ -75,6 +75,9 @@
   <data name="DeleteSetMessage" xml:space="preserve"><value>เซ็ตนี้จะกู้คืนได้จนกว่าเซิร์ฟเวอร์จะยืนยันการซิงค์ และจะไม่หายไปโดยไม่มีสถานะ</value></data>
   <data name="DeleteWorkoutTitle" xml:space="preserve"><value>ลบการฝึก?</value></data>
   <data name="DeleteWorkoutMessage" xml:space="preserve"><value>การฝึกนี้จะกู้คืนได้จนกว่าเซิร์ฟเวอร์จะยืนยันการซิงค์ และจะไม่หายไปโดยไม่มีสถานะ</value></data>
+  <data name="UnknownExercise" xml:space="preserve"><value>ไม่ทราบท่าออกกำลังกาย</value></data>
+  <data name="DeleteExerciseTitle" xml:space="preserve"><value>ลบท่าออกกำลังกาย?</value></data>
+  <data name="DeleteExerciseMessage" xml:space="preserve"><value>ท่าและเซ็ตของท่านี้จะยังกู้คืนได้จนกว่าเซิร์ฟเวอร์จะยืนยันการซิงค์</value></data>
   <data name="HistoryEditFailed" xml:space="preserve"><value>บันทึกการแก้ไขประวัติไม่ได้</value></data>
   <data name="HistoryDeleteFailed" xml:space="preserve"><value>ลบรายการประวัตินี้ไม่ได้</value></data>
   <data name="UndoFailed" xml:space="preserve"><value>การเปลี่ยนแปลงนี้อาจกำลังซิงค์และยังเลิกทำไม่ได้</value></data>

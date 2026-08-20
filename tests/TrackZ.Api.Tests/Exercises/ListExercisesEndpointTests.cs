@@ -423,15 +423,25 @@ public sealed class ListExercisesEndpointTests : IAsyncLifetime
     {
         var owner = await AuthenticateAsync("custom-owner@example.com");
         var other = await AuthenticateAsync("custom-other@example.com");
+        var exerciseId = Guid.NewGuid();
         using var create = new HttpRequestMessage(HttpMethod.Post, "/api/v1/exercises/custom")
         {
-            Content = JsonContent.Create(new { name = "  My Press  ", bodyPart = 1, trackingMode = 1, ownerId = other.UserId, operationId = Guid.NewGuid() })
+            Content = JsonContent.Create(new
+            {
+                exerciseId,
+                name = "  My Press  ",
+                bodyPart = 1,
+                trackingMode = 1,
+                ownerId = other.UserId,
+                operationId = Guid.NewGuid()
+            })
         };
         create.Headers.Authorization = new AuthenticationHeaderValue("Bearer", owner.Token);
 
         var created = await _client.SendAsync(create);
         var createdBody = await created.Content.ReadFromJsonAsync<JsonDocument>();
         var id = createdBody!.RootElement.GetProperty("id").GetGuid();
+        Assert.Equal(exerciseId, id);
 
         using var ownerList = new HttpRequestMessage(HttpMethod.Get, "/api/v1/exercises?search=My%20Press");
         ownerList.Headers.Authorization = new AuthenticationHeaderValue("Bearer", owner.Token);
@@ -470,7 +480,8 @@ public sealed class ListExercisesEndpointTests : IAsyncLifetime
         Assert.Equal("application/problem+json", invalidResponse.Content.Headers.ContentType!.MediaType);
         Assert.Equal(10009, (int)problem!.ErrorCode);
         Assert.Equal("ข้อมูลคำขอไม่ถูกต้อง", problem.Message);
-        Assert.Equal(["bodyPart", "name", "operationId", "trackingMode"], problem.FieldErrors!.Keys.OrderBy(key => key));
+        Assert.Equal(["bodyPart", "exerciseId", "name", "operationId", "trackingMode"],
+            problem.FieldErrors!.Keys.OrderBy(key => key));
         Assert.All(problem.FieldErrors.Values, value => Assert.Single(value));
     }
 
@@ -577,18 +588,118 @@ public sealed class ListExercisesEndpointTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Custom_create_preserves_client_id_rejects_collision_and_starts_workout()
+    {
+        var owner = await AuthenticateAsync($"stable-custom-owner-{Guid.NewGuid():N}@example.com");
+        var other = await AuthenticateAsync($"stable-custom-other-{Guid.NewGuid():N}@example.com");
+        var exerciseId = Guid.Parse("bd4883d8-b466-4e5a-9a69-1c495f2bdc35");
+
+        async Task<HttpResponseMessage> CreateAsync(
+            (Guid UserId, string Token) account,
+            string name,
+            Guid operationId)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/exercises/custom")
+            {
+                Content = JsonContent.Create(new
+                {
+                    exerciseId,
+                    operationId,
+                    name,
+                    bodyPart = 1,
+                    trackingMode = 1
+                })
+            };
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", account.Token);
+            return await _client.SendAsync(request);
+        }
+
+        var created = await CreateAsync(owner, "Offline Stable Press", Guid.NewGuid());
+        var collision = await CreateAsync(other, "Foreign Collision Press", Guid.NewGuid());
+
+        var workoutId = Guid.NewGuid();
+        var workoutExerciseId = Guid.NewGuid();
+        using var startRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/sync/push")
+        {
+            Content = JsonContent.Create(new
+            {
+                operations = new[]
+                {
+                    new
+                    {
+                        operationId = Guid.NewGuid(),
+                        entityType = "Workout",
+                        action = "StartWorkout",
+                        baseVersion = 0,
+                        payload = new
+                        {
+                            workoutId,
+                            startedAt = DateTimeOffset.UtcNow,
+                            exercises = new[]
+                            {
+                                new
+                                {
+                                    workoutExerciseId,
+                                    exerciseDefinitionId = exerciseId,
+                                    trackingMode = (int)TrackingMode.Weighted,
+                                    order = 0
+                                }
+                            }
+                        }
+                    }
+                }
+            })
+        };
+        startRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", owner.Token);
+        var started = await _client.SendAsync(startRequest);
+
+        var createdBody = await created.Content.ReadFromJsonAsync<JsonDocument>();
+        var collisionProblem = await collision.Content.ReadFromJsonAsync<TrackZ.Contracts.Errors.ApiProblemDetails>();
+        var startedBody = await started.Content.ReadFromJsonAsync<JsonDocument>();
+        await using var scope = _factory!.Services.CreateAsyncScope();
+        var database = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var persisted = await database
+            .Exercises.SingleAsync(exercise => exercise.Id == exerciseId);
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        Assert.Equal(exerciseId, createdBody!.RootElement.GetProperty("id").GetGuid());
+        Assert.Equal(owner.UserId, persisted.OwnerId);
+        Assert.Equal(HttpStatusCode.BadRequest, collision.StatusCode);
+        Assert.Equal(10009, (int)collisionProblem!.ErrorCode);
+        Assert.Equal(HttpStatusCode.OK, started.StatusCode);
+        var startResult = startedBody!.RootElement.GetProperty("results")[0];
+        Assert.Equal("Applied", startResult.GetProperty("status").GetString());
+        Assert.Equal(1, startResult.GetProperty("serverVersion").GetInt64());
+        Assert.True(await database.WorkoutExercises.AnyAsync(item =>
+            item.Id == workoutExerciseId && item.ExerciseDefinitionId == exerciseId));
+    }
+
+    [Fact]
     public async Task Concurrent_custom_creates_return_one_created_and_one_localized_duplicate_problem()
     {
         var owner = await AuthenticateAsync("custom-concurrency@example.com");
         var first = new HttpRequestMessage(HttpMethod.Post, "/api/v1/exercises/custom")
         {
-            Content = JsonContent.Create(new { name = "Concurrent Press", bodyPart = 1, trackingMode = 1, operationId = Guid.NewGuid() })
+            Content = JsonContent.Create(new
+            {
+                exerciseId = Guid.NewGuid(),
+                name = "Concurrent Press",
+                bodyPart = 1,
+                trackingMode = 1,
+                operationId = Guid.NewGuid()
+            })
         };
         first.Headers.Authorization = new AuthenticationHeaderValue("Bearer", owner.Token);
         first.Headers.AcceptLanguage.ParseAdd("th-TH");
         var second = new HttpRequestMessage(HttpMethod.Post, "/api/v1/exercises/custom")
         {
-            Content = JsonContent.Create(new { name = "concurrent press", bodyPart = 1, trackingMode = 1, operationId = Guid.NewGuid() })
+            Content = JsonContent.Create(new
+            {
+                exerciseId = Guid.NewGuid(),
+                name = "concurrent press",
+                bodyPart = 1,
+                trackingMode = 1,
+                operationId = Guid.NewGuid()
+            })
         };
         second.Headers.Authorization = new AuthenticationHeaderValue("Bearer", owner.Token);
         second.Headers.AcceptLanguage.ParseAdd("th-TH");
@@ -621,13 +732,19 @@ public sealed class ListExercisesEndpointTests : IAsyncLifetime
             await db.SaveChangesAsync();
         }
         var operationId = Guid.NewGuid();
+        var exerciseId = Guid.NewGuid();
 
-        async Task<HttpResponseMessage> CreateAsync(Guid libraryImageId, Guid requestOperationId, string name) => await _client.SendAsync(new HttpRequestMessage(
+        async Task<HttpResponseMessage> CreateAsync(
+            Guid requestExerciseId,
+            Guid libraryImageId,
+            Guid requestOperationId,
+            string name) => await _client.SendAsync(new HttpRequestMessage(
             HttpMethod.Post, "/api/v1/exercises/custom")
         {
             Headers = { Authorization = new AuthenticationHeaderValue("Bearer", owner.Token) },
             Content = JsonContent.Create(new
             {
+                exerciseId = requestExerciseId,
                 name,
                 bodyPart = 1,
                 trackingMode = 1,
@@ -636,11 +753,12 @@ public sealed class ListExercisesEndpointTests : IAsyncLifetime
             })
         });
 
-        var created = await CreateAsync(published.Id, operationId, "Library Custom Press");
-        var replay = await CreateAsync(published.Id, operationId, "Library Custom Press");
+        var created = await CreateAsync(exerciseId, published.Id, operationId, "Library Custom Press");
+        var replay = await CreateAsync(exerciseId, published.Id, operationId, "Library Custom Press");
         var firstId = (await created.Content.ReadFromJsonAsync<JsonDocument>())!.RootElement.GetProperty("id").GetGuid();
         var replayId = (await replay.Content.ReadFromJsonAsync<JsonDocument>())!.RootElement.GetProperty("id").GetGuid();
-        var rejectedDraft = await CreateAsync(draft.Id, Guid.NewGuid(), "Draft Custom Press");
+        var rejectedDraft = await CreateAsync(
+            Guid.NewGuid(), draft.Id, Guid.NewGuid(), "Draft Custom Press");
 
         await using (var uploadScope = _factory.Services.CreateAsyncScope())
         {

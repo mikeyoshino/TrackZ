@@ -29,7 +29,6 @@
                             <Grid ColumnDefinitions="*,Auto">
                                 <VerticalStackLayout>
                                     <Label FontAttributes="Bold" FontSize="18" Text="{Binding CompletedAt, StringFormat='{0:g}'}" />
-                                    <Label FontSize="11" Text="{Binding WorkoutId}" TextColor="#8E959F" />
                                 </VerticalStackLayout>
                                 <components:SyncStatusPill Grid.Column="1" State="{Binding SyncState}" Text="{Binding SyncStatusText}" VerticalOptions="Start" />
                             </Grid>
@@ -38,18 +37,22 @@
                                     <DataTemplate x:DataType="history:HistoryExerciseItem">
                                         <Border Padding="10" BackgroundColor="#101216" Stroke="#242931" StrokeShape="RoundRectangle 14">
                                             <VerticalStackLayout Spacing="8">
-                                                <Label FontAttributes="Bold" FontSize="12" Text="{Binding ExerciseDefinitionId}" TextColor="#C8FF3D" />
+                                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                                    <Label FontAttributes="Bold" FontSize="12" Text="{Binding Name}" TextColor="#C8FF3D" VerticalTextAlignment="Center" />
+                                                    <Button Grid.Column="1" Command="{Binding Source={x:Reference Page}, Path=BindingContext.DeleteWorkoutExerciseCommand}" CommandParameter="{Binding .}" SemanticProperties.Description="{Binding Source={x:Reference Page}, Path=BindingContext.Text.Delete}" Text="{Binding Source={x:Reference Page}, Path=BindingContext.Text.Delete}" />
+                                                </Grid>
                                                 <VerticalStackLayout BindableLayout.ItemsSource="{Binding Sets}" Spacing="8">
                                                     <BindableLayout.ItemTemplate>
                                                         <DataTemplate x:DataType="history:HistorySetItem">
-                                                            <Grid ColumnDefinitions="Auto,*,*,Auto,Auto" ColumnSpacing="8">
+                                                            <Grid ColumnDefinitions="Auto,*,Auto,*,Auto,Auto" ColumnSpacing="8">
                                                                 <Label VerticalTextAlignment="Center" Text="{Binding SetNumber, StringFormat='#{0}'}" />
-                                                                <Entry Grid.Column="1" IsVisible="{Binding IsWeighted}" Keyboard="Numeric" SemanticProperties.Description="{Binding Source={x:Reference Page}, Path=BindingContext.Text.Weight}" Text="{Binding WeightKg, Mode=TwoWay}" />
-                                                                <Entry Grid.Column="1" IsVisible="{Binding IsAssisted}" Keyboard="Numeric" SemanticProperties.Description="{Binding Source={x:Reference Page}, Path=BindingContext.Text.Assistance}" Text="{Binding AssistedKg, Mode=TwoWay}" />
+                                                                <Entry Grid.Column="1" IsVisible="{Binding IsWeighted}" Keyboard="Numeric" SemanticProperties.Description="{Binding Source={x:Reference Page}, Path=BindingContext.Text.Weight}" Text="{Binding DisplayWeight, Mode=TwoWay}" />
+                                                                <Entry Grid.Column="1" IsVisible="{Binding IsAssisted}" Keyboard="Numeric" SemanticProperties.Description="{Binding Source={x:Reference Page}, Path=BindingContext.Text.Assistance}" Text="{Binding DisplayWeight, Mode=TwoWay}" />
                                                                 <Entry Grid.Column="1" IsVisible="{Binding IsBodyweight}" IsReadOnly="True" Text="{Binding Source={x:Reference Page}, Path=BindingContext.Text.Bodyweight}" />
-                                                                <Entry Grid.Column="2" Keyboard="Numeric" SemanticProperties.Description="{Binding Source={x:Reference Page}, Path=BindingContext.Text.Reps}" Text="{Binding Reps, Mode=TwoWay}" />
-                                                                <Button Grid.Column="3" Command="{Binding Source={x:Reference Page}, Path=BindingContext.EditSetCommand}" CommandParameter="{Binding .}" SemanticProperties.Description="{Binding Source={x:Reference Page}, Path=BindingContext.Text.Edit}" Text="{Binding Source={x:Reference Page}, Path=BindingContext.Text.Edit}" />
-                                                                <Button Grid.Column="4" Command="{Binding Source={x:Reference Page}, Path=BindingContext.DeleteSetCommand}" CommandParameter="{Binding .}" SemanticProperties.Description="{Binding Source={x:Reference Page}, Path=BindingContext.Text.Delete}" Text="{Binding Source={x:Reference Page}, Path=BindingContext.Text.Delete}" />
+                                                                <Label Grid.Column="2" IsVisible="{Binding UsesWeight}" Text="{Binding WeightUnitLabel}" VerticalTextAlignment="Center" />
+                                                                <Entry Grid.Column="3" Keyboard="Numeric" SemanticProperties.Description="{Binding Source={x:Reference Page}, Path=BindingContext.Text.Reps}" Text="{Binding Reps, Mode=TwoWay}" />
+                                                                <Button Grid.Column="4" Command="{Binding Source={x:Reference Page}, Path=BindingContext.EditSetCommand}" CommandParameter="{Binding .}" SemanticProperties.Description="{Binding Source={x:Reference Page}, Path=BindingContext.Text.Edit}" Text="{Binding Source={x:Reference Page}, Path=BindingContext.Text.Edit}" />
+                                                                <Button Grid.Column="5" Command="{Binding Source={x:Reference Page}, Path=BindingContext.DeleteSetCommand}" CommandParameter="{Binding .}" SemanticProperties.Description="{Binding Source={x:Reference Page}, Path=BindingContext.Text.Delete}" Text="{Binding Source={x:Reference Page}, Path=BindingContext.Text.Delete}" />
                                                             </Grid>
                                                         </DataTemplate>
                                                     </BindableLayout.ItemTemplate>

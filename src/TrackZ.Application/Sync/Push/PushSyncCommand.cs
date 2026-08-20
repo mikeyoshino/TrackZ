@@ -30,6 +30,22 @@ internal sealed record DeleteWorkoutSyncCommand(
     long BaseVersion,
     DeleteWorkoutSyncPayload Payload) : IRequest<SyncMutationResult>;
 
+internal sealed record AddExerciseSyncCommand(
+    long BaseVersion,
+    AddExerciseSyncPayload Payload) : IRequest<SyncMutationResult>;
+
+internal sealed record RemoveExerciseSyncCommand(
+    long BaseVersion,
+    RemoveExerciseSyncPayload Payload) : IRequest<SyncMutationResult>;
+
+internal sealed record ReorderExercisesSyncCommand(
+    long BaseVersion,
+    ReorderExercisesSyncPayload Payload) : IRequest<SyncMutationResult>;
+
+internal sealed record DeleteWorkoutExerciseSyncCommand(
+    long BaseVersion,
+    DeleteWorkoutExerciseSyncPayload Payload) : IRequest<SyncMutationResult>;
+
 internal sealed record SyncMutationResult(
     SyncOperationStatus Status,
     long? ServerVersion,
@@ -39,8 +55,10 @@ internal sealed record SyncMutationResult(
     public static SyncMutationResult Applied(TrackZ.Domain.Workouts.WorkoutSession workout) =>
         new(SyncOperationStatus.Applied, workout.Version, null, workout);
 
-    public static SyncMutationResult Rejected() =>
-        new(SyncOperationStatus.Rejected, null, TrackZ.Contracts.Errors.BusinessErrorCode.InvalidRequest, null);
+    public static SyncMutationResult Rejected(
+        TrackZ.Contracts.Errors.BusinessErrorCode errorCode =
+            TrackZ.Contracts.Errors.BusinessErrorCode.InvalidRequest) =>
+        new(SyncOperationStatus.Rejected, null, errorCode, null);
 
     public static SyncMutationResult Conflict(long serverVersion) =>
         new(SyncOperationStatus.Conflict, serverVersion, TrackZ.Contracts.Errors.BusinessErrorCode.VersionConflict, null);
@@ -88,4 +106,27 @@ internal sealed record DeleteSetSyncPayload(
 
 internal sealed record DeleteWorkoutSyncPayload(
     Guid WorkoutId,
+    DateTimeOffset DeletedAt);
+
+internal sealed record AddExerciseSyncPayload(
+    Guid WorkoutId,
+    Guid WorkoutExerciseId,
+    Guid ExerciseDefinitionId,
+    int TrackingMode,
+    int? Order,
+    DateTimeOffset AddedAt);
+
+internal sealed record RemoveExerciseSyncPayload(
+    Guid WorkoutId,
+    Guid WorkoutExerciseId,
+    DateTimeOffset DeletedAt);
+
+internal sealed record ReorderExercisesSyncPayload(
+    Guid WorkoutId,
+    IReadOnlyList<Guid> WorkoutExerciseIds,
+    DateTimeOffset ReorderedAt);
+
+internal sealed record DeleteWorkoutExerciseSyncPayload(
+    Guid WorkoutId,
+    Guid WorkoutExerciseId,
     DateTimeOffset DeletedAt);

@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
@@ -17,6 +18,28 @@ public interface ISyncApi
     Task<SyncPullResponse> PullAsync(string? cursor, CancellationToken cancellationToken = default);
 }
 
+public enum SyncApiFailureKind
+{
+    Authentication = 1,
+    Retryable = 2,
+    Permanent = 3,
+    InvalidCursor = 4
+}
+
+public sealed class SyncApiException(
+    SyncApiFailureKind kind,
+    HttpStatusCode statusCode,
+    BusinessErrorCode? errorCode,
+    string? traceId,
+    string message,
+    Exception? innerException = null) : Exception(message, innerException)
+{
+    public SyncApiFailureKind Kind { get; } = kind;
+    public HttpStatusCode StatusCode { get; } = statusCode;
+    public BusinessErrorCode? ErrorCode { get; } = errorCode;
+    public string? TraceId { get; } = traceId;
+}
+
 public sealed class TrackZSyncApiClient(HttpClient httpClient) : ISyncApi
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
@@ -27,7 +50,7 @@ public sealed class TrackZSyncApiClient(HttpClient httpClient) : ISyncApi
     {
         using var response = await httpClient.PostAsJsonAsync(
             "/api/v1/sync/push", request, JsonOptions, cancellationToken);
-        return await ReadAsync<SyncPushResponse>(response, cancellationToken);
+        return await ReadAsync<SyncPushResponse>(response, false, cancellationToken);
     }
 
     public async Task<SyncPullResponse> PullAsync(
@@ -37,16 +60,47 @@ public sealed class TrackZSyncApiClient(HttpClient httpClient) : ISyncApi
         var path = "/api/v1/sync/pull?pageSize=100" +
             (cursor is null ? "" : $"&cursor={Uri.EscapeDataString(cursor)}");
         using var response = await httpClient.GetAsync(path, cancellationToken);
-        return await ReadAsync<SyncPullResponse>(response, cancellationToken);
+        return await ReadAsync<SyncPullResponse>(response, cursor is not null, cancellationToken);
     }
 
     private static async Task<T> ReadAsync<T>(
         HttpResponseMessage response,
+        bool isPersistedCursorPull,
         CancellationToken cancellationToken) where T : class
     {
         if (!response.IsSuccessStatusCode)
-            throw new HttpRequestException(
-                "The sync endpoint was unavailable.", null, response.StatusCode);
+        {
+            ApiProblemDetails? problem = null;
+            try
+            {
+                problem = await response.Content.ReadFromJsonAsync<ApiProblemDetails>(
+                    JsonOptions, cancellationToken);
+            }
+            catch (Exception exception) when (
+                exception is JsonException or NotSupportedException or InvalidOperationException)
+            {
+                // Status remains authoritative even when an intermediary replaced the problem body.
+            }
+
+            var kind = response.StatusCode switch
+            {
+                HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden =>
+                    SyncApiFailureKind.Authentication,
+                HttpStatusCode.RequestTimeout or HttpStatusCode.TooManyRequests =>
+                    SyncApiFailureKind.Retryable,
+                >= HttpStatusCode.InternalServerError => SyncApiFailureKind.Retryable,
+                HttpStatusCode.BadRequest when isPersistedCursorPull
+                    && problem?.ErrorCode == BusinessErrorCode.InvalidRequest =>
+                    SyncApiFailureKind.InvalidCursor,
+                _ => SyncApiFailureKind.Permanent
+            };
+            throw new SyncApiException(
+                kind,
+                response.StatusCode,
+                problem?.ErrorCode,
+                problem?.TraceId,
+                problem?.Message ?? "The sync endpoint rejected the request.");
+        }
         try
         {
             return await response.Content.ReadFromJsonAsync<T>(JsonOptions, cancellationToken)
@@ -62,7 +116,10 @@ public sealed class TrackZSyncApiClient(HttpClient httpClient) : ISyncApi
 public enum SyncRunStatus
 {
     Completed = 1,
-    Offline = 2
+    Offline = 2,
+    AuthenticationRequired = 3,
+    RetryScheduled = 4,
+    PermanentFailure = 5
 }
 
 public sealed class SyncCoordinator(
@@ -83,28 +140,116 @@ public sealed class SyncCoordinator(
             using var lease = sessionBoundary.CreateCancellationLease(generation, cancellationToken);
             try
             {
+                var pushWasRejected = false;
                 while (await ReadNextPendingAsync(
                            generation, clock.UtcNow, cancellationToken) is { } operation)
                 {
                     await MarkSendingAsync(generation, operation.OperationId, cancellationToken);
                     var request = new SyncPushRequest([ToDto(operation)]);
-                    var response = await api.PushAsync(request, lease.Token);
+                    SyncPushResponse response;
+                    try
+                    {
+                        response = await api.PushAsync(request, lease.Token);
+                    }
+                    catch (SyncApiException exception) when (
+                        exception.Kind == SyncApiFailureKind.Retryable)
+                    {
+                        await CommitPushResultsAsync(generation, [operation], [new SyncOperationResultDto(
+                            operation.OperationId,
+                            SyncOperationStatus.Retryable,
+                            null,
+                            BusinessErrorCode.InternalServerError)], cancellationToken);
+                        return SyncRunStatus.RetryScheduled;
+                    }
+                    catch (SyncApiException exception) when (
+                        exception.Kind == SyncApiFailureKind.Authentication)
+                    {
+                        return SyncRunStatus.AuthenticationRequired;
+                    }
+                    catch (SyncApiException exception)
+                    {
+                        var errorCode = exception.ErrorCode is { } candidate
+                            && Enum.IsDefined(candidate)
+                            && candidate is not (
+                                BusinessErrorCode.VersionConflict
+                                or BusinessErrorCode.InternalServerError)
+                                ? candidate
+                                : BusinessErrorCode.InvalidRequest;
+                        await CommitPushResultsAsync(generation, [operation], [
+                            new SyncOperationResultDto(
+                                operation.OperationId,
+                                SyncOperationStatus.Rejected,
+                                null,
+                                errorCode)
+                        ], cancellationToken);
+                        return SyncRunStatus.PermanentFailure;
+                    }
                     ValidateResults([operation], response);
                     await CommitPushResultsAsync(
                         generation, [operation], response.Results, cancellationToken);
+                    if (response.Results[0].Status == SyncOperationStatus.Rejected)
+                    {
+                        pushWasRejected = true;
+                        break;
+                    }
                     if (response.Results[0].Status != SyncOperationStatus.Applied) break;
                 }
 
                 var cursor = await ReadCursorAsync(generation, cancellationToken);
                 do
                 {
-                    var response = await api.PullAsync(cursor, lease.Token);
-                    ValidatePull(response, cursor);
+                    SyncPullResponse response;
+                    var requestedCursor = cursor;
+                    try
+                    {
+                        response = await api.PullAsync(requestedCursor, lease.Token);
+                    }
+                    catch (SyncApiException exception) when (
+                        exception.Kind == SyncApiFailureKind.InvalidCursor
+                        && requestedCursor is not null)
+                    {
+                        try
+                        {
+                            response = await api.PullAsync(null, lease.Token);
+                            requestedCursor = null;
+                        }
+                        catch (SyncApiException retryException) when (
+                            retryException.Kind == SyncApiFailureKind.Authentication)
+                        {
+                            return SyncRunStatus.AuthenticationRequired;
+                        }
+                        catch (SyncApiException retryException) when (
+                            retryException.Kind == SyncApiFailureKind.Retryable)
+                        {
+                            return SyncRunStatus.RetryScheduled;
+                        }
+                        catch (SyncApiException)
+                        {
+                            return SyncRunStatus.PermanentFailure;
+                        }
+                    }
+                    catch (SyncApiException exception) when (
+                        exception.Kind == SyncApiFailureKind.Authentication)
+                    {
+                        return SyncRunStatus.AuthenticationRequired;
+                    }
+                    catch (SyncApiException exception) when (
+                        exception.Kind == SyncApiFailureKind.Retryable)
+                    {
+                        return SyncRunStatus.RetryScheduled;
+                    }
+                    catch (SyncApiException)
+                    {
+                        return SyncRunStatus.PermanentFailure;
+                    }
+                    ValidatePull(response, requestedCursor);
                     await CommitPullAsync(generation, response, cancellationToken);
                     cursor = response.NextCursor;
                     if (!response.HasMore) break;
                 } while (true);
-                return SyncRunStatus.Completed;
+                return pushWasRejected
+                    ? SyncRunStatus.PermanentFailure
+                    : SyncRunStatus.Completed;
             }
             catch (Exception exception) when (
                 exception is HttpRequestException
@@ -154,7 +299,7 @@ public sealed class SyncCoordinator(
                         if (await HasLiveReplacementAsync(
                                 connection, transaction, original.OperationId, innerToken))
                             throw new InvalidOperationException("The conflict already has a live replacement.");
-                        if (await HasUnrelatedLiveSuccessorAsync(
+                        if (await HasUnrelatedLivePendingSuccessorAsync(
                                 connection, transaction, original,
                                 new HashSet<Guid> { original.OperationId }, innerToken))
                             throw new InvalidOperationException(
@@ -209,13 +354,108 @@ public sealed class SyncCoordinator(
         SyncWorkoutDto server,
         DateTimeOffset mutationAt) => original.Type switch
     {
+        OutboxOperationType.StartWorkout => RebaseStartWorkout(original, server),
         OutboxOperationType.SaveSet => RebaseSaveSet(original, server),
         OutboxOperationType.CompleteWorkout => RebaseComplete(original, server, mutationAt),
         OutboxOperationType.EditSet => RebaseEditSet(original, server, mutationAt),
         OutboxOperationType.DeleteSet => RebaseDeleteSet(original, server, mutationAt),
         OutboxOperationType.DeleteWorkout => RebaseDeleteWorkout(original, server, mutationAt),
+        OutboxOperationType.AddExercise => RebaseAddExercise(original, server, mutationAt),
+        OutboxOperationType.RemoveExercise => RebaseRemoveExercise(original, server, mutationAt),
+        OutboxOperationType.ReorderExercises => RebaseReorderExercises(original, server, mutationAt),
+        OutboxOperationType.DeleteWorkoutExercise =>
+            RebaseDeleteWorkoutExercise(original, server, mutationAt),
         _ => throw new InvalidOperationException("This operation cannot be rebased safely.")
     };
+
+    private static StartWorkoutOutboxPayload RebaseStartWorkout(
+        OutboxOperation original,
+        SyncWorkoutDto server)
+    {
+        var payload = original.DeserializePayload<StartWorkoutOutboxPayload>();
+        if (payload.WorkoutId != server.Id
+            || server.Status != 2
+            || server.DeletedAt is not null)
+            throw new InvalidOperationException(
+                "The server workout can no longer accept the local start selection.");
+        foreach (var requested in payload.Exercises)
+        {
+            var existingIdentity = server.Exercises.SingleOrDefault(item =>
+                item.Id == requested.WorkoutExerciseId);
+            if (existingIdentity is not null
+                && (existingIdentity.DeletedAt is not null
+                    || existingIdentity.ExerciseDefinitionId != requested.ExerciseDefinitionId
+                    || existingIdentity.TrackingMode != requested.TrackingMode))
+                throw new InvalidOperationException(
+                    "A local workout exercise identity conflicts with server authority.");
+            if (existingIdentity is null
+                && server.Exercises.Any(item => item.DeletedAt is null
+                    && item.ExerciseDefinitionId == requested.ExerciseDefinitionId))
+                throw new InvalidOperationException(
+                    "The exercise already exists on the server under a different identity.");
+        }
+        return payload with { StartedAt = server.StartedAt };
+    }
+
+    private static AddExerciseOutboxPayload RebaseAddExercise(
+        OutboxOperation original,
+        SyncWorkoutDto server,
+        DateTimeOffset mutationAt)
+    {
+        var payload = original.DeserializePayload<AddExerciseOutboxPayload>();
+        if (server.Status != 2 || server.DeletedAt is not null
+            || server.Exercises.Any(item => item.Id == payload.WorkoutExerciseId)
+            || server.Exercises.Any(item => item.DeletedAt is null
+                && item.ExerciseDefinitionId == payload.ExerciseDefinitionId))
+            throw new InvalidOperationException("The exercise can no longer be added to the server workout.");
+        return payload with
+        {
+            Order = Math.Min(payload.Order, server.Exercises.Count(item => item.DeletedAt is null)),
+            AddedAt = mutationAt
+        };
+    }
+
+    private static RemoveExerciseOutboxPayload RebaseRemoveExercise(
+        OutboxOperation original,
+        SyncWorkoutDto server,
+        DateTimeOffset mutationAt)
+    {
+        var payload = original.DeserializePayload<RemoveExerciseOutboxPayload>();
+        if (server.Status != 2 || server.DeletedAt is not null)
+            throw new InvalidOperationException("The server workout is no longer active.");
+        _ = RequiredActiveExercise(server, payload.WorkoutExerciseId);
+        return payload with { DeletedAt = mutationAt };
+    }
+
+    private static ReorderExercisesOutboxPayload RebaseReorderExercises(
+        OutboxOperation original,
+        SyncWorkoutDto server,
+        DateTimeOffset mutationAt)
+    {
+        var payload = original.DeserializePayload<ReorderExercisesOutboxPayload>();
+        if (server.Status != 2 || server.DeletedAt is not null)
+            throw new InvalidOperationException("The server workout is no longer active.");
+        var activeIds = server.Exercises.Where(item => item.DeletedAt is null)
+            .OrderBy(item => item.Order).Select(item => item.Id).ToArray();
+        var activeSet = activeIds.ToHashSet();
+        var desired = payload.WorkoutExerciseIds.Where(activeSet.Contains).ToList();
+        desired.AddRange(activeIds.Where(id => !desired.Contains(id)));
+        if (desired.Count != activeIds.Length)
+            throw new InvalidOperationException("The exercise order cannot be reconciled.");
+        return payload with { WorkoutExerciseIds = desired, ReorderedAt = mutationAt };
+    }
+
+    private static DeleteWorkoutExerciseOutboxPayload RebaseDeleteWorkoutExercise(
+        OutboxOperation original,
+        SyncWorkoutDto server,
+        DateTimeOffset mutationAt)
+    {
+        var payload = original.DeserializePayload<DeleteWorkoutExerciseOutboxPayload>();
+        if (server.Status != 3 || server.DeletedAt is not null)
+            throw new InvalidOperationException("The server workout is not editable history.");
+        _ = RequiredActiveExercise(server, payload.WorkoutExerciseId);
+        return payload with { DeletedAt = mutationAt };
+    }
 
     private static SaveSetOutboxPayload RebaseSaveSet(
         OutboxOperation original,
@@ -353,7 +593,7 @@ public sealed class SyncCoordinator(
                             && candidate.SendStartedAt is not null))
                         throw new InvalidOperationException(
                             "A replacement operation has an ambiguous server outcome and must be reconciled first.");
-                    if (await HasUnrelatedLiveSuccessorAsync(
+                    if (await HasUnrelatedLivePendingSuccessorAsync(
                             connection, transaction, operation, chain, innerToken))
                         throw new InvalidOperationException(
                             "Resolve later sync intent before keeping server authority.");
@@ -399,7 +639,7 @@ public sealed class SyncCoordinator(
                     SELECT OperationId, EntityId, OperationType, Payload, BaseVersion,
                            CreatedAt, State, DeletedAt, Version, ServerVersion, RetryCount,
                            NextAttemptAt, ServerPayload, ReplacesOperationId
-                           , SendStartedAt, NeutralizedAt
+                           , SendStartedAt, NeutralizedAt, FailureCode
                     FROM OutboxOperation
                     WHERE State IN (1, 4) AND DeletedAt IS NULL
                     ORDER BY CreatedAt, OperationId;
@@ -407,26 +647,39 @@ public sealed class SyncCoordinator(
                 await using var reader = await command.ExecuteReaderAsync(innerToken);
                 while (await reader.ReadAsync(innerToken)) rows.Add(ReadOperation(reader));
                 if (rows.Count == 0) return null;
-                for (var index = 0; index < rows.Count; index++)
+
+                var runnable = new List<OutboxOperation>();
+                foreach (var aggregateRows in rows
+                             .GroupBy(item => item.EntityId)
+                             .Select(group => group.OrderBy(item => item.CreatedAt)
+                                 .ThenBy(item => item.OperationId).ToList()))
                 {
-                    if (rows[index].ReplacesOperationId is not { } predecessorId) continue;
-                    var predecessorIndex = rows.FindIndex(item => item.OperationId == predecessorId);
-                    if (predecessorIndex != index - 1) return null;
+                    var candidate = aggregateRows[0];
+                    var visited = new HashSet<Guid>();
+                    while (candidate.State == OutboxOperationState.Conflicted)
+                    {
+                        if (!visited.Add(candidate.OperationId))
+                            throw new InvalidDataException("The conflict replacement chain is cyclic.");
+                        var replacements = aggregateRows.Where(item =>
+                            item.ReplacesOperationId == candidate.OperationId).ToArray();
+                        if (replacements.Length > 1)
+                            throw new InvalidDataException(
+                                "A conflict has multiple live replacements.");
+                        var replacement = replacements.SingleOrDefault();
+                        if (replacement is null)
+                        {
+                            candidate = null!;
+                            break;
+                        }
+                        candidate = replacement;
+                    }
+
+                    if (candidate is not null
+                        && (candidate.NextAttemptAt is null || candidate.NextAttemptAt <= now))
+                        runnable.Add(candidate);
                 }
-                var candidate = rows[0];
-                var visited = new HashSet<Guid>();
-                while (candidate.State == OutboxOperationState.Conflicted)
-                {
-                    if (!visited.Add(candidate.OperationId))
-                        throw new InvalidDataException("The conflict replacement chain is cyclic.");
-                    var replacement = rows.SingleOrDefault(item =>
-                        item.ReplacesOperationId == candidate.OperationId);
-                    if (replacement is null) return null;
-                    candidate = replacement;
-                }
-                return candidate.NextAttemptAt is null || candidate.NextAttemptAt <= now
-                    ? candidate
-                    : null;
+                return runnable.OrderBy(item => item.CreatedAt).ThenBy(item => item.OperationId)
+                    .FirstOrDefault();
             }, token);
         }, cancellationToken);
         EnsureCurrent(committed, generation, cancellationToken);
@@ -456,7 +709,10 @@ public sealed class SyncCoordinator(
                                 result.Status == SyncOperationStatus.Applied
                                     ? OutboxOperationState.Applied
                                     : OutboxOperationState.Rejected,
-                                clock.UtcNow, innerToken, result.ServerVersion);
+                                clock.UtcNow, innerToken, result.ServerVersion,
+                                result.Status == SyncOperationStatus.Rejected
+                                    ? result.ErrorCode
+                                    : null);
                             if (result.Status == SyncOperationStatus.Applied)
                                 await ArchiveReplacementAncestorsAsync(
                                     connection, transaction, operation,
@@ -536,6 +792,10 @@ public sealed class SyncCoordinator(
                     await WriteCursorAsync(
                         connection, transaction, response.NextCursor,
                         clock.UtcNow, innerToken);
+                else
+                    await ExecuteAsync(connection, transaction, """
+                        DELETE FROM SyncCursor WHERE Scope = $scope;
+                        """, innerToken, ("$scope", CursorScope));
                 return true;
             }, token);
         }, cancellationToken);
@@ -577,7 +837,10 @@ public sealed class SyncCoordinator(
                 result.ServerVersion is > 0 && result.ErrorCode is null,
             SyncOperationStatus.Rejected =>
                 result.ServerVersion is null
-                && result.ErrorCode == BusinessErrorCode.InvalidRequest,
+                && result.ErrorCode is { } rejectedCode
+                && Enum.IsDefined(rejectedCode)
+                && rejectedCode is not (
+                    BusinessErrorCode.VersionConflict or BusinessErrorCode.InternalServerError),
             SyncOperationStatus.Conflict =>
                 result.ServerVersion is > 0
                 && result.ErrorCode == BusinessErrorCode.VersionConflict,
@@ -766,19 +1029,22 @@ public sealed class SyncCoordinator(
         OutboxOperationState state,
         DateTimeOffset now,
         CancellationToken cancellationToken,
-        long? serverVersion = null)
+        long? serverVersion = null,
+        BusinessErrorCode? failureCode = null)
     {
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
             UPDATE OutboxOperation
             SET State = $state, DeletedAt = $deletedAt, ServerVersion = COALESCE($serverVersion, ServerVersion),
-                NextAttemptAt = NULL, Version = Version + 1
+                NextAttemptAt = NULL, SendStartedAt = NULL,
+                FailureCode = $failureCode, Version = Version + 1
             WHERE OperationId = $id AND DeletedAt IS NULL;
             """;
         Add(command, "$state", (int)state);
         Add(command, "$deletedAt", Timestamp(now));
         Add(command, "$serverVersion", serverVersion);
+        Add(command, "$failureCode", failureCode is null ? null : (int)failureCode.Value);
         Add(command, "$id", Id(operationId));
         if (await command.ExecuteNonQueryAsync(cancellationToken) != 1)
             throw new InvalidDataException("The terminal operation changed concurrently.");
@@ -837,7 +1103,7 @@ public sealed class SyncCoordinator(
             SELECT OperationId, EntityId, OperationType, Payload, BaseVersion,
                    CreatedAt, State, DeletedAt, Version, ServerVersion, RetryCount,
                    NextAttemptAt, ServerPayload, ReplacesOperationId
-                   , SendStartedAt, NeutralizedAt
+                   , SendStartedAt, NeutralizedAt, FailureCode
             FROM OutboxOperation
             WHERE ReplacesOperationId = $id AND DeletedAt IS NULL AND State IN (1, 4);
             """;
@@ -886,7 +1152,7 @@ public sealed class SyncCoordinator(
             SELECT OperationId, EntityId, OperationType, Payload, BaseVersion,
                    CreatedAt, State, DeletedAt, Version, ServerVersion, RetryCount,
                    NextAttemptAt, ServerPayload, ReplacesOperationId
-                   , SendStartedAt, NeutralizedAt
+                   , SendStartedAt, NeutralizedAt, FailureCode
             FROM OutboxOperation
             WHERE EntityId = $entityId AND DeletedAt IS NULL AND State IN (1, 4)
             ORDER BY CreatedAt, OperationId;
@@ -1176,7 +1442,7 @@ public sealed class SyncCoordinator(
             SELECT OperationId, EntityId, OperationType, Payload, BaseVersion,
                    CreatedAt, State, DeletedAt, Version, ServerVersion, RetryCount,
                    NextAttemptAt, ServerPayload, ReplacesOperationId
-                   , SendStartedAt, NeutralizedAt
+                   , SendStartedAt, NeutralizedAt, FailureCode
             FROM OutboxOperation WHERE OperationId = $id;
             """;
         Add(command, "$id", Id(operationId));
@@ -1197,7 +1463,8 @@ public sealed class SyncCoordinator(
         reader.IsDBNull(12) ? null : reader.GetString(12),
         reader.IsDBNull(13) ? null : Guid.Parse(reader.GetString(13)),
         reader.IsDBNull(14) ? null : DateTimeOffset.ParseExact(reader.GetString(14), "O", CultureInfo.InvariantCulture),
-        reader.IsDBNull(15) ? null : DateTimeOffset.ParseExact(reader.GetString(15), "O", CultureInfo.InvariantCulture));
+        reader.IsDBNull(15) ? null : DateTimeOffset.ParseExact(reader.GetString(15), "O", CultureInfo.InvariantCulture),
+        reader.IsDBNull(16) ? null : (BusinessErrorCode)reader.GetInt32(16));
 
     private static async Task<DateTimeOffset> ReadLatestCreatedAtAsync(
         SqliteConnection connection,
@@ -1213,7 +1480,7 @@ public sealed class SyncCoordinator(
             : DateTimeOffset.MinValue;
     }
 
-    private static async Task<bool> HasUnrelatedLiveSuccessorAsync(
+    private static async Task<bool> HasUnrelatedLivePendingSuccessorAsync(
         SqliteConnection connection,
         SqliteTransaction transaction,
         OutboxOperation original,
@@ -1223,12 +1490,13 @@ public sealed class SyncCoordinator(
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
-            SELECT OperationId, CreatedAt
+            SELECT OperationId
             FROM OutboxOperation
-            WHERE State IN (1, 4) AND DeletedAt IS NULL
+            WHERE EntityId = $entityId AND State = 1 AND DeletedAt IS NULL
               AND (CreatedAt > $createdAt
                    OR (CreatedAt = $createdAt AND OperationId > $operationId));
             """;
+        Add(command, "$entityId", Id(original.EntityId));
         Add(command, "$createdAt", Timestamp(original.CreatedAt));
         Add(command, "$operationId", Id(original.OperationId));
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);

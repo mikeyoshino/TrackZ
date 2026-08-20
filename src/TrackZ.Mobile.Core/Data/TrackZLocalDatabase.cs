@@ -4,7 +4,7 @@ namespace TrackZ.Mobile.Data;
 
 public sealed class TrackZLocalDatabase
 {
-    public const int CurrentSchemaVersion = 4;
+    public const int CurrentSchemaVersion = 5;
     private const int BusyTimeoutMilliseconds = 5_000;
     private readonly string _connectionString;
     private readonly SemaphoreSlim _schemaGate = new(1, 1);
@@ -45,19 +45,19 @@ public sealed class TrackZLocalDatabase
                 _initialized = true;
                 return;
             }
-            if (version is not (0 or 1 or 2 or 3))
+            if (version is not (0 or 1 or 2 or 3 or 4))
             {
                 throw new InvalidDataException(
                     $"Workout database schema {version} is not supported; expected {CurrentSchemaVersion}.");
             }
 
-            var syncStateUpgrade = version is 1 or 2 or 3
+            var syncStateUpgrade = version is 1 or 2 or 3 or 4
                 ? await BuildSyncStateUpgradeAsync(connection, cancellationToken)
                 : string.Empty;
             await using var transaction = connection.BeginTransaction(deferred: false);
             await using var schema = connection.CreateCommand();
             schema.Transaction = transaction;
-            schema.CommandText = version is 2 or 3
+            schema.CommandText = version is 2 or 3 or 4
                 ? syncStateUpgrade
                 : version == 1
                 ? $$"""
@@ -166,7 +166,7 @@ public sealed class TrackZLocalDatabase
                 CREATE TABLE IF NOT EXISTS OutboxOperation (
                     OperationId TEXT PRIMARY KEY NOT NULL,
                     EntityId TEXT NOT NULL,
-                    OperationType INTEGER NOT NULL CHECK (OperationType BETWEEN 1 AND 7),
+                    OperationType INTEGER NOT NULL CHECK (OperationType BETWEEN 1 AND 10),
                     Payload TEXT NOT NULL CHECK (length(Payload) > 0),
                     BaseVersion INTEGER NOT NULL CHECK (BaseVersion >= 0),
                     CreatedAt TEXT NOT NULL,
@@ -180,6 +180,7 @@ public sealed class TrackZLocalDatabase
                     ReplacesOperationId TEXT NULL,
                     SendStartedAt TEXT NULL,
                     NeutralizedAt TEXT NULL,
+                    FailureCode INTEGER NULL,
                     FOREIGN KEY (EntityId) REFERENCES LocalWorkout(Id) ON DELETE RESTRICT
                 );
 
@@ -201,7 +202,7 @@ public sealed class TrackZLocalDatabase
                     Version INTEGER NOT NULL CHECK (Version >= 0)
                 );
 
-                PRAGMA user_version = 4;
+                PRAGMA user_version = 5;
                 """;
             await schema.ExecuteNonQueryAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
@@ -322,6 +323,7 @@ public sealed class TrackZLocalDatabase
         Add("ReplacesOperationId", "TEXT NULL");
         Add("SendStartedAt", "TEXT NULL");
         Add("NeutralizedAt", "TEXT NULL");
+        Add("FailureCode", "INTEGER NULL");
         statements.Add("""
             CREATE TABLE IF NOT EXISTS HistoryUndo (
                 OperationId TEXT PRIMARY KEY NOT NULL,
@@ -330,7 +332,53 @@ public sealed class TrackZLocalDatabase
                 FOREIGN KEY (OperationId) REFERENCES OutboxOperation(OperationId) ON DELETE CASCADE
             );
             """);
-        statements.Add("PRAGMA user_version = 4;");
+        statements.Add("DROP INDEX IF EXISTS IX_OutboxOperation_Pending;");
+        statements.Add("ALTER TABLE HistoryUndo RENAME TO HistoryUndoV4;");
+        statements.Add("ALTER TABLE OutboxOperation RENAME TO OutboxOperationV4;");
+        statements.Add("""
+            CREATE TABLE OutboxOperation (
+                OperationId TEXT PRIMARY KEY NOT NULL,
+                EntityId TEXT NOT NULL,
+                OperationType INTEGER NOT NULL CHECK (OperationType BETWEEN 1 AND 10),
+                Payload TEXT NOT NULL CHECK (length(Payload) > 0),
+                BaseVersion INTEGER NOT NULL CHECK (BaseVersion >= 0),
+                CreatedAt TEXT NOT NULL,
+                State INTEGER NOT NULL CHECK (State IN (1, 2, 3, 4)),
+                DeletedAt TEXT NULL,
+                Version INTEGER NOT NULL CHECK (Version >= 1),
+                ServerVersion INTEGER NULL CHECK (ServerVersion IS NULL OR ServerVersion >= 0),
+                RetryCount INTEGER NOT NULL DEFAULT 0 CHECK (RetryCount >= 0),
+                NextAttemptAt TEXT NULL,
+                ServerPayload TEXT NULL CHECK (ServerPayload IS NULL OR json_valid(ServerPayload)),
+                ReplacesOperationId TEXT NULL,
+                SendStartedAt TEXT NULL,
+                NeutralizedAt TEXT NULL,
+                FailureCode INTEGER NULL,
+                FOREIGN KEY (EntityId) REFERENCES LocalWorkout(Id) ON DELETE RESTRICT
+            );
+            INSERT INTO OutboxOperation
+                (OperationId, EntityId, OperationType, Payload, BaseVersion, CreatedAt,
+                 State, DeletedAt, Version, ServerVersion, RetryCount, NextAttemptAt,
+                 ServerPayload, ReplacesOperationId, SendStartedAt, NeutralizedAt, FailureCode)
+            SELECT OperationId, EntityId, OperationType, Payload, BaseVersion, CreatedAt,
+                   State, DeletedAt, Version, ServerVersion, RetryCount, NextAttemptAt,
+                   ServerPayload, ReplacesOperationId, SendStartedAt, NeutralizedAt, FailureCode
+            FROM OutboxOperationV4;
+            CREATE INDEX IX_OutboxOperation_Pending
+                ON OutboxOperation(State, CreatedAt, OperationId)
+                WHERE State = 1 AND DeletedAt IS NULL;
+            CREATE TABLE HistoryUndo (
+                OperationId TEXT PRIMARY KEY NOT NULL,
+                SnapshotJson TEXT NOT NULL CHECK (json_valid(SnapshotJson)),
+                CreatedAt TEXT NOT NULL,
+                FOREIGN KEY (OperationId) REFERENCES OutboxOperation(OperationId) ON DELETE CASCADE
+            );
+            INSERT INTO HistoryUndo (OperationId, SnapshotJson, CreatedAt)
+            SELECT OperationId, SnapshotJson, CreatedAt FROM HistoryUndoV4;
+            DROP TABLE HistoryUndoV4;
+            DROP TABLE OutboxOperationV4;
+            PRAGMA user_version = 5;
+            """);
         return string.Join(Environment.NewLine, statements);
 
         void Add(string name, string definition)

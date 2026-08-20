@@ -80,7 +80,10 @@ public sealed record WorkoutTextSet(
     string UndoFailed,
     string KeepServer,
     string ApplyLocal,
-    string HistoryConflictFailed);
+    string HistoryConflictFailed,
+    string UnknownExercise,
+    string DeleteExerciseTitle,
+    string DeleteExerciseMessage);
 
 public static class WorkoutResources
 {
@@ -125,7 +128,8 @@ public static class WorkoutResources
             Value("DeleteWorkoutMessage", culture), Value("HistoryEditFailed", culture),
             Value("HistoryDeleteFailed", culture), Value("UndoFailed", culture),
             Value("KeepServer", culture), Value("ApplyLocal", culture),
-            Value("HistoryConflictFailed", culture));
+            Value("HistoryConflictFailed", culture), Value("UnknownExercise", culture),
+            Value("DeleteExerciseTitle", culture), Value("DeleteExerciseMessage", culture));
     }
 
     private static string Value(string key, CultureInfo culture) =>

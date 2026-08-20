@@ -26,6 +26,18 @@
                 </Grid>
             </Border>
 
+            <Border Padding="14" BackgroundColor="#211A13" IsVisible="{Binding HasConflict}" Stroke="#FFC65C" StrokeShape="RoundRectangle 20">
+                <VerticalStackLayout Spacing="10">
+                    <Label FontAttributes="Bold" Text="{Binding Text.Conflicted}" TextColor="#FFC65C" />
+                    <Label Text="{Binding ConflictLocalSummary}" />
+                    <Label Text="{Binding ConflictServerSummary}" TextColor="#B8C0CC" />
+                    <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+                        <Button Command="{Binding KeepServerCommand}" Text="{Binding Text.KeepServer}" />
+                        <Button Grid.Column="1" Command="{Binding ApplyLocalCommand}" Text="{Binding Text.ApplyLocal}" />
+                    </Grid>
+                </VerticalStackLayout>
+            </Border>
+
             <Button
                 Command="{Binding MatchLastCommand}"
                 FontAttributes="Bold"

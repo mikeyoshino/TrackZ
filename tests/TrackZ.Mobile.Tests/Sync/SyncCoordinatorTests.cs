@@ -1,3 +1,4 @@
+using System.Net;
 using Microsoft.Data.Sqlite;
 using TrackZ.Contracts.Errors;
 using TrackZ.Contracts.Sync;
@@ -26,7 +27,8 @@ public sealed class SyncCoordinatorTests
             await connection.OpenAsync();
             await using var command = connection.CreateCommand();
             command.CommandText = "PRAGMA user_version;";
-            Assert.Equal(4L, (long)(await command.ExecuteScalarAsync())!);
+            Assert.Equal(TrackZLocalDatabase.CurrentSchemaVersion,
+                Convert.ToInt32(await command.ExecuteScalarAsync()));
         }
         finally
         {
@@ -154,10 +156,110 @@ public sealed class SyncCoordinatorTests
             """;
         await using var reader = await schema.ExecuteReaderAsync();
         Assert.True(await reader.ReadAsync());
-        Assert.Equal(4, reader.GetInt64(0));
+        Assert.Equal(TrackZLocalDatabase.CurrentSchemaVersion, reader.GetInt64(0));
         Assert.True(await reader.NextResultAsync());
         Assert.True(await reader.ReadAsync());
         Assert.Equal(1, reader.GetInt64(0));
+    }
+
+    [Fact]
+    public async Task Genuine_v4_rows_upgrade_to_typed_history_exercise_operations_without_data_loss()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"trackz-sync-v4-{Guid.NewGuid():N}.db");
+        var workoutId = Guid.NewGuid();
+        var operationId = Guid.NewGuid();
+        try
+        {
+            await using (var connection = new SqliteConnection($"Data Source={path};Pooling=False"))
+            {
+                await connection.OpenAsync();
+                await using var create = connection.CreateCommand();
+                create.CommandText = """
+                    CREATE TABLE LocalWorkout (Id TEXT PRIMARY KEY NOT NULL);
+                    CREATE TABLE OutboxOperation (
+                        OperationId TEXT PRIMARY KEY NOT NULL,
+                        EntityId TEXT NOT NULL,
+                        OperationType INTEGER NOT NULL CHECK (OperationType BETWEEN 1 AND 7),
+                        Payload TEXT NOT NULL CHECK (length(Payload) > 0),
+                        BaseVersion INTEGER NOT NULL CHECK (BaseVersion >= 0),
+                        CreatedAt TEXT NOT NULL,
+                        State INTEGER NOT NULL CHECK (State IN (1, 2, 3, 4)),
+                        DeletedAt TEXT NULL,
+                        Version INTEGER NOT NULL CHECK (Version >= 1),
+                        ServerVersion INTEGER NULL CHECK (ServerVersion IS NULL OR ServerVersion >= 0),
+                        RetryCount INTEGER NOT NULL DEFAULT 0 CHECK (RetryCount >= 0),
+                        NextAttemptAt TEXT NULL,
+                        ServerPayload TEXT NULL CHECK (ServerPayload IS NULL OR json_valid(ServerPayload)),
+                        ReplacesOperationId TEXT NULL,
+                        SendStartedAt TEXT NULL,
+                        NeutralizedAt TEXT NULL,
+                        FOREIGN KEY (EntityId) REFERENCES LocalWorkout(Id) ON DELETE RESTRICT
+                    );
+                    CREATE INDEX IX_OutboxOperation_Pending
+                        ON OutboxOperation(State, CreatedAt, OperationId)
+                        WHERE State = 1 AND DeletedAt IS NULL;
+                    CREATE TABLE HistoryUndo (
+                        OperationId TEXT PRIMARY KEY NOT NULL,
+                        SnapshotJson TEXT NOT NULL CHECK (json_valid(SnapshotJson)),
+                        CreatedAt TEXT NOT NULL,
+                        FOREIGN KEY (OperationId) REFERENCES OutboxOperation(OperationId) ON DELETE CASCADE
+                    );
+                    INSERT INTO LocalWorkout (Id) VALUES ($workoutId);
+                    INSERT INTO OutboxOperation
+                        (OperationId, EntityId, OperationType, Payload, BaseVersion,
+                         CreatedAt, State, Version)
+                    VALUES ($operationId, $workoutId, 1, '{}', 0, $createdAt, 1, 1);
+                    INSERT INTO HistoryUndo (OperationId, SnapshotJson, CreatedAt)
+                    VALUES ($operationId, '{}', $createdAt);
+                    PRAGMA user_version = 4;
+                    """;
+                create.Parameters.AddWithValue("$workoutId", workoutId.ToString("D"));
+                create.Parameters.AddWithValue("$operationId", operationId.ToString("D"));
+                create.Parameters.AddWithValue("$createdAt", "2026-08-16T10:00:00.0000000+00:00");
+                await create.ExecuteNonQueryAsync();
+            }
+
+            await new TrackZLocalDatabase(path).InitializeAsync();
+
+            await using var verification = new SqliteConnection($"Data Source={path};Pooling=False");
+            await verification.OpenAsync();
+            await using var command = verification.CreateCommand();
+            command.CommandText = """
+                SELECT user_version FROM pragma_user_version;
+                SELECT COUNT(*) FROM OutboxOperation WHERE OperationId = $operationId;
+                SELECT COUNT(*) FROM HistoryUndo WHERE OperationId = $operationId;
+                """;
+            command.Parameters.AddWithValue("$operationId", operationId.ToString("D"));
+            await using var reader = await command.ExecuteReaderAsync();
+            Assert.True(await reader.ReadAsync());
+            Assert.Equal(TrackZLocalDatabase.CurrentSchemaVersion, reader.GetInt64(0));
+            Assert.True(await reader.NextResultAsync());
+            Assert.True(await reader.ReadAsync());
+            Assert.Equal(1, reader.GetInt64(0));
+            Assert.True(await reader.NextResultAsync());
+            Assert.True(await reader.ReadAsync());
+            Assert.Equal(1, reader.GetInt64(0));
+            await reader.DisposeAsync();
+
+            await using var insert = verification.CreateCommand();
+            insert.CommandText = """
+                INSERT INTO OutboxOperation
+                    (OperationId, EntityId, OperationType, Payload, BaseVersion,
+                     CreatedAt, State, Version)
+                VALUES ($operationId, $workoutId, 10, '{}', 1, $createdAt, 1, 1);
+                """;
+            insert.Parameters.AddWithValue("$operationId", Guid.NewGuid().ToString("D"));
+            insert.Parameters.AddWithValue("$workoutId", workoutId.ToString("D"));
+            insert.Parameters.AddWithValue("$createdAt", "2026-08-16T10:01:00.0000000+00:00");
+            Assert.Equal(1, await insert.ExecuteNonQueryAsync());
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            File.Delete(path);
+            File.Delete(path + "-wal");
+            File.Delete(path + "-shm");
+        }
     }
 
     [Fact]
@@ -195,6 +297,66 @@ public sealed class SyncCoordinatorTests
         var authoritative = (await context.Workouts.GetActiveAsync())!;
         Assert.Equal(4, authoritative.Version);
         Assert.Empty(authoritative.Exercises[0].Sets);
+    }
+
+    [Fact]
+    public async Task Start_conflict_apply_local_merges_the_local_selection_without_erasing_server_exercises()
+    {
+        await using var context = await SyncContext.CreateAsync();
+        var local = await context.StartAsync();
+        var original = Assert.Single(await context.Outbox.PendingAsync());
+        var server = EmptyServerGraph(local.Id, 1) with
+        {
+            StartedAt = local.StartedAt.AddMinutes(-1)
+        };
+        context.Api.PushResponses.Enqueue(new SyncPushResponse([
+            new(original.OperationId, SyncOperationStatus.Conflict, 1,
+                BusinessErrorCode.VersionConflict)
+        ]));
+        context.Api.PullResponses.Enqueue(new SyncPullResponse([
+            Change(server, 1)
+        ], "cursor-start-conflict", false));
+        Assert.Equal(SyncRunStatus.Completed, await context.Coordinator.RunOnceAsync());
+
+        var conflict = Assert.Single(await context.Outbox.ConflictedAsync());
+        var replacement = await new ConflictResolution(context.Coordinator)
+            .ApplyLocalAgainstVersionAsync(conflict.OperationId, 1);
+        var payload = replacement.DeserializePayload<StartWorkoutOutboxPayload>();
+        Assert.Equal(server.StartedAt, payload.StartedAt);
+        var localExercise = Assert.Single(payload.Exercises);
+        var remoteExercise = Assert.Single(server.Exercises);
+        var merged = server with
+        {
+            Version = 2,
+            Exercises = [
+                new SyncWorkoutExerciseDto(
+                    localExercise.WorkoutExerciseId,
+                    localExercise.ExerciseDefinitionId,
+                    localExercise.TrackingMode,
+                    0,
+                    null,
+                    1,
+                    []),
+                remoteExercise with { Order = 1 }
+            ]
+        };
+        context.Api.PushResponses.Enqueue(new SyncPushResponse([
+            new(replacement.OperationId, SyncOperationStatus.Applied, 2, null)
+        ]));
+        context.Api.PullResponses.Enqueue(new SyncPullResponse([
+            Change(merged, 2)
+        ], "cursor-start-merged", false));
+
+        Assert.Equal(SyncRunStatus.Completed, await context.Coordinator.RunOnceAsync());
+
+        Assert.Empty(await context.Outbox.PendingAsync());
+        Assert.Empty(await context.Outbox.ConflictedAsync());
+        var synchronized = (await context.Workouts.GetActiveAsync())!;
+        Assert.Equal(2, synchronized.Exercises.Count);
+        Assert.Equal(
+            [localExercise.ExerciseDefinitionId, remoteExercise.ExerciseDefinitionId],
+            synchronized.Exercises.OrderBy(item => item.Order)
+                .Select(item => item.ExerciseDefinitionId));
     }
 
     [Fact]
@@ -444,38 +606,62 @@ public sealed class SyncCoordinatorTests
     }
 
     [Fact]
-    public async Task Apply_local_is_blocked_when_conflict_has_two_causal_successors()
+    public async Task Apply_local_resolves_a_causal_conflict_chain_in_order_without_discarding_later_intent()
     {
         await using var context = await SyncContext.CreateAsync();
-        var (_, conflict, successors) = await PrepareConflictWithSuccessorsAsync(context);
-        var before = (await context.Workouts.GetActiveAsync())!;
+        var (serverLocal, _, _) = await PrepareConflictWithSuccessorsAsync(context);
+        var server = ServerGraph(serverLocal, 4);
+        var pushed = new List<Guid>();
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            new ConflictResolution(context.Coordinator)
-                .ApplyLocalAgainstVersionAsync(conflict.OperationId, 4));
+        for (var index = 0; index < 3; index++)
+        {
+            var conflicts = await context.Outbox.ConflictedAsync();
+            var conflict = conflicts.OrderBy(item => item.CreatedAt)
+                .ThenBy(item => item.OperationId).First();
+            Assert.Equal(3 - index, conflicts.Count);
+            Assert.Equal(server.Version, conflict.ServerVersion);
 
-        Assert.Equal([conflict, .. successors], await context.Outbox.ConflictedAsync());
+            var replacement = await new ConflictResolution(context.Coordinator)
+                .ApplyLocalAgainstVersionAsync(conflict.OperationId, server.Version);
+            server = AppendServerSet(server, replacement, server.Version + 1);
+            context.Api.PushResponses.Enqueue(new SyncPushResponse([
+                new(replacement.OperationId, SyncOperationStatus.Applied, server.Version, null)
+            ]));
+            context.Api.PullResponses.Enqueue(new SyncPullResponse([
+                Change(server, 2 + index)
+            ], $"cursor-chain-{index}", false));
+
+            Assert.Equal(SyncRunStatus.Completed, await context.Coordinator.RunOnceAsync());
+            pushed.Add(replacement.OperationId);
+        }
+
+        Assert.Equal(pushed,
+            context.Api.PushRequests.TakeLast(3).SelectMany(request => request.Operations)
+                .Select(operation => operation.OperationId));
+        Assert.Empty(await context.Outbox.ConflictedAsync());
         Assert.Empty(await context.Outbox.PendingAsync());
-        AssertWorkoutIntentEqual(before, (await context.Workouts.GetActiveAsync())!);
+        var synchronized = (await context.Workouts.GetActiveAsync())!;
+        Assert.Equal([70m, 71m, 72m], synchronized.Exercises[0].Sets
+            .OrderBy(set => set.Order).Select(set => set.WeightKg));
     }
 
     [Fact]
-    public async Task Keep_server_is_blocked_when_conflict_has_two_causal_successors()
+    public async Task Keep_server_discards_only_the_selected_conflict_and_preserves_later_causal_intent()
     {
         await using var context = await SyncContext.CreateAsync();
         var (_, conflict, successors) = await PrepareConflictWithSuccessorsAsync(context);
-        var before = (await context.Workouts.GetActiveAsync())!;
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            new ConflictResolution(context.Coordinator).KeepServerAsync(conflict.OperationId));
+        await new ConflictResolution(context.Coordinator).KeepServerAsync(conflict.OperationId);
 
-        Assert.Equal([conflict, .. successors], await context.Outbox.ConflictedAsync());
+        Assert.Equal(successors, await context.Outbox.ConflictedAsync());
         Assert.Empty(await context.Outbox.PendingAsync());
-        AssertWorkoutIntentEqual(before, (await context.Workouts.GetActiveAsync())!);
+        var authoritative = (await context.Workouts.GetActiveAsync())!;
+        Assert.Equal(4, authoritative.Version);
+        Assert.Empty(authoritative.Exercises[0].Sets);
     }
 
     [Fact]
-    public async Task Restart_does_not_jump_causal_successors_to_a_later_replacement()
+    public async Task Restart_runs_the_earliest_conflict_replacement_before_later_conflicted_successors()
     {
         await using var context = await SyncContext.CreateAsync();
         var (_, conflict, successors) = await PrepareConflictWithSuccessorsAsync(context);
@@ -502,9 +688,10 @@ public sealed class SyncCoordinatorTests
         var status = await restarted.RunOnceAsync();
 
         Assert.Equal(SyncRunStatus.Completed, status);
-        Assert.Empty(restartedApi.PushRequests);
-        Assert.Equal([conflict, .. successors], await context.Outbox.ConflictedAsync());
-        Assert.Equal(replacement, Assert.Single(await context.Outbox.PendingAsync()));
+        var pushed = Assert.Single(Assert.Single(restartedApi.PushRequests).Operations);
+        Assert.Equal(replacement.OperationId, pushed.OperationId);
+        Assert.Equal(successors, await context.Outbox.ConflictedAsync());
+        Assert.Empty(await context.Outbox.PendingAsync());
     }
 
     [Fact]
@@ -729,6 +916,171 @@ public sealed class SyncCoordinatorTests
     }
 
     [Fact]
+    public async Task Invalid_persisted_cursor_rebootstraps_once_and_commits_graph_with_replacement_cursor()
+    {
+        await using var context = await SyncContext.CreateAsync();
+        var graph = EmptyServerGraph(Guid.NewGuid(), 1);
+        context.Api.PullResponses.Enqueue(new SyncPullResponse([Change(graph, 1)], "cursor-stale", false));
+        Assert.Equal(SyncRunStatus.Completed, await context.Coordinator.RunOnceAsync());
+        context.Api.PullOverride = (cursor, _) => cursor is not null
+            ? throw new SyncApiException(
+                SyncApiFailureKind.InvalidCursor,
+                HttpStatusCode.BadRequest,
+                BusinessErrorCode.InvalidRequest,
+                "trace",
+                "invalid cursor")
+            : Task.FromResult(new SyncPullResponse(
+                [Change(graph with { Version = 2 }, 1)], "cursor-fresh", false));
+
+        var status = await context.Coordinator.RunOnceAsync();
+
+        Assert.Equal(SyncRunStatus.Completed, status);
+        Assert.Equal([null, "cursor-stale", null], context.Api.PullRequests);
+        await using var connection = new SqliteConnection($"Data Source={context.Path};Pooling=False");
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT Version FROM LocalWorkout WHERE Id = $id;
+            SELECT Cursor FROM SyncCursor WHERE Scope = 'workouts';
+            """;
+        command.Parameters.AddWithValue("$id", graph.Id.ToString("D"));
+        await using var reader = await command.ExecuteReaderAsync();
+        Assert.True(await reader.ReadAsync());
+        Assert.Equal(2, reader.GetInt64(0));
+        Assert.True(await reader.NextResultAsync());
+        Assert.True(await reader.ReadAsync());
+        Assert.Equal("cursor-fresh", reader.GetString(0));
+    }
+
+    [Fact]
+    public async Task Failed_cursor_rebootstrap_surfaces_permanent_failure_without_erasing_local_state()
+    {
+        await using var context = await SyncContext.CreateAsync();
+        var graph = EmptyServerGraph(Guid.NewGuid(), 1);
+        context.Api.PullResponses.Enqueue(new SyncPullResponse([Change(graph, 1)], "cursor-stale", false));
+        await context.Coordinator.RunOnceAsync();
+        context.Api.PullOverride = (cursor, _) => throw new SyncApiException(
+            cursor is null ? SyncApiFailureKind.Permanent : SyncApiFailureKind.InvalidCursor,
+            HttpStatusCode.BadRequest,
+            BusinessErrorCode.InvalidRequest,
+            "trace",
+            "invalid cursor");
+
+        var status = await context.Coordinator.RunOnceAsync();
+
+        Assert.Equal(SyncRunStatus.PermanentFailure, status);
+        await using var connection = new SqliteConnection($"Data Source={context.Path};Pooling=False");
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT Version FROM LocalWorkout WHERE Id = $id;
+            SELECT Cursor FROM SyncCursor WHERE Scope = 'workouts';
+            """;
+        command.Parameters.AddWithValue("$id", graph.Id.ToString("D"));
+        await using var reader = await command.ExecuteReaderAsync();
+        Assert.True(await reader.ReadAsync());
+        Assert.Equal(1, reader.GetInt64(0));
+        Assert.True(await reader.NextResultAsync());
+        Assert.True(await reader.ReadAsync());
+        Assert.Equal("cursor-stale", reader.GetString(0));
+    }
+
+    [Fact]
+    public async Task Empty_successful_cursor_rebootstrap_atomically_clears_the_invalid_persisted_cursor()
+    {
+        await using var context = await SyncContext.CreateAsync();
+        var graph = EmptyServerGraph(Guid.NewGuid(), 1);
+        context.Api.PullResponses.Enqueue(new SyncPullResponse(
+            [Change(graph, 1)], "cursor-stale", false));
+        Assert.Equal(SyncRunStatus.Completed, await context.Coordinator.RunOnceAsync());
+        context.Api.PullOverride = (cursor, _) => cursor is not null
+            ? throw new SyncApiException(
+                SyncApiFailureKind.InvalidCursor,
+                HttpStatusCode.BadRequest,
+                BusinessErrorCode.InvalidRequest,
+                "trace",
+                "invalid cursor")
+            : Task.FromResult(new SyncPullResponse([], null, false));
+
+        Assert.Equal(SyncRunStatus.Completed, await context.Coordinator.RunOnceAsync());
+
+        Assert.Equal([null, "cursor-stale", null], context.Api.PullRequests);
+        await using var connection = new SqliteConnection($"Data Source={context.Path};Pooling=False");
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM SyncCursor WHERE Scope = 'workouts';";
+        Assert.Equal(0L, (long)(await command.ExecuteScalarAsync())!);
+    }
+
+    [Fact]
+    public async Task Permanent_http_push_rejection_archives_typed_history_failure_without_reconciling_forever()
+    {
+        await using var context = await SyncContext.CreateAsync();
+        var local = await context.StartAsync();
+        context.Clock.UtcNow = context.Clock.UtcNow.AddMinutes(1);
+        var active = new ActiveWorkoutCoordinator(context.Workouts, context.Boundary, context.Clock);
+        await active.SaveSetAsync(
+            local.Exercises[0].ExerciseDefinitionId,
+            new LocalSet(70m, null, 8));
+        var initial = await context.Outbox.PendingAsync();
+        context.Api.PushResponses.Enqueue(new SyncPushResponse([
+            new(initial[0].OperationId, SyncOperationStatus.Applied, 1, null)
+        ]));
+        context.Api.PushResponses.Enqueue(new SyncPushResponse([
+            new(initial[1].OperationId, SyncOperationStatus.Applied, 2, null)
+        ]));
+        context.Api.PullResponses.Enqueue(new SyncPullResponse([], null, false));
+        Assert.Equal(SyncRunStatus.Completed, await context.Coordinator.RunOnceAsync());
+
+        context.Clock.UtcNow = context.Clock.UtcNow.AddMinutes(1);
+        await active.FinishAsync();
+        context.Api.PushException = new SyncApiException(
+            SyncApiFailureKind.Permanent,
+            HttpStatusCode.BadRequest,
+            BusinessErrorCode.InvalidSetValue,
+            "trace-permanent",
+            "invalid set");
+
+        Assert.Equal(SyncRunStatus.PermanentFailure, await context.Coordinator.RunOnceAsync());
+
+        Assert.Empty(await context.Outbox.PendingAsync());
+        var rejected = Assert.Single(await context.Outbox.RejectedAsync(local.Id));
+        Assert.Equal(OutboxOperationType.CompleteWorkout, rejected.Type);
+        Assert.Equal(BusinessErrorCode.InvalidSetValue, rejected.FailureCode);
+    }
+
+    [Fact]
+    public async Task Rejected_predecessor_returns_permanent_failure_and_leaves_successor_runnable()
+    {
+        await using var context = await SyncContext.CreateAsync();
+        var local = await context.StartAsync();
+        context.Clock.UtcNow = context.Clock.UtcNow.AddMinutes(1);
+        await new ActiveWorkoutCoordinator(context.Workouts, context.Boundary, context.Clock)
+            .SaveSetAsync(
+                local.Exercises[0].ExerciseDefinitionId,
+                new LocalSet(70m, null, 8));
+        var pending = await context.Outbox.PendingAsync();
+        context.Api.PushResponses.Enqueue(new SyncPushResponse([
+            new(
+                pending[0].OperationId,
+                SyncOperationStatus.Rejected,
+                null,
+                BusinessErrorCode.InvalidRequest)
+        ]));
+        context.Api.PullResponses.Enqueue(new SyncPullResponse([], null, false));
+
+        var status = await context.Coordinator.RunOnceAsync();
+
+        Assert.Equal(SyncRunStatus.PermanentFailure, status);
+        var rejected = Assert.Single(await context.Outbox.RejectedAsync(local.Id));
+        Assert.Equal(pending[0].OperationId, rejected.OperationId);
+        var successor = Assert.Single(await context.Outbox.PendingAsync());
+        Assert.Equal(pending[1].OperationId, successor.OperationId);
+        Assert.Null(successor.NextAttemptAt);
+        Assert.Equal([null], context.Api.PullRequests);
+    }
+
+    [Fact]
     public async Task Pull_still_rejects_child_mutation_before_workout_start()
     {
         await using var context = await SyncContext.CreateAsync();
@@ -832,6 +1184,65 @@ public sealed class SyncCoordinatorTests
 
         Assert.Equal(SyncRunStatus.Offline, status);
         Assert.Single(await context.Outbox.PendingAsync());
+    }
+
+    [Fact]
+    public async Task Authentication_failure_is_not_offline_and_retains_pending_data()
+    {
+        await using var context = await SyncContext.CreateAsync();
+        await context.StartAsync();
+        context.Api.PushException = new SyncApiException(
+            SyncApiFailureKind.Authentication,
+            HttpStatusCode.Unauthorized,
+            BusinessErrorCode.InvalidCredentials,
+            "trace-auth",
+            "expired");
+
+        var status = await context.Coordinator.RunOnceAsync();
+
+        Assert.Equal(SyncRunStatus.AuthenticationRequired, status);
+        Assert.Single(await context.Outbox.PendingAsync());
+    }
+
+    [Fact]
+    public async Task Retryable_http_failure_persists_bounded_schedule_instead_of_reporting_offline()
+    {
+        await using var context = await SyncContext.CreateAsync();
+        await context.StartAsync();
+        context.Api.PushException = new SyncApiException(
+            SyncApiFailureKind.Retryable,
+            HttpStatusCode.TooManyRequests,
+            BusinessErrorCode.RateLimitExceeded,
+            "trace-rate",
+            "slow down");
+
+        var status = await context.Coordinator.RunOnceAsync();
+
+        Assert.Equal(SyncRunStatus.RetryScheduled, status);
+        var pending = Assert.Single(await context.Outbox.PendingAsync());
+        Assert.Equal(1, pending.RetryCount);
+        Assert.Equal(context.Clock.UtcNow.AddSeconds(1), pending.NextAttemptAt);
+    }
+
+    [Theory]
+    [InlineData(BusinessErrorCode.WorkoutNotFound)]
+    [InlineData(BusinessErrorCode.WorkoutAlreadyCompleted)]
+    [InlineData(BusinessErrorCode.InvalidSetValue)]
+    public async Task Exact_permanent_business_codes_are_accepted_and_retained_for_presentation(
+        BusinessErrorCode errorCode)
+    {
+        await using var context = await SyncContext.CreateAsync();
+        await context.StartAsync();
+        var operation = Assert.Single(await context.Outbox.PendingAsync());
+        context.Api.PushResponse = new SyncPushResponse([
+            new(operation.OperationId, SyncOperationStatus.Rejected, null, errorCode)
+        ]);
+        context.Api.PullResponses.Enqueue(new SyncPullResponse([], null, false));
+
+        Assert.Equal(SyncRunStatus.PermanentFailure, await context.Coordinator.RunOnceAsync());
+
+        var rejected = Assert.Single(await context.Outbox.RejectedAsync(operation.EntityId));
+        Assert.Equal(errorCode, rejected.FailureCode);
     }
 
     [Fact]
@@ -963,6 +1374,35 @@ public sealed class SyncCoordinatorTests
                     payload.SetId, 1, payload.WeightKg, payload.AssistedKg, payload.Reps,
                     payload.CompletedAt, null, null, 1)]
             }]
+        };
+    }
+
+    private static SyncWorkoutDto AppendServerSet(
+        SyncWorkoutDto server,
+        OutboxOperation replacement,
+        long version)
+    {
+        var payload = replacement.DeserializePayload<SaveSetOutboxPayload>();
+        var exercise = server.Exercises.Single(item => item.Id == payload.WorkoutExerciseId);
+        return server with
+        {
+            Version = version,
+            Exercises = server.Exercises.Select(item => item.Id == exercise.Id
+                ? item with
+                {
+                    Version = item.Version + 1,
+                    Sets = [.. item.Sets, new SyncSetDto(
+                        payload.SetId,
+                        item.Sets.Count(set => set.DeletedAt is null),
+                        payload.WeightKg,
+                        payload.AssistedKg,
+                        payload.Reps,
+                        payload.CompletedAt,
+                        null,
+                        null,
+                        1)]
+                }
+                : item).ToArray()
         };
     }
 

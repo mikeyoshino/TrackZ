@@ -54,10 +54,17 @@ public static class ExerciseEndpoints
                 errors ??= new Dictionary<string, string[]>(StringComparer.Ordinal);
                 errors["operationId"] = [InvalidField(context, "operationId")];
             }
+            if (model.ExerciseId is null || model.ExerciseId == Guid.Empty)
+            {
+                errors ??= new Dictionary<string, string[]>(StringComparer.Ordinal);
+                errors["exerciseId"] = [InvalidField(context, "exerciseId")];
+            }
             if (errors is not null) return ValidationProblem(context, errors);
 
             var id = await sender.Send(new CreateCustomExerciseCommand(
-                model.Name!, model.BodyPart!.Value, model.TrackingMode!.Value, model.LibraryImageId, model.UploadedImageKey, model.OperationId), cancellationToken);
+                model.Name!, model.BodyPart!.Value, model.TrackingMode!.Value,
+                model.LibraryImageId, model.UploadedImageKey, model.OperationId,
+                model.ExerciseId), cancellationToken);
             return Results.Created($"/api/v1/exercises/custom/{id:D}", new { id });
         })
         .Produces(StatusCodes.Status201Created)

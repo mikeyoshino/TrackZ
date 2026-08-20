@@ -1,4 +1,5 @@
 using System.Text.Json;
+using TrackZ.Contracts.Errors;
 
 namespace TrackZ.Mobile.Sync;
 
@@ -10,7 +11,10 @@ public enum OutboxOperationType
     EditSet = 4,
     DeleteSet = 5,
     DeleteWorkout = 6,
-    ReorderExercises = 7
+    ReorderExercises = 7,
+    AddExercise = 8,
+    RemoveExercise = 9,
+    DeleteWorkoutExercise = 10
 }
 
 public enum OutboxOperationState
@@ -37,7 +41,8 @@ public sealed record OutboxOperation(
     string? ServerPayload = null,
     Guid? ReplacesOperationId = null,
     DateTimeOffset? SendStartedAt = null,
-    DateTimeOffset? NeutralizedAt = null)
+    DateTimeOffset? NeutralizedAt = null,
+    BusinessErrorCode? FailureCode = null)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -107,3 +112,26 @@ public sealed record DeleteSetOutboxPayload(
 public sealed record DeleteWorkoutOutboxPayload(
     Guid WorkoutId,
     DateTimeOffset DeletedAt);
+
+public sealed record DeleteWorkoutExerciseOutboxPayload(
+    Guid WorkoutId,
+    Guid WorkoutExerciseId,
+    DateTimeOffset DeletedAt);
+
+public sealed record AddExerciseOutboxPayload(
+    Guid WorkoutId,
+    Guid WorkoutExerciseId,
+    Guid ExerciseDefinitionId,
+    int TrackingMode,
+    int Order,
+    DateTimeOffset AddedAt);
+
+public sealed record RemoveExerciseOutboxPayload(
+    Guid WorkoutId,
+    Guid WorkoutExerciseId,
+    DateTimeOffset DeletedAt);
+
+public sealed record ReorderExercisesOutboxPayload(
+    Guid WorkoutId,
+    IReadOnlyList<Guid> WorkoutExerciseIds,
+    DateTimeOffset ReorderedAt);

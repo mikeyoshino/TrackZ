@@ -11,7 +11,8 @@ namespace TrackZ.Mobile.Features.Workout;
 public sealed class ActiveWorkoutCoordinator(
     ILocalWorkoutRepository workouts,
     IAccountSessionBoundary sessionBoundary,
-    IClock clock)
+    IClock clock,
+    IWorkoutSyncTrigger? syncTrigger = null)
 {
     private readonly SemaphoreSlim _mutationGate = new(1, 1);
 
@@ -98,6 +99,7 @@ public sealed class ActiveWorkoutCoordinator(
             }, cancellationToken);
 
             EnsureCurrent(committed, generation, cancellationToken);
+            syncTrigger?.NotifyMutation();
             return created ?? throw new InvalidOperationException("The active workout was not created.");
         }
         finally
@@ -210,6 +212,7 @@ public sealed class ActiveWorkoutCoordinator(
             }, cancellationToken);
 
             EnsureCurrent(committed, generation, cancellationToken);
+            syncTrigger?.NotifyMutation();
             return saved ?? throw new InvalidOperationException("The set was not saved.");
         }
         finally
@@ -280,7 +283,236 @@ public sealed class ActiveWorkoutCoordinator(
             }, cancellationToken);
 
             EnsureCurrent(committed, generation, cancellationToken);
+            syncTrigger?.NotifyMutation();
             return completed ?? throw new InvalidOperationException("The workout was not completed.");
+        }
+        finally
+        {
+            _mutationGate.Release();
+        }
+    }
+
+    public async Task<LocalWorkoutExercise> AddExerciseAsync(
+        WorkoutExerciseSelection selection,
+        Guid? workoutExerciseId = null,
+        Guid? operationId = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (selection.ExerciseDefinitionId == Guid.Empty || !Enum.IsDefined(selection.TrackingMode))
+            throw new ArgumentException("A valid exercise selection is required.", nameof(selection));
+        if (workoutExerciseId == Guid.Empty)
+            throw new ArgumentException("Workout exercise ID cannot be empty.", nameof(workoutExerciseId));
+        if (operationId == Guid.Empty)
+            throw new ArgumentException("Operation ID cannot be empty.", nameof(operationId));
+
+        var generation = sessionBoundary.Capture();
+        await _mutationGate.WaitAsync(cancellationToken);
+        try
+        {
+            LocalWorkoutExercise? added = null;
+            var committed = await sessionBoundary.TryCommitAsync(generation, async token =>
+            {
+                var active = await workouts.GetActiveAsync(token)
+                    ?? throw new InvalidOperationException("No active workout exists.");
+                if (operationId is { } stableOperationId
+                    && await workouts.GetOperationAsync(stableOperationId, token) is { } replay)
+                {
+                    var replayPayload = replay.DeserializePayload<AddExerciseOutboxPayload>();
+                    if (replay.Type != OutboxOperationType.AddExercise
+                        || replay.EntityId != active.Id
+                        || replayPayload.ExerciseDefinitionId != selection.ExerciseDefinitionId
+                        || replayPayload.TrackingMode != (int)selection.TrackingMode
+                        || workoutExerciseId is { } stableExerciseId
+                        && replayPayload.WorkoutExerciseId != stableExerciseId)
+                        throw new InvalidDataException(
+                            "The operation identifier is bound to another exercise addition.");
+                    added = active.Exercises.Single(item =>
+                        item.Id == replayPayload.WorkoutExerciseId && item.DeletedAt is null);
+                    return;
+                }
+                if (active.Exercises.Any(item =>
+                        item.DeletedAt is null
+                        && item.ExerciseDefinitionId == selection.ExerciseDefinitionId))
+                    throw new InvalidOperationException("The exercise is already in the active workout.");
+
+                var addedAt = await NextMutationAtAsync(active, token);
+                var exercise = new LocalWorkoutExercise(
+                    workoutExerciseId ?? Guid.NewGuid(),
+                    active.Id,
+                    selection.ExerciseDefinitionId,
+                    selection.TrackingMode,
+                    active.Exercises.Count(item => item.DeletedAt is null),
+                    null,
+                    1,
+                    0,
+                    []);
+                var updated = active with
+                {
+                    Exercises = [.. active.Exercises, exercise],
+                    Version = active.Version + 1
+                };
+                var operation = OutboxOperation.Create(
+                    operationId ?? Guid.NewGuid(),
+                    active.Id,
+                    OutboxOperationType.AddExercise,
+                    new AddExerciseOutboxPayload(
+                        active.Id,
+                        exercise.Id,
+                        exercise.ExerciseDefinitionId,
+                        (int)exercise.TrackingMode,
+                        exercise.Order,
+                        addedAt),
+                    active.Version,
+                    addedAt);
+                await workouts.SaveWorkoutAndEnqueueAsync(updated, operation, token);
+                added = exercise;
+            }, cancellationToken);
+            EnsureCurrent(committed, generation, cancellationToken);
+            syncTrigger?.NotifyMutation();
+            return added ?? throw new InvalidOperationException("The exercise was not added.");
+        }
+        finally
+        {
+            _mutationGate.Release();
+        }
+    }
+
+    public async Task<LocalWorkout> RemoveExerciseAsync(
+        Guid workoutExerciseId,
+        Guid? operationId = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (workoutExerciseId == Guid.Empty)
+            throw new ArgumentException("Workout exercise ID cannot be empty.", nameof(workoutExerciseId));
+        if (operationId == Guid.Empty)
+            throw new ArgumentException("Operation ID cannot be empty.", nameof(operationId));
+
+        var generation = sessionBoundary.Capture();
+        await _mutationGate.WaitAsync(cancellationToken);
+        try
+        {
+            LocalWorkout? result = null;
+            var committed = await sessionBoundary.TryCommitAsync(generation, async token =>
+            {
+                var active = await workouts.GetActiveAsync(token)
+                    ?? throw new InvalidOperationException("No active workout exists.");
+                if (operationId is { } stableOperationId
+                    && await workouts.GetOperationAsync(stableOperationId, token) is { } replay)
+                {
+                    var payload = replay.DeserializePayload<RemoveExerciseOutboxPayload>();
+                    if (replay.Type != OutboxOperationType.RemoveExercise
+                        || replay.EntityId != active.Id
+                        || payload.WorkoutExerciseId != workoutExerciseId)
+                        throw new InvalidDataException(
+                            "The operation identifier is bound to another exercise removal.");
+                    result = active;
+                    return;
+                }
+                var target = active.Exercises.SingleOrDefault(item =>
+                    item.Id == workoutExerciseId && item.DeletedAt is null)
+                    ?? throw new ArgumentException(
+                        "The exercise is not in the active workout.", nameof(workoutExerciseId));
+                if (active.Exercises.Count(item => item.DeletedAt is null) == 1)
+                    throw new InvalidOperationException("An active workout needs at least one exercise.");
+                var deletedAt = await NextMutationAtAsync(active, token);
+                var activeRemaining = active.Exercises
+                    .Where(item => item.Id != target.Id && item.DeletedAt is null)
+                    .OrderBy(item => item.Order)
+                    .Select((item, order) => item.Order == order
+                        ? item
+                        : item with { Order = order, Version = item.Version + 1 })
+                    .ToDictionary(item => item.Id);
+                result = active with
+                {
+                    Exercises = active.Exercises.Select(item => item.Id == target.Id
+                        ? item with { DeletedAt = deletedAt, Version = item.Version + 1 }
+                        : item.DeletedAt is null ? activeRemaining[item.Id] : item).ToArray(),
+                    Version = active.Version + 1
+                };
+                var operation = OutboxOperation.Create(
+                    operationId ?? Guid.NewGuid(),
+                    active.Id,
+                    OutboxOperationType.RemoveExercise,
+                    new RemoveExerciseOutboxPayload(active.Id, target.Id, deletedAt),
+                    active.Version,
+                    deletedAt);
+                await workouts.SaveWorkoutAndEnqueueAsync(result, operation, token);
+            }, cancellationToken);
+            EnsureCurrent(committed, generation, cancellationToken);
+            syncTrigger?.NotifyMutation();
+            return result ?? throw new InvalidOperationException("The exercise was not removed.");
+        }
+        finally
+        {
+            _mutationGate.Release();
+        }
+    }
+
+    public async Task<LocalWorkout> ReorderExercisesAsync(
+        IReadOnlyList<Guid> orderedWorkoutExerciseIds,
+        Guid? operationId = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(orderedWorkoutExerciseIds);
+        if (operationId == Guid.Empty)
+            throw new ArgumentException("Operation ID cannot be empty.", nameof(operationId));
+
+        var generation = sessionBoundary.Capture();
+        await _mutationGate.WaitAsync(cancellationToken);
+        try
+        {
+            LocalWorkout? result = null;
+            var committed = await sessionBoundary.TryCommitAsync(generation, async token =>
+            {
+                var active = await workouts.GetActiveAsync(token)
+                    ?? throw new InvalidOperationException("No active workout exists.");
+                if (operationId is { } stableOperationId
+                    && await workouts.GetOperationAsync(stableOperationId, token) is { } replay)
+                {
+                    var payload = replay.DeserializePayload<ReorderExercisesOutboxPayload>();
+                    if (replay.Type != OutboxOperationType.ReorderExercises
+                        || replay.EntityId != active.Id
+                        || !payload.WorkoutExerciseIds.SequenceEqual(orderedWorkoutExerciseIds))
+                        throw new InvalidDataException(
+                            "The operation identifier is bound to another exercise order.");
+                    result = active;
+                    return;
+                }
+                var current = active.Exercises.Where(item => item.DeletedAt is null)
+                    .OrderBy(item => item.Order).ToArray();
+                if (orderedWorkoutExerciseIds.Count != current.Length
+                    || orderedWorkoutExerciseIds.Any(id => id == Guid.Empty)
+                    || orderedWorkoutExerciseIds.Distinct().Count() != current.Length
+                    || orderedWorkoutExerciseIds.Any(id => current.All(item => item.Id != id)))
+                    throw new ArgumentException(
+                        "The order must contain every active exercise exactly once.",
+                        nameof(orderedWorkoutExerciseIds));
+                if (current.Select(item => item.Id).SequenceEqual(orderedWorkoutExerciseIds))
+                    throw new InvalidOperationException("The exercise order has not changed.");
+
+                var reorderedAt = await NextMutationAtAsync(active, token);
+                var orders = orderedWorkoutExerciseIds
+                    .Select((id, order) => (id, order)).ToDictionary(item => item.id, item => item.order);
+                result = active with
+                {
+                    Exercises = active.Exercises.Select(item => item.DeletedAt is null
+                        ? item with { Order = orders[item.Id], Version = item.Version + 1 }
+                        : item).ToArray(),
+                    Version = active.Version + 1
+                };
+                var operation = OutboxOperation.Create(
+                    operationId ?? Guid.NewGuid(),
+                    active.Id,
+                    OutboxOperationType.ReorderExercises,
+                    new ReorderExercisesOutboxPayload(
+                        active.Id, orderedWorkoutExerciseIds.ToArray(), reorderedAt),
+                    active.Version,
+                    reorderedAt);
+                await workouts.SaveWorkoutAndEnqueueAsync(result, operation, token);
+            }, cancellationToken);
+            EnsureCurrent(committed, generation, cancellationToken);
+            syncTrigger?.NotifyMutation();
+            return result ?? throw new InvalidOperationException("The exercises were not reordered.");
         }
         finally
         {
@@ -342,6 +574,16 @@ public sealed class ActiveWorkoutCoordinator(
         {
             if (timestamp > latest) latest = timestamp.Value;
         }
+    }
+
+    private async Task<DateTimeOffset> NextMutationAtAsync(
+        LocalWorkout workout,
+        CancellationToken cancellationToken)
+    {
+        var latest = LastAggregateMutationAt(workout);
+        var latestOperationAt = await workouts.GetLatestOperationCreatedAtAsync(cancellationToken);
+        if (latestOperationAt is { } operationAt && operationAt > latest) latest = operationAt;
+        return AfterCausalWatermark(Utc(clock.UtcNow), latest);
     }
 
     private async Task<LocalWorkout> ReconcileStartReplayAsync(

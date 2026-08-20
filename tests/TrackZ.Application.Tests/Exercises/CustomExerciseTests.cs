@@ -19,7 +19,9 @@ public sealed class CustomExerciseTests
         var handler = new CreateCustomExerciseHandler(store, currentUser);
 
         var id = await handler.Handle(
-            new CreateCustomExerciseCommand("  My Press  ", BodyPart.Chest, TrackingMode.Weighted, null, null),
+            new CreateCustomExerciseCommand(
+                "  My Press  ", BodyPart.Chest, TrackingMode.Weighted, null, null,
+                ExerciseId: Guid.NewGuid()),
             CancellationToken.None);
 
         var exercise = Assert.Single(store.Exercises);
@@ -38,7 +40,9 @@ public sealed class CustomExerciseTests
         var handler = new CreateCustomExerciseHandler(store, new TestCurrentUser(ownerId));
 
         var error = await Assert.ThrowsAsync<BusinessException>(() => handler.Handle(
-            new CreateCustomExerciseCommand("My Press", BodyPart.Chest, TrackingMode.Weighted, null, null),
+            new CreateCustomExerciseCommand(
+                "My Press", BodyPart.Chest, TrackingMode.Weighted, null, null,
+                ExerciseId: Guid.NewGuid()),
             CancellationToken.None));
 
         Assert.Equal(BusinessErrorCode.ExerciseNameDuplicate, error.Code);
@@ -52,7 +56,8 @@ public sealed class CustomExerciseTests
         var store = new InMemoryCustomExerciseStore();
         var handler = new CreateCustomExerciseHandler(store, new TestCurrentUser(Guid.NewGuid()));
         var command = new CreateCustomExerciseCommand(
-            "Idempotent Press", BodyPart.Chest, TrackingMode.Weighted, null, null, operationId);
+            "Idempotent Press", BodyPart.Chest, TrackingMode.Weighted, null, null, operationId,
+            Guid.NewGuid());
 
         var first = await handler.Handle(command, CancellationToken.None);
         var replay = await handler.Handle(command, CancellationToken.None);
@@ -60,6 +65,59 @@ public sealed class CustomExerciseTests
         Assert.Equal(first, replay);
         Assert.Single(store.Exercises);
         Assert.Equal(operationId, store.Exercises[0].ClientOperationId);
+    }
+
+    [Fact]
+    public async Task Create_persists_the_client_stable_exercise_identifier()
+    {
+        var exerciseId = Guid.Parse("f16b73d9-6783-4f9e-b79f-47ae1f76475a");
+        var store = new InMemoryCustomExerciseStore();
+        var handler = new CreateCustomExerciseHandler(store, new TestCurrentUser(Guid.NewGuid()));
+
+        var createdId = await handler.Handle(new CreateCustomExerciseCommand(
+            "Offline Press",
+            BodyPart.Chest,
+            TrackingMode.Weighted,
+            null,
+            null,
+            Guid.NewGuid(),
+            ExerciseId: exerciseId), CancellationToken.None);
+
+        Assert.Equal(exerciseId, createdId);
+        Assert.Equal(exerciseId, Assert.Single(store.Exercises).Id);
+    }
+
+    [Fact]
+    public async Task Concurrent_operation_replay_cannot_rebind_a_different_client_exercise_id()
+    {
+        var ownerId = Guid.NewGuid();
+        var operationId = Guid.NewGuid();
+        var concurrent = ExerciseDefinition.CreateCustom(
+            ownerId,
+            Guid.NewGuid(),
+            "Concurrent Winner",
+            BodyPart.Chest,
+            TrackingMode.Weighted,
+            clientOperationId: operationId);
+        var store = new InMemoryCustomExerciseStore(concurrent)
+        {
+            RejectCreates = true,
+            HideFirstOperationLookup = true
+        };
+        var handler = new CreateCustomExerciseHandler(store, new TestCurrentUser(ownerId));
+
+        var error = await Assert.ThrowsAsync<BusinessException>(() => handler.Handle(
+            new CreateCustomExerciseCommand(
+                "Concurrent Loser",
+                BodyPart.Chest,
+                TrackingMode.Weighted,
+                null,
+                null,
+                operationId,
+                Guid.NewGuid()),
+            CancellationToken.None));
+
+        Assert.Equal(BusinessErrorCode.InvalidRequest, error.Code);
     }
 
     [Fact]
@@ -87,7 +145,9 @@ public sealed class CustomExerciseTests
         var handler = new CreateCustomExerciseHandler(store, new TestCurrentUser(Guid.NewGuid()));
 
         var id = await handler.Handle(
-            new CreateCustomExerciseCommand("My Press", BodyPart.Chest, TrackingMode.Weighted, published.Id, null), CancellationToken.None);
+            new CreateCustomExerciseCommand(
+                "My Press", BodyPart.Chest, TrackingMode.Weighted, published.Id, null,
+                ExerciseId: Guid.NewGuid()), CancellationToken.None);
 
         Assert.Equal(published.Id, Assert.Single(store.Exercises).LibraryImageId);
         Assert.NotEqual(Guid.Empty, id);
@@ -240,6 +300,8 @@ public sealed class CustomExerciseTests
         public List<ExerciseDefinition> Exercises { get; } = [.. exercises];
         public IReadOnlyList<ExerciseImage> LibraryImages { get; init; } = [];
         public bool RejectCreates { get; init; }
+        public bool HideFirstOperationLookup { get; init; }
+        private int _operationLookups;
 
         public Task<bool> TryCreateCustomAsync(ExerciseDefinition exercise, CancellationToken cancellationToken)
         {
@@ -252,9 +314,17 @@ public sealed class CustomExerciseTests
             Task.FromResult(Exercises.SingleOrDefault(exercise =>
                 exercise.Id == exerciseId && exercise.OwnerId == ownerId && exercise.IsCustom && !exercise.IsArchived));
 
-        public Task<ExerciseDefinition?> FindCustomByOperationAsync(Guid ownerId, Guid operationId, CancellationToken cancellationToken) =>
-            Task.FromResult(Exercises.SingleOrDefault(exercise =>
+        public Task<ExerciseDefinition?> FindCustomByOperationAsync(Guid ownerId, Guid operationId, CancellationToken cancellationToken)
+        {
+            _operationLookups++;
+            if (HideFirstOperationLookup && _operationLookups == 1)
+                return Task.FromResult<ExerciseDefinition?>(null);
+            return Task.FromResult(Exercises.SingleOrDefault(exercise =>
                 exercise.OwnerId == ownerId && exercise.ClientOperationId == operationId));
+        }
+
+        public Task<ExerciseDefinition?> FindAnyExerciseByIdAsync(Guid exerciseId, CancellationToken cancellationToken) =>
+            Task.FromResult(Exercises.SingleOrDefault(exercise => exercise.Id == exerciseId));
 
         public Task<ExerciseImage?> FindPublishedLibraryImageAsync(Guid imageId, CancellationToken cancellationToken) =>
             Task.FromResult(LibraryImages.SingleOrDefault(image => image.Id == imageId

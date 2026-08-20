@@ -3,6 +3,7 @@ using TrackZ.Contracts.Errors;
 using TrackZ.Mobile.Features.Exercises.Data;
 using TrackZ.Mobile.Features.Exercises.Models;
 using TrackZ.Mobile.Identity;
+using TrackZ.Mobile.Sync;
 
 namespace TrackZ.Mobile.Features.Exercises.Services;
 
@@ -17,6 +18,7 @@ public sealed class CustomExerciseImageService : IDisposable
     private readonly IExerciseThumbnailCache _thumbnailCache;
     private readonly IAccountSessionBoundary _boundary;
     private readonly IRetryDelay _retryDelay;
+    private readonly ISyncAuthenticationRecovery? _authenticationRecovery;
     private readonly SemaphoreSlim _synchronizationLock = new(1, 1);
     private Task _pendingSynchronization = Task.CompletedTask;
     private bool _disposed;
@@ -30,7 +32,8 @@ public sealed class CustomExerciseImageService : IDisposable
         IClock clock,
         IExerciseThumbnailCache thumbnailCache,
         IAccountSessionBoundary? boundary = null,
-        IRetryDelay? retryDelay = null)
+        IRetryDelay? retryDelay = null,
+        ISyncAuthenticationRecovery? authenticationRecovery = null)
     {
         _cache = cache;
         _connectivity = connectivity;
@@ -41,6 +44,7 @@ public sealed class CustomExerciseImageService : IDisposable
         _thumbnailCache = thumbnailCache;
         _boundary = boundary ?? new AccountSessionBoundary();
         _retryDelay = retryDelay ?? new SystemRetryDelay();
+        _authenticationRecovery = authenticationRecovery;
         _connectivity.ConnectivityChanged += OnConnectivityChanged;
     }
 
@@ -83,7 +87,8 @@ public sealed class CustomExerciseImageService : IDisposable
             if (!_connectivity.IsOnline) return durable.LocalExerciseId;
             try
             {
-                return await SynchronizeOneAsync(durable, generation, cancellationToken);
+                return await SynchronizeOneWithAuthenticationRecoveryAsync(
+                    durable, generation, cancellationToken);
             }
             catch (Exception exception) when (IsDefinitiveLocalFailure(exception))
             {
@@ -102,7 +107,8 @@ public sealed class CustomExerciseImageService : IDisposable
             {
                 return durable.ServerExerciseId ?? durable.LocalExerciseId;
             }
-            catch (MobileApiException exception) when (!exception.IsRetryable)
+            catch (MobileApiException exception) when (
+                !exception.IsRetryable && !exception.IsAuthenticationRequired)
             {
                 await _boundary.TryCommitAsync(generation, async token =>
                 {
@@ -125,6 +131,23 @@ public sealed class CustomExerciseImageService : IDisposable
         }
     }
 
+    private async Task<Guid> SynchronizeOneWithAuthenticationRecoveryAsync(
+        PendingCustomExercise pending,
+        AccountSessionGeneration generation,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await SynchronizeOneAsync(pending, generation, cancellationToken);
+        }
+        catch (MobileApiException exception) when (
+            exception.IsAuthenticationRequired && _authenticationRecovery is not null)
+        {
+            if (!await _authenticationRecovery.TryRecoverAsync(cancellationToken)) throw;
+            return await SynchronizeOneAsync(pending, generation, cancellationToken);
+        }
+    }
+
     public async Task SynchronizePendingAsync(CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -144,7 +167,8 @@ public sealed class CustomExerciseImageService : IDisposable
                 {
                     await SynchronizeOneAsync(pending, generation, cancellationToken);
                 }
-                catch (MobileApiException exception) when (!exception.IsRetryable)
+                catch (MobileApiException exception) when (
+                    !exception.IsRetryable && !exception.IsAuthenticationRequired)
                 {
                     await MarkUserActionRequiredAsync(
                         pending.OperationId, exception.ErrorCode, exception.Message, generation, cancellationToken);
@@ -239,6 +263,9 @@ public sealed class CustomExerciseImageService : IDisposable
             if (current.OperationKind == PendingCustomOperationKind.Create)
             {
                 serverId = await _customApi.CreateAsync(draft, cancellationToken);
+                if (serverId != current.LocalExerciseId)
+                    throw new InvalidDataException(
+                        "The server did not preserve the client-stable exercise identifier.");
                 current = current with
                 {
                     ServerExerciseId = serverId,
@@ -407,7 +434,8 @@ public sealed class CustomExerciseImageService : IDisposable
         pending.LocalImageContentType,
         pending.ServerExerciseId,
         pending.LocalPreviewPath,
-        pending.OperationId);
+        pending.OperationId,
+        pending.LocalExerciseId);
 
     private CachedExercise ToCached(Guid id, CustomExerciseDraft draft, string? thumbnail) => new()
     {

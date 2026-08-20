@@ -26,6 +26,45 @@ public sealed class OutboxFailureTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Online_auth_rejection_bubbles_and_keeps_the_durable_intent_pending()
+    {
+        var cache = new ExerciseCache(_databasePath);
+        using var service = Service(
+            cache, new Connectivity(true), new AuthenticationRequiredApi());
+
+        var error = await Assert.ThrowsAsync<MobileApiException>(() =>
+            service.SaveAsync(Draft("Authenticated Press")));
+
+        Assert.True(error.IsAuthenticationRequired);
+        var pending = Assert.Single(await cache.GetPendingAsync());
+        Assert.Equal("Authenticated Press", pending.Name);
+        Assert.Empty(await cache.GetFailedAsync());
+        Assert.Contains(await cache.GetAllAsync(), exercise =>
+            exercise.Id == pending.LocalExerciseId
+            && exercise.Name == "Authenticated Press"
+            && exercise.IsPendingSync);
+    }
+
+    [Fact]
+    public async Task Reconnect_auth_rejection_bubbles_without_marking_the_pending_intent_for_user_action()
+    {
+        var cache = new ExerciseCache(_databasePath);
+        var connectivity = new Connectivity(false);
+        using var service = Service(cache, connectivity, new AuthenticationRequiredApi());
+        var localId = await service.SaveAsync(Draft("Durable Auth Press"));
+
+        connectivity.IsOnline = true;
+        var error = await Assert.ThrowsAsync<MobileApiException>(() =>
+            service.SynchronizePendingAsync());
+
+        Assert.True(error.IsAuthenticationRequired);
+        var pending = Assert.Single(await cache.GetPendingAsync());
+        Assert.Equal(localId, pending.LocalExerciseId);
+        Assert.Equal("Durable Auth Press", pending.Name);
+        Assert.Empty(await cache.GetFailedAsync());
+    }
+
+    [Fact]
     public async Task Reconnect_marks_poison_for_user_action_and_continues_with_later_valid_row()
     {
         var cache = new ExerciseCache(_databasePath);
@@ -141,7 +180,7 @@ public sealed class OutboxFailureTests : IAsyncLifetime
                 throw new MobileApiException(
                     BusinessErrorCode.ExerciseNameDuplicate,
                     "An exercise with this name already exists.");
-            return Task.FromResult(Guid.Parse("99999999-9999-9999-9999-999999999999"));
+            return Task.FromResult(exercise.LocalExerciseId);
         }
         public Task UpdateAsync(Guid exerciseId, CustomExerciseDraft exercise, CancellationToken cancellationToken = default) =>
             Task.CompletedTask;
@@ -149,14 +188,30 @@ public sealed class OutboxFailureTests : IAsyncLifetime
 
     private sealed class SuccessCustomApi : ICustomExerciseApi
     {
-        private int _next;
-        public Task<Guid> CreateAsync(CustomExerciseDraft exercise, CancellationToken cancellationToken = default)
-        {
-            var suffix = Interlocked.Increment(ref _next);
-            return Task.FromResult(Guid.Parse($"{suffix:D8}-9999-9999-9999-999999999999"));
-        }
+        public Task<Guid> CreateAsync(CustomExerciseDraft exercise, CancellationToken cancellationToken = default) =>
+            Task.FromResult(exercise.LocalExerciseId);
         public Task UpdateAsync(Guid exerciseId, CustomExerciseDraft exercise, CancellationToken cancellationToken = default) =>
             Task.CompletedTask;
+    }
+
+    private sealed class AuthenticationRequiredApi : ICustomExerciseApi
+    {
+        public Task<Guid> CreateAsync(
+            CustomExerciseDraft exercise,
+            CancellationToken cancellationToken = default) =>
+            throw new MobileApiException(
+                BusinessErrorCode.InvalidRequest,
+                "Authentication is required.",
+                isAuthenticationRequired: true);
+
+        public Task UpdateAsync(
+            Guid exerciseId,
+            CustomExerciseDraft exercise,
+            CancellationToken cancellationToken = default) =>
+            throw new MobileApiException(
+                BusinessErrorCode.InvalidRequest,
+                "Authentication is required.",
+                isAuthenticationRequired: true);
     }
 
     private sealed class RejectReservationApi : IExerciseImageApi

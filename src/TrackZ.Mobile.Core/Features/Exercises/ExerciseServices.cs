@@ -73,7 +73,8 @@ public sealed record CustomExerciseDraft(
     string? LocalImageContentType,
     Guid? ExistingExerciseId = null,
     string? LocalPreviewPath = null,
-    Guid? OperationId = null);
+    Guid? OperationId = null,
+    Guid LocalExerciseId = default);
 
 public interface ICustomExerciseApi
 {
@@ -126,9 +127,11 @@ public sealed class MobileApiException(
     string message,
     IReadOnlyDictionary<string, string[]>? fieldErrors = null,
     Exception? innerException = null,
-    bool isRetryable = false) : Exception(message, innerException)
+    bool isRetryable = false,
+    bool isAuthenticationRequired = false) : Exception(message, innerException)
 {
     public BusinessErrorCode ErrorCode { get; } = errorCode;
     public IReadOnlyDictionary<string, string[]>? FieldErrors { get; } = fieldErrors;
     public bool IsRetryable { get; } = isRetryable;
+    public bool IsAuthenticationRequired { get; } = isAuthenticationRequired;
 }

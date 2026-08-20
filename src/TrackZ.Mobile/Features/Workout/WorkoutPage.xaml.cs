@@ -24,8 +24,7 @@ public partial class WorkoutPage : ContentPage
 
     private async void OnSelectionCompleted(IReadOnlyCollection<Guid> selected)
     {
-        if (_viewModel.IsDraft)
-            await _viewModel.AddExercisesAsync(selected.ToArray());
+        await _viewModel.AddExercisesAsync(selected.ToArray());
         await Shell.Current.GoToAsync("//train");
     }
 

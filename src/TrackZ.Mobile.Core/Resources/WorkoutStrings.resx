@@ -75,6 +75,9 @@
   <data name="DeleteSetMessage" xml:space="preserve"><value>This set will remain recoverable until sync is acknowledged and cannot disappear silently.</value></data>
   <data name="DeleteWorkoutTitle" xml:space="preserve"><value>Delete workout?</value></data>
   <data name="DeleteWorkoutMessage" xml:space="preserve"><value>This workout will remain recoverable until sync is acknowledged and cannot disappear silently.</value></data>
+  <data name="UnknownExercise" xml:space="preserve"><value>Unknown exercise</value></data>
+  <data name="DeleteExerciseTitle" xml:space="preserve"><value>Delete exercise?</value></data>
+  <data name="DeleteExerciseMessage" xml:space="preserve"><value>This exercise and its sets will remain recoverable until sync is acknowledged.</value></data>
   <data name="HistoryEditFailed" xml:space="preserve"><value>Could not save this history edit.</value></data>
   <data name="HistoryDeleteFailed" xml:space="preserve"><value>Could not delete this history item.</value></data>
   <data name="UndoFailed" xml:space="preserve"><value>This change may already be syncing and cannot be undone yet.</value></data>

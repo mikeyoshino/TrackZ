@@ -2,6 +2,7 @@ using System.Runtime.ExceptionServices;
 using TrackZ.Mobile.Data;
 using TrackZ.Mobile.Identity;
 using TrackZ.Mobile.Features.Workout;
+using TrackZ.Mobile.Sync;
 
 namespace TrackZ.Mobile.Features.Exercises.Services;
 
@@ -108,5 +109,23 @@ public sealed class MauiPrivateDataCleaner(
 
         if (failures.Count == 1) ExceptionDispatchInfo.Capture(failures[0]).Throw();
         if (failures.Count > 1) throw new AggregateException("Private mobile data cleanup failed.", failures);
+    }
+}
+
+public sealed class MauiSyncAuthenticationRecovery(
+    TrackZIdentityRefreshClient identity) : ISyncAuthenticationRecovery
+{
+    public async Task<bool> TryRecoverAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await identity.RefreshAsync(DeviceInfo.Current.Name, cancellationToken);
+            return true;
+        }
+        catch (Exception exception) when (
+            exception is MobileApiException or HttpRequestException or IOException)
+        {
+            return false;
+        }
     }
 }

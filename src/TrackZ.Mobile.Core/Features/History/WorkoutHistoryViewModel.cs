@@ -4,6 +4,7 @@ using System.Runtime.CompilerServices;
 using TrackZ.Domain.Exercises;
 using TrackZ.Mobile.Data.Models;
 using TrackZ.Mobile.Features.Exercises;
+using TrackZ.Mobile.Features.Exercises.Data;
 using TrackZ.Mobile.Features.Workout;
 using TrackZ.Mobile.Identity;
 using TrackZ.Mobile.Sync;
@@ -22,9 +23,18 @@ public interface IHistoryConfirmation
 
 public sealed class HistorySetItem : INotifyPropertyChanged
 {
+    private const decimal PoundsPerKilogram = 2.204622621848775807m;
+    private readonly IWeightUnitPreference? _unitPreference;
+    private readonly WorkoutTextSet _text;
     private decimal? _weightKg;
     private decimal? _assistedKg;
     private int _reps;
+
+    private HistorySetItem(IWeightUnitPreference? unitPreference, WorkoutTextSet text)
+    {
+        _unitPreference = unitPreference;
+        _text = text;
+    }
 
     public required Guid WorkoutId { get; init; }
     public required Guid WorkoutExerciseId { get; init; }
@@ -44,13 +54,21 @@ public sealed class HistorySetItem : INotifyPropertyChanged
     public decimal? WeightKg
     {
         get => _weightKg;
-        set => Set(ref _weightKg, value);
+        set
+        {
+            if (!Set(ref _weightKg, value)) return;
+            OnPropertyChanged(nameof(DisplayWeight));
+        }
     }
 
     public decimal? AssistedKg
     {
         get => _assistedKg;
-        set => Set(ref _assistedKg, value);
+        set
+        {
+            if (!Set(ref _assistedKg, value)) return;
+            OnPropertyChanged(nameof(DisplayWeight));
+        }
     }
 
     public int Reps
@@ -59,6 +77,38 @@ public sealed class HistorySetItem : INotifyPropertyChanged
         set => Set(ref _reps, value);
     }
 
+    public decimal? DisplayWeight
+    {
+        get
+        {
+            var kilograms = TrackingMode == TrackingMode.Assisted ? AssistedKg : WeightKg;
+            if (kilograms is null) return null;
+            return DisplayUnit == WeightDisplayUnit.Kilograms
+                ? kilograms
+                : decimal.Round(
+                    kilograms.Value * PoundsPerKilogram,
+                    2,
+                    MidpointRounding.AwayFromZero);
+        }
+        set
+        {
+            var kilograms = value is null
+                ? null
+                : DisplayUnit == WeightDisplayUnit.Kilograms
+                    ? value
+                    : decimal.Round(
+                        value.Value / PoundsPerKilogram,
+                        3,
+                        MidpointRounding.AwayFromZero);
+            if (TrackingMode == TrackingMode.Assisted) AssistedKg = kilograms;
+            else WeightKg = kilograms;
+        }
+    }
+
+    public string WeightUnitLabel => DisplayUnit == WeightDisplayUnit.Kilograms
+        ? _text.Kilograms
+        : _text.Pounds;
+
     public event PropertyChangedEventHandler? PropertyChanged;
 
     internal static HistorySetItem From(
@@ -66,7 +116,9 @@ public sealed class HistorySetItem : INotifyPropertyChanged
         bool workoutIsDeleted,
         bool workoutActionsBlocked,
         LocalWorkoutExercise exercise,
-        LocalSet set) => new()
+        LocalSet set,
+        IWeightUnitPreference? unitPreference,
+        WorkoutTextSet text) => new(unitPreference, text)
     {
         WorkoutId = workoutId,
         WorkoutExerciseId = exercise.Id,
@@ -82,18 +134,35 @@ public sealed class HistorySetItem : INotifyPropertyChanged
         Reps = set.Reps
     };
 
-    private void Set<T>(ref T field, T value, [CallerMemberName] string? name = null)
+    internal void RefreshUnit()
     {
-        if (EqualityComparer<T>.Default.Equals(field, value)) return;
-        field = value;
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+        OnPropertyChanged(nameof(DisplayWeight));
+        OnPropertyChanged(nameof(WeightUnitLabel));
     }
+
+    private WeightDisplayUnit DisplayUnit =>
+        _unitPreference?.Current ?? WeightDisplayUnit.Kilograms;
+
+    private bool Set<T>(ref T field, T value, [CallerMemberName] string? name = null)
+    {
+        if (EqualityComparer<T>.Default.Equals(field, value)) return false;
+        field = value;
+        OnPropertyChanged(name);
+        return true;
+    }
+
+    private void OnPropertyChanged([CallerMemberName] string? name = null) =>
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }
 
 public sealed record HistoryExerciseItem(
+    Guid WorkoutId,
     Guid WorkoutExerciseId,
     Guid ExerciseDefinitionId,
+    string Name,
     TrackingMode TrackingMode,
+    bool WorkoutIsDeleted,
+    bool WorkoutActionsBlocked,
     IReadOnlyList<HistorySetItem> Sets);
 
 public sealed record HistoryWorkoutItem(
@@ -121,6 +190,8 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged
     private readonly IConflictResolution _conflicts;
     private readonly IAccountSessionBoundary _boundary;
     private readonly IConnectivityService _connectivity;
+    private readonly ExerciseCache? _exerciseCache;
+    private readonly IWeightUnitPreference? _unitPreference;
     private readonly Dictionary<Guid, WorkoutSyncState> _durableStates = [];
     private readonly CancellationTokenSource _lifetime = new();
     private bool _isBusy;
@@ -134,7 +205,9 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged
         IAccountSessionBoundary boundary,
         IConnectivityService connectivity,
         WorkoutTextSet text,
-        IConflictResolution conflicts)
+        IConflictResolution conflicts,
+        ExerciseCache? exerciseCache = null,
+        IWeightUnitPreference? unitPreference = null)
     {
         _history = history;
         _outbox = outbox;
@@ -142,12 +215,17 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged
         _conflicts = conflicts;
         _boundary = boundary;
         _connectivity = connectivity;
+        _exerciseCache = exerciseCache;
+        _unitPreference = unitPreference;
         Text = text;
         EditSetCommand = new AsyncCommand(EditSetAsync, CanMutateSet);
         DeleteSetCommand = new AsyncCommand(DeleteSetAsync, CanMutateSet);
         DeleteWorkoutCommand = new AsyncCommand(DeleteWorkoutAsync,
             item => !_deactivated && !IsBusy
                 && item is HistoryWorkoutItem { IsDeleted: false, ActionsBlocked: false });
+        DeleteWorkoutExerciseCommand = new AsyncCommand(
+            DeleteWorkoutExerciseAsync,
+            CanDeleteWorkoutExercise);
         UndoCommand = new AsyncCommand(UndoAsync,
             item => !_deactivated && !IsBusy
                 && item is HistoryWorkoutItem
@@ -159,6 +237,7 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged
         ApplyLocalCommand = new AsyncCommand(ApplyLocalAsync, CanResolveConflict);
         _boundary.SessionReset += OnSessionReset;
         _connectivity.ConnectivityChanged += OnConnectivityChanged;
+        if (_unitPreference is not null) _unitPreference.Changed += OnWeightUnitChanged;
     }
 
     public ObservableCollection<HistoryWorkoutItem> Workouts { get; } = [];
@@ -166,6 +245,7 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged
     public AsyncCommand EditSetCommand { get; }
     public AsyncCommand DeleteSetCommand { get; }
     public AsyncCommand DeleteWorkoutCommand { get; }
+    public AsyncCommand DeleteWorkoutExerciseCommand { get; }
     public AsyncCommand UndoCommand { get; }
     public AsyncCommand KeepServerCommand { get; }
     public AsyncCommand ApplyLocalCommand { get; }
@@ -218,6 +298,7 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged
         _deactivated = true;
         _boundary.SessionReset -= OnSessionReset;
         _connectivity.ConnectivityChanged -= OnConnectivityChanged;
+        if (_unitPreference is not null) _unitPreference.Changed -= OnWeightUnitChanged;
         _lifetime.Cancel();
         _durableStates.Clear();
         Workouts.Clear();
@@ -257,6 +338,19 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged
         await MutateAsync(async token =>
         {
             await _history.DeleteWorkoutAsync(workout.WorkoutId, cancellationToken: token);
+        }, Text.HistoryDeleteFailed);
+    }
+
+    private async Task DeleteWorkoutExerciseAsync(object? parameter)
+    {
+        if (parameter is not HistoryExerciseItem exercise || _deactivated) return;
+        if (!await ConfirmAsync(Text.DeleteExerciseTitle, Text.DeleteExerciseMessage)) return;
+        await MutateAsync(async token =>
+        {
+            await _history.DeleteWorkoutExerciseAsync(
+                exercise.WorkoutId,
+                exercise.WorkoutExerciseId,
+                cancellationToken: token);
         }, Text.HistoryDeleteFailed);
     }
 
@@ -335,6 +429,10 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged
     {
         var generation = _boundary.Capture();
         var history = await _history.GetHistoryAsync(cancellationToken);
+        var names = _exerciseCache is null
+            ? new Dictionary<Guid, string>()
+            : (await _exerciseCache.GetAllAsync(cancellationToken))
+                .ToDictionary(exercise => exercise.Id, exercise => exercise.Name);
         var projected = new List<HistoryWorkoutItem>(history.Count);
         var projectedStates = new Dictionary<Guid, WorkoutSyncState>(history.Count);
         foreach (var workout in history)
@@ -350,22 +448,29 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged
                 .Where(exercise => exercise.DeletedAt is null)
                 .OrderBy(exercise => exercise.Order)
                 .Select(exercise => new HistoryExerciseItem(
+                    workout.Id,
                     exercise.Id,
                     exercise.ExerciseDefinitionId,
+                    names.GetValueOrDefault(exercise.ExerciseDefinitionId, Text.UnknownExercise),
                     exercise.TrackingMode,
+                    workout.DeletedAt is not null,
+                    actionsBlocked,
                     exercise.Sets.OrderBy(set => set.Order)
                         .Select(set => HistorySetItem.From(
                             workout.Id,
                             workout.DeletedAt is not null,
                             actionsBlocked,
                             exercise,
-                            set))
+                            set,
+                            _unitPreference,
+                            Text))
                         .ToArray()))
                 .ToArray();
             var undo = operations.LastOrDefault(operation => operation.Type is
                 OutboxOperationType.CompleteWorkout or OutboxOperationType.EditSet or OutboxOperationType.DeleteSet
-                    or OutboxOperationType.DeleteWorkout)?.OperationId;
-            var conflict = operations.LastOrDefault(operation =>
+                    or OutboxOperationType.DeleteWorkout
+                    or OutboxOperationType.DeleteWorkoutExercise)?.OperationId;
+            var conflict = operations.FirstOrDefault(operation =>
                 operation.State == OutboxOperationState.Conflicted);
             projected.Add(new HistoryWorkoutItem(
                 workout.Id,
@@ -436,6 +541,14 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged
         !_deactivated && !IsBusy
             && parameter is HistoryWorkoutItem { HasConflict: true, IsReconciling: false };
 
+    private bool CanDeleteWorkoutExercise(object? parameter) =>
+        !_deactivated && !IsBusy
+            && parameter is HistoryExerciseItem
+            {
+                WorkoutIsDeleted: false,
+                WorkoutActionsBlocked: false
+            };
+
     private void OnSessionReset(object? sender, EventArgs eventArgs)
     {
         Workouts.Clear();
@@ -461,11 +574,19 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged
         RaiseCommands();
     }
 
+    private void OnWeightUnitChanged(object? sender, EventArgs eventArgs)
+    {
+        if (_deactivated) return;
+        foreach (var set in Workouts.SelectMany(workout => workout.Exercises).SelectMany(exercise => exercise.Sets))
+            set.RefreshUnit();
+    }
+
     private void RaiseCommands()
     {
         EditSetCommand.RaiseCanExecuteChanged();
         DeleteSetCommand.RaiseCanExecuteChanged();
         DeleteWorkoutCommand.RaiseCanExecuteChanged();
+        DeleteWorkoutExerciseCommand.RaiseCanExecuteChanged();
         UndoCommand.RaiseCanExecuteChanged();
         KeepServerCommand.RaiseCanExecuteChanged();
         ApplyLocalCommand.RaiseCanExecuteChanged();

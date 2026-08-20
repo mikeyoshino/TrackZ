@@ -380,7 +380,7 @@ public sealed class AccountSessionRaceTests : IAsyncLifetime
     private sealed class NoopCustomApi : ICustomExerciseApi
     {
         public Task<Guid> CreateAsync(CustomExerciseDraft exercise, CancellationToken cancellationToken = default) =>
-            Task.FromResult(Guid.NewGuid());
+            Task.FromResult(exercise.LocalExerciseId);
         public Task UpdateAsync(Guid exerciseId, CustomExerciseDraft exercise, CancellationToken cancellationToken = default) =>
             Task.CompletedTask;
     }
@@ -396,7 +396,7 @@ public sealed class AccountSessionRaceTests : IAsyncLifetime
         {
             _entered.TrySetResult();
             await _release.Task;
-            return Guid.Parse("66666666-6666-6666-6666-666666666666");
+            return exercise.LocalExerciseId;
         }
         public Task UpdateAsync(Guid exerciseId, CustomExerciseDraft exercise, CancellationToken cancellationToken = default)
         {
@@ -437,7 +437,7 @@ public sealed class AccountSessionRaceTests : IAsyncLifetime
                 _entered.TrySetResult();
                 await _release.Task;
             }
-            return Guid.Parse($"{call:D8}-8888-8888-8888-888888888888");
+            return exercise.LocalExerciseId;
         }
         public Task UpdateAsync(Guid exerciseId, CustomExerciseDraft exercise, CancellationToken cancellationToken = default) =>
             Task.CompletedTask;

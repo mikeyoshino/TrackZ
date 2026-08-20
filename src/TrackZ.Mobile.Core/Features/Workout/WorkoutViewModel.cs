@@ -6,6 +6,7 @@ using TrackZ.Domain.Exercises;
 using TrackZ.Mobile.Data.Models;
 using TrackZ.Mobile.Features.Exercises;
 using TrackZ.Mobile.Features.Exercises.Data;
+using TrackZ.Mobile.Features.History;
 using TrackZ.Mobile.Identity;
 
 namespace TrackZ.Mobile.Features.Workout;
@@ -15,7 +16,8 @@ public sealed record WorkoutExerciseDraftItem(
     string Name,
     TrackingMode TrackingMode,
     string TrackingModeText,
-    string? ThumbnailUri);
+    string? ThumbnailUri,
+    Guid WorkoutExerciseId = default);
 
 public sealed class WorkoutViewModel : INotifyPropertyChanged
 {
@@ -23,6 +25,7 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged
     private readonly ExerciseCache _cache;
     private readonly IAccountSessionBoundary _boundary;
     private readonly WorkoutTextSet _text;
+    private readonly IHistoryConfirmation? _confirmation;
     private bool _isBusy;
     private bool _hasStarted;
     private string? _errorMessage;
@@ -31,24 +34,27 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged
         ActiveWorkoutCoordinator coordinator,
         ExerciseCache cache,
         IAccountSessionBoundary boundary,
-        WorkoutTextSet text)
+        WorkoutTextSet text,
+        IHistoryConfirmation? confirmation = null)
     {
         _coordinator = coordinator;
         _cache = cache;
         _boundary = boundary;
         _text = text;
-        RemoveExerciseCommand = new RelayCommand(RemoveExercise, item => !_hasStarted && !IsBusy && Id(item) != Guid.Empty);
-        MoveUpCommand = new RelayCommand(item => Move(item, -1), item => CanMove(item, -1));
-        MoveDownCommand = new RelayCommand(item => Move(item, 1), item => CanMove(item, 1));
+        _confirmation = confirmation;
+        RemoveExerciseCommand = new AsyncCommand(RemoveExerciseAsync,
+            item => !IsBusy && Id(item) != Guid.Empty && (!_hasStarted || Exercises.Count > 1));
+        MoveUpCommand = new AsyncCommand(item => MoveAsync(item, -1), item => CanMove(item, -1));
+        MoveDownCommand = new AsyncCommand(item => MoveAsync(item, 1), item => CanMove(item, 1));
         StartWorkoutCommand = new AsyncCommand(_ => StartAsync(), _ => Exercises.Count != 0 && !_hasStarted && !IsBusy);
         FinishWorkoutCommand = new AsyncCommand(_ => FinishAsync(), _ => _hasStarted && !IsBusy);
         _boundary.SessionReset += OnSessionReset;
     }
 
     public ObservableCollection<WorkoutExerciseDraftItem> Exercises { get; } = [];
-    public ICommand RemoveExerciseCommand { get; }
-    public ICommand MoveUpCommand { get; }
-    public ICommand MoveDownCommand { get; }
+    public AsyncCommand RemoveExerciseCommand { get; }
+    public AsyncCommand MoveUpCommand { get; }
+    public AsyncCommand MoveDownCommand { get; }
     public AsyncCommand StartWorkoutCommand { get; }
     public AsyncCommand FinishWorkoutCommand { get; }
     public WorkoutTextSet Text => _text;
@@ -97,7 +103,8 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged
                 cached?.Name ?? exercise.ExerciseDefinitionId.ToString("D"),
                 exercise.TrackingMode,
                 ModeText(exercise.TrackingMode),
-                cached?.ThumbnailUri));
+                cached?.ThumbnailUri,
+                exercise.Id));
         }
         HasStarted = true;
     }
@@ -107,7 +114,6 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(exerciseIds);
-        if (HasStarted) throw new InvalidOperationException("Active-session exercise changes are not supported by this client.");
         var requested = exerciseIds.Where(id => id != Guid.Empty).Distinct().ToArray();
         var existing = Exercises.Select(item => item.ExerciseDefinitionId).ToHashSet();
         var catalog = (await _cache.GetAllAsync(cancellationToken)).ToDictionary(item => item.Id);
@@ -116,8 +122,17 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged
             if (existing.Contains(id)) continue;
             if (!catalog.TryGetValue(id, out var exercise))
                 throw new ArgumentException("Exercise is not available in the local catalog.", nameof(exerciseIds));
+            var workoutExerciseId = Guid.Empty;
+            if (HasStarted)
+            {
+                var added = await _coordinator.AddExerciseAsync(
+                    new WorkoutExerciseSelection(id, exercise.TrackingMode),
+                    cancellationToken: cancellationToken);
+                workoutExerciseId = added.Id;
+            }
             Exercises.Add(new WorkoutExerciseDraftItem(
-                id, exercise.Name, exercise.TrackingMode, ModeText(exercise.TrackingMode), exercise.ThumbnailUri));
+                id, exercise.Name, exercise.TrackingMode, ModeText(exercise.TrackingMode),
+                exercise.ThumbnailUri, workoutExerciseId));
             existing.Add(id);
         }
         RaiseCommands();
@@ -131,9 +146,21 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged
         ErrorMessage = null;
         try
         {
-            await _coordinator.StartAsync(Exercises.Select(item =>
+            var started = await _coordinator.StartAsync(Exercises.Select(item =>
                 new WorkoutExerciseSelection(item.ExerciseDefinitionId, item.TrackingMode)).ToArray());
-            if (!_boundary.IsCancellationRequested(generation)) HasStarted = true;
+            if (!_boundary.IsCancellationRequested(generation))
+            {
+                for (var index = 0; index < Exercises.Count; index++)
+                {
+                    var exercise = Exercises[index];
+                    Exercises[index] = exercise with
+                    {
+                        WorkoutExerciseId = started.Exercises.Single(item =>
+                            item.ExerciseDefinitionId == exercise.ExerciseDefinitionId).Id
+                    };
+                }
+                HasStarted = true;
+            }
         }
         catch (OperationCanceledException) when (_boundary.IsCancellationRequested(generation))
         {
@@ -178,19 +205,38 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged
         }
     }
 
-    private void RemoveExercise(object? item)
+    private async Task RemoveExerciseAsync(object? item)
     {
         var id = Id(item);
-        if (HasStarted || id == Guid.Empty) return;
-        var existing = Exercises.SingleOrDefault(exercise => exercise.ExerciseDefinitionId == id);
-        if (existing is not null) Exercises.Remove(existing);
+        if (id == Guid.Empty) return;
+        var selected = Exercises.SingleOrDefault(exercise => exercise.ExerciseDefinitionId == id);
+        if (selected is null) return;
+        if (HasStarted)
+        {
+            if (selected.WorkoutExerciseId == Guid.Empty) return;
+            if (_confirmation is not null && !await _confirmation.ConfirmAsync(
+                    _text.DeleteExerciseTitle,
+                    _text.DeleteExerciseMessage,
+                    _text.Delete,
+                    _text.Cancel)) return;
+            await _coordinator.RemoveExerciseAsync(selected.WorkoutExerciseId);
+        }
+        Exercises.Remove(selected);
         RaiseCommands();
     }
 
-    private void Move(object? item, int delta)
+    private async Task MoveAsync(object? item, int delta)
     {
         if (!CanMove(item, delta)) return;
         var index = Exercises.IndexOf(Exercises.Single(exercise => exercise.ExerciseDefinitionId == Id(item)));
+        if (HasStarted)
+        {
+            var ordered = Exercises.Select(exercise => exercise.WorkoutExerciseId).ToList();
+            var moved = ordered[index];
+            ordered.RemoveAt(index);
+            ordered.Insert(index + delta, moved);
+            await _coordinator.ReorderExercisesAsync(ordered);
+        }
         Exercises.Move(index, index + delta);
         RaiseCommands();
     }
@@ -198,7 +244,7 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged
     private bool CanMove(object? item, int delta)
     {
         var id = Id(item);
-        if (HasStarted || IsBusy || id == Guid.Empty) return false;
+        if (IsBusy || id == Guid.Empty) return false;
         var existing = Exercises.SingleOrDefault(exercise => exercise.ExerciseDefinitionId == id);
         if (existing is null) return false;
         var target = Exercises.IndexOf(existing) + delta;
@@ -234,9 +280,9 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged
     {
         StartWorkoutCommand.RaiseCanExecuteChanged();
         FinishWorkoutCommand.RaiseCanExecuteChanged();
-        (RemoveExerciseCommand as RelayCommand)?.RaiseCanExecuteChanged();
-        (MoveUpCommand as RelayCommand)?.RaiseCanExecuteChanged();
-        (MoveDownCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        RemoveExerciseCommand.RaiseCanExecuteChanged();
+        MoveUpCommand.RaiseCanExecuteChanged();
+        MoveDownCommand.RaiseCanExecuteChanged();
         OnPropertyChanged(nameof(IsDraft));
     }
 

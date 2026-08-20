@@ -83,7 +83,7 @@ public sealed class BusinessExceptionMiddlewareTests
         Assert.Equal(StatusCodes.Status404NotFound, context.Response.StatusCode);
         Assert.Equal("application/problem+json", context.Response.ContentType);
         Assert.Equal(30001, root.GetProperty("errorCode").GetInt32());
-        Assert.Equal("Workout session was not found.", root.GetProperty("message").GetString());
+        Assert.Equal("The workout was not found.", root.GetProperty("message").GetString());
         Assert.Equal("trace-contract-123", root.GetProperty("traceId").GetString());
         Assert.Equal(JsonValueKind.Null, root.GetProperty("fieldErrors").ValueKind);
         Assert.Equal(StatusCodes.Status404NotFound, root.GetProperty("status").GetInt32());

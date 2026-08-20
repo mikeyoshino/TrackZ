@@ -92,7 +92,7 @@ public sealed class UnhandledExceptionMiddlewareTests
         using var document = await JsonDocument.ParseAsync(context.Response.Body);
         Assert.Equal(StatusCodes.Status404NotFound, context.Response.StatusCode);
         Assert.Equal(30001, document.RootElement.GetProperty("errorCode").GetInt32());
-        Assert.Equal("Workout session was not found.", document.RootElement.GetProperty("message").GetString());
+        Assert.Equal("The workout was not found.", document.RootElement.GetProperty("message").GetString());
     }
 
     [Theory]

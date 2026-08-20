@@ -79,6 +79,31 @@ public sealed class ExerciseDefinition
         return exercise;
     }
 
+    public static ExerciseDefinition CreateCustom(
+        Guid ownerId,
+        Guid id,
+        string name,
+        BodyPart bodyPart,
+        TrackingMode trackingMode,
+        DateTimeOffset? createdAt = null,
+        Guid? clientOperationId = null)
+    {
+        if (id == Guid.Empty)
+        {
+            throw new ArgumentException("A custom exercise identifier is required.", nameof(id));
+        }
+
+        var exercise = CreateCustom(
+            ownerId,
+            name,
+            bodyPart,
+            trackingMode,
+            createdAt,
+            clientOperationId);
+        exercise.Id = id;
+        return exercise;
+    }
+
     public void Archive()
     {
         if (IsSystem)

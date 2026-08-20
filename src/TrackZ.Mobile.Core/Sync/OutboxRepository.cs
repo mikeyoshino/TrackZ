@@ -1,5 +1,6 @@
 using System.Globalization;
 using Microsoft.Data.Sqlite;
+using TrackZ.Contracts.Errors;
 using TrackZ.Mobile.Data;
 
 namespace TrackZ.Mobile.Sync;
@@ -72,9 +73,9 @@ public sealed class OutboxRepository(TrackZLocalDatabase database)
                 SELECT OperationId, EntityId, OperationType, Payload, BaseVersion,
                        CreatedAt, State, DeletedAt, Version, ServerVersion, RetryCount,
                        NextAttemptAt, ServerPayload, ReplacesOperationId, SendStartedAt,
-                       NeutralizedAt
+                       NeutralizedAt, FailureCode
                 FROM OutboxOperation
-                WHERE EntityId = $workoutId AND OperationType BETWEEN 3 AND 6
+                WHERE EntityId = $workoutId
                   AND NeutralizedAt IS NULL
                   AND (State != 2 OR EXISTS (
                       SELECT 1 FROM HistoryUndo
@@ -100,7 +101,7 @@ public sealed class OutboxRepository(TrackZLocalDatabase database)
             SELECT OperationId, EntityId, OperationType, Payload, BaseVersion,
                    CreatedAt, State, DeletedAt, Version, ServerVersion, RetryCount,
                    NextAttemptAt, ServerPayload, ReplacesOperationId
-                   , SendStartedAt, NeutralizedAt
+                   , SendStartedAt, NeutralizedAt, FailureCode
             FROM OutboxOperation
             WHERE State = $state AND DeletedAt IS NOT NULL AND NeutralizedAt IS NULL
               AND EntityId = $workoutId
@@ -135,7 +136,7 @@ public sealed class OutboxRepository(TrackZLocalDatabase database)
             SELECT OperationId, EntityId, OperationType, Payload, BaseVersion,
                    CreatedAt, State, DeletedAt, Version, ServerVersion, RetryCount,
                    NextAttemptAt, ServerPayload, ReplacesOperationId
-                   , SendStartedAt, NeutralizedAt
+                   , SendStartedAt, NeutralizedAt, FailureCode
             FROM OutboxOperation
             WHERE State = $state AND DeletedAt IS NULL
               AND ($workoutId IS NULL OR EntityId = $workoutId)
@@ -164,7 +165,8 @@ public sealed class OutboxRepository(TrackZLocalDatabase database)
                     reader.IsDBNull(12) ? null : reader.GetString(12),
                     reader.IsDBNull(13) ? null : ParseGuid(reader.GetString(13)),
                     reader.IsDBNull(14) ? null : ParseTimestamp(reader.GetString(14)),
-                    reader.IsDBNull(15) ? null : ParseTimestamp(reader.GetString(15))));
+                    reader.IsDBNull(15) ? null : ParseTimestamp(reader.GetString(15)),
+                    reader.IsDBNull(16) ? null : ParseEnum<BusinessErrorCode>(reader.GetInt32(16))));
             }
             return result;
         }
@@ -199,7 +201,8 @@ public sealed class OutboxRepository(TrackZLocalDatabase database)
         reader.IsDBNull(12) ? null : reader.GetString(12),
         reader.IsDBNull(13) ? null : ParseGuid(reader.GetString(13)),
         reader.IsDBNull(14) ? null : ParseTimestamp(reader.GetString(14)),
-        reader.IsDBNull(15) ? null : ParseTimestamp(reader.GetString(15)));
+        reader.IsDBNull(15) ? null : ParseTimestamp(reader.GetString(15)),
+        reader.IsDBNull(16) ? null : ParseEnum<BusinessErrorCode>(reader.GetInt32(16)));
 
     private static T ParseEnum<T>(int value) where T : struct, Enum =>
         Enum.IsDefined(typeof(T), value)

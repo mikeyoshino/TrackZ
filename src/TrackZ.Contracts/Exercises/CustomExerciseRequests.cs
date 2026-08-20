@@ -8,7 +8,8 @@ public sealed record CreateCustomExerciseRequest(
     TrackingMode? TrackingMode,
     Guid? LibraryImageId,
     string? UploadedImageKey,
-    Guid? OperationId = null);
+    Guid? OperationId = null,
+    Guid? ExerciseId = null);
 
 public sealed record UpdateCustomExerciseRequest(
     string? Name,

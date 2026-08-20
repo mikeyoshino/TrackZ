@@ -15,7 +15,8 @@ public sealed record HistoryMutationResult(LocalWorkout Workout, Guid OperationI
 public sealed class WorkoutHistoryCoordinator(
     ILocalWorkoutRepository workouts,
     IAccountSessionBoundary sessionBoundary,
-    IClock clock)
+    IClock clock,
+    IWorkoutSyncTrigger? syncTrigger = null)
 {
     private readonly SemaphoreSlim _mutationGate = new(1, 1);
 
@@ -186,6 +187,56 @@ public sealed class WorkoutHistoryCoordinator(
         });
     }
 
+    public async Task<HistoryMutationResult> DeleteWorkoutExerciseAsync(
+        Guid workoutId,
+        Guid workoutExerciseId,
+        Guid? operationId = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (workoutId == Guid.Empty || workoutExerciseId == Guid.Empty)
+            throw new ArgumentException("Stable workout and exercise IDs are required.");
+        if (operationId == Guid.Empty)
+            throw new ArgumentException("Operation ID cannot be empty.", nameof(operationId));
+        return await MutateAsync(operationId, cancellationToken, async token =>
+        {
+            if (operationId is { } stableId
+                && await workouts.GetOperationAsync(stableId, token) is { } existing)
+                return await ReplayDeleteWorkoutExerciseAsync(
+                    existing, workoutId, workoutExerciseId, token);
+
+            var previous = await RequiredWorkoutAsync(workoutId, token);
+            EnsureNotDeleted(previous);
+            var exercise = FindExercise(previous, workoutExerciseId);
+            var deletedAt = await NextMutationAtAsync(previous, token);
+            var remaining = previous.Exercises
+                .Where(item => item.Id != workoutExerciseId && item.DeletedAt is null)
+                .OrderBy(item => item.Order)
+                .Select((item, order) => item.Order == order
+                    ? item
+                    : item with { Order = order, Version = item.Version + 1 })
+                .ToDictionary(item => item.Id);
+            var updatedExercises = previous.Exercises.Select(item => item.Id == exercise.Id
+                ? item with { DeletedAt = deletedAt, Version = item.Version + 1 }
+                : item.DeletedAt is null ? remaining[item.Id] : item).ToArray();
+            var updated = previous with
+            {
+                Exercises = updatedExercises,
+                Version = previous.Version + 1
+            };
+            var id = operationId ?? Guid.NewGuid();
+            var operation = OutboxOperation.Create(
+                id,
+                workoutId,
+                OutboxOperationType.DeleteWorkoutExercise,
+                new DeleteWorkoutExerciseOutboxPayload(
+                    workoutId, workoutExerciseId, deletedAt),
+                previous.Version,
+                deletedAt);
+            await workouts.SaveHistoryMutationAndEnqueueAsync(previous, updated, operation, token);
+            return new HistoryMutationResult(updated, id);
+        });
+    }
+
     public async Task<LocalWorkout> UndoAsync(
         Guid operationId,
         CancellationToken cancellationToken = default)
@@ -206,6 +257,7 @@ public sealed class WorkoutHistoryCoordinator(
                     operationId, neutralizedAt, token);
             }, cancellationToken);
             EnsureCurrent(committed, generation, cancellationToken);
+            syncTrigger?.NotifyMutation();
             return restored ?? throw new InvalidOperationException("The history operation was not undone.");
         }
         finally
@@ -229,6 +281,7 @@ public sealed class WorkoutHistoryCoordinator(
                 result = await mutation(token);
             }, cancellationToken);
             EnsureCurrent(committed, generation, cancellationToken);
+            if (result?.OperationId != Guid.Empty) syncTrigger?.NotifyMutation();
             return result ?? throw new InvalidOperationException("The history mutation did not commit.");
         }
         finally
@@ -293,6 +346,24 @@ public sealed class WorkoutHistoryCoordinator(
             || payload.WorkoutId != workoutId)
             throw new InvalidDataException(
                 "The operation identifier is already bound to a different workout deletion.");
+        return new HistoryMutationResult(
+            await RequiredWorkoutAsync(workoutId, cancellationToken), operation.OperationId);
+    }
+
+    private async Task<HistoryMutationResult> ReplayDeleteWorkoutExerciseAsync(
+        OutboxOperation operation,
+        Guid workoutId,
+        Guid workoutExerciseId,
+        CancellationToken cancellationToken)
+    {
+        var payload = operation.DeserializePayload<DeleteWorkoutExerciseOutboxPayload>();
+        if (operation.Type != OutboxOperationType.DeleteWorkoutExercise
+            || operation.EntityId != workoutId
+            || operation.NeutralizedAt is not null
+            || payload.WorkoutId != workoutId
+            || payload.WorkoutExerciseId != workoutExerciseId)
+            throw new InvalidDataException(
+                "The operation identifier is already bound to a different exercise deletion.");
         return new HistoryMutationResult(
             await RequiredWorkoutAsync(workoutId, cancellationToken), operation.OperationId);
     }

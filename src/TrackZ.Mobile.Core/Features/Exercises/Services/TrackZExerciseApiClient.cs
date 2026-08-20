@@ -62,7 +62,8 @@ public sealed class TrackZExerciseApiClient(HttpClient httpClient) :
                 exercise.TrackingMode,
                 exercise.LibraryImageId,
                 null,
-                exercise.OperationId),
+                exercise.OperationId,
+                exercise.LocalExerciseId),
             JsonOptions,
             cancellationToken);
         await EnsureSuccessAsync(response, cancellationToken);
@@ -146,6 +147,8 @@ public sealed class TrackZExerciseApiClient(HttpClient httpClient) :
     private static async Task EnsureSuccessAsync(HttpResponseMessage response, CancellationToken cancellationToken)
     {
         if (response.IsSuccessStatusCode) return;
+        var authenticationRequired = response.StatusCode is
+            System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden;
         try
         {
             var problem = await response.Content.ReadFromJsonAsync<ApiProblemDetails>(JsonOptions, cancellationToken);
@@ -157,7 +160,8 @@ public sealed class TrackZExerciseApiClient(HttpClient httpClient) :
                     isRetryable: problem.ErrorCode == BusinessErrorCode.VersionConflict
                         || (int)response.StatusCode >= 500
                         || response.StatusCode is System.Net.HttpStatusCode.RequestTimeout
-                        or System.Net.HttpStatusCode.TooManyRequests);
+                        or System.Net.HttpStatusCode.TooManyRequests,
+                    isAuthenticationRequired: authenticationRequired);
         }
         catch (MobileApiException)
         {
@@ -165,8 +169,11 @@ public sealed class TrackZExerciseApiClient(HttpClient httpClient) :
         }
         catch (Exception exception) when (exception is JsonException or NotSupportedException)
         {
+            if (authenticationRequired)
+                throw AuthenticationRequired(exception);
             throw InvalidResponse(exception);
         }
+        if (authenticationRequired) throw AuthenticationRequired();
         throw InvalidResponse();
     }
 
@@ -208,6 +215,12 @@ public sealed class TrackZExerciseApiClient(HttpClient httpClient) :
         "The server returned an invalid response.",
         innerException: exception,
         isRetryable: true);
+
+    private static MobileApiException AuthenticationRequired(Exception? exception = null) => new(
+        BusinessErrorCode.InvalidRequest,
+        "Authentication is required.",
+        innerException: exception,
+        isAuthenticationRequired: true);
 
     private sealed record CreatedExerciseResponse(Guid Id);
     private sealed record UploadReservationResponse(Guid UploadId, Uri UploadUri, DateTimeOffset ExpiresAt);

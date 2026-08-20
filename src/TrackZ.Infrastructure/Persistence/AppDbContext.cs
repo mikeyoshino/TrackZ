@@ -77,7 +77,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             .Select(workout => (Guid?)workout.OwnerId)
             .SingleOrDefaultAsync(cancellationToken);
 
-    public async Task<bool> AreExerciseDefinitionsAvailableAsync(
+    public async Task<IReadOnlyDictionary<Guid, TrackingMode>> GetAvailableExerciseTrackingModesAsync(
         Guid userId,
         IReadOnlyList<Guid> exerciseDefinitionIds,
         CancellationToken cancellationToken)
@@ -86,14 +86,14 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             || exerciseDefinitionIds.Any(id => id == Guid.Empty)
             || exerciseDefinitionIds.Distinct().Count() != exerciseDefinitionIds.Count)
         {
-            return false;
+            return new Dictionary<Guid, TrackingMode>();
         }
 
-        var count = await Exercises.AsNoTracking().CountAsync(exercise =>
-            exerciseDefinitionIds.Contains(exercise.Id)
-            && !exercise.IsArchived
-            && (exercise.OwnerId == null || exercise.OwnerId == userId), cancellationToken);
-        return count == exerciseDefinitionIds.Count;
+        return await Exercises.AsNoTracking()
+            .Where(exercise => exerciseDefinitionIds.Contains(exercise.Id)
+                && !exercise.IsArchived
+                && (exercise.OwnerId == null || exercise.OwnerId == userId))
+            .ToDictionaryAsync(exercise => exercise.Id, exercise => exercise.TrackingMode, cancellationToken);
     }
 
     public async Task<bool> AreWorkoutExerciseIdentifiersAvailableAsync(
@@ -741,6 +741,13 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             exercise => exercise.OwnerId == ownerId && exercise.ClientOperationId == operationId,
             cancellationToken);
 
+    public Task<ExerciseDefinition?> FindAnyExerciseByIdAsync(
+        Guid exerciseId,
+        CancellationToken cancellationToken) =>
+        Exercises.AsNoTracking().SingleOrDefaultAsync(
+            exercise => exercise.Id == exerciseId,
+            cancellationToken);
+
     public Task<ExerciseImage?> FindPublishedLibraryImageAsync(Guid imageId, CancellationToken cancellationToken) =>
         ExerciseImages.AsNoTracking().SingleOrDefaultAsync(image =>
             image.Id == imageId
@@ -910,7 +917,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         }
         catch (DbUpdateException exception) when (
             IsActiveCustomNameUniqueConstraintViolation(exception)
-            || IsCustomOperationUniqueConstraintViolation(exception))
+            || IsCustomOperationUniqueConstraintViolation(exception)
+            || IsExerciseIdentifierUniqueConstraintViolation(exception))
         {
             if (addedExercise is not null)
             {
@@ -933,6 +941,13 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         {
             SqlState: PostgresErrorCodes.UniqueViolation,
             ConstraintName: "IX_exercise_definitions_OwnerId_ClientOperationId"
+        };
+
+    private static bool IsExerciseIdentifierUniqueConstraintViolation(DbUpdateException exception) =>
+        exception.InnerException is PostgresException
+        {
+            SqlState: PostgresErrorCodes.UniqueViolation,
+            ConstraintName: "PK_exercise_definitions"
         };
 
     private sealed class AppDbTransaction(Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction transaction)

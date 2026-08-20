@@ -30,14 +30,14 @@
                                 <Label FontAttributes="Bold" FontSize="17" LineBreakMode="TailTruncation" Text="{Binding Name}" />
                                 <Label FontSize="12" Text="{Binding TrackingModeText}" TextColor="#8E959F" />
                             </VerticalStackLayout>
-                            <VerticalStackLayout Grid.Column="2" HorizontalOptions="End" IsVisible="{Binding Source={x:Reference Page}, Path=BindingContext.IsDraft}" Spacing="4">
+                            <VerticalStackLayout Grid.Column="2" HorizontalOptions="End" Spacing="4">
                                 <HorizontalStackLayout Spacing="4">
                                     <Button Command="{Binding Source={x:Reference Page}, Path=BindingContext.MoveUpCommand}" CommandParameter="{Binding .}" FontSize="16" Padding="8,4" SemanticProperties.Description="{Binding Source={x:Reference Page}, Path=BindingContext.Text.MoveUp}" Text="↑" />
                                     <Button Command="{Binding Source={x:Reference Page}, Path=BindingContext.MoveDownCommand}" CommandParameter="{Binding .}" FontSize="16" Padding="8,4" SemanticProperties.Description="{Binding Source={x:Reference Page}, Path=BindingContext.Text.MoveDown}" Text="↓" />
                                 </HorizontalStackLayout>
                                 <Button Command="{Binding Source={x:Reference Page}, Path=BindingContext.RemoveExerciseCommand}" CommandParameter="{Binding .}" FontSize="11" Padding="8,4" Text="{Binding Source={x:Reference Page}, Path=BindingContext.Text.Remove}" />
+                                <Button Clicked="OnOpenLoggerClicked" CommandParameter="{Binding .}" IsVisible="{Binding Source={x:Reference Page}, Path=BindingContext.HasStarted}" SemanticProperties.Description="{Binding Name}" Text="›" />
                             </VerticalStackLayout>
-                            <Button Grid.Column="2" Clicked="OnOpenLoggerClicked" CommandParameter="{Binding .}" IsVisible="{Binding Source={x:Reference Page}, Path=BindingContext.HasStarted}" SemanticProperties.Description="{Binding Name}" Text="›" />
                         </Grid>
                     </Border>
                 </DataTemplate>
@@ -48,12 +48,9 @@
             <Button Clicked="OnAddExerciseClicked" Text="{Binding Text.AddExercise}" />
             <Button Grid.Column="1" Command="{Binding StartWorkoutCommand}" FontAttributes="Bold" Text="{Binding Text.StartWorkout}" />
         </Grid>
-        <Button
-            Grid.Row="2"
-            Command="{Binding FinishWorkoutCommand}"
-            FontAttributes="Bold"
-            IsVisible="{Binding HasStarted}"
-            SemanticProperties.Description="{Binding Text.FinishWorkout}"
-            Text="{Binding Text.FinishWorkout}" />
+        <Grid Grid.Row="2" ColumnDefinitions="*,*" ColumnSpacing="10" IsVisible="{Binding HasStarted}">
+            <Button Clicked="OnAddExerciseClicked" Text="{Binding Text.AddExercise}" />
+            <Button Grid.Column="1" Command="{Binding FinishWorkoutCommand}" FontAttributes="Bold" SemanticProperties.Description="{Binding Text.FinishWorkout}" Text="{Binding Text.FinishWorkout}" />
+        </Grid>
     </Grid>
 </ContentPage>

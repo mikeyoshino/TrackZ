@@ -180,7 +180,8 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
         var isHistoricalMutation = operation.Type is (
                 OutboxOperationType.EditSet
                 or OutboxOperationType.DeleteSet
-                or OutboxOperationType.DeleteWorkout)
+                or OutboxOperationType.DeleteWorkout
+                or OutboxOperationType.DeleteWorkoutExercise)
             && previous.Status == LocalWorkoutStatus.Completed
             && workout.Status == LocalWorkoutStatus.Completed;
         if (previous.Id != workout.Id
@@ -233,7 +234,8 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
                     OutboxOperationType.CompleteWorkout
                     or OutboxOperationType.EditSet
                     or OutboxOperationType.DeleteSet
-                    or OutboxOperationType.DeleteWorkout)
+                    or OutboxOperationType.DeleteWorkout
+                    or OutboxOperationType.DeleteWorkoutExercise)
                 || operation.NeutralizedAt is not null)
                 throw new InvalidOperationException("The operation cannot be undone.");
             var safeState = operation.State is OutboxOperationState.Rejected
@@ -348,7 +350,7 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
                 SELECT OperationId, EntityId, OperationType, Payload, BaseVersion,
                        CreatedAt, State, DeletedAt, Version, ServerVersion, RetryCount,
                        NextAttemptAt, ServerPayload, ReplacesOperationId, SendStartedAt,
-                       NeutralizedAt
+                       NeutralizedAt, FailureCode
                 FROM OutboxOperation WHERE OperationId = $id;
                 """;
             Add(command, "$id", Id(operationId));
@@ -920,10 +922,10 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
             insert.CommandText = """
                 INSERT INTO OutboxOperation
                     (OperationId, EntityId, OperationType, Payload, BaseVersion,
-                     CreatedAt, State, DeletedAt, Version)
+                     CreatedAt, State, DeletedAt, Version, FailureCode)
                 VALUES
                     ($id, $entityId, $type, $payload, $baseVersion,
-                     $createdAt, $state, $deletedAt, $version)
+                     $createdAt, $state, $deletedAt, $version, $failureCode)
                 """;
             Add(insert, "$id", Id(operation.OperationId));
             Add(insert, "$entityId", Id(operation.EntityId));
@@ -934,6 +936,9 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
             Add(insert, "$state", (int)operation.State);
             Add(insert, "$deletedAt", Timestamp(operation.DeletedAt));
             Add(insert, "$version", operation.Version);
+            Add(insert, "$failureCode", operation.FailureCode is null
+                ? null
+                : (int)operation.FailureCode.Value);
             await insert.ExecuteNonQueryAsync(cancellationToken);
         }
     }
@@ -950,7 +955,7 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
             SELECT OperationId, EntityId, OperationType, Payload, BaseVersion,
                    CreatedAt, State, DeletedAt, Version, ServerVersion, RetryCount,
                    NextAttemptAt, ServerPayload, ReplacesOperationId, SendStartedAt,
-                   NeutralizedAt
+                   NeutralizedAt, FailureCode
             FROM OutboxOperation WHERE OperationId = $id;
             """;
         Add(command, "$id", Id(operationId));
@@ -1091,9 +1096,10 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
             conflict.CommandText = """
                 SELECT EXISTS (
                     SELECT 1 FROM OutboxOperation
-                    WHERE State = 4 AND DeletedAt IS NULL
+                    WHERE State = 4 AND DeletedAt IS NULL AND EntityId = $entityId
                 );
                 """;
+            Add(conflict, "$entityId", Id(operation.EntityId));
             if (Convert.ToInt64(await conflict.ExecuteScalarAsync(cancellationToken)) != 0)
                 throw new InvalidOperationException(
                     "Resolve the sync conflict before recording another workout change.");
@@ -1107,8 +1113,10 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
                    replacement.ServerVersion, workout.BaseVersion
             FROM OutboxOperation AS replacement
             INNER JOIN LocalWorkout AS workout ON workout.Id = replacement.EntityId
-            WHERE replacement.ReplacesOperationId IS NOT NULL;
+            WHERE replacement.ReplacesOperationId IS NOT NULL
+              AND replacement.EntityId = $entityId;
             """;
+        Add(command, "$entityId", Id(operation.EntityId));
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
         {
@@ -1248,7 +1256,8 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
         reader.IsDBNull(12) ? null : reader.GetString(12),
         reader.IsDBNull(13) ? null : GuidValue(reader, 13),
         Timestamp(reader, 14),
-        Timestamp(reader, 15));
+        Timestamp(reader, 15),
+        reader.IsDBNull(16) ? null : EnumValue<TrackZ.Contracts.Errors.BusinessErrorCode>(reader, 16));
 
     private static T EnumValue<T>(SqliteDataReader reader, int ordinal) where T : struct, Enum
     {

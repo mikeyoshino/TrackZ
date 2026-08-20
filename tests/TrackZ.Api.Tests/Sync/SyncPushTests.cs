@@ -428,6 +428,59 @@ public sealed class SyncPushTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Start_rebase_merges_local_selection_without_erasing_server_exercises_and_replays_once()
+    {
+        var authentication = await AuthenticateAsync();
+        var remoteExercise = ExerciseDefinition.CreateSystem(
+            $"Remote Start Press {Guid.NewGuid():N}", BodyPart.Chest, TrackingMode.Weighted);
+        var localExercise = ExerciseDefinition.CreateSystem(
+            $"Local Start Row {Guid.NewGuid():N}", BodyPart.Back, TrackingMode.Weighted);
+        await SeedAsync(remoteExercise, localExercise);
+        var ids = SyncIds.Create();
+        var startedAt = Utc(10);
+        await AssertAppliedAsync(
+            authentication.Token,
+            StartOperation(ids, remoteExercise.Id, startedAt),
+            1);
+        var localWorkoutExerciseId = Guid.NewGuid();
+        var replacementOperationId = Guid.NewGuid();
+        var replacement = Operation(replacementOperationId, "StartWorkout", 1, new
+        {
+            workoutId = ids.WorkoutId,
+            startedAt,
+            exercises = new[]
+            {
+                new
+                {
+                    workoutExerciseId = localWorkoutExerciseId,
+                    exerciseDefinitionId = localExercise.Id,
+                    trackingMode = 1,
+                    order = 0
+                }
+            }
+        });
+
+        var first = await PushDocumentAsync(authentication.Token, replacement);
+        var replay = await PushDocumentAsync(authentication.Token, replacement);
+
+        AssertResult(first, 0, "Applied", 2, null);
+        Assert.Equal(Result(first, 0).GetRawText(), Result(replay, 0).GetRawText());
+        await using var scope = _factory!.Services.CreateAsyncScope();
+        var database = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var persisted = await database.WorkoutExercises
+            .Where(exercise => exercise.WorkoutSessionId == ids.WorkoutId)
+            .OrderBy(exercise => exercise.Order)
+            .Select(exercise => exercise.ExerciseDefinitionId)
+            .ToListAsync();
+        Assert.Equal(
+            [localExercise.Id, remoteExercise.Id],
+            persisted);
+        Assert.Equal(1, await database.SyncChanges.CountAsync(change =>
+            change.OwnerId == authentication.UserId
+            && change.OperationId == replacementOperationId));
+    }
+
+    [Fact]
     public async Task Concurrent_duplicate_pushes_commit_one_set_and_replay_one_result()
     {
         var authentication = await AuthenticateAsync();
@@ -504,7 +557,7 @@ public sealed class SyncPushTests : IAsyncLifetime
         var response = await PushDocumentAsync(intruder.Token, SaveSetOperation(
             ids, Guid.NewGuid(), Guid.NewGuid(), 1, 0, "70", 10, startedAt.AddMinutes(1)));
 
-        AssertResult(response, 0, "Rejected", null, 10009);
+        AssertResult(response, 0, "Rejected", null, 30001);
         await using var scope = _factory!.Services.CreateAsyncScope();
         var database = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         Assert.Empty(await database.SetEntries.Where(set => set.WorkoutExerciseId == ids.WorkoutExerciseId).ToListAsync());
@@ -574,6 +627,158 @@ public sealed class SyncPushTests : IAsyncLifetime
         await using var scope = _factory!.Services.CreateAsyncScope();
         var database = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         Assert.Empty(await database.ProcessedClientOperations.ToListAsync());
+    }
+
+    [Fact]
+    public async Task Start_rejects_a_tracking_mode_that_disagrees_with_the_authoritative_definition()
+    {
+        var authentication = await AuthenticateAsync();
+        var exercise = ExerciseDefinition.CreateSystem(
+            $"Canonical Bodyweight {Guid.NewGuid():N}", BodyPart.Chest, TrackingMode.Bodyweight);
+        await SeedAsync(exercise);
+        var ids = SyncIds.Create();
+        var forged = Operation(Guid.NewGuid(), "StartWorkout", 0, new
+        {
+            workoutId = ids.WorkoutId,
+            startedAt = Utc(19),
+            exercises = new[]
+            {
+                new
+                {
+                    workoutExerciseId = ids.WorkoutExerciseId,
+                    exerciseDefinitionId = exercise.Id,
+                    trackingMode = (int)TrackingMode.Weighted,
+                    order = 0
+                }
+            }
+        });
+
+        var response = await PushDocumentAsync(authentication.Token, forged);
+
+        AssertResult(response, 0, "Rejected", null, 10009);
+        await using var scope = _factory!.Services.CreateAsyncScope();
+        var database = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        Assert.False(await database.WorkoutSessions.AnyAsync(workout => workout.Id == ids.WorkoutId));
+    }
+
+    [Fact]
+    public async Task Active_exercise_actions_apply_once_and_preserve_a_single_typed_reorder_operation()
+    {
+        var authentication = await AuthenticateAsync();
+        var press = ExerciseDefinition.CreateSystem(
+            $"Action Press {Guid.NewGuid():N}", BodyPart.Chest, TrackingMode.Weighted);
+        var row = ExerciseDefinition.CreateSystem(
+            $"Action Row {Guid.NewGuid():N}", BodyPart.Back, TrackingMode.Weighted);
+        await SeedAsync(press, row);
+        var ids = SyncIds.Create();
+        await AssertAppliedAsync(authentication.Token, StartOperation(ids, press.Id, Utc(20)), 1);
+        var addedWorkoutExerciseId = Guid.NewGuid();
+        var add = Operation(Guid.NewGuid(), "AddExercise", 1, new
+        {
+            workoutId = ids.WorkoutId,
+            workoutExerciseId = addedWorkoutExerciseId,
+            exerciseDefinitionId = row.Id,
+            trackingMode = (int)TrackingMode.Weighted,
+            order = 1,
+            addedAt = Utc(20).AddMinutes(1)
+        });
+        var reorder = Operation(Guid.NewGuid(), "ReorderExercises", 2, new
+        {
+            workoutId = ids.WorkoutId,
+            workoutExerciseIds = new[] { addedWorkoutExerciseId, ids.WorkoutExerciseId },
+            reorderedAt = Utc(20).AddMinutes(2)
+        });
+        var remove = Operation(Guid.NewGuid(), "RemoveExercise", 3, new
+        {
+            workoutId = ids.WorkoutId,
+            workoutExerciseId = addedWorkoutExerciseId,
+            deletedAt = Utc(20).AddMinutes(3)
+        });
+
+        var response = await PushDocumentAsync(authentication.Token, add, reorder, remove);
+        var replay = await PushDocumentAsync(authentication.Token, reorder);
+
+        AssertResult(response, 0, "Applied", 2, null);
+        AssertResult(response, 1, "Applied", 3, null);
+        AssertResult(response, 2, "Applied", 4, null);
+        Assert.Equal(Result(response, 1).GetRawText(), Result(replay, 0).GetRawText());
+        await using var scope = _factory!.Services.CreateAsyncScope();
+        var database = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var workout = await database.WorkoutSessions
+            .Include("_exercises")
+            .SingleAsync(item => item.Id == ids.WorkoutId);
+        Assert.Equal(4, workout.Version);
+        Assert.Single(workout.Exercises);
+        Assert.Equal(ids.WorkoutExerciseId, workout.Exercises[0].Id);
+    }
+
+    [Fact]
+    public async Task Historical_exercise_delete_tombstones_once_after_completion()
+    {
+        var authentication = await AuthenticateAsync();
+        var exercise = ExerciseDefinition.CreateSystem(
+            $"History Delete Press {Guid.NewGuid():N}", BodyPart.Chest, TrackingMode.Weighted);
+        await SeedAsync(exercise);
+        var ids = SyncIds.Create();
+        var startedAt = Utc(21);
+        await AssertAppliedAsync(authentication.Token, StartOperation(ids, exercise.Id, startedAt), 1);
+        await AssertAppliedAsync(authentication.Token, SaveSetOperation(
+            ids, Guid.NewGuid(), Guid.NewGuid(), 1, 0, "70", 10, startedAt.AddMinutes(1)), 2);
+        await AssertAppliedAsync(authentication.Token, Operation(Guid.NewGuid(), "CompleteWorkout", 2, new
+        {
+            workoutId = ids.WorkoutId,
+            completedAt = startedAt.AddMinutes(2)
+        }), 3);
+        var delete = Operation(Guid.NewGuid(), "DeleteWorkoutExercise", 3, new
+        {
+            workoutId = ids.WorkoutId,
+            workoutExerciseId = ids.WorkoutExerciseId,
+            deletedAt = startedAt.AddMinutes(3)
+        });
+
+        var first = await PushDocumentAsync(authentication.Token, delete);
+        var replay = await PushDocumentAsync(authentication.Token, delete);
+
+        AssertResult(first, 0, "Applied", 4, null);
+        Assert.Equal(Result(first, 0).GetRawText(), Result(replay, 0).GetRawText());
+        await using var scope = _factory!.Services.CreateAsyncScope();
+        var database = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var stored = await database.WorkoutExercises.IgnoreQueryFilters()
+            .SingleAsync(item => item.Id == ids.WorkoutExerciseId);
+        Assert.NotNull(stored.DeletedAt);
+    }
+
+    [Fact]
+    public async Task Push_preserves_workout_not_found_already_completed_and_invalid_set_value_codes()
+    {
+        var authentication = await AuthenticateAsync();
+        var exercise = ExerciseDefinition.CreateSystem(
+            $"Error Code Press {Guid.NewGuid():N}", BodyPart.Chest, TrackingMode.Weighted);
+        await SeedAsync(exercise);
+        var missingIds = SyncIds.Create();
+        var missing = await PushDocumentAsync(authentication.Token, SaveSetOperation(
+            missingIds, Guid.NewGuid(), Guid.NewGuid(), 0, 0, "70", 10, Utc(22)));
+        AssertResult(missing, 0, "Rejected", null, 30001);
+
+        var ids = SyncIds.Create();
+        var startedAt = Utc(22);
+        await AssertAppliedAsync(authentication.Token, StartOperation(ids, exercise.Id, startedAt), 1);
+        var invalid = await PushDocumentAsync(authentication.Token, SaveSetOperation(
+            ids, Guid.NewGuid(), Guid.NewGuid(), 1, 0, "-1", 10, startedAt.AddMinutes(1)));
+        AssertResult(invalid, 0, "Rejected", null, 30004);
+        await AssertAppliedAsync(authentication.Token, SaveSetOperation(
+            ids, Guid.NewGuid(), Guid.NewGuid(), 1, 0, "70", 10, startedAt.AddMinutes(1)), 2);
+        await AssertAppliedAsync(authentication.Token, Operation(Guid.NewGuid(), "CompleteWorkout", 2, new
+        {
+            workoutId = ids.WorkoutId,
+            completedAt = startedAt.AddMinutes(2)
+        }), 3);
+        var completed = await PushDocumentAsync(authentication.Token, Operation(Guid.NewGuid(), "CompleteWorkout", 3, new
+        {
+            workoutId = ids.WorkoutId,
+            completedAt = startedAt.AddMinutes(3)
+        }));
+        AssertResult(completed, 0, "Rejected", null, 30002);
     }
 
     private static object Operation(Guid operationId, string action, long baseVersion, object payload) => new
