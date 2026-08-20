@@ -6,21 +6,24 @@
     xmlns:components="clr-namespace:TrackZ.Mobile.Components"
     xmlns:gamification="clr-namespace:TrackZ.Mobile.Features.Gamification;assembly=TrackZ.Mobile.Core"
     x:DataType="gamification:WorkoutSummaryViewModel"
-    BackgroundColor="#0D0F12"
+    BackgroundColor="{DynamicResource TrackZBackground}"
     Title="{Binding Text.SummaryTitle}">
     <ScrollView>
         <VerticalStackLayout Padding="20,24" Spacing="18">
-            <Label FontAttributes="Bold" FontSize="30" Text="{Binding Text.SummaryTitle}" />
-            <Border Padding="16" BackgroundColor="#15181D" Stroke="#343B45" StrokeShape="RoundRectangle 22">
+            <Label Style="{DynamicResource TrackZPageTitleStyle}" Text="{Binding Text.SummaryTitle}" />
+            <Border x:Name="SummaryReveal" Style="{DynamicResource TrackZCardStyle}">
+                <VerticalStackLayout Spacing="6"><Label FontAttributes="Bold" FontSize="22" Text="{Binding ProgressRevealStatus}" TextColor="{DynamicResource TrackZPrimary}" /><Label FontAttributes="Bold" Text="{Binding XpEarnedText}" /><Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding LevelAdvancedText}" /></VerticalStackLayout>
+            </Border>
+            <Border Style="{DynamicResource TrackZCardStyle}">
                 <components:XpBar Level="{Binding Level}" TotalXp="{Binding TotalXp}" Progress="0" />
             </Border>
             <Grid ColumnDefinitions="*,*,*" ColumnSpacing="10">
-                <Border Padding="12" BackgroundColor="#15181D" StrokeShape="RoundRectangle 18"><VerticalStackLayout><Label FontSize="24" FontAttributes="Bold" Text="{Binding TotalVolumeKg, StringFormat='{0:0.###} kg'}" /><Label Text="{Binding Text.TotalVolume}" TextColor="#8E959F" /></VerticalStackLayout></Border>
-                <Border Grid.Column="1" Padding="12" BackgroundColor="#15181D" StrokeShape="RoundRectangle 18"><VerticalStackLayout><Label FontSize="24" FontAttributes="Bold" Text="{Binding CompletedSets}" /><Label Text="{Binding Text.Sets}" TextColor="#8E959F" /></VerticalStackLayout></Border>
-                <Border Grid.Column="2" Padding="12" BackgroundColor="#15181D" StrokeShape="RoundRectangle 18"><VerticalStackLayout><Label FontSize="24" FontAttributes="Bold" Text="{Binding TotalReps}" /><Label Text="{Binding Text.Reps}" TextColor="#8E959F" /></VerticalStackLayout></Border>
+                <Border Style="{DynamicResource TrackZCardStyle}"><VerticalStackLayout><Label FontSize="24" FontAttributes="Bold" Text="{Binding TotalVolumeKg, StringFormat='{0:0.###} kg'}" /><Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Text.TotalVolume}" /></VerticalStackLayout></Border>
+                <Border Grid.Column="1" Style="{DynamicResource TrackZCardStyle}"><VerticalStackLayout><Label FontSize="24" FontAttributes="Bold" Text="{Binding CompletedSets}" /><Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Text.Sets}" /></VerticalStackLayout></Border>
+                <Border Grid.Column="2" Style="{DynamicResource TrackZCardStyle}"><VerticalStackLayout><Label FontSize="24" FontAttributes="Bold" Text="{Binding TotalReps}" /><Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Text.Reps}" /></VerticalStackLayout></Border>
             </Grid>
-            <Label SemanticProperties.Description="{Binding SyncAccessibilityText}" Text="{Binding SyncAccessibilityText}" TextColor="#F2B84B" />
-            <Label Text="{Binding ErrorMessage}" TextColor="#FF6B6B" />
+            <Label SemanticProperties.Description="{Binding SyncAccessibilityText}" Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding SyncAccessibilityText}" />
+            <Label Text="{Binding ErrorMessage}" TextColor="{DynamicResource TrackZDanger}" />
         </VerticalStackLayout>
     </ScrollView>
 </ContentPage>

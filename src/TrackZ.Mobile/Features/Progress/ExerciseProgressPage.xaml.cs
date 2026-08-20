@@ -4,8 +4,8 @@ namespace TrackZ.Mobile.Features.Progress;
 
 public partial class ExerciseProgressPage : ContentPage
 {
-    private readonly ExerciseProgressViewModel _viewModel;
-    public ExerciseProgressPage(ExerciseProgressViewModel viewModel)
+    private readonly ProgressDashboardViewModel _viewModel;
+    public ExerciseProgressPage(ProgressDashboardViewModel viewModel)
     {
         InitializeComponent();
         BindingContext = _viewModel = viewModel;
