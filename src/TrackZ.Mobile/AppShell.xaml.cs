@@ -6,6 +6,7 @@ using TrackZ.Mobile.Features.Progress;
 using TrackZ.Mobile.Features.Profile;
 using TrackZ.Mobile.Features.Summary;
 using TrackZ.Mobile.Features.Gamification;
+using TrackZ.Mobile.Presentation;
 
 namespace TrackZ.Mobile;
 
@@ -13,44 +14,63 @@ public partial class AppShell : Shell
 {
 	public AppShell(
 		WorkoutPage workoutPage,
-		ExercisePickerPage exercisePickerPage,
 		IServiceProvider services)
 	{
 		InitializeComponent();
-		Items.Add(new ShellContent
-		{
-			Title = WorkoutResources.Current.WorkoutTitle,
-			Route = "train",
-			Content = workoutPage
-		});
-		Items.Add(new ShellContent
-		{
-			Title = WorkoutResources.Current.AddExercise,
-			Route = "exercises",
-			Content = exercisePickerPage
-		});
-		Items.Add(new ShellContent
-		{
-			Title = WorkoutResources.Current.HistoryTitle,
-			Route = "history",
-			ContentTemplate = new DataTemplate(() =>
-				services.GetRequiredService<WorkoutHistoryPage>())
-		});
-		Items.Add(new ShellContent
-		{
-			Title = GamificationResources.Current.ProgressTitle,
-			Route = "progress",
-			ContentTemplate = new DataTemplate(() => services.GetRequiredService<ExerciseProgressPage>())
-		});
-		Items.Add(new ShellContent
-		{
-			Title = GamificationResources.Current.ProfileTitle,
-			Route = "profile",
-			ContentTemplate = new DataTemplate(() => services.GetRequiredService<ProfilePage>())
-		});
+		var tabs = new TabBar();
+		tabs.Items.Add(CreateTab(
+			WorkoutResources.Current.WorkoutTitle,
+			"tab_train.svg",
+			new ShellContent { Route = "train", Content = workoutPage }));
+		tabs.Items.Add(CreateTab(
+			WorkoutResources.Current.HistoryTitle,
+			"tab_history.svg",
+			new ShellContent
+			{
+				Route = "history",
+				ContentTemplate = new DataTemplate(() => services.GetRequiredService<WorkoutHistoryPage>())
+			}));
+		tabs.Items.Add(CreateTab(
+			GamificationResources.Current.ProgressTitle,
+			"tab_progress.svg",
+			new ShellContent
+			{
+				Route = "progress",
+				ContentTemplate = new DataTemplate(() => services.GetRequiredService<ExerciseProgressPage>())
+			}));
+		tabs.Items.Add(CreateTab(
+			GamificationResources.Current.ProfileTitle,
+			"tab_you.svg",
+			new ShellContent
+			{
+				Route = "you",
+				ContentTemplate = new DataTemplate(() => services.GetRequiredService<ProfilePage>())
+			}));
+		Items.Add(tabs);
+
+		Routing.RegisterRoute(nameof(ExercisePickerPage), typeof(ExercisePickerPage));
 		Routing.RegisterRoute(nameof(CustomExercisePage), typeof(CustomExercisePage));
 		Routing.RegisterRoute(nameof(SetLoggerPage), typeof(SetLoggerPage));
 		Routing.RegisterRoute(nameof(WorkoutHistoryPage), typeof(WorkoutHistoryPage));
 		Routing.RegisterRoute(nameof(WorkoutSummaryPage), typeof(WorkoutSummaryPage));
+	}
+
+	protected override void OnHandlerChanged()
+	{
+		base.OnHandlerChanged();
+#if IOS
+		NativeNavigationConfiguration.Configure();
+#endif
+	}
+
+	private static Tab CreateTab(string title, string icon, ShellContent content)
+	{
+		var tab = new Tab
+		{
+			Title = title,
+			Icon = ImageSource.FromFile(icon)
+		};
+		tab.Items.Add(content);
+		return tab;
 	}
 }

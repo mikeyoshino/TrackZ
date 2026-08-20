@@ -11,6 +11,7 @@ using TrackZ.Mobile.Features.Gamification;
 using TrackZ.Mobile.Features.Progress;
 using TrackZ.Mobile.Features.Profile;
 using TrackZ.Mobile.Features.Summary;
+using TrackZ.Mobile.Presentation;
 
 namespace TrackZ.Mobile;
 
@@ -29,6 +30,7 @@ public static class MauiProgram
 
 		builder.Services.AddSingleton<IMobileTokenStorage, SecureMobileTokenStorage>();
 		builder.Services.AddSingleton<IAccountSessionBoundary, AccountSessionBoundary>();
+		builder.Services.AddSingleton<INativeSheetPresenter, MauiNativeSheetPresenter>();
 		builder.Services.AddSingleton<MobileTokenStore>();
 		builder.Services.AddSingleton<IMobilePrivateDataCleaner, MauiPrivateDataCleaner>();
 		builder.Services.AddSingleton<IAccessTokenProvider>(services => services.GetRequiredService<MobileTokenStore>());

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml">
+    <Color x:Key="TrackZBackground">#090B0D</Color>
+    <Color x:Key="TrackZSurface">#15191D</Color>
+    <Color x:Key="TrackZSurfaceRaised">#20252A</Color>
+    <Color x:Key="TrackZPrimary">#C8FF3D</Color>
+    <Color x:Key="TrackZTextPrimary">#F5F7F8</Color>
+    <Color x:Key="TrackZTextSecondary">#8D959F</Color>
+    <Color x:Key="TrackZInformation">#73A9FF</Color>
+    <Color x:Key="TrackZWarning">#FFC95C</Color>
+    <Color x:Key="TrackZDanger">#FF6969</Color>
+    <Color x:Key="TrackZHairline">#2B3137</Color>
+</ResourceDictionary>
