@@ -19,10 +19,11 @@ using TrackZ.Application.Gamification.ReconcileWorkoutXp;
 using TrackZ.Domain.Gamification;
 using TrackZ.Application.Gamification.EvaluateStreak;
 using TrackZ.Application.Gamification.EvaluateBadges;
+using TrackZ.Application.Progress.ReconcileUserProgress;
 
 namespace TrackZ.Infrastructure.Persistence;
 
-public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options), IAppDbContext, IExerciseCatalogReadStore, ICustomExerciseStore, IExerciseImageUploadStore, IWorkoutReadStore, ISyncPushStore, ISyncPullStore, IGamificationStore, IStreakStore, IBadgeStore
+public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options), IAppDbContext, IExerciseCatalogReadStore, ICustomExerciseStore, IExerciseImageUploadStore, IWorkoutReadStore, ISyncPushStore, ISyncPullStore, IGamificationStore, IStreakStore, IBadgeStore, IUserProgressReconciliationStore
 {
     public DbSet<User> Users => Set<User>();
 
@@ -58,6 +59,132 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<UserBadge> UserBadges => Set<UserBadge>();
 
     public DbSet<BadgeAuditEvent> BadgeAuditEvents => Set<BadgeAuditEvent>();
+
+    public async Task ReconcileAsync(
+        Guid userId,
+        Guid workoutId,
+        IReadOnlyCollection<Guid> exerciseDefinitionIds,
+        DateTimeOffset reconciledAt,
+        CancellationToken cancellationToken)
+    {
+        await AcquireSyncLockAsync($"user-progress:{userId:D}", cancellationToken);
+        await RecomputeExercisePerformancesAsync(userId, exerciseDefinitionIds, cancellationToken);
+        await SaveChangesAsync(cancellationToken);
+
+        var now = reconciledAt.ToUniversalTime();
+        var workoutState = await GetWorkoutXpStateAsync(workoutId, cancellationToken);
+        if (workoutState is not null && workoutState.UserId == userId)
+        {
+            var entries = await ListWorkoutXpEntriesAsync(userId, workoutId, cancellationToken);
+            var desiredXp = workoutState.IsEligible ? XpRules.ForCompletedWorkout(workoutState.ValidSetCount) : 0;
+            var existingXp = entries.Sum(entry => entry.Amount);
+            if (entries.Count == 0 && desiredXp > 0)
+            {
+                XpLedgerEntries.Add(XpLedgerEntry.Create(
+                    userId, XpLedgerReason.WorkoutCompleted, workoutId, workoutId,
+                    XpRules.CompletedWorkoutXp, now));
+                var setXp = desiredXp - XpRules.CompletedWorkoutXp;
+                if (setXp > 0)
+                    XpLedgerEntries.Add(XpLedgerEntry.Create(
+                        userId, XpLedgerReason.WorkoutSets,
+                        DeriveReconciliationSourceId(workoutId, "sets"), workoutId, setXp, now));
+            }
+            else if (desiredXp != existingXp)
+            {
+                XpLedgerEntries.Add(XpLedgerEntry.Create(
+                    userId, XpLedgerReason.Correction,
+                    DeriveReconciliationSourceId(workoutId, $"correction:{workoutState.Version}:{desiredXp}"),
+                    workoutId, desiredXp - existingXp, now));
+            }
+            await SaveChangesAsync(cancellationToken);
+        }
+
+        var streakInput = await GetStreakEvaluationInputAsync(userId, cancellationToken);
+        if (streakInput is not null)
+        {
+            var rebuilt = WeeklyGoalCalculator.RebuildStreak(
+                streakInput.WeeklyGoal,
+                streakInput.TimeZoneId,
+                streakInput.CompletedWorkouts,
+                now);
+            var streak = await FindStreakStateAsync(userId, cancellationToken);
+            if (streak is null)
+            {
+                streak = StreakState.Create(userId);
+                StreakStates.Add(streak);
+            }
+            streak.Recalculate(rebuilt.CurrentWeeks, rebuilt.BestWeeks, rebuilt.LastEvaluatedWeek, now);
+
+            var weeklyEntries = await ListWeeklyGoalXpEntriesAsync(userId, cancellationToken);
+            var weeklyGroups = weeklyEntries.GroupBy(entry => entry.OriginId)
+                .ToDictionary(group => group.Key, group => group.ToArray());
+            var desiredWeeklyOrigins = rebuilt.GoalMetWeeks.ToDictionary(
+                week => DeriveReconciliationSourceId(userId, $"iso-week:{week.Year:D4}-{week.Week:D2}"));
+            foreach (var originId in weeklyGroups.Keys.Concat(desiredWeeklyOrigins.Keys).Distinct().Order())
+            {
+                var currentXp = weeklyGroups.GetValueOrDefault(originId)?.Sum(entry => entry.Amount) ?? 0;
+                var desiredXp = desiredWeeklyOrigins.ContainsKey(originId) ? XpRules.WeeklyGoalXp : 0;
+                if (currentXp == desiredXp) continue;
+                var hasAward = weeklyGroups.GetValueOrDefault(originId)?
+                    .Any(entry => entry.Reason == XpLedgerReason.WeeklyGoal) == true;
+                XpLedgerEntries.Add(XpLedgerEntry.Create(
+                    userId,
+                    hasAward ? XpLedgerReason.Correction : XpLedgerReason.WeeklyGoal,
+                    hasAward ? Guid.NewGuid() : originId,
+                    originId,
+                    desiredXp - currentXp,
+                    now));
+            }
+            await SaveChangesAsync(cancellationToken);
+        }
+
+        var totalXp = await GetUserTotalXpAsync(userId, cancellationToken);
+        var thresholds = await ListLevelThresholdsAsync(cancellationToken);
+        var rulesVersion = thresholds.Select(item => item.RulesVersion).DefaultIfEmpty(1).Max();
+        var level = LevelThreshold.ResolveLevel(
+            totalXp,
+            thresholds.Where(item => item.RulesVersion == rulesVersion));
+        var progress = await FindUserProgressAsync(userId, cancellationToken);
+        if (progress is null)
+            UserProgress.Add(TrackZ.Domain.Gamification.UserProgress.Create(userId, totalXp, level, rulesVersion, now));
+        else
+            progress.Recalculate(totalXp, level, rulesVersion, now);
+        await SaveChangesAsync(cancellationToken);
+
+        var facts = await GetBadgeFactsAsync(userId, cancellationToken);
+        if (facts is null) return;
+        var definitions = await ListBadgeDefinitionsAsync(cancellationToken);
+        var badges = await ListUserBadgesAsync(userId, cancellationToken);
+        var badgesByDefinition = badges.ToDictionary(item => item.BadgeDefinitionId);
+        foreach (var definition in definitions.OrderBy(item => item.Key, StringComparer.Ordinal))
+        {
+            var shouldBeEarned = definition.IsEarned(
+                facts.CompletedWorkoutCount,
+                facts.BestStreakWeeks,
+                facts.DistinctExerciseCount,
+                facts.PersonalRecordCount);
+            var isEarned = badgesByDefinition.TryGetValue(definition.Id, out var badge);
+            if (shouldBeEarned && !isEarned)
+            {
+                UserBadges.Add(UserBadge.Create(userId, definition, now));
+                BadgeAuditEvents.Add(BadgeAuditEvent.Create(
+                    userId, definition, BadgeAuditAction.Awarded, now));
+            }
+            else if (!shouldBeEarned && isEarned)
+            {
+                UserBadges.Remove(badge!);
+                BadgeAuditEvents.Add(BadgeAuditEvent.Create(
+                    userId, definition, BadgeAuditAction.Revoked, now));
+            }
+        }
+        await SaveChangesAsync(cancellationToken);
+    }
+
+    private static Guid DeriveReconciliationSourceId(Guid originId, string discriminator)
+    {
+        var bytes = Encoding.UTF8.GetBytes($"{originId:D}:{discriminator}");
+        return new Guid(SHA256.HashData(bytes).AsSpan(0, 16));
+    }
 
     public async Task<IAppDbTransaction> BeginBadgeTransactionAsync(CancellationToken cancellationToken) =>
         new AppDbTransaction(await Database.BeginTransactionAsync(cancellationToken));

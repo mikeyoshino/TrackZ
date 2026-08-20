@@ -111,6 +111,11 @@ public sealed class EditHistoryTests : IAsyncLifetime
             Assert.Equal(8, performance.LastBestReps);
             Assert.Equal(72.5m, performance.AllTimeBestWeightKg);
             Assert.Equal(8, performance.AllTimeBestReps);
+            Assert.Equal(110, await projectionStore.XpLedgerEntries
+                .Where(item => item.UserId == owner.UserId)
+                .SumAsync(item => item.Amount));
+            Assert.Equal(110, (await projectionStore.UserProgress.AsNoTracking()
+                .SingleAsync(item => item.UserId == owner.UserId)).TotalXp);
         }
 
         var completedHistory = await ReadJsonAsync(owner.Token, "/api/v1/workouts");
@@ -172,6 +177,13 @@ public sealed class EditHistoryTests : IAsyncLifetime
         Assert.Equal(0, remainingSet.GetProperty("order").GetInt32());
         await AssertPerformanceAsync(
             owner.UserId, exercise.Id, startedAt.AddMinutes(10), 72.5m, 8, 72.5m, 8);
+        await using (var correctedScope = _factory!.Services.CreateAsyncScope())
+        {
+            var corrected = correctedScope.ServiceProvider.GetRequiredService<AppDbContext>();
+            Assert.Equal(105, await corrected.XpLedgerEntries
+                .Where(item => item.UserId == owner.UserId)
+                .SumAsync(item => item.Amount));
+        }
 
         var deleteWorkout = Operation(Guid.NewGuid(), "DeleteWorkout", 6, new
         {
@@ -203,6 +215,13 @@ public sealed class EditHistoryTests : IAsyncLifetime
         Assert.Empty(await database.ExercisePerformances.Where(performance =>
             performance.UserId == owner.UserId
             && performance.ExerciseDefinitionId == exercise.Id).ToListAsync());
+        Assert.Equal(0, await database.XpLedgerEntries
+            .Where(item => item.UserId == owner.UserId)
+            .SumAsync(item => item.Amount));
+        var finalProgress = await database.UserProgress.AsNoTracking()
+            .SingleAsync(item => item.UserId == owner.UserId);
+        Assert.Equal(0, finalProgress.TotalXp);
+        Assert.Equal(1, finalProgress.Level);
     }
 
     [Fact]

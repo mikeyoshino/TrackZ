@@ -9,6 +9,7 @@ using TrackZ.Contracts.Sync;
 using TrackZ.Domain.Exercises;
 using TrackZ.Domain.Sync;
 using TrackZ.Domain.Workouts;
+using TrackZ.Application.Progress.ReconcileUserProgress;
 
 namespace TrackZ.Application.Sync.Push;
 
@@ -82,14 +83,13 @@ public sealed class PushSyncHandler(
             if (result.Mutation?.Workout is { } changedWorkout
                 && RequiresPerformanceRecomputation(operation.Action))
             {
-                await store.RecomputeExercisePerformancesAsync(
+                await sender.Send(new ReconcileUserProgressCommand(
                     currentUser.UserId,
+                    changedWorkout.Id,
                     changedWorkout.ExerciseEntries
                         .Select(exercise => exercise.ExerciseDefinitionId)
                         .Distinct()
-                        .ToArray(),
-                    cancellationToken);
-                await store.SaveSyncChangesAsync(cancellationToken);
+                        .ToArray()), cancellationToken);
             }
             commitStarted = true;
             await transaction.CommitAsync(cancellationToken);
