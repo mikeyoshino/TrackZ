@@ -58,4 +58,23 @@ public sealed class GamificationPersistenceTests
         Assert.NotNull(user.FindProperty(nameof(TrackZ.Domain.Identity.User.WeeklyWorkoutGoal)));
         Assert.NotNull(user.FindProperty(nameof(TrackZ.Domain.Identity.User.TimeZoneId)));
     }
+
+    [Fact]
+    public void Model_separates_current_badges_from_immutable_award_audit()
+    {
+        using var db = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>()
+            .UseNpgsql("Host=localhost;Database=trackz_model;Username=trackz;Password=unused")
+            .Options);
+
+        var definition = db.Model.FindEntityType(typeof(BadgeDefinition));
+        var badge = db.Model.FindEntityType(typeof(UserBadge));
+        var audit = db.Model.FindEntityType(typeof(BadgeAuditEvent));
+        Assert.NotNull(definition);
+        Assert.NotNull(badge);
+        Assert.NotNull(audit);
+        Assert.Contains(badge.GetIndexes(), index => index.IsUnique
+            && index.Properties.Select(property => property.Name).SequenceEqual([
+                nameof(UserBadge.UserId), nameof(UserBadge.BadgeDefinitionId)
+            ]));
+    }
 }

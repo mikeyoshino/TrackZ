@@ -18,10 +18,11 @@ using System.Text;
 using TrackZ.Application.Gamification.ReconcileWorkoutXp;
 using TrackZ.Domain.Gamification;
 using TrackZ.Application.Gamification.EvaluateStreak;
+using TrackZ.Application.Gamification.EvaluateBadges;
 
 namespace TrackZ.Infrastructure.Persistence;
 
-public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options), IAppDbContext, IExerciseCatalogReadStore, ICustomExerciseStore, IExerciseImageUploadStore, IWorkoutReadStore, ISyncPushStore, ISyncPullStore, IGamificationStore, IStreakStore
+public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options), IAppDbContext, IExerciseCatalogReadStore, ICustomExerciseStore, IExerciseImageUploadStore, IWorkoutReadStore, ISyncPushStore, ISyncPullStore, IGamificationStore, IStreakStore, IBadgeStore
 {
     public DbSet<User> Users => Set<User>();
 
@@ -51,6 +52,65 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<LevelThreshold> LevelThresholds => Set<LevelThreshold>();
 
     public DbSet<StreakState> StreakStates => Set<StreakState>();
+
+    public DbSet<BadgeDefinition> BadgeDefinitions => Set<BadgeDefinition>();
+
+    public DbSet<UserBadge> UserBadges => Set<UserBadge>();
+
+    public DbSet<BadgeAuditEvent> BadgeAuditEvents => Set<BadgeAuditEvent>();
+
+    public async Task<IAppDbTransaction> BeginBadgeTransactionAsync(CancellationToken cancellationToken) =>
+        new AppDbTransaction(await Database.BeginTransactionAsync(cancellationToken));
+
+    public Task AcquireBadgeLockAsync(Guid userId, CancellationToken cancellationToken) =>
+        AcquireSyncLockAsync($"user-badges:{userId:D}", cancellationToken);
+
+    public async Task<BadgeFacts?> GetBadgeFactsAsync(Guid userId, CancellationToken cancellationToken)
+    {
+        if (!await Users.AsNoTracking().AnyAsync(user => user.Id == userId, cancellationToken)) return null;
+        var completedWorkoutCount = await WorkoutSessions.AsNoTracking().CountAsync(workout =>
+            workout.OwnerId == userId
+            && workout.Status == WorkoutStatus.Completed
+            && workout.DeletedAt == null,
+            cancellationToken);
+        var bestStreakWeeks = await StreakStates.AsNoTracking()
+            .Where(state => state.UserId == userId)
+            .Select(state => (int?)state.BestWeeks)
+            .SingleOrDefaultAsync(cancellationToken) ?? 0;
+        var distinctExerciseCount = await (
+            from workout in WorkoutSessions.AsNoTracking()
+            join exercise in WorkoutExercises.AsNoTracking() on workout.Id equals exercise.WorkoutSessionId
+            join set in SetEntries.AsNoTracking() on exercise.Id equals set.WorkoutExerciseId
+            where workout.OwnerId == userId
+                && workout.Status == WorkoutStatus.Completed
+                && workout.DeletedAt == null
+                && exercise.DeletedAt == null
+                && set.DeletedAt == null
+            select exercise.ExerciseDefinitionId)
+            .Distinct()
+            .CountAsync(cancellationToken);
+        var personalRecordCount = await ExercisePerformances.AsNoTracking()
+            .CountAsync(performance => performance.UserId == userId, cancellationToken);
+        return new BadgeFacts(
+            completedWorkoutCount,
+            bestStreakWeeks,
+            distinctExerciseCount,
+            personalRecordCount);
+    }
+
+    public async Task<IReadOnlyList<BadgeDefinition>> ListBadgeDefinitionsAsync(CancellationToken cancellationToken) =>
+        await BadgeDefinitions.AsNoTracking().OrderBy(definition => definition.Key).ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<UserBadge>> ListUserBadgesAsync(Guid userId, CancellationToken cancellationToken) =>
+        await UserBadges.Where(badge => badge.UserId == userId).ToListAsync(cancellationToken);
+
+    public void AddUserBadge(UserBadge badge) => UserBadges.Add(badge);
+
+    public void RemoveUserBadge(UserBadge badge) => UserBadges.Remove(badge);
+
+    public void AddBadgeAuditEvent(BadgeAuditEvent auditEvent) => BadgeAuditEvents.Add(auditEvent);
+
+    public Task SaveBadgesAsync(CancellationToken cancellationToken) => SaveChangesAsync(cancellationToken);
 
     public async Task<IAppDbTransaction> BeginStreakTransactionAsync(CancellationToken cancellationToken) =>
         new AppDbTransaction(await Database.BeginTransactionAsync(cancellationToken));
