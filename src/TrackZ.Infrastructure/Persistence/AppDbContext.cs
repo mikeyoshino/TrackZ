@@ -17,10 +17,11 @@ using System.Security.Cryptography;
 using System.Text;
 using TrackZ.Application.Gamification.ReconcileWorkoutXp;
 using TrackZ.Domain.Gamification;
+using TrackZ.Application.Gamification.EvaluateStreak;
 
 namespace TrackZ.Infrastructure.Persistence;
 
-public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options), IAppDbContext, IExerciseCatalogReadStore, ICustomExerciseStore, IExerciseImageUploadStore, IWorkoutReadStore, ISyncPushStore, ISyncPullStore, IGamificationStore
+public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options), IAppDbContext, IExerciseCatalogReadStore, ICustomExerciseStore, IExerciseImageUploadStore, IWorkoutReadStore, ISyncPushStore, ISyncPullStore, IGamificationStore, IStreakStore
 {
     public DbSet<User> Users => Set<User>();
 
@@ -48,6 +49,57 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<UserProgress> UserProgress => Set<UserProgress>();
 
     public DbSet<LevelThreshold> LevelThresholds => Set<LevelThreshold>();
+
+    public DbSet<StreakState> StreakStates => Set<StreakState>();
+
+    public async Task<IAppDbTransaction> BeginStreakTransactionAsync(CancellationToken cancellationToken) =>
+        new AppDbTransaction(await Database.BeginTransactionAsync(cancellationToken));
+
+    public async Task<StreakEvaluationInput?> GetStreakEvaluationInputAsync(
+        Guid userId,
+        CancellationToken cancellationToken)
+    {
+        var preferences = await Users.AsNoTracking()
+            .Where(user => user.Id == userId)
+            .Select(user => new { user.WeeklyWorkoutGoal, user.TimeZoneId })
+            .SingleOrDefaultAsync(cancellationToken);
+        if (preferences is null) return null;
+
+        var completions = await WorkoutSessions.AsNoTracking()
+            .Where(workout => workout.OwnerId == userId
+                && workout.Status == WorkoutStatus.Completed
+                && workout.CompletedAt != null
+                && workout.DeletedAt == null)
+            .Select(workout => new CompletedWorkoutInstant(workout.Id, workout.CompletedAt!.Value))
+            .ToListAsync(cancellationToken);
+        return new StreakEvaluationInput(
+            userId,
+            preferences.WeeklyWorkoutGoal,
+            preferences.TimeZoneId,
+            completions);
+    }
+
+    public Task<StreakState?> FindStreakStateAsync(Guid userId, CancellationToken cancellationToken) =>
+        StreakStates.SingleOrDefaultAsync(state => state.UserId == userId, cancellationToken);
+
+    public void AddStreakState(StreakState state) => StreakStates.Add(state);
+
+    public async Task<IReadOnlyList<XpLedgerEntry>> ListWeeklyGoalXpEntriesAsync(
+        Guid userId,
+        CancellationToken cancellationToken)
+    {
+        var entries = await XpLedgerEntries.AsNoTracking()
+            .Where(entry => entry.UserId == userId
+                && (entry.Reason == XpLedgerReason.WeeklyGoal || entry.Reason == XpLedgerReason.Correction))
+            .ToListAsync(cancellationToken);
+        var weeklyOrigins = entries
+            .Where(entry => entry.Reason == XpLedgerReason.WeeklyGoal)
+            .Select(entry => entry.OriginId)
+            .ToHashSet();
+        return entries.Where(entry => weeklyOrigins.Contains(entry.OriginId)).ToArray();
+    }
+
+    public Task SaveStreakAsync(CancellationToken cancellationToken) => SaveChangesAsync(cancellationToken);
 
     public async Task<IAppDbTransaction> BeginGamificationTransactionAsync(CancellationToken cancellationToken) =>
         new AppDbTransaction(await Database.BeginTransactionAsync(cancellationToken));

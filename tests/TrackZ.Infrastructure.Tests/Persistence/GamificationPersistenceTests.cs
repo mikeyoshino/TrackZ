@@ -39,4 +39,23 @@ public sealed class GamificationPersistenceTests
                 nameof(LevelThreshold.Level)
             ]));
     }
+
+    [Fact]
+    public void Model_persists_one_streak_and_motivation_preference_snapshot_per_user()
+    {
+        using var db = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>()
+            .UseNpgsql("Host=localhost;Database=trackz_model;Username=trackz;Password=unused")
+            .Options);
+
+        var streak = db.Model.FindEntityType(typeof(StreakState));
+        Assert.NotNull(streak);
+        Assert.Contains(streak.GetIndexes(), index => index.IsUnique
+            && index.Properties.Select(property => property.Name)
+                .SequenceEqual([nameof(StreakState.UserId)]));
+
+        var user = db.Model.FindEntityType(typeof(TrackZ.Domain.Identity.User));
+        Assert.NotNull(user);
+        Assert.NotNull(user.FindProperty(nameof(TrackZ.Domain.Identity.User.WeeklyWorkoutGoal)));
+        Assert.NotNull(user.FindProperty(nameof(TrackZ.Domain.Identity.User.TimeZoneId)));
+    }
 }
