@@ -23,6 +23,40 @@ public sealed class WorkoutHistoryViewModelTests : IAsyncDisposable
     private readonly AccountSessionBoundary _boundary = new();
 
     [Fact]
+    public async Task Detail_loads_one_workout_reloads_after_edit_and_clears_on_account_reset()
+    {
+        var completed = await CompletedWorkoutAsync(TrackingMode.Weighted, 70m, null, 10);
+        var detail = new WorkoutHistoryDetailViewModel(
+            ViewModel(WorkoutResources.English, new RecordingConfirmation { Result = true }),
+            _boundary);
+
+        await detail.LoadAsync(completed.Id);
+        var set = Assert.Single(Assert.Single(detail.Workout!.Exercises).Sets);
+        set.WeightKg = 72.5m;
+        await detail.EditSetCommand.ExecuteAsync(set);
+
+        Assert.Equal(72.5m, Assert.Single(Assert.Single(detail.Workout!.Exercises).Sets).WeightKg);
+        await _boundary.ResetAsync(_ => Task.CompletedTask);
+        Assert.Null(detail.Workout);
+    }
+
+    [Fact]
+    public async Task Root_history_projects_collapsed_month_groups_without_expanding_sets()
+    {
+        await CompletedWorkoutAsync(TrackingMode.Bodyweight, null, null, 12);
+        var viewModel = ViewModel(WorkoutResources.English, new RecordingConfirmation());
+
+        await viewModel.LoadAsync();
+
+        var group = Assert.Single(viewModel.WorkoutGroups);
+        var workout = Assert.Single(group);
+        Assert.False(workout.IsExpanded);
+        Assert.Equal(1, workout.ExerciseCount);
+        Assert.Equal(1, workout.SetCount);
+        Assert.False(string.IsNullOrWhiteSpace(group.Month));
+    }
+
+    [Fact]
     public async Task Edit_and_confirmed_delete_use_stable_ids_and_show_durable_pending_state()
     {
         var completed = await CompletedWorkoutAsync(TrackingMode.Weighted, 70m, null, 10);

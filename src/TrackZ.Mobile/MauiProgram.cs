@@ -135,6 +135,7 @@ public static class MauiProgram
 		builder.Services.AddTransient<WorkoutViewModel>();
 		builder.Services.AddTransient<SetLoggerViewModel>();
 		builder.Services.AddTransient<WorkoutHistoryViewModel>();
+		builder.Services.AddTransient<WorkoutHistoryDetailViewModel>();
 		builder.Services.AddTransient<WorkoutSummaryViewModel>();
 		builder.Services.AddTransient<ExerciseProgressViewModel>();
 		builder.Services.AddTransient<ProfileViewModel>();
@@ -149,6 +150,9 @@ public static class MauiProgram
 		builder.Services.AddTransient<SetLoggerPage>();
 		builder.Services.AddTransient<SetEntrySheetPage>();
 		builder.Services.AddTransient<WorkoutHistoryPage>();
+		builder.Services.AddTransient<WorkoutHistoryDetailPage>();
+		builder.Services.AddTransient<HistorySetEditorSheetPage>();
+		builder.Services.AddTransient<HistoryConflictSheetPage>();
 		builder.Services.AddTransient<WorkoutSummaryPage>();
 		builder.Services.AddSingleton<ExerciseProgressPage>();
 		builder.Services.AddSingleton<ProfilePage>();

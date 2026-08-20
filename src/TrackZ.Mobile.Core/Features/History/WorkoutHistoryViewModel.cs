@@ -58,6 +58,7 @@ public sealed class HistorySetItem : INotifyPropertyChanged
         {
             if (!Set(ref _weightKg, value)) return;
             OnPropertyChanged(nameof(DisplayWeight));
+            OnPropertyChanged(nameof(MeasurementText));
         }
     }
 
@@ -68,13 +69,17 @@ public sealed class HistorySetItem : INotifyPropertyChanged
         {
             if (!Set(ref _assistedKg, value)) return;
             OnPropertyChanged(nameof(DisplayWeight));
+            OnPropertyChanged(nameof(MeasurementText));
         }
     }
 
     public int Reps
     {
         get => _reps;
-        set => Set(ref _reps, value);
+        set
+        {
+            if (Set(ref _reps, value)) OnPropertyChanged(nameof(MeasurementText));
+        }
     }
 
     public decimal? DisplayWeight
@@ -108,6 +113,13 @@ public sealed class HistorySetItem : INotifyPropertyChanged
     public string WeightUnitLabel => DisplayUnit == WeightDisplayUnit.Kilograms
         ? _text.Kilograms
         : _text.Pounds;
+    public string MeasurementText => TrackingMode switch
+    {
+        TrackingMode.Weighted => $"{DisplayWeight:0.###} {WeightUnitLabel} × {Reps}",
+        TrackingMode.Assisted => $"{DisplayWeight:0.###} {WeightUnitLabel} · {Reps} {_text.Reps}",
+        TrackingMode.Bodyweight => $"{Reps} {_text.Reps}",
+        _ => string.Empty
+    };
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -138,6 +150,7 @@ public sealed class HistorySetItem : INotifyPropertyChanged
     {
         OnPropertyChanged(nameof(DisplayWeight));
         OnPropertyChanged(nameof(WeightUnitLabel));
+        OnPropertyChanged(nameof(MeasurementText));
     }
 
     private WeightDisplayUnit DisplayUnit =>
@@ -174,12 +187,27 @@ public sealed record HistoryWorkoutItem(
     string SyncStatusText,
     Guid? LastUndoOperationId,
     Guid? ConflictedOperationId,
-    long? ConflictedServerVersion)
+    long? ConflictedServerVersion,
+    string ExerciseCountText = "",
+    string SetCountText = "",
+    string ConflictOperationText = "",
+    string ConflictLocalSummary = "",
+    string ConflictServerSummary = "")
 {
+    public bool IsExpanded => false;
+    public int ExerciseCount => Exercises.Count(exercise => exercise.Sets.Any(set => !set.IsDeleted));
+    public int SetCount => Exercises.SelectMany(exercise => exercise.Sets).Count(set => !set.IsDeleted);
+    public string MonthGroup => CompletedAt.ToString("MMMM yyyy");
     public bool HasConflict => ConflictedOperationId is not null && ConflictedServerVersion is not null;
     public bool HasPermanentFailure => SyncState == WorkoutSyncState.PermanentFailure;
     public bool IsReconciling => SyncState == WorkoutSyncState.Reconciling;
     public bool ActionsBlocked => HasPermanentFailure || IsReconciling;
+}
+
+public sealed class HistoryMonthGroup(string month, IEnumerable<HistoryWorkoutItem> workouts)
+    : ObservableCollection<HistoryWorkoutItem>(workouts)
+{
+    public string Month { get; } = month;
 }
 
 public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged
@@ -241,6 +269,7 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged
     }
 
     public ObservableCollection<HistoryWorkoutItem> Workouts { get; } = [];
+    public ObservableCollection<HistoryMonthGroup> WorkoutGroups { get; } = [];
     public WorkoutTextSet Text { get; }
     public AsyncCommand EditSetCommand { get; }
     public AsyncCommand DeleteSetCommand { get; }
@@ -302,6 +331,7 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged
         _lifetime.Cancel();
         _durableStates.Clear();
         Workouts.Clear();
+        WorkoutGroups.Clear();
         RaiseCommands();
     }
 
@@ -481,17 +511,24 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged
                 StatusText(state),
                 undo,
                 conflict?.OperationId,
-                conflict?.ServerVersion));
+                conflict?.ServerVersion,
+                string.Format(Text.ExerciseCountFormat, exercises.Count(exercise => exercise.Sets.Any(set => !set.IsDeleted))),
+                string.Format(Text.SavedSetCountFormat, exercises.SelectMany(exercise => exercise.Sets).Count(set => !set.IsDeleted)),
+                conflict?.Type.ToString() ?? string.Empty,
+                conflict is null ? string.Empty : $"Local base {conflict.BaseVersion}",
+                conflict?.ServerVersion is { } serverVersion ? $"Server version {serverVersion}" : string.Empty));
         }
         cancellationToken.ThrowIfCancellationRequested();
         if (_deactivated || _boundary.IsCancellationRequested(generation)) return;
         _durableStates.Clear();
         Workouts.Clear();
+        WorkoutGroups.Clear();
         foreach (var workout in projected)
         {
             _durableStates[workout.WorkoutId] = projectedStates[workout.WorkoutId];
             Workouts.Add(workout);
         }
+        RebuildGroups();
     }
 
     private static WorkoutSyncState DurableStatus(IReadOnlyList<OutboxOperation> operations)
@@ -552,6 +589,7 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged
     private void OnSessionReset(object? sender, EventArgs eventArgs)
     {
         Workouts.Clear();
+        WorkoutGroups.Clear();
         _durableStates.Clear();
         ErrorMessage = null;
         RaiseCommands();
@@ -571,7 +609,19 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged
                 SyncStatusText = StatusText(state)
             };
         }
+        RebuildGroups();
         RaiseCommands();
+    }
+
+    private void RebuildGroups()
+    {
+        WorkoutGroups.Clear();
+        foreach (var group in Workouts
+                     .GroupBy(item => new DateTime(item.CompletedAt.Year, item.CompletedAt.Month, 1))
+                     .OrderByDescending(group => group.Key))
+            WorkoutGroups.Add(new HistoryMonthGroup(
+                group.Key.ToString("MMMM yyyy"),
+                group.OrderByDescending(item => item.CompletedAt)));
     }
 
     private void OnWeightUnitChanged(object? sender, EventArgs eventArgs)

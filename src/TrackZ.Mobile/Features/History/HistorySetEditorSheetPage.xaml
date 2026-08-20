@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage
+    x:Class="TrackZ.Mobile.Features.History.HistorySetEditorSheetPage"
+    x:Name="Page"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:history="clr-namespace:TrackZ.Mobile.Features.History;assembly=TrackZ.Mobile.Core"
+    x:DataType="history:HistorySetItem"
+    BackgroundColor="{DynamicResource TrackZSurface}"
+    Shell.NavBarIsVisible="False">
+    <Grid Padding="20" RowDefinitions="Auto,*,Auto" RowSpacing="18">
+        <Label Style="{DynamicResource TrackZSectionTitleStyle}" Text="{Binding Source={x:Reference Page}, Path=Text.Edit}" />
+        <VerticalStackLayout Grid.Row="1" Spacing="14">
+            <Entry IsVisible="{Binding UsesWeight}" Keyboard="Numeric" MinimumHeightRequest="52" Text="{Binding DisplayWeight, Mode=TwoWay}" />
+            <Label IsVisible="{Binding UsesWeight}" Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding WeightUnitLabel}" />
+            <Entry Keyboard="Numeric" MaxLength="3" MinimumHeightRequest="52" Text="{Binding Reps, Mode=TwoWay}" />
+        </VerticalStackLayout>
+        <Grid Grid.Row="2" ColumnDefinitions="*,*,*" ColumnSpacing="8">
+            <Button Clicked="OnCancelClicked" Text="{Binding Source={x:Reference Page}, Path=Text.Cancel}" />
+            <Button Grid.Column="1" Clicked="OnDeleteClicked" Text="{Binding Source={x:Reference Page}, Path=Text.Delete}" TextColor="{DynamicResource TrackZDanger}" />
+            <Button Grid.Column="2" Clicked="OnSaveClicked" Style="{DynamicResource TrackZPrimaryButtonStyle}" Text="{Binding Source={x:Reference Page}, Path=Text.Confirm}" />
+        </Grid>
+    </Grid>
+</ContentPage>

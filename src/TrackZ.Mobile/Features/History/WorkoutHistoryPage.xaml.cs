@@ -36,4 +36,11 @@ public partial class WorkoutHistoryPage : ContentPage
         _viewModel.Deactivate();
         BindingContext = null;
     }
+
+    private async void OnWorkoutSelected(object? sender, SelectionChangedEventArgs eventArgs)
+    {
+        if (eventArgs.CurrentSelection.FirstOrDefault() is not HistoryWorkoutItem workout) return;
+        if (sender is CollectionView collection) collection.SelectedItem = null;
+        await Shell.Current.GoToAsync($"workout-history-detail?workoutId={workout.WorkoutId:D}");
+    }
 }

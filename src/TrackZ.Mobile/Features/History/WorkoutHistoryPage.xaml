@@ -7,70 +7,37 @@
     xmlns:components="clr-namespace:TrackZ.Mobile.Components"
     xmlns:history="clr-namespace:TrackZ.Mobile.Features.History;assembly=TrackZ.Mobile.Core"
     x:DataType="history:WorkoutHistoryViewModel"
-    BackgroundColor="#0D0F12"
+    BackgroundColor="{DynamicResource TrackZBackground}"
     Title="{Binding Text.HistoryTitle}">
-    <Grid Padding="18,20" RowDefinitions="Auto,*" RowSpacing="16">
+    <Grid Padding="18,10,18,16" RowDefinitions="Auto,*" RowSpacing="14">
         <Grid ColumnDefinitions="*,Auto">
-            <VerticalStackLayout>
-                <Label FontAttributes="Bold" FontSize="30" Text="{Binding Text.HistoryTitle}" />
-                <Label Text="{Binding ErrorMessage}" TextColor="#FF6B6B" />
+            <VerticalStackLayout Spacing="3">
+                <Label Style="{DynamicResource TrackZPageTitleStyle}" Text="{Binding Text.HistoryTitle}" />
+                <Label Text="{Binding ErrorMessage}" TextColor="{DynamicResource TrackZDanger}" />
             </VerticalStackLayout>
             <ActivityIndicator Grid.Column="1" IsRunning="{Binding IsBusy}" IsVisible="{Binding IsBusy}" />
         </Grid>
-
-        <CollectionView Grid.Row="1" ItemsSource="{Binding Workouts}" SelectionMode="None">
+        <CollectionView Grid.Row="1" IsGrouped="True" ItemsSource="{Binding WorkoutGroups}" SelectionChanged="OnWorkoutSelected" SelectionMode="Single">
             <CollectionView.EmptyView>
-                <Label HorizontalTextAlignment="Center" Text="{Binding Source={x:Reference Page}, Path=BindingContext.Text.NoHistory}" TextColor="#8E959F" VerticalTextAlignment="Center" />
+                <Label HorizontalTextAlignment="Center" Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Source={x:Reference Page}, Path=BindingContext.Text.NoHistory}" VerticalTextAlignment="Center" />
             </CollectionView.EmptyView>
+            <CollectionView.GroupHeaderTemplate>
+                <DataTemplate x:DataType="history:HistoryMonthGroup">
+                    <Label Margin="2,14,2,8" Style="{DynamicResource TrackZSectionTitleStyle}" Text="{Binding Month}" />
+                </DataTemplate>
+            </CollectionView.GroupHeaderTemplate>
             <CollectionView.ItemTemplate>
                 <DataTemplate x:DataType="history:HistoryWorkoutItem">
-                    <Border Margin="0,0,0,14" Padding="14" BackgroundColor="#15181D" Stroke="#2C3139" StrokeShape="RoundRectangle 20">
-                        <VerticalStackLayout Spacing="12">
-                            <Grid ColumnDefinitions="*,Auto">
-                                <VerticalStackLayout>
-                                    <Label FontAttributes="Bold" FontSize="18" Text="{Binding CompletedAt, StringFormat='{0:g}'}" />
-                                </VerticalStackLayout>
-                                <components:SyncStatusPill Grid.Column="1" State="{Binding SyncState}" Text="{Binding SyncStatusText}" VerticalOptions="Start" />
-                            </Grid>
-                            <VerticalStackLayout BindableLayout.ItemsSource="{Binding Exercises}" Spacing="10">
-                                <BindableLayout.ItemTemplate>
-                                    <DataTemplate x:DataType="history:HistoryExerciseItem">
-                                        <Border Padding="10" BackgroundColor="#101216" Stroke="#242931" StrokeShape="RoundRectangle 14">
-                                            <VerticalStackLayout Spacing="8">
-                                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                                                    <Label FontAttributes="Bold" FontSize="12" Text="{Binding Name}" TextColor="#C8FF3D" VerticalTextAlignment="Center" />
-                                                    <Button Grid.Column="1" Command="{Binding Source={x:Reference Page}, Path=BindingContext.DeleteWorkoutExerciseCommand}" CommandParameter="{Binding .}" SemanticProperties.Description="{Binding Source={x:Reference Page}, Path=BindingContext.Text.Delete}" Text="{Binding Source={x:Reference Page}, Path=BindingContext.Text.Delete}" />
-                                                </Grid>
-                                                <VerticalStackLayout BindableLayout.ItemsSource="{Binding Sets}" Spacing="8">
-                                                    <BindableLayout.ItemTemplate>
-                                                        <DataTemplate x:DataType="history:HistorySetItem">
-                                                            <Grid ColumnDefinitions="Auto,*,Auto,*,Auto,Auto" ColumnSpacing="8">
-                                                                <Label VerticalTextAlignment="Center" Text="{Binding SetNumber, StringFormat='#{0}'}" />
-                                                                <Entry Grid.Column="1" IsVisible="{Binding IsWeighted}" Keyboard="Numeric" SemanticProperties.Description="{Binding Source={x:Reference Page}, Path=BindingContext.Text.Weight}" Text="{Binding DisplayWeight, Mode=TwoWay}" />
-                                                                <Entry Grid.Column="1" IsVisible="{Binding IsAssisted}" Keyboard="Numeric" SemanticProperties.Description="{Binding Source={x:Reference Page}, Path=BindingContext.Text.Assistance}" Text="{Binding DisplayWeight, Mode=TwoWay}" />
-                                                                <Entry Grid.Column="1" IsVisible="{Binding IsBodyweight}" IsReadOnly="True" Text="{Binding Source={x:Reference Page}, Path=BindingContext.Text.Bodyweight}" />
-                                                                <Label Grid.Column="2" IsVisible="{Binding UsesWeight}" Text="{Binding WeightUnitLabel}" VerticalTextAlignment="Center" />
-                                                                <Entry Grid.Column="3" Keyboard="Numeric" SemanticProperties.Description="{Binding Source={x:Reference Page}, Path=BindingContext.Text.Reps}" Text="{Binding Reps, Mode=TwoWay}" />
-                                                                <Button Grid.Column="4" Command="{Binding Source={x:Reference Page}, Path=BindingContext.EditSetCommand}" CommandParameter="{Binding .}" SemanticProperties.Description="{Binding Source={x:Reference Page}, Path=BindingContext.Text.Edit}" Text="{Binding Source={x:Reference Page}, Path=BindingContext.Text.Edit}" />
-                                                                <Button Grid.Column="5" Command="{Binding Source={x:Reference Page}, Path=BindingContext.DeleteSetCommand}" CommandParameter="{Binding .}" SemanticProperties.Description="{Binding Source={x:Reference Page}, Path=BindingContext.Text.Delete}" Text="{Binding Source={x:Reference Page}, Path=BindingContext.Text.Delete}" />
-                                                            </Grid>
-                                                        </DataTemplate>
-                                                    </BindableLayout.ItemTemplate>
-                                                </VerticalStackLayout>
-                                            </VerticalStackLayout>
-                                        </Border>
-                                    </DataTemplate>
-                                </BindableLayout.ItemTemplate>
-                            </VerticalStackLayout>
-                            <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
-                                <Button Command="{Binding Source={x:Reference Page}, Path=BindingContext.UndoCommand}" CommandParameter="{Binding .}" SemanticProperties.Description="{Binding Source={x:Reference Page}, Path=BindingContext.Text.Undo}" Text="{Binding Source={x:Reference Page}, Path=BindingContext.Text.Undo}" />
-                                <Button Grid.Column="1" Command="{Binding Source={x:Reference Page}, Path=BindingContext.DeleteWorkoutCommand}" CommandParameter="{Binding .}" SemanticProperties.Description="{Binding Source={x:Reference Page}, Path=BindingContext.Text.Delete}" Text="{Binding Source={x:Reference Page}, Path=BindingContext.Text.Delete}" />
-                            </Grid>
-                            <Grid ColumnDefinitions="*,*" ColumnSpacing="8" IsVisible="{Binding HasConflict}">
-                                <Button Command="{Binding Source={x:Reference Page}, Path=BindingContext.KeepServerCommand}" CommandParameter="{Binding .}" SemanticProperties.Description="{Binding Source={x:Reference Page}, Path=BindingContext.Text.KeepServer}" Text="{Binding Source={x:Reference Page}, Path=BindingContext.Text.KeepServer}" />
-                                <Button Grid.Column="1" Command="{Binding Source={x:Reference Page}, Path=BindingContext.ApplyLocalCommand}" CommandParameter="{Binding .}" SemanticProperties.Description="{Binding Source={x:Reference Page}, Path=BindingContext.Text.ApplyLocal}" Text="{Binding Source={x:Reference Page}, Path=BindingContext.Text.ApplyLocal}" />
-                            </Grid>
-                        </VerticalStackLayout>
+                    <Border Margin="0,0,0,10" Style="{DynamicResource TrackZListRowStyle}">
+                        <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="12" RowSpacing="5">
+                            <Label FontAttributes="Bold" FontSize="17" Text="{Binding CompletedAt, StringFormat='{0:ddd, d MMM · HH:mm}'}" />
+                            <components:SyncStatusPill Grid.Column="1" State="{Binding SyncState}" Text="{Binding SyncStatusText}" />
+                            <HorizontalStackLayout Grid.Row="1" Spacing="14">
+                                <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding ExerciseCountText}" />
+                                <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding SetCountText}" />
+                            </HorizontalStackLayout>
+                            <Label Grid.Row="1" Grid.Column="1" FontSize="22" Text="›" TextColor="{DynamicResource TrackZTextSecondary}" />
+                        </Grid>
                     </Border>
                 </DataTemplate>
             </CollectionView.ItemTemplate>

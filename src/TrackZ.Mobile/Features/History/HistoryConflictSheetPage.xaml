@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage
+    x:Class="TrackZ.Mobile.Features.History.HistoryConflictSheetPage"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:history="clr-namespace:TrackZ.Mobile.Features.History;assembly=TrackZ.Mobile.Core"
+    x:DataType="history:WorkoutHistoryDetailViewModel"
+    BackgroundColor="{DynamicResource TrackZSurface}"
+    Shell.NavBarIsVisible="False">
+    <Grid Padding="20" RowDefinitions="Auto,*,Auto" RowSpacing="18">
+        <VerticalStackLayout Spacing="5">
+            <Label Style="{DynamicResource TrackZSectionTitleStyle}" Text="{Binding Text.Conflicted}" />
+            <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Workout.SyncStatusText}" />
+        </VerticalStackLayout>
+        <VerticalStackLayout Grid.Row="1" Spacing="10">
+            <Label FontAttributes="Bold" Text="{Binding Workout.ConflictOperationText}" />
+            <Label Text="{Binding Workout.ConflictLocalSummary}" />
+            <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Workout.ConflictServerSummary}" />
+            <Label Text="{Binding Workout.ExerciseCountText}" />
+            <Label Text="{Binding Workout.SetCountText}" />
+        </VerticalStackLayout>
+        <Grid Grid.Row="2" ColumnDefinitions="*,*" ColumnSpacing="10">
+            <Button Clicked="OnKeepServerClicked" Text="{Binding Text.KeepServer}" />
+            <Button Grid.Column="1" Clicked="OnApplyLocalClicked" Style="{DynamicResource TrackZPrimaryButtonStyle}" Text="{Binding Text.ApplyLocal}" />
+        </Grid>
+    </Grid>
+</ContentPage>
