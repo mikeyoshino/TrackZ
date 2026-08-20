@@ -11,13 +11,17 @@ using TrackZ.Mobile.Features.Gamification;
 using TrackZ.Mobile.Features.Progress;
 using TrackZ.Mobile.Features.Profile;
 using TrackZ.Mobile.Features.Summary;
+using TrackZ.Mobile.Networking;
 
 namespace TrackZ.Mobile;
 
 public static class MauiProgram
 {
-	public static MauiApp CreateMauiApp(Action<IServiceCollection>? configureTestServices = null)
+	public static MauiApp CreateMauiApp(
+		Action<IServiceCollection>? configureTestServices = null,
+		Func<string, string?>? readEnvironment = null)
 	{
+		readEnvironment ??= Environment.GetEnvironmentVariable;
 		var builder = MauiApp.CreateBuilder();
 		builder
 			.UseMauiApp<App>()
@@ -31,9 +35,17 @@ public static class MauiProgram
 		builder.Services.AddSingleton<IAccountSessionBoundary, AccountSessionBoundary>();
 		builder.Services.AddSingleton<MobileTokenStore>();
 		builder.Services.AddSingleton<IMobilePrivateDataCleaner, MauiPrivateDataCleaner>();
+		#if DEBUG
+		builder.Services.AddSingleton<IAccessTokenProvider>(services =>
+			new DevelopmentAccessTokenProvider(
+				services.GetRequiredService<MobileTokenStore>(),
+				() => readEnvironment(DevelopmentAccessTokenProvider.AccessTokenEnvironmentVariable)));
+		#else
 		builder.Services.AddSingleton<IAccessTokenProvider>(services => services.GetRequiredService<MobileTokenStore>());
-		var apiOrigin = new Uri("https://api.trackz.app");
-		var mediaOrigin = new Uri("https://media.trackz.app");
+		#endif
+		var origins = MobileEndpointOrigins.Resolve(readEnvironment);
+		var apiOrigin = origins.ApiOrigin;
+		var mediaOrigin = origins.MediaOrigin;
 		builder.Services.AddSingleton(services => new HttpClient(
 			new BearerTokenHandler(services.GetRequiredService<IAccessTokenProvider>(), apiOrigin)
 			{
