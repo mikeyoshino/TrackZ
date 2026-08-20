@@ -80,7 +80,7 @@ public sealed class ExerciseCache
             SELECT Id, Name, BodyPart, TrackingMode, ThumbnailUri, LastPerformedAt,
                    LastBestWeightKg, LastBestAssistedKg, LastBestReps,
                    AllTimeBestWeightKg, AllTimeBestAssistedKg, AllTimeBestReps,
-                   IsCustom, IsPendingSync, LastSyncedAt, LibraryImageId
+                   IsCustom, IsPendingSync, LastSyncedAt, LibraryImageId, RemoteThumbnailRoute
             FROM cached_exercises
             ORDER BY Name COLLATE NOCASE, Id;
             """;
@@ -100,6 +100,7 @@ public sealed class ExerciseCache
         await EnsureSchemaAsync(cancellationToken);
         await using var connection = await OpenAsync(cancellationToken);
         await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        var localThumbnails = await ReadLocalThumbnailsAsync(connection, transaction, cancellationToken);
         await using (var delete = connection.CreateCommand())
         {
             delete.Transaction = transaction;
@@ -109,7 +110,12 @@ public sealed class ExerciseCache
 
         foreach (var exercise in exercises)
         {
-            await UpsertAsync(connection, transaction, CachedExercise.FromDto(exercise, lastSyncedAt), cancellationToken);
+            localThumbnails.TryGetValue(exercise.Id, out var localThumbnail);
+            await UpsertAsync(
+                connection,
+                transaction,
+                CachedExercise.FromDto(exercise, lastSyncedAt, localThumbnail),
+                cancellationToken);
         }
 
         await transaction.CommitAsync(cancellationToken);
@@ -484,6 +490,7 @@ public sealed class ExerciseCache
                     BodyPart INTEGER NOT NULL,
                     TrackingMode INTEGER NOT NULL,
                     ThumbnailUri TEXT NULL,
+                    RemoteThumbnailRoute TEXT NULL,
                     LastPerformedAt TEXT NULL,
                     LastBestWeightKg TEXT NULL,
                     LastBestAssistedKg TEXT NULL,
@@ -525,6 +532,18 @@ public sealed class ExerciseCache
                 """;
             await command.ExecuteNonQueryAsync(cancellationToken);
             await EnsureColumnAsync(connection, "cached_exercises", "LibraryImageId", "TEXT NULL", cancellationToken);
+            await EnsureColumnAsync(connection, "cached_exercises", "RemoteThumbnailRoute", "TEXT NULL", cancellationToken);
+            await using (var normalizeLegacyThumbnail = connection.CreateCommand())
+            {
+                normalizeLegacyThumbnail.CommandText = """
+                    UPDATE cached_exercises
+                    SET RemoteThumbnailRoute = ThumbnailUri, ThumbnailUri = NULL
+                    WHERE IsPendingSync = 0
+                      AND RemoteThumbnailRoute IS NULL
+                      AND ThumbnailUri LIKE '/api/v1/media/exercise-images/%/thumbnail';
+                    """;
+                await normalizeLegacyThumbnail.ExecuteNonQueryAsync(cancellationToken);
+            }
             await EnsureColumnAsync(connection, "pending_custom_exercises", "LocalPreviewPath", "TEXT NULL", cancellationToken);
             await EnsureColumnAsync(connection, "pending_custom_exercises", "OperationKind", "INTEGER NOT NULL DEFAULT 0", cancellationToken);
             await EnsureColumnAsync(connection, "pending_custom_exercises", "Phase", "INTEGER NOT NULL DEFAULT 0", cancellationToken);
@@ -588,12 +607,12 @@ public sealed class ExerciseCache
         command.Transaction = (SqliteTransaction)transaction;
         command.CommandText = """
             INSERT INTO cached_exercises
-                (Id, Name, BodyPart, TrackingMode, ThumbnailUri, LastPerformedAt,
+                (Id, Name, BodyPart, TrackingMode, ThumbnailUri, RemoteThumbnailRoute, LastPerformedAt,
                  LastBestWeightKg, LastBestAssistedKg, LastBestReps,
                  AllTimeBestWeightKg, AllTimeBestAssistedKg, AllTimeBestReps,
                  IsCustom, IsPendingSync, LastSyncedAt, LibraryImageId)
             VALUES
-                ($id, $name, $bodyPart, $trackingMode, $thumbnailUri, $lastPerformedAt,
+                ($id, $name, $bodyPart, $trackingMode, $thumbnailUri, $remoteThumbnailRoute, $lastPerformedAt,
                  $lastWeight, $lastAssisted, $lastReps,
                  $bestWeight, $bestAssisted, $bestReps,
                  $isCustom, $isPendingSync, $lastSyncedAt, $libraryImageId)
@@ -602,6 +621,7 @@ public sealed class ExerciseCache
                 BodyPart = excluded.BodyPart,
                 TrackingMode = excluded.TrackingMode,
                 ThumbnailUri = excluded.ThumbnailUri,
+                RemoteThumbnailRoute = excluded.RemoteThumbnailRoute,
                 LastPerformedAt = excluded.LastPerformedAt,
                 LastBestWeightKg = excluded.LastBestWeightKg,
                 LastBestAssistedKg = excluded.LastBestAssistedKg,
@@ -620,6 +640,7 @@ public sealed class ExerciseCache
         Add(command, "$bodyPart", (int)exercise.BodyPart);
         Add(command, "$trackingMode", (int)exercise.TrackingMode);
         Add(command, "$thumbnailUri", exercise.ThumbnailUri);
+        Add(command, "$remoteThumbnailRoute", exercise.RemoteThumbnailRoute);
         Add(command, "$lastPerformedAt", exercise.LastPerformedAt is null ? null : Format(exercise.LastPerformedAt.Value));
         Add(command, "$lastWeight", Decimal(exercise.LastBestSet?.WeightKg));
         Add(command, "$lastAssisted", Decimal(exercise.LastBestSet?.AssistedKg));
@@ -641,6 +662,7 @@ public sealed class ExerciseCache
         BodyPart = (BodyPart)reader.GetInt32(2),
         TrackingMode = (TrackingMode)reader.GetInt32(3),
         ThumbnailUri = reader.IsDBNull(4) ? null : reader.GetString(4),
+        RemoteThumbnailRoute = reader.IsDBNull(16) ? null : reader.GetString(16),
         LastPerformedAt = reader.IsDBNull(5) ? null : Parse(reader.GetString(5)),
         LastBestSet = Set(reader, 6, 7, 8),
         AllTimeBest = Set(reader, 9, 10, 11),
@@ -649,6 +671,27 @@ public sealed class ExerciseCache
         LastSyncedAt = Parse(reader.GetString(14)),
         LibraryImageId = reader.IsDBNull(15) ? null : Guid.Parse(reader.GetString(15))
     };
+
+    private static async Task<Dictionary<Guid, string>> ReadLocalThumbnailsAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        var result = new Dictionary<Guid, string>();
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "SELECT Id, ThumbnailUri FROM cached_exercises WHERE IsPendingSync = 0 AND ThumbnailUri IS NOT NULL;";
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var path = reader.GetString(1);
+            if (IsLocalThumbnail(path)) result[Guid.Parse(reader.GetString(0))] = path;
+        }
+        return result;
+    }
+
+    private static bool IsLocalThumbnail(string path) =>
+        !Uri.TryCreate(path, UriKind.Absolute, out var uri) || uri.IsFile;
 
     private static PerformanceSetDto? Set(SqliteDataReader reader, int weightIndex, int assistedIndex, int repsIndex) =>
         reader.IsDBNull(repsIndex)

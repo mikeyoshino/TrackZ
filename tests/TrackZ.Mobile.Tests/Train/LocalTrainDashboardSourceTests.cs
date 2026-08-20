@@ -22,8 +22,9 @@ public sealed class LocalTrainDashboardSourceTests
             var cache = new ExerciseCache(Path.Combine(root, "exercises.db"));
             await cache.ReplaceAllAsync([
                 Exercise(shoulderId, "Press", BodyPart.Shoulders, "https://api.trackz.test/media/shoulder"),
-                Exercise(backId, "Row", BodyPart.Back, "/cache/back.png")
+                Exercise(backId, "Row", BodyPart.Back, "/api/v1/media/exercise-images/back/thumbnail")
             ], At(10));
+            await cache.SetServerThumbnailAsync(backId, "/cache/back.png");
 
             var active = Workout(LocalWorkoutStatus.Active, At(9), null, [
                 ExerciseRow(shoulderId, 0, [Set(0), Set(1, deleted: true)]),

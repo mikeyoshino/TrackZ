@@ -13,6 +13,7 @@ using TrackZ.Mobile.Features.Profile;
 using TrackZ.Mobile.Features.Summary;
 using TrackZ.Mobile.Presentation;
 using TrackZ.Mobile.Features.Train;
+using TrackZ.Mobile.Networking;
 
 namespace TrackZ.Mobile;
 
@@ -35,8 +36,13 @@ public static class MauiProgram
 		builder.Services.AddSingleton<MobileTokenStore>();
 		builder.Services.AddSingleton<IMobilePrivateDataCleaner, MauiPrivateDataCleaner>();
 		builder.Services.AddSingleton<IAccessTokenProvider>(services => services.GetRequiredService<MobileTokenStore>());
-		var apiOrigin = new Uri("https://api.trackz.app");
-		var mediaOrigin = new Uri("https://media.trackz.app");
+#if DEBUG
+		var origins = MobileEndpointOrigins.Resolve(Environment.GetEnvironmentVariable);
+#else
+		var origins = MobileEndpointOrigins.Resolve(_ => null);
+#endif
+		var apiOrigin = origins.ApiOrigin;
+		var mediaOrigin = origins.MediaOrigin;
 		builder.Services.AddSingleton(services => new HttpClient(
 			new BearerTokenHandler(services.GetRequiredService<IAccessTokenProvider>(), apiOrigin)
 			{

@@ -27,6 +27,7 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged
     private readonly IWeightUnitPreference? _unitPreference;
     private readonly List<Guid> _selectedIds = [];
     private readonly HashSet<Guid> _selectedIdSet = [];
+    private readonly Dictionary<Guid, ExerciseArtworkState> _artworkStates = [];
     private IReadOnlyList<CachedExercise> _catalog = [];
     private string _searchText = string.Empty;
     private BodyPart? _selectedBodyPart;
@@ -154,10 +155,9 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged
         try
         {
             var exercises = await _catalogApi.GetAllAsync(cancellationToken);
-            var metadata = exercises.Select(WithoutRemoteThumbnail).ToArray();
             if (!await _boundary.TryCommitAsync(generation, async token =>
             {
-                await _cache.ReplaceAllAsync(metadata, _clock.UtcNow, token);
+                await _cache.ReplaceAllAsync(exercises, _clock.UtcNow, token);
                 _catalog = await _cache.GetAllAsync(token);
                 await _dispatcher.InvokeAsync(() =>
                 {
@@ -200,19 +200,6 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged
         }
     }
 
-    private static TrackZ.Contracts.Exercises.ExerciseSummaryDto WithoutRemoteThumbnail(
-        TrackZ.Contracts.Exercises.ExerciseSummaryDto exercise) => new(
-            exercise.Id,
-            exercise.Name,
-            exercise.BodyPart,
-            exercise.TrackingMode,
-            null,
-            exercise.LastPerformedAt,
-            exercise.LastBestSet,
-            exercise.AllTimeBest,
-            exercise.IsCustom,
-            exercise.LibraryImageId);
-
     private async ValueTask CacheThumbnailBestEffortAsync(
         TrackZ.Contracts.Exercises.ExerciseSummaryDto exercise,
         AccountSessionGeneration generation,
@@ -220,22 +207,55 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged
     {
         try
         {
+            await _dispatcher.InvokeAsync(() => SetVisibleArtworkState(
+                exercise.Id,
+                ExerciseArtworkState.Loading));
             using var sessionCancellation = _boundary.CreateCancellationLease(
                 generation, cancellationToken);
             var local = await _thumbnailCache!.CacheAsync(
                 exercise.ThumbnailUrl, sessionCancellation.Token);
-            if (local is not null)
-                await _boundary.TryCommitAsync(generation, token =>
-                    _cache.SetServerThumbnailAsync(exercise.Id, local, token), sessionCancellation.Token);
+            if (string.IsNullOrWhiteSpace(local))
+            {
+                await _dispatcher.InvokeAsync(() => SetVisibleArtworkState(
+                    exercise.Id,
+                    ExerciseArtworkState.Failed));
+                return;
+            }
+            var committed = await _boundary.TryCommitAsync(generation, async token =>
+            {
+                await _cache.SetServerThumbnailAsync(exercise.Id, local, token);
+                _catalog = await _cache.GetAllAsync(token);
+            }, sessionCancellation.Token);
+            if (committed)
+                await _dispatcher.InvokeAsync(() => SetVisibleArtworkReady(exercise.Id, local));
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (
+            cancellationToken.IsCancellationRequested
+            || _boundary.IsCancellationRequested(generation))
         {
             throw;
         }
         catch (Exception)
         {
-            // Thumbnail fills are best effort; metadata is already durable.
+            await _dispatcher.InvokeAsync(() => SetVisibleArtworkState(
+                exercise.Id,
+                ExerciseArtworkState.Failed));
         }
+    }
+
+    private async Task<string?> RetryArtworkAsync(ExercisePickerItem item)
+    {
+        if (_thumbnailCache is null || string.IsNullOrWhiteSpace(item.RemoteThumbnailRoute)) return null;
+        var generation = _boundary.Capture();
+        using var lease = _boundary.CreateCancellationLease(generation);
+        var local = await _thumbnailCache.CacheAsync(item.RemoteThumbnailRoute, lease.Token);
+        if (string.IsNullOrWhiteSpace(local)) return null;
+        var committed = await _boundary.TryCommitAsync(generation, async token =>
+        {
+            await _cache.SetServerThumbnailAsync(item.Id, local, token);
+            _catalog = await _cache.GetAllAsync(token);
+        }, lease.Token);
+        return committed ? local : null;
     }
 
     private void ToggleSelection(object? parameter)
@@ -276,8 +296,32 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged
         foreach (var exercise in filtered)
         {
             exercise.IsSelected = _selectedIdSet.Contains(exercise.Id);
-            Exercises.Add(new ExercisePickerItem(exercise, _text, _unitPreference));
+            var item = new ExercisePickerItem(
+                exercise,
+                _text,
+                _unitPreference,
+                RetryArtworkAsync,
+                (id, state) => _artworkStates[id] = state);
+            if (_artworkStates.TryGetValue(exercise.Id, out var state))
+                item.RestoreArtworkState(state);
+            Exercises.Add(item);
         }
+    }
+
+    private void SetVisibleArtworkState(Guid exerciseId, ExerciseArtworkState state)
+    {
+        _artworkStates[exerciseId] = state;
+        var item = Exercises.SingleOrDefault(candidate => candidate.Id == exerciseId);
+        if (item is null) return;
+        if (state == ExerciseArtworkState.Loading) item.SetArtworkLoading();
+        else if (state == ExerciseArtworkState.Failed) item.SetArtworkFailed();
+        else item.RestoreArtworkState(state);
+    }
+
+    private void SetVisibleArtworkReady(Guid exerciseId, string local)
+    {
+        _artworkStates[exerciseId] = ExerciseArtworkState.Ready;
+        Exercises.SingleOrDefault(candidate => candidate.Id == exerciseId)?.SetArtworkReady(local);
     }
 
     private void OnWeightUnitChanged(object? sender, EventArgs eventArgs) =>
@@ -291,6 +335,7 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged
         _catalog = [];
         _selectedIds.Clear();
         _selectedIdSet.Clear();
+        _artworkStates.Clear();
         LastErrorCode = null;
         IsRefreshing = false;
         Exercises.Clear();

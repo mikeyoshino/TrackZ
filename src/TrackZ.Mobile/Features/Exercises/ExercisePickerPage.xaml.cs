@@ -6,6 +6,7 @@ namespace TrackZ.Mobile.Features.Exercises;
 public partial class ExercisePickerPage : ContentPage, IQueryAttributable
 {
     private readonly ExercisePickerViewModel _viewModel;
+    private TrackZ.Domain.Exercises.BodyPart? _requestedBodyPart;
 
     public ExercisePickerPage(ExercisePickerViewModel viewModel)
     {
@@ -23,13 +24,16 @@ public partial class ExercisePickerPage : ContentPage, IQueryAttributable
         var value = Uri.UnescapeDataString(Convert.ToString(raw) ?? string.Empty);
         if (int.TryParse(value, out var number)
             && Enum.IsDefined(typeof(TrackZ.Domain.Exercises.BodyPart), number))
-            _viewModel.SelectedBodyPart = (TrackZ.Domain.Exercises.BodyPart)number;
+        {
+            _requestedBodyPart = (TrackZ.Domain.Exercises.BodyPart)number;
+            _viewModel.SelectedBodyPart = _requestedBodyPart;
+        }
     }
 
     protected override async void OnAppearing()
     {
         base.OnAppearing();
-        await _viewModel.LoadAsync();
+        await _viewModel.LoadAsync(_requestedBodyPart);
     }
 
     private async void OnCreateCustomClicked(object? sender, EventArgs eventArgs) =>

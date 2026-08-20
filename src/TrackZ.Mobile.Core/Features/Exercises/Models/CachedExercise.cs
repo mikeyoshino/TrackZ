@@ -14,6 +14,7 @@ public sealed class CachedExercise : INotifyPropertyChanged
     public required BodyPart BodyPart { get; init; }
     public required TrackingMode TrackingMode { get; init; }
     public string? ThumbnailUri { get; init; }
+    public string? RemoteThumbnailRoute { get; init; }
     public Guid? LibraryImageId { get; init; }
     public DateTimeOffset? LastPerformedAt { get; init; }
     public PerformanceSetDto? LastBestSet { get; init; }
@@ -34,13 +35,17 @@ public sealed class CachedExercise : INotifyPropertyChanged
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
-    internal static CachedExercise FromDto(ExerciseSummaryDto source, DateTimeOffset lastSyncedAt) => new()
+    internal static CachedExercise FromDto(
+        ExerciseSummaryDto source,
+        DateTimeOffset lastSyncedAt,
+        string? localThumbnailUri = null) => new()
     {
         Id = source.Id,
         Name = source.Name,
         BodyPart = source.BodyPart,
         TrackingMode = source.TrackingMode,
-        ThumbnailUri = source.ThumbnailUrl,
+        ThumbnailUri = localThumbnailUri,
+        RemoteThumbnailRoute = source.ThumbnailUrl,
         LibraryImageId = source.LibraryImageId,
         LastPerformedAt = source.LastPerformedAt,
         LastBestSet = source.LastBestSet,

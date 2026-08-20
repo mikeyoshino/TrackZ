@@ -93,4 +93,8 @@
   <data name="TrainTab" xml:space="preserve"><value>Train</value></data>
   <data name="SavedSetCountFormat" xml:space="preserve"><value>{0} sets saved</value></data>
   <data name="ExerciseCountFormat" xml:space="preserve"><value>{0} exercises</value></data>
+  <data name="ArtworkUnavailable" xml:space="preserve"><value>Exercise artwork unavailable</value></data>
+  <data name="RetryArtwork" xml:space="preserve"><value>Retry image</value></data>
+  <data name="SelectExerciseFormat" xml:space="preserve"><value>Select {0}</value></data>
+  <data name="ArtworkForExerciseFormat" xml:space="preserve"><value>Movement artwork for {0}</value></data>
 </root>

@@ -6,55 +6,62 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
     xmlns:models="clr-namespace:TrackZ.Mobile.Features.Exercises.Models;assembly=TrackZ.Mobile.Core"
     x:DataType="models:ExercisePickerItem">
-    <Border Padding="12" StrokeShape="RoundRectangle 14">
+    <Border MinimumHeightRequest="104" Style="{DynamicResource TrackZListRowStyle}">
         <Border.GestureRecognizers>
-            <TapGestureRecognizer
-                Command="{Binding ToggleCommand, Source={x:Reference Root}}"
-                CommandParameter="{Binding Exercise, Source={x:Reference Root}}" />
+            <TapGestureRecognizer Command="{Binding ToggleCommand, Source={x:Reference Root}}" CommandParameter="{Binding Exercise, Source={x:Reference Root}}" />
         </Border.GestureRecognizers>
-        <Grid ColumnDefinitions="72,*,Auto" ColumnSpacing="12" RowDefinitions="Auto,Auto,Auto">
-            <Image
-                Grid.RowSpan="3"
-                Aspect="AspectFill"
-                HeightRequest="64"
-                Source="{Binding Exercise.ThumbnailUri, Source={x:Reference Root}}"
-                WidthRequest="64" />
-            <Label
-                Grid.Column="1"
-                FontAttributes="Bold"
-                FontSize="16"
-                LineBreakMode="TailTruncation"
-                Text="{Binding Exercise.Name, Source={x:Reference Root}}" />
-            <Label
-                Grid.Row="1"
-                Grid.Column="1"
-                FontSize="12"
-                Text="{Binding Exercise.LastText, Source={x:Reference Root}}" />
-            <Label
-                Grid.Row="2"
-                Grid.Column="1"
-                FontAttributes="Bold"
-                FontSize="12"
-                Text="{Binding Exercise.PersonalRecordText, Source={x:Reference Root}}" />
-            <VerticalStackLayout
-                Grid.RowSpan="3"
-                Grid.Column="2"
-                Spacing="2"
-                VerticalOptions="Center">
+        <Grid ColumnDefinitions="88,*,Auto" ColumnSpacing="12" RowDefinitions="Auto,Auto,Auto">
+            <Grid Grid.RowSpan="3" HeightRequest="80" WidthRequest="80">
+                <Image
+                    Aspect="AspectFit"
+                    IsVisible="{Binding Exercise.HasArtwork, Source={x:Reference Root}}"
+                    SemanticProperties.Description="{Binding Exercise.ArtworkAccessibilityText, Source={x:Reference Root}}"
+                    Source="{Binding Exercise.ThumbnailUri, Source={x:Reference Root}}" />
+                <Border
+                    BackgroundColor="{DynamicResource TrackZSurfaceRaised}"
+                    IsVisible="{Binding Exercise.ShowsArtworkPlaceholder, Source={x:Reference Root}}"
+                    SemanticProperties.Description="{Binding Exercise.ArtworkPlaceholderText, Source={x:Reference Root}}"
+                    StrokeThickness="0"
+                    StrokeShape="RoundRectangle 14">
+                    <Grid>
+                        <Image Aspect="AspectFit" HeightRequest="58" Source="exercise_placeholder.svg" WidthRequest="58" />
+                        <ActivityIndicator IsRunning="{Binding Exercise.IsArtworkLoading, Source={x:Reference Root}}" IsVisible="{Binding Exercise.IsArtworkLoading, Source={x:Reference Root}}" />
+                    </Grid>
+                </Border>
+            </Grid>
+
+            <VerticalStackLayout Grid.Column="1" Spacing="3">
+                <Label FontAttributes="Bold" FontSize="17" LineBreakMode="TailTruncation" Text="{Binding Exercise.Name, Source={x:Reference Root}}" />
+                <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Exercise.TrackingModeText, Source={x:Reference Root}}" />
+            </VerticalStackLayout>
+            <Label Grid.Row="1" Grid.Column="1" Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Exercise.LastText, Source={x:Reference Root}}" />
+            <HorizontalStackLayout Grid.Row="2" Grid.Column="1" Spacing="8">
+                <Label FontAttributes="Bold" FontSize="12" Text="{Binding Exercise.PersonalRecordText, Source={x:Reference Root}}" TextColor="{DynamicResource TrackZPrimary}" />
+                <Button
+                    Command="{Binding Exercise.RetryArtworkCommand, Source={x:Reference Root}}"
+                    FontSize="12"
+                    IsVisible="{Binding Exercise.HasFailedArtwork, Source={x:Reference Root}}"
+                    MinimumHeightRequest="44"
+                    Padding="8,4"
+                    Text="{Binding Exercise.RetryArtworkText, Source={x:Reference Root}}" />
+            </HorizontalStackLayout>
+
+            <VerticalStackLayout Grid.RowSpan="3" Grid.Column="2" Spacing="2" VerticalOptions="Center">
                 <CheckBox
                     InputTransparent="True"
-                    IsChecked="{Binding Exercise.IsSelected, Source={x:Reference Root}, Mode=OneWay}" />
+                    IsChecked="{Binding Exercise.IsSelected, Source={x:Reference Root}, Mode=OneWay}"
+                    MinimumHeightRequest="44"
+                    MinimumWidthRequest="44"
+                    SemanticProperties.Description="{Binding Exercise.SelectionAccessibilityText, Source={x:Reference Root}}" />
                 <Button
                     Command="{Binding EditCommand, Source={x:Reference Root}}"
                     CommandParameter="{Binding Exercise.Exercise, Source={x:Reference Root}}"
                     FontSize="11"
                     IsVisible="{Binding Exercise.IsCustom, Source={x:Reference Root}}"
+                    MinimumHeightRequest="44"
                     Padding="8,4"
                     Text="{Binding Exercise.EditLabel, Source={x:Reference Root}}" />
-                <Label
-                    FontSize="11"
-                    Text="{Binding Exercise.SyncLabel, Source={x:Reference Root}}"
-                    TextColor="#A15C00" />
+                <Label FontSize="11" Text="{Binding Exercise.SyncLabel, Source={x:Reference Root}}" TextColor="{DynamicResource TrackZWarning}" />
             </VerticalStackLayout>
         </Grid>
     </Border>
