@@ -7,21 +7,23 @@ using TrackZ.Mobile.Features.Profile;
 using TrackZ.Mobile.Features.Summary;
 using TrackZ.Mobile.Features.Gamification;
 using TrackZ.Mobile.Presentation;
+using TrackZ.Mobile.Features.Train;
 
 namespace TrackZ.Mobile;
 
 public partial class AppShell : Shell
 {
 	public AppShell(
+		TrainPage trainPage,
 		WorkoutPage workoutPage,
 		IServiceProvider services)
 	{
 		InitializeComponent();
 		var tabs = new TabBar();
 		tabs.Items.Add(CreateTab(
-			WorkoutResources.Current.WorkoutTitle,
+			WorkoutResources.Current.TrainTab,
 			"tab_train.svg",
-			new ShellContent { Route = "train", Content = workoutPage }));
+			new ShellContent { Route = "train", Content = trainPage }));
 		tabs.Items.Add(CreateTab(
 			WorkoutResources.Current.HistoryTitle,
 			"tab_history.svg",
@@ -49,6 +51,7 @@ public partial class AppShell : Shell
 		Items.Add(tabs);
 
 		Routing.RegisterRoute(nameof(ExercisePickerPage), typeof(ExercisePickerPage));
+		Routing.RegisterRoute(nameof(WorkoutPage), typeof(WorkoutPage));
 		Routing.RegisterRoute(nameof(CustomExercisePage), typeof(CustomExercisePage));
 		Routing.RegisterRoute(nameof(SetLoggerPage), typeof(SetLoggerPage));
 		Routing.RegisterRoute(nameof(WorkoutHistoryPage), typeof(WorkoutHistoryPage));

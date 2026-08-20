@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage
+    x:Class="TrackZ.Mobile.Features.Train.TrainPage"
+    x:Name="Page"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:train="clr-namespace:TrackZ.Mobile.Features.Train;assembly=TrackZ.Mobile.Core"
+    x:DataType="train:TrainTodayViewModel"
+    BackgroundColor="{DynamicResource TrackZBackground}"
+    Title="{Binding Text.TrainTodayTitle}">
+    <Grid Padding="20,10,20,16" RowDefinitions="Auto,Auto,*,Auto" RowSpacing="18">
+        <Label Style="{DynamicResource TrackZPageTitleStyle}" Text="{Binding Text.TrainTodayTitle}" />
+
+        <Border
+            Grid.Row="1"
+            IsVisible="{Binding HasActiveWorkout}"
+            Style="{DynamicResource TrackZListRowStyle}">
+            <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
+                <Label Style="{DynamicResource TrackZSectionTitleStyle}" Text="{Binding Text.ResumeWorkout}" />
+                <Label Grid.Row="1" Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding SavedSetCountText}" />
+                <Button Grid.Column="1" Grid.RowSpan="2" Clicked="OnResumeClicked" MinimumHeightRequest="44" Text="›" />
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="2" RowDefinitions="Auto,*" RowSpacing="10">
+            <Label Style="{DynamicResource TrackZSectionTitleStyle}" Text="{Binding Text.Recent}" />
+            <CollectionView Grid.Row="1" ItemsSource="{Binding RecentWorkouts}" SelectionMode="None">
+                <CollectionView.EmptyView>
+                    <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Source={x:Reference Page}, Path=BindingContext.Text.NoRecentWorkouts}" />
+                </CollectionView.EmptyView>
+                <CollectionView.ItemTemplate>
+                    <DataTemplate x:DataType="train:RecentWorkoutItem">
+                        <Border Margin="0,0,0,10" Style="{DynamicResource TrackZListRowStyle}">
+                            <Grid ColumnDefinitions="56,*,Auto" ColumnSpacing="12">
+                                <Border HeightRequest="56" WidthRequest="56" StrokeThickness="0" StrokeShape="RoundRectangle 12" BackgroundColor="{DynamicResource TrackZSurfaceRaised}">
+                                    <Image Aspect="AspectFill" Source="{Binding ThumbnailPath}" />
+                                </Border>
+                                <VerticalStackLayout Grid.Column="1" VerticalOptions="Center" Spacing="3">
+                                    <Label Style="{DynamicResource TrackZSectionTitleStyle}" Text="{Binding Title}" />
+                                    <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding ExerciseCountText}" />
+                                </VerticalStackLayout>
+                                <Label Grid.Column="2" VerticalOptions="Center" Text="›" TextColor="{DynamicResource TrackZTextSecondary}" />
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </CollectionView.ItemTemplate>
+            </CollectionView>
+        </Grid>
+
+        <Button
+            Grid.Row="3"
+            Clicked="OnChooseWorkoutClicked"
+            Style="{DynamicResource TrackZPrimaryButtonStyle}"
+            Text="{Binding Text.ChooseWorkout}" />
+    </Grid>
+</ContentPage>

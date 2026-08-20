@@ -84,4 +84,13 @@
   <data name="KeepServer" xml:space="preserve"><value>Keep server</value></data>
   <data name="ApplyLocal" xml:space="preserve"><value>Apply local</value></data>
   <data name="HistoryConflictFailed" xml:space="preserve"><value>Could not resolve this sync conflict.</value></data>
+  <data name="TrainTodayTitle" xml:space="preserve"><value>Today</value></data>
+  <data name="ChooseWorkout" xml:space="preserve"><value>Choose workout</value></data>
+  <data name="ResumeWorkout" xml:space="preserve"><value>Resume workout</value></data>
+  <data name="Recent" xml:space="preserve"><value>Recent</value></data>
+  <data name="NoRecentWorkouts" xml:space="preserve"><value>No recent workouts</value></data>
+  <data name="Continue" xml:space="preserve"><value>Continue</value></data>
+  <data name="TrainTab" xml:space="preserve"><value>Train</value></data>
+  <data name="SavedSetCountFormat" xml:space="preserve"><value>{0} sets saved</value></data>
+  <data name="ExerciseCountFormat" xml:space="preserve"><value>{0} exercises</value></data>
 </root>

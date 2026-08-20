@@ -3,7 +3,7 @@ using TrackZ.Mobile.Features.Exercises.Models;
 
 namespace TrackZ.Mobile.Features.Exercises;
 
-public partial class ExercisePickerPage : ContentPage
+public partial class ExercisePickerPage : ContentPage, IQueryAttributable
 {
     private readonly ExercisePickerViewModel _viewModel;
 
@@ -16,6 +16,15 @@ public partial class ExercisePickerPage : ContentPage
 
     public event Action<IReadOnlyCollection<Guid>>? SelectionCompleted;
     public ICommand EditCustomCommand { get; }
+
+    public void ApplyQueryAttributes(IDictionary<string, object> query)
+    {
+        if (!query.TryGetValue("bodyPart", out var raw)) return;
+        var value = Uri.UnescapeDataString(Convert.ToString(raw) ?? string.Empty);
+        if (int.TryParse(value, out var number)
+            && Enum.IsDefined(typeof(TrackZ.Domain.Exercises.BodyPart), number))
+            _viewModel.SelectedBodyPart = (TrackZ.Domain.Exercises.BodyPart)number;
+    }
 
     protected override async void OnAppearing()
     {

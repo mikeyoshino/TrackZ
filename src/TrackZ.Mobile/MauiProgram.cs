@@ -12,6 +12,7 @@ using TrackZ.Mobile.Features.Progress;
 using TrackZ.Mobile.Features.Profile;
 using TrackZ.Mobile.Features.Summary;
 using TrackZ.Mobile.Presentation;
+using TrackZ.Mobile.Features.Train;
 
 namespace TrackZ.Mobile;
 
@@ -91,6 +92,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<ILocalWorkoutRepository>(services =>
 			services.GetRequiredService<LocalWorkoutRepository>());
 		builder.Services.AddSingleton<ICompletedWorkoutSummarySource, CompletedWorkoutSummarySource>();
+		builder.Services.AddSingleton<ITrainDashboardSource, LocalTrainDashboardSource>();
 		builder.Services.AddSingleton<OutboxRepository>();
 		builder.Services.AddSingleton<IWorkoutOutboxStatusSource>(services =>
 			services.GetRequiredService<OutboxRepository>());
@@ -128,6 +130,11 @@ public static class MauiProgram
 		builder.Services.AddTransient<WorkoutSummaryViewModel>();
 		builder.Services.AddTransient<ExerciseProgressViewModel>();
 		builder.Services.AddTransient<ProfileViewModel>();
+		builder.Services.AddTransient<TrainTodayViewModel>();
+		builder.Services.AddTransient<BodyAreaSheetPage>();
+		builder.Services.AddSingleton<IBodyAreaPicker>(services => new MauiBodyAreaPicker(
+			services.GetRequiredService<INativeSheetPresenter>(),
+			services.GetRequiredService<BodyAreaSheetPage>));
 		builder.Services.AddSingleton<ExercisePickerPage>();
 		builder.Services.AddTransient<CustomExercisePage>();
 		builder.Services.AddSingleton<WorkoutPage>();
@@ -136,6 +143,7 @@ public static class MauiProgram
 		builder.Services.AddTransient<WorkoutSummaryPage>();
 		builder.Services.AddSingleton<ExerciseProgressPage>();
 		builder.Services.AddSingleton<ProfilePage>();
+		builder.Services.AddSingleton<TrainPage>();
 		builder.Services.AddSingleton<AppShell>();
 		configureTestServices?.Invoke(builder.Services);
 

@@ -83,7 +83,16 @@ public sealed record WorkoutTextSet(
     string HistoryConflictFailed,
     string UnknownExercise,
     string DeleteExerciseTitle,
-    string DeleteExerciseMessage);
+    string DeleteExerciseMessage,
+    string TrainTodayTitle,
+    string ChooseWorkout,
+    string ResumeWorkout,
+    string Recent,
+    string NoRecentWorkouts,
+    string Continue,
+    string TrainTab,
+    string SavedSetCountFormat,
+    string ExerciseCountFormat);
 
 public static class WorkoutResources
 {
@@ -129,7 +138,12 @@ public static class WorkoutResources
             Value("HistoryDeleteFailed", culture), Value("UndoFailed", culture),
             Value("KeepServer", culture), Value("ApplyLocal", culture),
             Value("HistoryConflictFailed", culture), Value("UnknownExercise", culture),
-            Value("DeleteExerciseTitle", culture), Value("DeleteExerciseMessage", culture));
+            Value("DeleteExerciseTitle", culture), Value("DeleteExerciseMessage", culture),
+            Value("TrainTodayTitle", culture), Value("ChooseWorkout", culture),
+            Value("ResumeWorkout", culture), Value("Recent", culture),
+            Value("NoRecentWorkouts", culture), Value("Continue", culture),
+            Value("TrainTab", culture), Value("SavedSetCountFormat", culture),
+            Value("ExerciseCountFormat", culture));
     }
 
     private static string Value(string key, CultureInfo culture) =>

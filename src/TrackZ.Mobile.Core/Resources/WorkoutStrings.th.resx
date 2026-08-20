@@ -84,4 +84,13 @@
   <data name="KeepServer" xml:space="preserve"><value>ใช้ข้อมูลเซิร์ฟเวอร์</value></data>
   <data name="ApplyLocal" xml:space="preserve"><value>ใช้ข้อมูลในเครื่อง</value></data>
   <data name="HistoryConflictFailed" xml:space="preserve"><value>ไม่สามารถแก้ไขข้อขัดแย้งการซิงค์นี้ได้</value></data>
+  <data name="TrainTodayTitle" xml:space="preserve"><value>วันนี้</value></data>
+  <data name="ChooseWorkout" xml:space="preserve"><value>เลือกการฝึก</value></data>
+  <data name="ResumeWorkout" xml:space="preserve"><value>ฝึกต่อ</value></data>
+  <data name="Recent" xml:space="preserve"><value>ล่าสุด</value></data>
+  <data name="NoRecentWorkouts" xml:space="preserve"><value>ยังไม่มีการฝึกล่าสุด</value></data>
+  <data name="Continue" xml:space="preserve"><value>ดำเนินการต่อ</value></data>
+  <data name="TrainTab" xml:space="preserve"><value>ฝึก</value></data>
+  <data name="SavedSetCountFormat" xml:space="preserve"><value>บันทึกแล้ว {0} เซ็ต</value></data>
+  <data name="ExerciseCountFormat" xml:space="preserve"><value>{0} ท่า</value></data>
 </root>
