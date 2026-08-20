@@ -9,7 +9,14 @@
         <Setter Property="FontSize" Value="17" />
         <Setter Property="FontAttributes" Value="Bold" />
         <Setter Property="BackgroundColor" Value="{StaticResource TrackZPrimary}" />
-        <Setter Property="TextColor" Value="#111609" />
+        <Setter Property="TextColor" Value="{StaticResource TrackZPrimaryContrast}" />
+    </Style>
+    <Style x:Key="TrackZCardStyle" TargetType="Border">
+        <Setter Property="Padding" Value="16" />
+        <Setter Property="BackgroundColor" Value="{StaticResource TrackZSurface}" />
+        <Setter Property="Stroke" Value="{StaticResource TrackZHairline}" />
+        <Setter Property="StrokeThickness" Value="1" />
+        <Setter Property="StrokeShape" Value="RoundRectangle 20" />
     </Style>
     <Style x:Key="TrackZListRowStyle" TargetType="Border">
         <Setter Property="Padding" Value="12" />

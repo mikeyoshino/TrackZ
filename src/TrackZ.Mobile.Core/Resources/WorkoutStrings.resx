@@ -66,6 +66,7 @@
   <data name="RepPlural" xml:space="preserve"><value>reps</value></data>
   <data name="FinishWorkout" xml:space="preserve"><value>Finish workout</value></data>
   <data name="HistoryTitle" xml:space="preserve"><value>Workout history</value></data>
+  <data name="HistoryTab" xml:space="preserve"><value>History</value></data>
   <data name="NoHistory" xml:space="preserve"><value>No completed workouts yet.</value></data>
   <data name="Delete" xml:space="preserve"><value>Delete</value></data>
   <data name="Undo" xml:space="preserve"><value>Undo</value></data>

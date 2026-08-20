@@ -9,7 +9,7 @@
             FontAttributes="Bold"
             FontSize="12"
             Text="{Binding Caption, Source={x:Reference Root}}"
-            TextColor="#8E959F" />
+            TextColor="{DynamicResource TrackZTextSecondary}" />
         <Grid ColumnDefinitions="52,*,52" ColumnSpacing="8">
             <Button
                 Command="{Binding DecrementCommand, Source={x:Reference Root}}"
@@ -20,7 +20,7 @@
                 MinimumWidthRequest="44"
                 SemanticProperties.Description="{Binding DecrementLabel, Source={x:Reference Root}}"
                 Text="−" />
-            <Border Grid.Column="1" Padding="10,0" BackgroundColor="#1B1F25" Stroke="#303640" StrokeShape="RoundRectangle 14">
+            <Border Grid.Column="1" Padding="10,0" BackgroundColor="{DynamicResource TrackZSurfaceRaised}" Stroke="{DynamicResource TrackZHairline}" StrokeShape="RoundRectangle 14">
                 <Grid ColumnDefinitions="*,Auto">
                     <Entry
                         FontAttributes="Bold"
@@ -35,7 +35,7 @@
                         Grid.Column="1"
                         Margin="4,0"
                         Text="{Binding UnitLabel, Source={x:Reference Root}}"
-                        TextColor="#8E959F"
+                        TextColor="{DynamicResource TrackZTextSecondary}"
                         VerticalTextAlignment="Center" />
                 </Grid>
             </Border>

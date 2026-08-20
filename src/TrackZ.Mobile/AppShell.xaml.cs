@@ -25,7 +25,7 @@ public partial class AppShell : Shell
 			"tab_train.svg",
 			new ShellContent { Route = "train", Content = trainPage }));
 		tabs.Items.Add(CreateTab(
-			WorkoutResources.Current.HistoryTitle,
+			WorkoutResources.Current.HistoryTab,
 			"tab_history.svg",
 			new ShellContent
 			{
@@ -41,7 +41,7 @@ public partial class AppShell : Shell
 				ContentTemplate = new DataTemplate(() => services.GetRequiredService<ExerciseProgressPage>())
 			}));
 		tabs.Items.Add(CreateTab(
-			GamificationResources.Current.ProfileTitle,
+			GamificationResources.Current.YouTab,
 			"tab_you.svg",
 			new ShellContent
 			{

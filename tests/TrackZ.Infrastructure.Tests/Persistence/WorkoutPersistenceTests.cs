@@ -342,19 +342,21 @@ public sealed class WorkoutPersistenceTests
     {
         await using var database = await PostgreSqlFixture.StartAsync();
         await database.Db.Database.MigrateAsync("20260815155510_AddWorkouts");
-        var owner = User.Create($"migration-backfill-{Guid.NewGuid():N}@example.com", "hash");
-        var definition = ExerciseDefinition.CreateSystem("Migration Backfill Press", BodyPart.Chest, TrackingMode.Weighted);
-        await database.Db.Users.AddAsync(owner);
-        await database.Db.Exercises.AddAsync(definition);
-        await database.Db.SaveChangesAsync();
         var now = DateTimeOffset.UtcNow;
+        var ownerId = Guid.NewGuid();
+        var definitionId = Guid.NewGuid();
+        var email = $"migration-backfill-{Guid.NewGuid():N}@example.com";
+        await database.Db.Database.ExecuteSqlInterpolatedAsync(
+            $"INSERT INTO users (\"Id\", \"Email\", \"NormalizedEmail\", \"PasswordHash\", \"CreatedAt\") VALUES ({ownerId}, {email}, {email.ToUpperInvariant()}, {"hash"}, {now.AddMinutes(-3)})");
+        await database.Db.Database.ExecuteSqlInterpolatedAsync(
+            $"INSERT INTO exercise_definitions (\"Id\", \"Name\", \"NormalizedName\", \"BodyPart\", \"TrackingMode\", \"IsArchived\", \"HasSetHistory\", \"CreatedAt\") VALUES ({definitionId}, {"Migration Backfill Press"}, {"MIGRATION BACKFILL PRESS"}, {(int)BodyPart.Chest}, {(int)TrackingMode.Weighted}, {false}, {false}, {now.AddMinutes(-3)})");
         var workoutId = Guid.NewGuid();
         var itemId = Guid.NewGuid();
         var setId = Guid.NewGuid();
         await database.Db.Database.ExecuteSqlInterpolatedAsync(
-            $"INSERT INTO workout_sessions (\"Id\", \"OwnerId\", \"Status\", \"StartedAt\", \"CompletedAt\", \"Version\") VALUES ({workoutId}, {owner.Id}, {3}, {now.AddMinutes(-2)}, {now}, {1L})");
+            $"INSERT INTO workout_sessions (\"Id\", \"OwnerId\", \"Status\", \"StartedAt\", \"CompletedAt\", \"Version\") VALUES ({workoutId}, {ownerId}, {3}, {now.AddMinutes(-2)}, {now}, {1L})");
         await database.Db.Database.ExecuteSqlInterpolatedAsync(
-            $"INSERT INTO workout_exercises (\"Id\", \"WorkoutSessionId\", \"ExerciseDefinitionId\", \"TrackingMode\", \"Order\", \"Version\") VALUES ({itemId}, {workoutId}, {definition.Id}, {(int)TrackingMode.Weighted}, {0}, {1L})");
+            $"INSERT INTO workout_exercises (\"Id\", \"WorkoutSessionId\", \"ExerciseDefinitionId\", \"TrackingMode\", \"Order\", \"Version\") VALUES ({itemId}, {workoutId}, {definitionId}, {(int)TrackingMode.Weighted}, {0}, {1L})");
         await database.Db.Database.ExecuteSqlInterpolatedAsync(
             $"INSERT INTO set_entries (\"Id\", \"WorkoutExerciseId\", \"Order\", \"WeightKg\", \"Reps\", \"CompletedAt\", \"Version\") VALUES ({setId}, {itemId}, {0}, {70m}, {8}, {now.AddMinutes(-1)}, {1L})");
 
@@ -367,7 +369,7 @@ public sealed class WorkoutPersistenceTests
     }
 
     [Fact]
-    public async Task Sync_change_migration_is_latest_reversible_and_matches_snapshot()
+    public async Task Sync_change_migration_is_reversible_and_latest_target_matches_snapshot()
     {
         await using var database = await PostgreSqlFixture.StartAsync();
         var migrations = database.Db.GetService<IMigrationsAssembly>();
@@ -386,9 +388,14 @@ public sealed class WorkoutPersistenceTests
             .OfType<Microsoft.EntityFrameworkCore.Migrations.Operations.DropTableOperation>());
         Assert.Equal("sync_changes", created.Name);
         Assert.Equal("sync_changes", dropped.Name);
-        Assert.Equal(
+        Assert.NotEqual(
             DescribeRelationalModel(migrations.ModelSnapshot!.Model),
             DescribeRelationalModel(migration.TargetModel));
+        var latest = migrations.CreateMigration(
+            migrations.Migrations[ids[^1]], database.Db.Database.ProviderName!)!;
+        Assert.Equal(
+            DescribeRelationalModel(migrations.ModelSnapshot.Model),
+            DescribeRelationalModel(latest.TargetModel));
         Assert.Empty(await database.Db.Database.GetPendingMigrationsAsync());
         Assert.False(database.Db.Database.HasPendingModelChanges());
     }

@@ -11,7 +11,7 @@
             FontSize="12"
             CharacterSpacing="1.6"
             Text="{Binding Header, Source={x:Reference Root}}"
-            TextColor="#C8FF3D" />
+            TextColor="{DynamicResource TrackZPrimary}" />
         <CollectionView
             ItemsSource="{Binding ItemsSource, Source={x:Reference Root}}"
             SelectionMode="None">
@@ -22,7 +22,7 @@
                             FontAttributes="Bold"
                             SemanticProperties.Description="{Binding SetNumber}"
                             Text="{Binding SetNumber}"
-                            TextColor="#8E959F" />
+                            TextColor="{DynamicResource TrackZTextSecondary}" />
                         <Label
                             Grid.Column="1"
                             FontAttributes="Bold"

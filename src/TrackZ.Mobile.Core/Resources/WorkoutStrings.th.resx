@@ -66,6 +66,7 @@
   <data name="RepPlural" xml:space="preserve"><value>ครั้ง</value></data>
   <data name="FinishWorkout" xml:space="preserve"><value>จบการฝึก</value></data>
   <data name="HistoryTitle" xml:space="preserve"><value>ประวัติการฝึก</value></data>
+  <data name="HistoryTab" xml:space="preserve"><value>ประวัติ</value></data>
   <data name="NoHistory" xml:space="preserve"><value>ยังไม่มีการฝึกที่เสร็จแล้ว</value></data>
   <data name="Delete" xml:space="preserve"><value>ลบ</value></data>
   <data name="Undo" xml:space="preserve"><value>เลิกทำ</value></data>

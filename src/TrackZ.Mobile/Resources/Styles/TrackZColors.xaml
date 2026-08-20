@@ -6,10 +6,12 @@
     <Color x:Key="TrackZSurface">#15191D</Color>
     <Color x:Key="TrackZSurfaceRaised">#20252A</Color>
     <Color x:Key="TrackZPrimary">#C8FF3D</Color>
+    <Color x:Key="TrackZPrimaryContrast">#111609</Color>
     <Color x:Key="TrackZTextPrimary">#F5F7F8</Color>
     <Color x:Key="TrackZTextSecondary">#8D959F</Color>
     <Color x:Key="TrackZInformation">#73A9FF</Color>
     <Color x:Key="TrackZWarning">#FFC95C</Color>
     <Color x:Key="TrackZDanger">#FF6969</Color>
     <Color x:Key="TrackZHairline">#2B3137</Color>
+    <Color x:Key="TrackZBorder">#2B3137</Color>
 </ResourceDictionary>

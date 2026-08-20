@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8" ?>
-<ContentPage x:Class="TrackZ.Mobile.Features.Progress.ExerciseProgressPage" x:Name="Page" xmlns="http://schemas.microsoft.com/dotnet/2021/maui" xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml" xmlns:components="clr-namespace:TrackZ.Mobile.Components" xmlns:gamification="clr-namespace:TrackZ.Mobile.Features.Gamification;assembly=TrackZ.Mobile.Core" x:DataType="gamification:ProgressDashboardViewModel" BackgroundColor="{DynamicResource TrackZBackground}" Title="{Binding Text.ProgressTitle}">
+<ContentPage x:Class="TrackZ.Mobile.Features.Progress.ExerciseProgressPage" x:Name="Page" xmlns="http://schemas.microsoft.com/dotnet/2021/maui" xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml" xmlns:components="clr-namespace:TrackZ.Mobile.Components" xmlns:gamification="clr-namespace:TrackZ.Mobile.Features.Gamification;assembly=TrackZ.Mobile.Core" x:DataType="gamification:ProgressDashboardViewModel" BackgroundColor="{DynamicResource TrackZBackground}" Shell.NavBarIsVisible="False" Title="{Binding Text.ProgressTitle}">
     <ScrollView>
         <VerticalStackLayout Padding="18,10,18,28" Spacing="16">
             <Label Style="{DynamicResource TrackZPageTitleStyle}" Text="{Binding Text.ProgressTitle}" />

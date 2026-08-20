@@ -7,6 +7,7 @@
     xmlns:train="clr-namespace:TrackZ.Mobile.Features.Train;assembly=TrackZ.Mobile.Core"
     x:DataType="train:TrainTodayViewModel"
     BackgroundColor="{DynamicResource TrackZBackground}"
+    Shell.NavBarIsVisible="False"
     Title="{Binding Text.TrainTodayTitle}">
     <Grid Padding="20,10,20,16" RowDefinitions="Auto,Auto,*,Auto" RowSpacing="18">
         <Label Style="{DynamicResource TrackZPageTitleStyle}" Text="{Binding Text.TrainTodayTitle}" />
@@ -33,7 +34,7 @@
                         <Border Margin="0,0,0,10" Style="{DynamicResource TrackZListRowStyle}">
                             <Grid ColumnDefinitions="56,*,Auto" ColumnSpacing="12">
                                 <Border HeightRequest="56" WidthRequest="56" StrokeThickness="0" StrokeShape="RoundRectangle 12" BackgroundColor="{DynamicResource TrackZSurfaceRaised}">
-                                    <Image Aspect="AspectFill" Source="{Binding ThumbnailPath}" />
+                                    <Image Aspect="AspectFill" SemanticProperties.Description="{Binding Title}" Source="{Binding ThumbnailPath}" />
                                 </Border>
                                 <VerticalStackLayout Grid.Column="1" VerticalOptions="Center" Spacing="3">
                                     <Label Style="{DynamicResource TrackZSectionTitleStyle}" Text="{Binding Title}" />

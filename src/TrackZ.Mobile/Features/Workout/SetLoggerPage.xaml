@@ -13,7 +13,7 @@
         <VerticalStackLayout Padding="18,18,18,30" Spacing="18">
             <Grid ColumnDefinitions="72,*,Auto" ColumnSpacing="12">
                 <Grid HeightRequest="64" WidthRequest="64">
-                    <Image Aspect="AspectFit" IsVisible="{Binding HasArtwork}" Source="{Binding ThumbnailUri}" />
+                    <Image Aspect="AspectFit" IsVisible="{Binding HasArtwork}" SemanticProperties.Description="{Binding ExerciseName}" Source="{Binding ThumbnailUri}" />
                     <Border BackgroundColor="{DynamicResource TrackZSurfaceRaised}" IsVisible="{Binding ShowsArtworkPlaceholder}" StrokeThickness="0" StrokeShape="RoundRectangle 14">
                         <Image Aspect="AspectFit" HeightRequest="46" Source="exercise_placeholder.svg" WidthRequest="46" />
                     </Border>

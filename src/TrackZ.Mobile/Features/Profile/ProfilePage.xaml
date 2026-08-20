@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8" ?>
-<ContentPage x:Class="TrackZ.Mobile.Features.Profile.ProfilePage" x:Name="Page" xmlns="http://schemas.microsoft.com/dotnet/2021/maui" xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml" xmlns:gamification="clr-namespace:TrackZ.Mobile.Features.Gamification;assembly=TrackZ.Mobile.Core" x:DataType="gamification:ProfileViewModel" BackgroundColor="{DynamicResource TrackZBackground}" Title="{Binding Text.ProfileTitle}">
+<ContentPage x:Class="TrackZ.Mobile.Features.Profile.ProfilePage" x:Name="Page" xmlns="http://schemas.microsoft.com/dotnet/2021/maui" xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml" xmlns:gamification="clr-namespace:TrackZ.Mobile.Features.Gamification;assembly=TrackZ.Mobile.Core" x:DataType="gamification:ProfileViewModel" BackgroundColor="{DynamicResource TrackZBackground}" Shell.NavBarIsVisible="False" Title="{Binding Text.ProfileTitle}">
     <ScrollView><VerticalStackLayout Padding="18,10,18,28" Spacing="16">
         <Label Style="{DynamicResource TrackZPageTitleStyle}" Text="{Binding Text.ProfileTitle}" />
         <Border Style="{DynamicResource TrackZCardStyle}"><VerticalStackLayout Spacing="12">

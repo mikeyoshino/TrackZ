@@ -61,6 +61,7 @@ public sealed record GamificationTextSet(
     string SummaryTitle,
     string ProgressTitle,
     string ProfileTitle,
+    string YouTab,
     string PendingServerConfirmation,
     string Confirmed,
     string TotalVolume,
@@ -90,7 +91,7 @@ public sealed record GamificationTextSet(
 public static class GamificationResources
 {
     public static GamificationTextSet English { get; } = new(
-        "Workout summary", "Progress", "Profile", "Progress pending server confirmation",
+        "Workout summary", "Progress", "Profile", "You", "Progress pending server confirmation",
         "Progress confirmed", "Total volume", "Sets", "Reps", "Level", "XP", "Weekly goal",
         "Current streak", "Best streak", "Badges", "Save", "kg", "lb",
         "Could not load progress", "Could not save weekly goal",
@@ -98,7 +99,7 @@ public static class GamificationResources
         "Badge unlocked: {0}", "Progress pending", "Haptics", "Reduce Motion", "Sign out");
 
     public static GamificationTextSet Thai { get; } = new(
-        "สรุปการออกกำลังกาย", "ความก้าวหน้า", "โปรไฟล์", "ความก้าวหน้ารอยืนยันจากเซิร์ฟเวอร์",
+        "สรุปการออกกำลังกาย", "ความก้าวหน้า", "โปรไฟล์", "คุณ", "ความก้าวหน้ารอยืนยันจากเซิร์ฟเวอร์",
         "ยืนยันความก้าวหน้าแล้ว", "ปริมาณรวม", "เซ็ต", "ครั้ง", "เลเวล", "XP", "เป้าหมายรายสัปดาห์",
         "สตรีคปัจจุบัน", "สตรีคสูงสุด", "เหรียญรางวัล", "บันทึก", "กก.", "ปอนด์",
         "โหลดความก้าวหน้าไม่สำเร็จ", "บันทึกเป้าหมายไม่สำเร็จ",

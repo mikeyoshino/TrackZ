@@ -8,6 +8,7 @@
     xmlns:history="clr-namespace:TrackZ.Mobile.Features.History;assembly=TrackZ.Mobile.Core"
     x:DataType="history:WorkoutHistoryViewModel"
     BackgroundColor="{DynamicResource TrackZBackground}"
+    Shell.NavBarIsVisible="False"
     Title="{Binding Text.HistoryTitle}">
     <Grid Padding="18,10,18,16" RowDefinitions="Auto,*" RowSpacing="14">
         <Grid ColumnDefinitions="*,Auto">
