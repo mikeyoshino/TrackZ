@@ -30,7 +30,7 @@ public sealed class ReduceMotionTests
             pulse,
             new FixedReduceMotionPreference(isEnabled: true));
 
-        await driver.StartAsync(CancellationToken.None);
+        await driver.StartAsync(SetSavedOutcome.PersonalRecord, CancellationToken.None);
 
         Assert.Equal(0, pulse.Opacity);
         Assert.Equal(1, pulse.Scale);

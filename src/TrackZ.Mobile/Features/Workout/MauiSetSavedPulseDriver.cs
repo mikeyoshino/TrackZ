@@ -3,7 +3,7 @@ namespace TrackZ.Mobile.Features.Workout;
 public interface ISetSavedPulseDriver
 {
     Task InvokeAsync(Func<Task> action);
-    Task StartAsync(CancellationToken cancellationToken);
+    Task StartAsync(SetSavedOutcome outcome, CancellationToken cancellationToken);
     void Cancel();
 }
 
@@ -66,36 +66,23 @@ public sealed class MauiReduceMotionPreference : IReduceMotionPreference
 public sealed class MauiSetSavedPulseDriver : ISetSavedPulseDriver
 {
     private readonly VisualElement _pulse;
-    private readonly IReduceMotionPreference _reduceMotion;
+    private readonly Presentation.ITrackZMotion _motion;
 
     public MauiSetSavedPulseDriver(
         VisualElement pulse,
-        IReduceMotionPreference? reduceMotion = null)
+        IReduceMotionPreference? reduceMotion = null,
+        Presentation.ITrackZMotion? motion = null)
     {
         ArgumentNullException.ThrowIfNull(pulse);
         _pulse = pulse;
-        _reduceMotion = reduceMotion ?? new MauiReduceMotionPreference();
+        _motion = motion ?? new Presentation.MauiTrackZMotion(
+            reduceMotion ?? new MauiReduceMotionPreference());
     }
 
     public Task InvokeAsync(Func<Task> action) => MainThread.InvokeOnMainThreadAsync(action);
 
-    public async Task StartAsync(CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        _pulse.CancelAnimations();
-        if (_reduceMotion.IsEnabled)
-        {
-            _pulse.Scale = 1;
-            _pulse.Opacity = 0;
-            return;
-        }
-        _pulse.Opacity = 1;
-        _pulse.Scale = 0.97;
-        await Task.WhenAll(
-            _pulse.ScaleToAsync(1, 160, Easing.CubicOut),
-            _pulse.FadeToAsync(0, 520, Easing.CubicIn));
-        cancellationToken.ThrowIfCancellationRequested();
-    }
+    public Task StartAsync(SetSavedOutcome outcome, CancellationToken cancellationToken) =>
+        _motion.PlaySetSavedAsync(_pulse, outcome, cancellationToken);
 
-    public void Cancel() => MainThread.BeginInvokeOnMainThread(_pulse.CancelAnimations);
+    public void Cancel() => _motion.Cancel(_pulse);
 }

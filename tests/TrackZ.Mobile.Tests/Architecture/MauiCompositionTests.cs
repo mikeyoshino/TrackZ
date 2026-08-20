@@ -774,7 +774,7 @@ public sealed class MauiCompositionTests
             await action();
         }
 
-        public async Task StartAsync(CancellationToken cancellationToken)
+        public async Task StartAsync(SetSavedOutcome outcome, CancellationToken cancellationToken)
         {
             StartCount++;
             Started.TrySetResult();

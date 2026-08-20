@@ -276,6 +276,136 @@ public sealed class SetLoggerViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task Durable_set_that_outranks_known_history_is_presented_as_a_personal_record()
+    {
+        var fixture = await CreateFixtureAsync(TrackingMode.Weighted);
+        var sut = fixture.CreateLogger(Previous(
+            TrackingMode.Weighted,
+            Set(0, 45m, null, 8)));
+        await sut.LoadAsync(ExerciseId, "Bench Press");
+        sut.WeightKg = 47.5m;
+        sut.Reps = 8;
+
+        await sut.CompleteSetCommand.ExecuteAsync();
+
+        var presentation = Assert.Single(fixture.Feedback.Presentations);
+        Assert.Equal(SetSavedOutcome.PersonalRecord, presentation.Outcome);
+        Assert.Equal(47.5m, presentation.Set.WeightKg);
+        Assert.Single(Assert.Single((await fixture.Repository.GetActiveAsync())!.Exercises).Sets);
+    }
+
+    [Fact]
+    public async Task Equal_comparable_previous_set_is_presented_as_matched_not_a_personal_record()
+    {
+        var fixture = await CreateFixtureAsync(TrackingMode.Weighted);
+        var sut = fixture.CreateLogger(Previous(
+            TrackingMode.Weighted,
+            Set(0, 45m, null, 8)));
+        await sut.LoadAsync(ExerciseId, "Bench Press");
+        sut.MatchLastCommand.Execute(null);
+
+        await sut.CompleteSetCommand.ExecuteAsync();
+
+        Assert.Equal(
+            SetSavedOutcome.MatchedPrevious,
+            Assert.Single(fixture.Feedback.Presentations).Outcome);
+    }
+
+    [Fact]
+    public async Task Logger_uses_cached_api_artwork_and_all_time_pr_for_context_and_outcome()
+    {
+        var fixture = await CreateFixtureAsync(TrackingMode.Weighted);
+        var cachePath = Path.Combine(Path.GetTempPath(), $"trackz-logger-catalog-{Guid.NewGuid():N}.db");
+        try
+        {
+            var cache = new ExerciseCache(cachePath);
+            await cache.ReplaceAllAsync([
+                new ExerciseSummaryDto(
+                    ExerciseId,
+                    "Bench Press",
+                    BodyPart.Chest,
+                    TrackingMode.Weighted,
+                    "/api/v1/exercises/artwork",
+                    Now.AddDays(-2),
+                    new PerformanceSetDto(70m, null, 8),
+                    new PerformanceSetDto(80m, null, 5),
+                    false)
+            ], Now);
+            await cache.SetServerThumbnailAsync(ExerciseId, "/cache/bench-press.jpg");
+            var sut = new SetLoggerViewModel(
+                fixture.Coordinator,
+                new StubHistory(Previous(TrackingMode.Weighted, Set(0, 70m, null, 8))),
+                fixture.Feedback,
+                fixture.Boundary,
+                new StubConnectivity(true),
+                new OutboxRepository(fixture.Database),
+                WorkoutResources.English,
+                exerciseCache: cache);
+
+            await sut.LoadAsync(ExerciseId, "Bench Press");
+            sut.WeightKg = 75m;
+            sut.Reps = 8;
+            await sut.CompleteSetCommand.ExecuteAsync();
+
+            Assert.Equal("/cache/bench-press.jpg", sut.ThumbnailUri);
+            Assert.Contains("Chest", sut.ExerciseMetadataText, StringComparison.Ordinal);
+            Assert.Contains("80 kg", sut.AllTimePrText, StringComparison.Ordinal);
+            Assert.Equal(SetSavedOutcome.Saved, Assert.Single(fixture.Feedback.Presentations).Outcome);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            if (File.Exists(cachePath)) File.Delete(cachePath);
+        }
+    }
+
+    [Theory]
+    [InlineData(TrackingMode.Weighted, 45d, null, 8, 45d, null, 9)]
+    [InlineData(TrackingMode.Assisted, null, 25d, 10, null, 20d, 6)]
+    [InlineData(TrackingMode.Bodyweight, null, null, 12, null, null, 13)]
+    public async Task Personal_record_comparison_respects_each_tracking_mode(
+        TrackingMode mode,
+        double? previousWeight,
+        double? previousAssistance,
+        int previousReps,
+        double? savedWeight,
+        double? savedAssistance,
+        int savedReps)
+    {
+        var fixture = await CreateFixtureAsync(mode);
+        var sut = fixture.CreateLogger(Previous(
+            mode,
+            Set(0, Decimal(previousWeight), Decimal(previousAssistance), previousReps)));
+        await sut.LoadAsync(ExerciseId, "Exercise");
+        sut.WeightKg = Decimal(savedWeight);
+        sut.AssistedKg = Decimal(savedAssistance);
+        sut.Reps = savedReps;
+
+        await sut.CompleteSetCommand.ExecuteAsync();
+
+        Assert.Equal(SetSavedOutcome.PersonalRecord, Assert.Single(fixture.Feedback.Presentations).Outcome);
+    }
+
+    [Fact]
+    public async Task A_later_set_must_beat_the_provisional_today_record_to_celebrate_again()
+    {
+        var fixture = await CreateFixtureAsync(TrackingMode.Weighted);
+        var sut = fixture.CreateLogger(Previous(TrackingMode.Weighted, Set(0, 45m, null, 8)));
+        await sut.LoadAsync(ExerciseId, "Bench Press");
+        sut.WeightKg = 50m;
+        sut.Reps = 8;
+        await sut.CompleteSetCommand.ExecuteAsync();
+        sut.WeightKg = 47.5m;
+        sut.Reps = 10;
+
+        await sut.CompleteSetCommand.ExecuteAsync();
+
+        Assert.Equal(
+            [SetSavedOutcome.PersonalRecord, SetSavedOutcome.Saved],
+            fixture.Feedback.Presentations.Select(item => item.Outcome));
+    }
+
+    [Fact]
     public async Task Rapid_taps_create_one_durable_set_and_one_feedback()
     {
         var fixture = await CreateFixtureAsync(TrackingMode.Weighted);
@@ -1155,6 +1285,7 @@ public sealed class SetLoggerViewModelTests : IDisposable
 
     private sealed class RecordingFeedback : ISetSavedFeedback
     {
+        public List<SetSavedPresentation> Presentations { get; } = [];
         public int CallCount { get; private set; }
         public bool Block { get; set; }
         public bool Throw { get; set; }
@@ -1162,8 +1293,9 @@ public sealed class SetLoggerViewModelTests : IDisposable
         public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public async Task SetSavedAsync(LocalSet savedSet, SetSavedFeedbackSession session)
+        public async Task SetSavedAsync(SetSavedPresentation presentation, SetSavedFeedbackSession session)
         {
+            Presentations.Add(presentation);
             if (!session.TryStartPhase(() => CallCount++)) return;
             if (Throw) throw new InvalidOperationException("Feedback unavailable");
             if (OnSaved is not null) await OnSaved();

@@ -7,6 +7,26 @@ namespace TrackZ.Mobile.Tests.Workout;
 public sealed class MauiSetSavedFeedbackTests
 {
     [Fact]
+    public async Task Personal_record_outcome_reaches_the_outcome_specific_haptic_boundary()
+    {
+        var outcomes = new List<SetSavedOutcome>();
+        var sut = new MauiSetSavedFeedback(
+            () => true,
+            action => { action(); return Task.CompletedTask; },
+            performOutcomeHaptic: outcomes.Add);
+        var session = new SetSavedFeedbackSession(CancellationToken.None, phase => { phase(); return true; });
+        var set = new LocalSet(80m, null, 5);
+
+        await sut.SetSavedAsync(new SetSavedPresentation(
+            set,
+            SetSavedOutcome.PersonalRecord,
+            "New personal record",
+            "Saved"), session);
+
+        Assert.Equal([SetSavedOutcome.PersonalRecord], outcomes);
+    }
+
+    [Fact]
     public async Task Account_cancellation_reaches_an_in_flight_motion_handler()
     {
         var boundary = new AccountSessionBoundary();

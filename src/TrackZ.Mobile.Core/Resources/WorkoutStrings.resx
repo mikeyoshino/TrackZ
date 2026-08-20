@@ -98,4 +98,14 @@
   <data name="SelectExerciseFormat" xml:space="preserve"><value>Select {0}</value></data>
   <data name="ArtworkForExerciseFormat" xml:space="preserve"><value>Movement artwork for {0}</value></data>
   <data name="SetsLoggedFormat" xml:space="preserve"><value>{0} sets logged</value></data>
+  <data name="LogNextSet" xml:space="preserve"><value>Log next set</value></data>
+  <data name="SaveSet" xml:space="preserve"><value>Save set</value></data>
+  <data name="NextSetFormat" xml:space="preserve"><value>Set {0}</value></data>
+  <data name="SetSaved" xml:space="preserve"><value>Set saved</value></data>
+  <data name="SetSavedSecondary" xml:space="preserve"><value>Saved on this device</value></data>
+  <data name="MatchedPreviousSet" xml:space="preserve"><value>Matched last set</value></data>
+  <data name="MatchedPreviousSecondary" xml:space="preserve"><value>You matched the comparable set from last time</value></data>
+  <data name="PersonalRecordSaved" xml:space="preserve"><value>New personal record</value></data>
+  <data name="PersonalRecordSecondary" xml:space="preserve"><value>Your strongest known set is saved</value></data>
+  <data name="LowerAssistanceProgress" xml:space="preserve"><value>Lower assistance means more of the work is yours.</value></data>
 </root>

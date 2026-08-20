@@ -114,6 +114,8 @@ public static class MauiProgram
 		builder.Services.AddSingleton<IWeightUnitPreference, WeightUnitPreference>();
 		builder.Services.AddSingleton<MauiSetSavedFeedback>();
 		builder.Services.AddSingleton<ISetSavedFeedback>(services => services.GetRequiredService<MauiSetSavedFeedback>());
+		builder.Services.AddSingleton<IReduceMotionPreference, MauiReduceMotionPreference>();
+		builder.Services.AddSingleton<ITrackZMotion, MauiTrackZMotion>();
 		builder.Services.AddSingleton<SyncCoordinator>();
 		builder.Services.AddSingleton<ISyncAuthenticationRecovery, MauiSyncAuthenticationRecovery>();
 		builder.Services.AddSingleton<WorkoutSyncOrchestrator>();
@@ -145,6 +147,7 @@ public static class MauiProgram
 		builder.Services.AddTransient<CustomExercisePage>();
 		builder.Services.AddSingleton<WorkoutPage>();
 		builder.Services.AddTransient<SetLoggerPage>();
+		builder.Services.AddTransient<SetEntrySheetPage>();
 		builder.Services.AddTransient<WorkoutHistoryPage>();
 		builder.Services.AddTransient<WorkoutSummaryPage>();
 		builder.Services.AddSingleton<ExerciseProgressPage>();

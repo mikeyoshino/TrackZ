@@ -98,4 +98,14 @@
   <data name="SelectExerciseFormat" xml:space="preserve"><value>เลือก {0}</value></data>
   <data name="ArtworkForExerciseFormat" xml:space="preserve"><value>ภาพแสดงการเคลื่อนไหวของท่า {0}</value></data>
   <data name="SetsLoggedFormat" xml:space="preserve"><value>บันทึกแล้ว {0} เซ็ต</value></data>
+  <data name="LogNextSet" xml:space="preserve"><value>บันทึกเซ็ตถัดไป</value></data>
+  <data name="SaveSet" xml:space="preserve"><value>บันทึกเซ็ต</value></data>
+  <data name="NextSetFormat" xml:space="preserve"><value>เซ็ตที่ {0}</value></data>
+  <data name="SetSaved" xml:space="preserve"><value>บันทึกเซ็ตแล้ว</value></data>
+  <data name="SetSavedSecondary" xml:space="preserve"><value>บันทึกไว้ในอุปกรณ์นี้แล้ว</value></data>
+  <data name="MatchedPreviousSet" xml:space="preserve"><value>ทำได้เท่ากับครั้งก่อน</value></data>
+  <data name="MatchedPreviousSecondary" xml:space="preserve"><value>คุณทำได้เท่ากับเซ็ตเดียวกันของครั้งก่อน</value></data>
+  <data name="PersonalRecordSaved" xml:space="preserve"><value>สถิติส่วนตัวใหม่</value></data>
+  <data name="PersonalRecordSecondary" xml:space="preserve"><value>บันทึกเซ็ตที่ดีที่สุดของคุณแล้ว</value></data>
+  <data name="LowerAssistanceProgress" xml:space="preserve"><value>แรงช่วยที่น้อยลงหมายถึงคุณออกแรงเองมากขึ้น</value></data>
 </root>

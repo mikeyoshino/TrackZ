@@ -7,30 +7,38 @@
     xmlns:components="clr-namespace:TrackZ.Mobile.Components"
     xmlns:workout="clr-namespace:TrackZ.Mobile.Features.Workout;assembly=TrackZ.Mobile.Core"
     x:DataType="workout:SetLoggerViewModel"
-    BackgroundColor="#0D0F12"
+    BackgroundColor="{DynamicResource TrackZBackground}"
     Title="{Binding Text.SetLoggerTitle}">
     <ScrollView>
         <VerticalStackLayout Padding="18,18,18,30" Spacing="18">
-            <Grid ColumnDefinitions="*,Auto">
-                <VerticalStackLayout>
+            <Grid ColumnDefinitions="72,*,Auto" ColumnSpacing="12">
+                <Grid HeightRequest="64" WidthRequest="64">
+                    <Image Aspect="AspectFit" IsVisible="{Binding HasArtwork}" Source="{Binding ThumbnailUri}" />
+                    <Border BackgroundColor="{DynamicResource TrackZSurfaceRaised}" IsVisible="{Binding ShowsArtworkPlaceholder}" StrokeThickness="0" StrokeShape="RoundRectangle 14">
+                        <Image Aspect="AspectFit" HeightRequest="46" Source="exercise_placeholder.svg" WidthRequest="46" />
+                    </Border>
+                </Grid>
+                <VerticalStackLayout Grid.Column="1">
                     <Label FontAttributes="Bold" FontSize="28" Text="{Binding ExerciseName}" />
-                    <Label FontSize="12" Text="{Binding TrackingModeLabel}" TextColor="#8E959F" />
+                    <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding ExerciseMetadataText}" />
+                    <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding PreviousBestText}" />
+                    <Label FontAttributes="Bold" FontSize="13" Text="{Binding AllTimePrText}" TextColor="{DynamicResource TrackZPrimary}" />
                 </VerticalStackLayout>
-                <components:SyncStatusPill Grid.Column="1" State="{Binding SyncState}" Text="{Binding SyncStatusText}" VerticalOptions="Start" />
+                <components:SyncStatusPill Grid.Column="2" State="{Binding SyncState}" Text="{Binding SyncStatusText}" VerticalOptions="Start" />
             </Grid>
 
-            <Border Padding="14" BackgroundColor="#15181D" Stroke="#2C3139" StrokeShape="RoundRectangle 20">
+            <Border Style="{DynamicResource TrackZCardStyle}">
                 <Grid ColumnDefinitions="*,*" ColumnSpacing="20">
                     <components:LastSetTable Header="{Binding Text.Last}" ItemsSource="{Binding LastSets}" />
                     <components:LastSetTable Grid.Column="1" Header="{Binding Text.Today}" ItemsSource="{Binding TodaySets}" />
                 </Grid>
             </Border>
 
-            <Border Padding="14" BackgroundColor="#211A13" IsVisible="{Binding HasConflict}" Stroke="#FFC65C" StrokeShape="RoundRectangle 20">
+            <Border Padding="14" BackgroundColor="{DynamicResource TrackZSurfaceRaised}" IsVisible="{Binding HasConflict}" Stroke="{DynamicResource TrackZWarning}" StrokeShape="RoundRectangle 20">
                 <VerticalStackLayout Spacing="10">
-                    <Label FontAttributes="Bold" Text="{Binding Text.Conflicted}" TextColor="#FFC65C" />
+                    <Label FontAttributes="Bold" Text="{Binding Text.Conflicted}" TextColor="{DynamicResource TrackZWarning}" />
                     <Label Text="{Binding ConflictLocalSummary}" />
-                    <Label Text="{Binding ConflictServerSummary}" TextColor="#B8C0CC" />
+                    <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding ConflictServerSummary}" />
                     <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
                         <Button Command="{Binding KeepServerCommand}" Text="{Binding Text.KeepServer}" />
                         <Button Grid.Column="1" Command="{Binding ApplyLocalCommand}" Text="{Binding Text.ApplyLocal}" />
@@ -38,65 +46,19 @@
                 </VerticalStackLayout>
             </Border>
 
-            <Button
-                Command="{Binding MatchLastCommand}"
-                FontAttributes="Bold"
-                SemanticProperties.Description="{Binding Text.MatchLast}"
-                Text="{Binding Text.MatchLast}" />
-
-            <Border Padding="16" BackgroundColor="#15181D" Stroke="#2C3139" StrokeShape="RoundRectangle 20">
-                <VerticalStackLayout Spacing="16">
-                    <Grid ColumnDefinitions="*,*" ColumnSpacing="8" IsVisible="{Binding UsesWeight}">
-                        <Button
-                            Command="{Binding UseKilogramsCommand}"
-                            IsEnabled="{Binding IsPounds}"
-                            SemanticProperties.Description="{Binding Text.Kilograms}"
-                            Text="{Binding Text.Kilograms}" />
-                        <Button
-                            Grid.Column="1"
-                            Command="{Binding UsePoundsCommand}"
-                            IsEnabled="{Binding IsKilograms}"
-                            SemanticProperties.Description="{Binding Text.Pounds}"
-                            Text="{Binding Text.Pounds}" />
-                    </Grid>
-                    <components:WeightStepper
-                        Caption="{Binding WeightCaption}"
-                        DecrementCommand="{Binding DecrementWeightCommand}"
-                        DecrementLabel="{Binding DecrementWeightDescription}"
-                        IncrementCommand="{Binding IncrementWeightCommand}"
-                        IncrementLabel="{Binding IncrementWeightDescription}"
-                        IsVisible="{Binding UsesWeight}"
-                        UnitLabel="{Binding WeightUnitLabel}"
-                        Value="{Binding DisplayWeight, Mode=TwoWay}" />
-                    <Label
-                        FontAttributes="Bold"
-                        FontSize="20"
-                        HorizontalTextAlignment="Center"
-                        IsVisible="{Binding IsBodyweight}"
-                        Text="{Binding Text.Bodyweight}"
-                        TextColor="#C8FF3D" />
-                    <components:RepsStepper
-                        Caption="{Binding Text.Reps}"
-                        DecrementCommand="{Binding DecrementRepsCommand}"
-                        DecrementLabel="{Binding DecrementRepsDescription}"
-                        IncrementCommand="{Binding IncrementRepsCommand}"
-                        IncrementLabel="{Binding IncrementRepsDescription}"
-                        Value="{Binding Reps, Mode=TwoWay}" />
-                    <Label FontSize="12" HorizontalTextAlignment="Center" Text="{Binding ValidationMessage}" TextColor="#FFC65C" />
+            <Border x:Name="SavedPulse" Padding="14" BackgroundColor="{DynamicResource TrackZSurfaceRaised}" Opacity="0" Stroke="{DynamicResource TrackZPrimary}" StrokeShape="RoundRectangle 16">
+                <VerticalStackLayout Spacing="2">
+                    <Label x:Name="SavedPrimary" FontAttributes="Bold" HorizontalTextAlignment="Center" TextColor="{DynamicResource TrackZPrimary}" />
+                    <Label x:Name="SavedSecondary" HorizontalTextAlignment="Center" Style="{DynamicResource TrackZSecondaryStyle}" />
                 </VerticalStackLayout>
             </Border>
-
-            <Border x:Name="SavedPulse" Padding="12" BackgroundColor="#173126" Opacity="0" StrokeThickness="0" StrokeShape="RoundRectangle 16">
-                <Label FontAttributes="Bold" HorizontalTextAlignment="Center" Text="{Binding Text.SavedLocally}" TextColor="#62DD91" />
-            </Border>
-            <Label HorizontalTextAlignment="Center" Text="{Binding ErrorMessage}" TextColor="#FF6B6B" />
+            <Label HorizontalTextAlignment="Center" Text="{Binding ErrorMessage}" TextColor="{DynamicResource TrackZDanger}" />
             <Button
-                Command="{Binding CompleteSetCommand}"
-                FontAttributes="Bold"
-                FontSize="17"
-                IsEnabled="{Binding CanCompleteSet}"
-                SemanticProperties.Description="{Binding Text.CompleteSet}"
-                Text="{Binding Text.CompleteSet}" />
+                Clicked="OnLogNextSetClicked"
+                MinimumHeightRequest="54"
+                SemanticProperties.Description="{Binding Text.LogNextSet}"
+                Style="{DynamicResource TrackZPrimaryButtonStyle}"
+                Text="{Binding Text.LogNextSet}" />
             <ActivityIndicator IsRunning="{Binding IsBusy}" IsVisible="{Binding IsBusy}" />
         </VerticalStackLayout>
     </ScrollView>

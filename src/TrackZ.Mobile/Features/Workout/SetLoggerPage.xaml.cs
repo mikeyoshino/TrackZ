@@ -1,5 +1,3 @@
-using TrackZ.Mobile.Data.Models;
-
 namespace TrackZ.Mobile.Features.Workout;
 
 public partial class SetLoggerPage : ContentPage, IQueryAttributable
@@ -7,30 +5,46 @@ public partial class SetLoggerPage : ContentPage, IQueryAttributable
     private readonly SetLoggerViewModel _viewModel;
     private readonly MauiSetSavedFeedback _feedback;
     private readonly ISetSavedPulseDriver _pulse;
+    private readonly SetEntrySheetPage? _entrySheet;
     private bool _wasParented;
     private bool _deactivated;
+    private bool _feedbackSubscribed;
 
     public SetLoggerPage(
         SetLoggerViewModel viewModel,
         MauiSetSavedFeedback feedback,
-        ISetSavedPulseDriver? pulse = null)
+        SetEntrySheetPage entrySheet,
+        Presentation.ITrackZMotion motion)
     {
         _viewModel = viewModel;
         _feedback = feedback;
+        _entrySheet = entrySheet;
         InitializeComponent();
-        _pulse = pulse ?? new MauiSetSavedPulseDriver(SavedPulse);
+        _pulse = new MauiSetSavedPulseDriver(SavedPulse, motion: motion);
+        BindingContext = _viewModel;
+    }
+
+    protected SetLoggerPage(
+        SetLoggerViewModel viewModel,
+        MauiSetSavedFeedback feedback,
+        ISetSavedPulseDriver pulse)
+    {
+        _viewModel = viewModel;
+        _feedback = feedback;
+        _pulse = pulse;
+        InitializeComponent();
         BindingContext = _viewModel;
     }
 
     protected override void OnAppearing()
     {
         base.OnAppearing();
-        if (!_deactivated) _feedback.Saved += OnSetSavedAsync;
+        SubscribeFeedback();
     }
 
     protected override void OnDisappearing()
     {
-        _feedback.Saved -= OnSetSavedAsync;
+        UnsubscribeFeedback();
         base.OnDisappearing();
     }
 
@@ -49,7 +63,7 @@ public partial class SetLoggerPage : ContentPage, IQueryAttributable
     {
         if (_deactivated) return;
         _deactivated = true;
-        _feedback.Saved -= OnSetSavedAsync;
+        UnsubscribeFeedback();
         _viewModel.Deactivate();
         BindingContext = null;
     }
@@ -64,10 +78,42 @@ public partial class SetLoggerPage : ContentPage, IQueryAttributable
         await _viewModel.LoadAsync(exerciseId, Uri.UnescapeDataString(rawName.ToString()!));
     }
 
-    private Task OnSetSavedAsync(LocalSet savedSet, SetSavedFeedbackSession session) =>
-        AnimateSavedAsync(session);
+    private Task OnSetSavedAsync(SetSavedPresentation presentation, SetSavedFeedbackSession session)
+    {
+        SavedPrimary.Text = presentation.PrimaryText;
+        SavedSecondary.Text = presentation.SecondaryText;
+        return RunSavedAnimationAsync(presentation, session);
+    }
 
-    private async Task AnimateSavedAsync(SetSavedFeedbackSession session)
+    private async void OnLogNextSetClicked(object? sender, EventArgs eventArgs)
+    {
+        if (_entrySheet is null) return;
+        UnsubscribeFeedback();
+        try
+        {
+            await _entrySheet.PresentAsync(_viewModel);
+        }
+        finally
+        {
+            SubscribeFeedback();
+        }
+    }
+
+    private void SubscribeFeedback()
+    {
+        if (_deactivated || _feedbackSubscribed) return;
+        _feedback.Saved += OnSetSavedAsync;
+        _feedbackSubscribed = true;
+    }
+
+    private void UnsubscribeFeedback()
+    {
+        if (!_feedbackSubscribed) return;
+        _feedback.Saved -= OnSetSavedAsync;
+        _feedbackSubscribed = false;
+    }
+
+    private async Task RunSavedAnimationAsync(SetSavedPresentation presentation, SetSavedFeedbackSession session)
     {
         using var cancellation = session.CancellationToken.Register(_pulse.Cancel);
         await _pulse.InvokeAsync(async () =>
@@ -75,7 +121,7 @@ public partial class SetLoggerPage : ContentPage, IQueryAttributable
             session.CancellationToken.ThrowIfCancellationRequested();
             Task? running = null;
             if (!session.TryStartPhase(() =>
-                running = _pulse.StartAsync(session.CancellationToken))) return;
+                running = _pulse.StartAsync(presentation.Outcome, session.CancellationToken))) return;
             await running!;
             session.CancellationToken.ThrowIfCancellationRequested();
         });
