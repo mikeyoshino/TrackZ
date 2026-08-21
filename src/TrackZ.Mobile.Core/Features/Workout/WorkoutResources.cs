@@ -110,7 +110,9 @@ public sealed record WorkoutTextSet(
     string MatchedPreviousSecondary,
     string PersonalRecordSaved,
     string PersonalRecordSecondary,
-    string LowerAssistanceProgress);
+    string LowerAssistanceProgress,
+    string NoPreviousSetsYet,
+    string SaveSetNumberFormat);
 
 public static class WorkoutResources
 {
@@ -168,7 +170,8 @@ public static class WorkoutResources
             Value("SetSaved", culture), Value("SetSavedSecondary", culture),
             Value("MatchedPreviousSet", culture), Value("MatchedPreviousSecondary", culture),
             Value("PersonalRecordSaved", culture), Value("PersonalRecordSecondary", culture),
-            Value("LowerAssistanceProgress", culture));
+            Value("LowerAssistanceProgress", culture), Value("NoPreviousSetsYet", culture),
+            Value("SaveSetNumberFormat", culture));
     }
 
     private static string Value(string key, CultureInfo culture) =>

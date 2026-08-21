@@ -111,4 +111,6 @@
   <data name="PersonalRecordSaved" xml:space="preserve"><value>New personal record</value></data>
   <data name="PersonalRecordSecondary" xml:space="preserve"><value>Your strongest known set is saved</value></data>
   <data name="LowerAssistanceProgress" xml:space="preserve"><value>Lower assistance means more of the work is yours.</value></data>
+  <data name="NoPreviousSetsYet" xml:space="preserve"><value>No previous sets yet. Start with set 1.</value></data>
+  <data name="SaveSetNumberFormat" xml:space="preserve"><value>Save set {0}</value></data>
 </root>

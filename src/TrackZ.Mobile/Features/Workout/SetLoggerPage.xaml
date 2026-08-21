@@ -13,29 +13,6 @@
     <Grid Padding="0,16,0,0" RowDefinitions="*,Auto">
         <ScrollView x:Name="SetLoggerScroll">
             <VerticalStackLayout Padding="{DynamicResource TrackZPageBottomContentPadding}" Spacing="{DynamicResource TrackZSpace16}">
-                <Grid ColumnDefinitions="88,*,Auto" ColumnSpacing="{DynamicResource TrackZSpace12}">
-                    <Grid x:Name="SetLoggerArtwork" HeightRequest="{DynamicResource TrackZExerciseArtworkSize}" WidthRequest="{DynamicResource TrackZExerciseArtworkSize}">
-                        <Image Aspect="AspectFit" IsVisible="{Binding HasArtwork}" SemanticProperties.Description="{Binding ExerciseName}" Source="{Binding ThumbnailUri}" />
-                        <Border IsVisible="{Binding ShowsArtworkPlaceholder}" Style="{DynamicResource TrackZArtworkFrameStyle}">
-                            <Image Aspect="AspectFit" HeightRequest="{DynamicResource TrackZMinimumTarget}" Source="exercise_placeholder.png" WidthRequest="{DynamicResource TrackZMinimumTarget}" />
-                        </Border>
-                    </Grid>
-                    <VerticalStackLayout Grid.Column="1" Spacing="{DynamicResource TrackZSpace4}" VerticalOptions="Center">
-                        <Label Style="{DynamicResource TrackZNavigationTitleStyle}" Text="{Binding ExerciseName}" />
-                        <Label Style="{DynamicResource TrackZPerformanceMetadataStyle}" Text="{Binding ExerciseMetadataText}" />
-                        <Label Style="{DynamicResource TrackZPerformanceMetadataStyle}" Text="{Binding PreviousBestText}" />
-                        <Label Style="{DynamicResource TrackZPerformanceMetadataStyle}" Text="{Binding AllTimePrText}" />
-                    </VerticalStackLayout>
-                    <components:SyncStatusPill Grid.Column="2" State="{Binding SyncState}" Text="{Binding SyncStatusText}" VerticalOptions="Start" />
-                </Grid>
-
-                <Border Style="{DynamicResource TrackZCardStyle}">
-                    <Grid ColumnDefinitions="*,*" ColumnSpacing="{DynamicResource TrackZSpace16}">
-                        <components:LastSetTable Header="{Binding Text.Last}" ItemsSource="{Binding LastSets}" />
-                        <components:LastSetTable Grid.Column="1" Header="{Binding Text.Today}" ItemsSource="{Binding TodaySets}" />
-                    </Grid>
-                </Border>
-
                 <Border
                     x:Name="InlineSetEditor"
                     IsVisible="{Binding HasDraftSet}"
@@ -56,17 +33,6 @@
                                 Command="{Binding CancelDraftSetCommand}"
                                 Style="{DynamicResource TrackZQuietButtonStyle}"
                                 Text="{Binding Text.Cancel}" />
-                        </Grid>
-
-                        <Button
-                            Command="{Binding MatchLastCommand}"
-                            SemanticProperties.Description="{Binding Text.MatchLast}"
-                            Style="{DynamicResource TrackZSecondaryButtonStyle}"
-                            Text="{Binding Text.MatchLast}" />
-
-                        <Grid ColumnDefinitions="*,*" ColumnSpacing="{DynamicResource TrackZSpace8}" IsVisible="{Binding UsesWeight}">
-                            <Button Command="{Binding UseKilogramsCommand}" IsEnabled="{Binding IsPounds}" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="{Binding Text.Kilograms}" />
-                            <Button Grid.Column="1" Command="{Binding UsePoundsCommand}" IsEnabled="{Binding IsKilograms}" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="{Binding Text.Pounds}" />
                         </Grid>
 
                         <components:WeightStepper
@@ -94,6 +60,52 @@
 
                         <Label HorizontalTextAlignment="Center" Style="{DynamicResource TrackZInlineErrorStyle}" Text="{Binding ValidationMessage}" />
                     </VerticalStackLayout>
+                </Border>
+
+                <Grid ColumnDefinitions="88,*,Auto" ColumnSpacing="{DynamicResource TrackZSpace12}">
+                    <Grid x:Name="SetLoggerArtwork" HeightRequest="{DynamicResource TrackZExerciseArtworkSize}" WidthRequest="{DynamicResource TrackZExerciseArtworkSize}">
+                        <Image Aspect="AspectFit" IsVisible="{Binding HasArtwork}" SemanticProperties.Description="{Binding ExerciseName}" Source="{Binding ThumbnailUri}" />
+                        <Border IsVisible="{Binding ShowsArtworkPlaceholder}" Style="{DynamicResource TrackZArtworkFrameStyle}">
+                            <Image Aspect="AspectFit" HeightRequest="{DynamicResource TrackZMinimumTarget}" Source="exercise_placeholder.png" WidthRequest="{DynamicResource TrackZMinimumTarget}" />
+                        </Border>
+                    </Grid>
+                    <VerticalStackLayout Grid.Column="1" Spacing="{DynamicResource TrackZSpace4}" VerticalOptions="Center">
+                        <Label Style="{DynamicResource TrackZNavigationTitleStyle}" Text="{Binding ExerciseName}" />
+                        <Label Style="{DynamicResource TrackZPerformanceMetadataStyle}" Text="{Binding ExerciseMetadataText}" />
+                        <Label
+                            x:Name="PreviousBestLabel"
+                            IsVisible="{Binding HasPreviousBest}"
+                            Style="{DynamicResource TrackZPerformanceMetadataStyle}"
+                            Text="{Binding PreviousBestText}" />
+                        <Label
+                            x:Name="AllTimePrLabel"
+                            IsVisible="{Binding HasAllTimePr}"
+                            Style="{DynamicResource TrackZPerformanceMetadataStyle}"
+                            Text="{Binding AllTimePrText}" />
+                    </VerticalStackLayout>
+                    <components:SyncStatusPill
+                        x:Name="SetLoggerSyncStatus"
+                        Grid.Column="2"
+                        IsVisible="{Binding ShowsSyncStatus}"
+                        State="{Binding SyncState}"
+                        Text="{Binding SyncStatusText}"
+                        VerticalOptions="Start" />
+                </Grid>
+
+                <Label
+                    x:Name="NoSetHistoryLabel"
+                    IsVisible="{Binding ShowsNoSetHistory}"
+                    Style="{DynamicResource TrackZBodyStyle}"
+                    Text="{Binding Text.NoPreviousSetsYet}" />
+
+                <Border
+                    x:Name="SetComparisonCard"
+                    IsVisible="{Binding ShowsSetComparison}"
+                    Style="{DynamicResource TrackZCardStyle}">
+                    <Grid ColumnDefinitions="*,*" ColumnSpacing="{DynamicResource TrackZSpace16}">
+                        <components:LastSetTable Header="{Binding Text.Last}" ItemsSource="{Binding LastSets}" />
+                        <components:LastSetTable Grid.Column="1" Header="{Binding Text.Today}" ItemsSource="{Binding TodaySets}" />
+                    </Grid>
                 </Border>
 
                 <Border IsVisible="{Binding HasConflict}" Style="{DynamicResource TrackZCardStyle}" Stroke="{DynamicResource TrackZWarning}">
@@ -132,9 +144,9 @@
                     x:Name="SaveDraftSetButton"
                     Command="{Binding SaveDraftSetCommand}"
                     IsVisible="{Binding HasDraftSet}"
-                    SemanticProperties.Description="{Binding Text.SaveSet}"
+                    SemanticProperties.Description="{Binding SaveDraftSetText}"
                     Style="{DynamicResource TrackZPrimaryButtonStyle}"
-                    Text="{Binding Text.SaveSet}" />
+                    Text="{Binding SaveDraftSetText}" />
             </Grid>
         </Border>
     </Grid>

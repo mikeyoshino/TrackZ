@@ -188,6 +188,7 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         ApplyLocalCommand = new AsyncCommand(_ => ResolveConflictAsync(keepServer: false), _ => CanResolveConflict);
         _boundary.SessionReset += OnSessionReset;
         _connectivity.ConnectivityChanged += OnConnectivityChanged;
+        if (_unitPreference is not null) _unitPreference.Changed += OnWeightUnitChanged;
     }
 
     public ObservableCollection<SetDisplayRow> LastSets { get; } = [];
@@ -388,10 +389,13 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(CanCancelDraftSet));
             OnPropertyChanged(nameof(CanSaveDraftSet));
             OnPropertyChanged(nameof(HasNoDraftSet));
+            OnPropertyChanged(nameof(ShowsSetComparison));
             RaiseCommands();
         }
     }
     public bool HasNoDraftSet => !HasDraftSet;
+    public bool ShowsNoSetHistory => LastSets.Count == 0 && TodaySets.Count == 0;
+    public bool ShowsSetComparison => !HasDraftSet && !ShowsNoSetHistory;
     public bool CanBeginSet => !_disposed && !IsBusy && _exerciseId != Guid.Empty && !HasDraftSet;
     public bool CanCancelDraftSet => !_disposed && !IsBusy && HasDraftSet;
     public bool CanSaveDraftSet => HasDraftSet && CanCompleteSet;
@@ -401,6 +405,10 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
     public string NextSetText => string.Format(
         CultureInfo.CurrentCulture,
         _text.NextSetFormat,
+        NextSetNumber);
+    public string SaveDraftSetText => string.Format(
+        CultureInfo.CurrentCulture,
+        _text.SaveSetNumberFormat,
         NextSetNumber);
     public string? ValidationMessage => IsValidMeasurement() ? null : TrackingMode switch
     {
@@ -416,6 +424,7 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         {
             if (!Set(ref _syncState, value)) return;
             OnPropertyChanged(nameof(SyncStatusText));
+            OnPropertyChanged(nameof(ShowsSyncStatus));
             OnPropertyChanged(nameof(IsReconciling));
             RaiseCommands();
         }
@@ -431,6 +440,9 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         WorkoutSyncState.PermanentFailure => _text.PermanentFailure,
         _ => _text.Synced
     };
+    public bool ShowsSyncStatus => SyncState != WorkoutSyncState.Synced;
+    public bool HasPreviousBest => LastSets.Count > 0 || _cachedExercise?.LastBestSet is not null;
+    public bool HasAllTimePr => _cachedExercise?.AllTimeBest is not null;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -491,8 +503,7 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
             foreach (var set in exercise.Sets.Where(item => item.DeletedAt is null).OrderBy(item => item.Order))
                 TodaySets.Add(Row(set, exercise.TrackingMode));
             RefreshExerciseContext();
-            OnPropertyChanged(nameof(NextSetNumber));
-            OnPropertyChanged(nameof(NextSetText));
+            PublishSetPresentationState();
             MatchLast();
             await RefreshSyncStateCoreAsync(token);
             loaded = true;
@@ -506,8 +517,12 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         catch (Exception) when (!_disposed && !_boundary.IsCancellationRequested(generation))
         {
             _exerciseId = Guid.Empty;
+            _cachedExercise = null;
+            PreviousBestText = string.Empty;
+            AllTimePrText = string.Empty;
             LastSets.Clear();
             TodaySets.Clear();
+            PublishSetPresentationState();
             ErrorMessage = _text.LoadFailed;
         }
         finally
@@ -559,6 +574,7 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
             foreach (var set in ordered) LastSets.Add(Row(set, expectedMode));
             _lastHistoryCompletedAt = refreshed.CompletedAt;
             RefreshExerciseContext();
+            PublishSetPresentationState();
             OnPropertyChanged(nameof(CanMatchLast));
             MeasurementChanged();
         }
@@ -643,9 +659,7 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
             TodaySets.Add(Row(saved, TrackingMode));
             HasDraftSet = false;
             OnPropertyChanged(nameof(CanMatchLast));
-            OnPropertyChanged(nameof(NextSetNumber));
-            OnPropertyChanged(nameof(NextSetText));
-            OnPropertyChanged(nameof(DraftSetNumber));
+            PublishSetPresentationState();
             try
             {
                 await RefreshSyncStateCoreAsync(token);
@@ -1004,7 +1018,7 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
 
     private string MeasurementValue(decimal? kilograms) =>
         DisplayKilograms(kilograms)?.ToString(
-            DisplayUnit == WeightDisplayUnit.Kilograms ? "0.###" : "0.##",
+            DisplayUnit == WeightDisplayUnit.Kilograms ? "0.###" : "0.00",
             CultureInfo.CurrentCulture) ?? string.Empty;
 
     private void RefreshMeasurementRows()
@@ -1031,16 +1045,32 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
     private void RefreshExerciseContext()
     {
         var best = Best(LastSets);
-        PreviousBestText = string.Format(
-            CultureInfo.CurrentCulture,
-            _text.PerformanceLastFormat,
-            best?.MeasurementText ?? "—");
-        AllTimePrText = _cachedExercise is null
+        var cachedPresentation = _cachedExercise is null
+            ? null
+            : new ExercisePickerItem(_cachedExercise, _text, _unitPreference);
+        PreviousBestText = best is not null
             ? string.Format(
                 CultureInfo.CurrentCulture,
-                _text.PerformancePrFormat,
-                best?.MeasurementText ?? "—")
-            : new ExercisePickerItem(_cachedExercise, _text, _unitPreference).PersonalRecordText;
+                _text.PerformanceLastFormat,
+                best.MeasurementText)
+            : _cachedExercise?.LastBestSet is not null
+                ? cachedPresentation!.LastText
+                : string.Empty;
+        AllTimePrText = _cachedExercise?.AllTimeBest is not null
+            ? cachedPresentation!.PersonalRecordText
+            : string.Empty;
+    }
+
+    private void PublishSetPresentationState()
+    {
+        OnPropertyChanged(nameof(ShowsNoSetHistory));
+        OnPropertyChanged(nameof(ShowsSetComparison));
+        OnPropertyChanged(nameof(HasPreviousBest));
+        OnPropertyChanged(nameof(HasAllTimePr));
+        OnPropertyChanged(nameof(NextSetNumber));
+        OnPropertyChanged(nameof(NextSetText));
+        OnPropertyChanged(nameof(DraftSetNumber));
+        OnPropertyChanged(nameof(SaveDraftSetText));
     }
 
     private SetDisplayRow? Best(IEnumerable<SetDisplayRow> rows) => TrackingMode switch
@@ -1098,6 +1128,7 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         _lifetime.Cancel();
         _boundary.SessionReset -= OnSessionReset;
         _connectivity.ConnectivityChanged -= OnConnectivityChanged;
+        if (_unitPreference is not null) _unitPreference.Changed -= OnWeightUnitChanged;
         HasDraftSet = false;
         if (_isBusy)
         {
@@ -1125,9 +1156,7 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         LastSets.Clear();
         TodaySets.Clear();
         HasDraftSet = false;
-        OnPropertyChanged(nameof(NextSetNumber));
-        OnPropertyChanged(nameof(NextSetText));
-        OnPropertyChanged(nameof(DraftSetNumber));
+        PublishSetPresentationState();
         WeightKg = null;
         AssistedKg = null;
         Reps = 0;
@@ -1142,6 +1171,12 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         if (_disposed) return;
         try { await RefreshSyncStateAsync(_lifetime.Token); }
         catch (Exception) { if (!_disposed) SyncState = WorkoutSyncState.Offline; }
+    }
+
+    private void OnWeightUnitChanged(object? sender, EventArgs eventArgs)
+    {
+        if (_disposed || _unitPreference is null) return;
+        DisplayUnit = _unitPreference.Current;
     }
 
     private bool Set<T>(ref T field, T value, [CallerMemberName] string? name = null)

@@ -26,6 +26,101 @@ public sealed class SetLoggerViewModelTests : IDisposable
     private readonly string _databasePath = Path.Combine(Path.GetTempPath(), $"trackz-logger-{Guid.NewGuid():N}.db");
 
     [Fact]
+    public async Task Empty_logger_exposes_a_friendly_action_first_state_without_technical_noise()
+    {
+        var fixture = await CreateFixtureAsync(TrackingMode.Assisted);
+        var sut = fixture.CreateLogger(null, status: new EmptyStatusSource());
+
+        await sut.LoadAsync(ExerciseId, "Assisted Pull-Up");
+
+        Assert.True(sut.ShowsNoSetHistory);
+        Assert.False(sut.ShowsSetComparison);
+        Assert.False(sut.ShowsSyncStatus);
+        Assert.False(sut.HasPreviousBest);
+        Assert.False(sut.HasAllTimePr);
+        Assert.Equal("No previous sets yet. Start with set 1.", sut.Text.NoPreviousSetsYet);
+    }
+
+    [Fact]
+    public async Task Previous_session_without_catalog_metadata_never_masquerades_as_an_all_time_pr()
+    {
+        var fixture = await CreateFixtureAsync(TrackingMode.Weighted);
+        var sut = fixture.CreateLogger(Previous(
+            TrackingMode.Weighted,
+            Set(0, 70m, null, 10)));
+
+        await sut.LoadAsync(ExerciseId, "Bench Press");
+
+        Assert.True(sut.HasPreviousBest);
+        Assert.False(sut.HasAllTimePr);
+        Assert.Equal(string.Empty, sut.AllTimePrText);
+    }
+
+    [Fact]
+    public async Task Draft_and_durable_save_publish_action_first_binding_notifications()
+    {
+        var fixture = await CreateFixtureAsync(TrackingMode.Bodyweight);
+        var sut = fixture.CreateLogger(null);
+        await sut.LoadAsync(ExerciseId, "Pull-Up");
+        var changed = new List<string?>();
+        sut.PropertyChanged += (_, eventArgs) => changed.Add(eventArgs.PropertyName);
+
+        sut.BeginSetCommand.Execute(null);
+
+        Assert.Contains(nameof(sut.ShowsSetComparison), changed);
+        changed.Clear();
+        sut.Reps = 8;
+        await sut.SaveDraftSetCommand.ExecuteAsync();
+        Assert.Contains(nameof(sut.ShowsNoSetHistory), changed);
+        Assert.Contains(nameof(sut.ShowsSetComparison), changed);
+        Assert.Contains(nameof(sut.SaveDraftSetText), changed);
+    }
+
+    [Fact]
+    public async Task Opening_a_draft_prioritizes_the_numbered_save_action_over_comparison_history()
+    {
+        var fixture = await CreateFixtureAsync(TrackingMode.Weighted);
+        var sut = fixture.CreateLogger(Previous(
+            TrackingMode.Weighted,
+            Set(0, 70m, null, 10)));
+        await sut.LoadAsync(ExerciseId, "Bench Press");
+        Assert.True(sut.ShowsSetComparison);
+
+        sut.BeginSetCommand.Execute(null);
+
+        Assert.False(sut.ShowsSetComparison);
+        Assert.Equal("Save set 1", sut.SaveDraftSetText);
+    }
+
+    [Fact]
+    public async Task Saving_the_first_set_reveals_today_history_and_advances_the_next_save_label()
+    {
+        var fixture = await CreateFixtureAsync(TrackingMode.Bodyweight);
+        var sut = fixture.CreateLogger(null);
+        await sut.LoadAsync(ExerciseId, "Pull-Up");
+        sut.BeginSetCommand.Execute(null);
+        sut.Reps = 8;
+
+        await sut.SaveDraftSetCommand.ExecuteAsync();
+
+        Assert.False(sut.ShowsNoSetHistory);
+        Assert.True(sut.ShowsSetComparison);
+        Assert.Equal("Save set 2", sut.SaveDraftSetText);
+    }
+
+    [Fact]
+    public void Action_first_copy_is_localized_in_English_and_Thai()
+    {
+        var english = WorkoutResources.ForCulture(CultureInfo.GetCultureInfo("en-US"));
+        var thai = WorkoutResources.ForCulture(CultureInfo.GetCultureInfo("th-TH"));
+
+        Assert.Equal("No previous sets yet. Start with set 1.", english.NoPreviousSetsYet);
+        Assert.Equal("Save set {0}", english.SaveSetNumberFormat);
+        Assert.Equal("ยังไม่มีเซ็ตครั้งก่อน เริ่มที่เซ็ต 1 ได้เลย", thai.NoPreviousSetsYet);
+        Assert.Equal("บันทึกเซ็ต {0}", thai.SaveSetNumberFormat);
+    }
+
+    [Fact]
     public async Task Add_set_opens_one_inline_draft_without_persisting_a_set_or_outbox_operation()
     {
         var fixture = await CreateFixtureAsync(TrackingMode.Weighted);
@@ -149,10 +244,14 @@ public sealed class SetLoggerViewModelTests : IDisposable
         sut.Reps = 10;
         Assert.True(sut.CanCompleteSet);
         Assert.Equal(70m, Assert.Single(sut.LastSets).WeightKg);
+        var changed = new List<string?>();
+        sut.PropertyChanged += (_, eventArgs) => changed.Add(eventArgs.PropertyName);
         await history.RemoteEntered.Task.WaitAsync(TimeSpan.FromSeconds(1));
         history.ReleaseRemote.TrySetResult();
         await sut.HistoryRefreshCompletion.WaitAsync(TimeSpan.FromSeconds(1));
         Assert.Equal(80m, Assert.Single(sut.LastSets).WeightKg);
+        Assert.Contains(nameof(sut.HasPreviousBest), changed);
+        Assert.Contains(nameof(sut.ShowsSetComparison), changed);
     }
 
     [Fact]
@@ -303,6 +402,24 @@ public sealed class SetLoggerViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task Retained_logger_tracks_weight_unit_changes_made_elsewhere_in_the_app()
+    {
+        var fixture = await CreateFixtureAsync(TrackingMode.Weighted);
+        var preference = new WeightUnitPreference(new MemoryWorkoutPreferenceStore());
+        var sut = fixture.CreateLogger(
+            Previous(TrackingMode.Weighted, Set(0, 70.125m, null, 8)),
+            unitPreference: preference);
+        await sut.LoadAsync(ExerciseId, "Bench Press");
+        sut.BeginSetCommand.Execute(null);
+
+        preference.Set(WeightDisplayUnit.Pounds);
+
+        Assert.Equal(WeightDisplayUnit.Pounds, sut.DisplayUnit);
+        Assert.Equal("154.60 lb × 8", Assert.Single(sut.LastSets).MeasurementText);
+        Assert.Equal(154.60m, sut.DisplayWeight);
+    }
+
+    [Fact]
     public async Task Unit_selector_command_persists_across_logger_composition_and_uses_Thai_labels()
     {
         var fixture = await CreateFixtureAsync(TrackingMode.Assisted);
@@ -425,6 +542,7 @@ public sealed class SetLoggerViewModelTests : IDisposable
 
             Assert.Equal("/cache/bench-press.jpg", sut.ThumbnailUri);
             Assert.Contains("Chest", sut.ExerciseMetadataText, StringComparison.Ordinal);
+            Assert.True(sut.HasAllTimePr);
             Assert.Contains("80 kg", sut.AllTimePrText, StringComparison.Ordinal);
             Assert.Equal(SetSavedOutcome.Saved, Assert.Single(fixture.Feedback.Presentations).Outcome);
         }
@@ -1417,6 +1535,24 @@ public sealed class SetLoggerViewModelTests : IDisposable
             ReadCount++;
             return inner.RejectedAsync(workoutId, cancellationToken);
         }
+    }
+
+    private sealed class EmptyStatusSource : IWorkoutOutboxStatusSource
+    {
+        public Task<IReadOnlyList<OutboxOperation>> PendingAsync(
+            Guid workoutId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<OutboxOperation>>([]);
+
+        public Task<IReadOnlyList<OutboxOperation>> ConflictedAsync(
+            Guid workoutId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<OutboxOperation>>([]);
+
+        public Task<IReadOnlyList<OutboxOperation>> RejectedAsync(
+            Guid workoutId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<OutboxOperation>>([]);
     }
 
     private sealed class ConflictStatusSource(OutboxOperation conflict) : IWorkoutOutboxStatusSource

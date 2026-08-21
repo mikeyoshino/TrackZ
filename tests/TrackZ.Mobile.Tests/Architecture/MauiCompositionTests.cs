@@ -612,6 +612,8 @@ public sealed class MauiCompositionTests
                 firstLogger.SaveDraftSetCommand,
                 Assert.IsType<Button>(firstPage.FindByName("SaveDraftSetButton")).Command);
             Assert.False(Assert.IsType<Border>(firstPage.FindByName("InlineSetEditor")).IsVisible);
+            Assert.False(
+                Assert.IsType<SyncStatusPill>(firstPage.FindByName("SetLoggerSyncStatus")).IsVisible);
             Assert.Same(concreteStatus, interfaceStatus);
             Assert.Same(interfaceStatus, app.Services.GetRequiredService<IWorkoutOutboxStatusSource>());
             Assert.IsType<WorkoutHistoryViewModel>(firstHistoryPage.BindingContext);
@@ -719,15 +721,44 @@ public sealed class MauiCompositionTests
             transition);
         page.Appear();
 
+        var scroll = page.FindByName<ScrollView>("SetLoggerScroll");
+        var content = Assert.IsType<VerticalStackLayout>(scroll.Content);
+        var editor = page.FindByName<Border>("InlineSetEditor");
+        var comparison = Assert.IsType<Border>(page.FindByName("SetComparisonCard"));
+        var noHistory = Assert.IsType<Label>(page.FindByName("NoSetHistoryLabel"));
+        var previousBest = Assert.IsType<Label>(page.FindByName("PreviousBestLabel"));
+        var allTimePr = Assert.IsType<Label>(page.FindByName("AllTimePrLabel"));
+        var sync = Assert.IsType<SyncStatusPill>(page.FindByName("SetLoggerSyncStatus"));
+        var addButton = page.FindByName<Button>("AddSetButton");
+        var saveButton = page.FindByName<Button>("SaveDraftSetButton");
+        var weightStepper = page.FindByName<WeightStepper>("DraftWeightStepper");
+        var repsStepper = page.FindByName<RepsStepper>("DraftRepsStepper");
+        Assert.Same(editor, content.Children[0]);
+        Assert.True(content.Children.IndexOf(editor) < content.Children.IndexOf(comparison));
+        Assert.True(noHistory.IsVisible);
+        Assert.Equal(logger.Text.NoPreviousSetsYet, noHistory.Text);
+        Assert.False(comparison.IsVisible);
+        Assert.False(previousBest.IsVisible);
+        Assert.False(allTimePr.IsVisible);
+        Assert.True(sync.IsVisible);
+
         logger.BeginSetCommand.Execute(null);
         var cancelledReveal = await transition.NextAttemptAsync();
 
-        Assert.Same(page.FindByName<ScrollView>("SetLoggerScroll"), cancelledReveal.Scroll);
-        Assert.Same(page.FindByName<Border>("InlineSetEditor"), cancelledReveal.Editor);
-        Assert.Same(
-            page.FindByName<WeightStepper>("DraftWeightStepper").Input,
-            cancelledReveal.FocusTarget);
-        Assert.IsType<Entry>(cancelledReveal.FocusTarget);
+        Assert.True(editor.IsVisible);
+        Assert.False(comparison.IsVisible);
+        Assert.True(noHistory.IsVisible);
+        Assert.False(addButton.IsVisible);
+        Assert.True(saveButton.IsVisible);
+        Assert.Equal("Save set 1", saveButton.Text);
+        Assert.Equal("Save set 1", SemanticProperties.GetDescription(saveButton));
+        Assert.True(weightStepper.IsVisible);
+        Assert.True(repsStepper.IsVisible);
+        Assert.False(weightStepper.Input.IsFocused);
+        Assert.False(repsStepper.Input.IsFocused);
+
+        Assert.Same(scroll, cancelledReveal.Scroll);
+        Assert.Same(editor, cancelledReveal.Editor);
         Assert.Equal("Set 1", cancelledReveal.Announcement);
 
         logger.CancelDraftSetCommand.Execute(null);
@@ -759,7 +790,11 @@ public sealed class MauiCompositionTests
 
         Assert.False(logger.IsBusy);
         Assert.True(logger.CanBeginSet);
-        Assert.Same(page.FindByName<Button>("AddSetButton"), saveRestore);
+        Assert.Same(addButton, saveRestore);
+        Assert.False(editor.IsVisible);
+        Assert.True(comparison.IsVisible);
+        Assert.False(noHistory.IsVisible);
+        Assert.Equal("Save set 2", saveButton.Text);
 
         logger.BeginSetCommand.Execute(null);
         var deactivatedReveal = await transition.NextAttemptAsync();
@@ -859,14 +894,12 @@ public sealed class MauiCompositionTests
         public async Task RevealAsync(
             ScrollView scroll,
             VisualElement editor,
-            VisualElement focusTarget,
             string announcement,
             CancellationToken cancellationToken)
         {
             var attempt = new RevealAttempt(
                 scroll,
                 editor,
-                focusTarget,
                 announcement,
                 cancellationToken);
             lock (_attempts) _attempts.Enqueue(attempt);
@@ -908,13 +941,11 @@ public sealed class MauiCompositionTests
         public sealed class RevealAttempt(
             ScrollView scroll,
             VisualElement editor,
-            VisualElement focusTarget,
             string announcement,
             CancellationToken cancellationToken)
         {
             public ScrollView Scroll { get; } = scroll;
             public VisualElement Editor { get; } = editor;
-            public VisualElement FocusTarget { get; } = focusTarget;
             public string Announcement { get; } = announcement;
             public CancellationToken CancellationToken { get; } = cancellationToken;
             public TaskCompletionSource Release { get; } =

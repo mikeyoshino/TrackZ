@@ -111,4 +111,6 @@
   <data name="PersonalRecordSaved" xml:space="preserve"><value>สถิติส่วนตัวใหม่</value></data>
   <data name="PersonalRecordSecondary" xml:space="preserve"><value>บันทึกเซ็ตที่ดีที่สุดของคุณแล้ว</value></data>
   <data name="LowerAssistanceProgress" xml:space="preserve"><value>แรงช่วยที่น้อยลงหมายถึงคุณออกแรงเองมากขึ้น</value></data>
+  <data name="NoPreviousSetsYet" xml:space="preserve"><value>ยังไม่มีเซ็ตครั้งก่อน เริ่มที่เซ็ต 1 ได้เลย</value></data>
+  <data name="SaveSetNumberFormat" xml:space="preserve"><value>บันทึกเซ็ต {0}</value></data>
 </root>

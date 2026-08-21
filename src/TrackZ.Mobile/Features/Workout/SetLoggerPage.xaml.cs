@@ -183,13 +183,9 @@ public partial class SetLoggerPage : ContentPage, IQueryAttributable
     {
         try
         {
-            var focusTarget = _viewModel.UsesWeight
-                ? DraftWeightStepper.Input
-                : DraftRepsStepper.Input;
             await _inlineTransition.RevealAsync(
                 SetLoggerScroll,
                 InlineSetEditor,
-                focusTarget,
                 _viewModel.NextSetText,
                 cancellation.Token);
         }
