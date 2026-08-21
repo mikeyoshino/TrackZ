@@ -42,7 +42,7 @@
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <Border HeightRequest="{DynamicResource TrackZExerciseArtworkSize}" WidthRequest="{DynamicResource TrackZExerciseArtworkSize}" Style="{DynamicResource TrackZArtworkFrameStyle}">
+                                <Border x:Name="RecentWorkoutArtwork" HeightRequest="{DynamicResource TrackZExerciseArtworkSize}" WidthRequest="{DynamicResource TrackZExerciseArtworkSize}" Style="{DynamicResource TrackZArtworkFrameStyle}">
                                     <Image Aspect="AspectFill" SemanticProperties.Description="{Binding Title}" Source="{Binding ThumbnailPath}" />
                                 </Border>
                                 <VerticalStackLayout Grid.Column="1" VerticalOptions="Center" Spacing="{DynamicResource TrackZSpace4}">

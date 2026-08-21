@@ -70,6 +70,27 @@ public sealed class AppWideVisualConsistencyTests
             ["Features/Profile/ProfilePage.xaml"] = 1
         };
 
+    private static readonly IReadOnlyDictionary<string, ArtworkContract[]> ArtworkContracts =
+        new Dictionary<string, ArtworkContract[]>(StringComparer.Ordinal)
+        {
+            ["Features/Train/TrainPage.xaml"] =
+            [
+                new(
+                    "RecentWorkoutArtwork",
+                    "Border",
+                    "ContentPage/Grid/Grid/CollectionView/CollectionView.ItemTemplate/DataTemplate/Border/Grid/Border",
+                    "TrackZArtworkFrameStyle")
+            ],
+            ["Features/Workout/SetLoggerPage.xaml"] =
+            [
+                new(
+                    "SetLoggerArtwork",
+                    "Grid",
+                    "ContentPage/Grid/ScrollView/VerticalStackLayout/Grid/Grid",
+                    null)
+            ]
+        };
+
     private static readonly string[] RootTitlePages =
     [
         "Features/Auth/SignInPage.xaml",
@@ -170,21 +191,21 @@ public sealed class AppWideVisualConsistencyTests
     }
 
     [Fact]
-    public void Auth_header_geometry_reserves_equal_composed_space_without_weakening_title_roles()
+    public void Auth_anchor_geometry_is_independent_of_measured_header_height_without_weakening_title_roles()
     {
         var signIn = XDocument.Load(Path.Combine(MobileDirectory(), "Features/Auth/SignInPage.xaml"));
         var create = XDocument.Load(Path.Combine(MobileDirectory(), "Features/Auth/CreateAccountPage.xaml"));
-        var controls = XDocument.Load(Path.Combine(MobileDirectory(), "Resources/Styles/TrackZControls.xaml"));
-        var typography = XDocument.Load(Path.Combine(MobileDirectory(), "Resources/Styles/TrackZTypography.xaml"));
 
-        Assert.Empty(AuditAuthHeaderGeometry(signIn, create, controls, typography));
+        Assert.Empty(AuditAuthHeaderGeometry(signIn, create));
 
         var mutatedCreate = new XDocument(create);
-        var mutatedHeader = Assert.Single(mutatedCreate.Root!.Elements()).Elements().First();
-        mutatedHeader.SetAttributeValue("MinimumHeightRequest", "44");
+        var mutatedRoot = Assert.Single(mutatedCreate.Root!.Elements());
+        mutatedRoot.SetAttributeValue("RowDefinitions", "Auto,*,Auto");
+        mutatedRoot.Elements().ElementAt(1).SetAttributeValue(XName.Get("Row", "http://schemas.microsoft.com/dotnet/2021/maui"), "1");
+        mutatedRoot.Elements().ElementAt(2).SetAttributeValue(XName.Get("Row", "http://schemas.microsoft.com/dotnet/2021/maui"), "2");
         Assert.Contains(
-            AuditAuthHeaderGeometry(signIn, mutatedCreate, controls, typography),
-            error => error.Contains("shared semantic minimum", StringComparison.Ordinal));
+            AuditAuthHeaderGeometry(signIn, mutatedCreate),
+            error => error.Contains("header-independent overlay", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -232,24 +253,44 @@ public sealed class AppWideVisualConsistencyTests
         Assert.Contains(errors, error => error.Contains("visible/action-capable primary action", StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData("0")]
+    [InlineData("0.0")]
+    public void Audit_rejects_a_page_whose_only_primary_action_has_static_zero_opacity(string opacity)
+    {
+        const string train = "Features/Train/TrainPage.xaml";
+        var document = XDocument.Load(Path.Combine(MobileDirectory(), train));
+        var primary = Assert.Single(document.Descendants(), element =>
+            element.Name.LocalName == "Button" && ResourceKey(element.Attribute("Style")?.Value) == "TrackZPrimaryButtonStyle");
+        primary.SetAttributeValue("Opacity", opacity);
+
+        var errors = AuditPage(train, document).ToArray();
+
+        Assert.Contains(errors, error => error.Contains("visible/action-capable primary action", StringComparison.Ordinal));
+    }
+
     [Fact]
     public void Train_recent_artwork_column_reserves_the_semantic_artwork_width_and_gap()
     {
         var train = XDocument.Load(Path.Combine(MobileDirectory(), "Features/Train/TrainPage.xaml"));
-        Assert.Empty(AuditArtworkGridGeometry(train));
+        Assert.Empty(AuditArtworkGridGeometry("Features/Train/TrainPage.xaml", train));
 
         var mutated = new XDocument(train);
-        var artwork = Assert.Single(mutated.Descendants(), element => ResourceKey(element.Attribute("WidthRequest")?.Value) == "TrackZExerciseArtworkSize");
-        var grid = ArtworkColumnGrid(artwork)!;
-        var definitions = grid.Elements().SingleOrDefault(element => element.Name.LocalName == "Grid.ColumnDefinitions");
-        if (definitions is null)
-            grid.SetAttributeValue("ColumnDefinitions", "56,*,Auto");
-        else
-            definitions.Elements().First().SetAttributeValue("Width", "56");
+        var artwork = Assert.Single(mutated.Descendants(), element =>
+            element.Attribute(XName.Get("Name", "http://schemas.microsoft.com/winfx/2009/xaml"))?.Value == "RecentWorkoutArtwork");
+        artwork.SetAttributeValue("WidthRequest", "{DynamicResource TrackZExerciseCardHeight}");
 
         Assert.Contains(
-            AuditArtworkGridGeometry(mutated),
-            error => error.Contains("artwork column", StringComparison.Ordinal));
+            AuditArtworkGridGeometry("Features/Train/TrainPage.xaml", mutated),
+            error => error.Contains("artwork width", StringComparison.Ordinal));
+
+        var heightMutation = new XDocument(train);
+        var heightArtwork = Assert.Single(heightMutation.Descendants(), element =>
+            element.Attribute(XName.Get("Name", "http://schemas.microsoft.com/winfx/2009/xaml"))?.Value == "RecentWorkoutArtwork");
+        heightArtwork.SetAttributeValue("HeightRequest", "{DynamicResource TrackZExerciseCardHeight}");
+        Assert.Contains(
+            AuditArtworkGridGeometry("Features/Train/TrainPage.xaml", heightMutation),
+            error => error.Contains("height and width", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -398,7 +439,7 @@ public sealed class AppWideVisualConsistencyTests
 
         foreach (var error in AuditCommon(document))
             yield return error;
-        foreach (var error in AuditArtworkGridGeometry(document))
+        foreach (var error in AuditArtworkGridGeometry(relativePath, document))
             yield return error;
 
         if (!string.Equals(relativePath, "Features/Auth/AuthGatePage.xaml", StringComparison.Ordinal))
@@ -496,11 +537,25 @@ public sealed class AppWideVisualConsistencyTests
         }
     }
 
-    private static IEnumerable<string> AuditArtworkGridGeometry(XDocument document)
+    private static IEnumerable<string> AuditArtworkGridGeometry(string relativePath, XDocument document)
     {
-        foreach (var artwork in document.Descendants().Where(element =>
-                     ResourceKey(element.Attribute("WidthRequest")?.Value) == "TrackZExerciseArtworkSize"))
+        if (!ArtworkContracts.TryGetValue(relativePath, out var contracts))
+            yield break;
+
+        foreach (var contract in contracts)
         {
+            var artwork = document.Descendants().SingleOrDefault(element =>
+                element.Attribute(XName.Get("Name", "http://schemas.microsoft.com/winfx/2009/xaml"))?.Value == contract.Name);
+            if (artwork is null)
+            {
+                yield return $"Shipped artwork role '{contract.Name}' is missing from {relativePath}.";
+                continue;
+            }
+            if (artwork.Name.LocalName != contract.ElementType ||
+                ElementRolePath(artwork) != contract.Path ||
+                contract.Style is not null && ResourceKey(artwork.Attribute("Style")?.Value) != contract.Style)
+                yield return $"Shipped artwork role '{contract.Name}' must remain at its exact page path and semantic role.";
+
             var grid = ArtworkColumnGrid(artwork);
             if (grid is null)
             {
@@ -512,13 +567,35 @@ public sealed class AppWideVisualConsistencyTests
                 .SingleOrDefault(element => element.Name.LocalName == "Grid.ColumnDefinitions")?
                 .Elements().FirstOrDefault()?.Attribute("Width")?.Value
                 ?? grid.Attribute("ColumnDefinitions")?.Value.Split(',').FirstOrDefault();
-            var widthMatches = ResourceKey(firstWidth) == "TrackZExerciseArtworkColumnWidth" ||
-                double.TryParse(firstWidth, NumberStyles.Number, CultureInfo.InvariantCulture, out var width) && width == 88d;
-            if (!widthMatches)
-                yield return $"Exercise artwork column must reserve the semantic 88-point artwork column; found '{firstWidth ?? "missing"}'.";
+            var artworkWidth = ResolveDimension(artwork.Attribute("WidthRequest")?.Value);
+            var artworkHeight = ResolveDimension(artwork.Attribute("HeightRequest")?.Value);
+            var columnWidth = ResolveDimension(firstWidth);
+            if (artworkWidth != 88d || columnWidth != artworkWidth)
+                yield return $"Exercise artwork width must resolve to 88 and exactly match its reserved column; artwork '{artwork.Attribute("WidthRequest")?.Value ?? "missing"}', column '{firstWidth ?? "missing"}'.";
+            if (artworkHeight != artworkWidth)
+                yield return $"Exercise artwork height and width must resolve to the same stable geometry; height '{artwork.Attribute("HeightRequest")?.Value ?? "missing"}', width '{artwork.Attribute("WidthRequest")?.Value ?? "missing"}'.";
             if (ResourceKey(grid.Attribute("ColumnSpacing")?.Value) != "TrackZSpace12")
                 yield return "Exercise artwork column must retain the semantic 12-point text gap.";
         }
+    }
+
+    private static string ElementRolePath(XElement element) =>
+        string.Join('/', element.AncestorsAndSelf().Reverse().Select(ancestor => ancestor.Name.LocalName));
+
+    private static double? ResolveDimension(string? declaration)
+    {
+        if (double.TryParse(declaration, NumberStyles.Number, CultureInfo.InvariantCulture, out var literal))
+            return literal;
+        var key = ResourceKey(declaration);
+        if (key is null) return null;
+        foreach (var file in Directory.EnumerateFiles(Path.Combine(MobileDirectory(), "Resources/Styles"), "*.xaml"))
+        {
+            var resource = XDocument.Load(file).Descendants().SingleOrDefault(element =>
+                element.Attribute(XName.Get("Key", "http://schemas.microsoft.com/winfx/2009/xaml"))?.Value == key);
+            if (double.TryParse(resource?.Value, NumberStyles.Number, CultureInfo.InvariantCulture, out var resolved))
+                return resolved;
+        }
+        return null;
     }
 
     private static XElement? ArtworkColumnGrid(XElement artwork) =>
@@ -526,6 +603,8 @@ public sealed class AppWideVisualConsistencyTests
             element.Name.LocalName == "Grid" &&
             (element.Attribute("ColumnDefinitions") is not null ||
              element.Elements().Any(child => child.Name.LocalName == "Grid.ColumnDefinitions")));
+
+    private sealed record ArtworkContract(string Name, string ElementType, string Path, string? Style);
 
     private static readonly string[] PagePaddingKeys =
     [
@@ -579,7 +658,11 @@ public sealed class AppWideVisualConsistencyTests
     private static bool IsStaticallyActionCapable(XElement element) =>
         !string.Equals(element.Attribute("IsVisible")?.Value, "False", StringComparison.OrdinalIgnoreCase) &&
         !string.Equals(element.Attribute("IsEnabled")?.Value, "False", StringComparison.OrdinalIgnoreCase) &&
-        !string.Equals(element.Attribute("InputTransparent")?.Value, "True", StringComparison.OrdinalIgnoreCase);
+        !string.Equals(element.Attribute("InputTransparent")?.Value, "True", StringComparison.OrdinalIgnoreCase) &&
+        !IsStaticZero(element.Attribute("Opacity")?.Value);
+
+    private static bool IsStaticZero(string? value) =>
+        double.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out var number) && number == 0d;
 
     private static string? ResourceKey(string? value)
     {
@@ -611,40 +694,12 @@ public sealed class AppWideVisualConsistencyTests
         Assert.Equal("{Binding HasAuthoritativeProgressData}", element.Attribute("IsVisible")?.Value);
     }
 
-    private static IEnumerable<string> AuditAuthHeaderGeometry(
-        XDocument signIn,
-        XDocument create,
-        XDocument controls,
-        XDocument typography)
+    private static IEnumerable<string> AuditAuthHeaderGeometry(XDocument signIn, XDocument create)
     {
-        const string expectedStyle = "TrackZAuthHeaderStyle";
-        const string expectedMinimum = "TrackZAuthHeaderMinimumHeight";
         var signRoot = signIn.Root!.Elements().Single();
         var createRoot = create.Root!.Elements().Single();
         var signHeader = signRoot.Elements().First();
         var createHeader = createRoot.Elements().First();
-        if (ResourceKey(signHeader.Attribute("Style")?.Value) != expectedStyle ||
-            ResourceKey(createHeader.Attribute("Style")?.Value) != expectedStyle ||
-            signHeader.Attribute("MinimumHeightRequest") is not null ||
-            createHeader.Attribute("MinimumHeightRequest") is not null)
-            yield return "Auth headers must use the same shared semantic minimum height.";
-
-        var headerStyle = controls.Descendants().SingleOrDefault(element =>
-            element.Name.LocalName == "Style" &&
-            element.Attribute(XName.Get("Key", "http://schemas.microsoft.com/winfx/2009/xaml"))?.Value == expectedStyle);
-        var minimumSetter = headerStyle?.Elements().SingleOrDefault(element =>
-            element.Name.LocalName == "Setter" && element.Attribute("Property")?.Value == "MinimumHeightRequest");
-        if (ResourceKey(minimumSetter?.Attribute("Value")?.Value) != expectedMinimum)
-            yield return "Auth header style must resolve its minimum through TrackZAuthHeaderMinimumHeight.";
-
-        var minimum = ResourceDouble(controls, expectedMinimum);
-        var titleHeight = Math.Max(
-            StyleDouble(typography, "TrackZPageTitleStyle", "FontSize"),
-            StyleDouble(typography, "TrackZNavigationTitleStyle", "FontSize"));
-        var bodyHeight = StyleDouble(typography, "TrackZBodyStyle", "FontSize");
-        var spacing = ResourceDouble(controls, "TrackZSpace12");
-        if (minimum < titleHeight + bodyHeight + spacing)
-            yield return "Auth header minimum must reserve the composed title, body, and spacing geometry.";
 
         foreach (var (root, header) in new[] { (signRoot, signHeader), (createRoot, createHeader) })
         {
@@ -652,26 +707,12 @@ public sealed class AppWideVisualConsistencyTests
             var submit = root.Descendants().Single(element => element.Attribute(XName.Get("Name", "http://schemas.microsoft.com/winfx/2009/xaml"))?.Value == "SubmitAction");
             var formBand = email.Ancestors().First(ancestor => ancestor.Parent == root);
             var footerBand = submit.Ancestors().First(ancestor => ancestor.Parent == root);
-            if (GridRow(header) != 0 || GridRow(formBand) != 1 || GridRow(footerBand) != 2)
-                yield return "Auth header, centered form, and sticky footer must remain in rows 0, 1, and 2.";
+            if (root.Attribute("RowDefinitions")?.Value != "*,Auto" ||
+                GridRow(header) != 0 || GridRow(formBand) != 0 || GridRow(footerBand) != 1 ||
+                header.Attribute("VerticalOptions")?.Value != "Start" ||
+                formBand.Attribute("VerticalOptions")?.Value != "Center")
+                yield return "Auth pages must use the header-independent overlay: header/form row 0 with Start/Center alignment and sticky footer row 1.";
         }
-    }
-
-    private static double ResourceDouble(XDocument document, string key)
-    {
-        var resource = document.Descendants().SingleOrDefault(element =>
-            element.Attribute(XName.Get("Key", "http://schemas.microsoft.com/winfx/2009/xaml"))?.Value == key);
-        return double.TryParse(resource?.Value, NumberStyles.Number, CultureInfo.InvariantCulture, out var value) ? value : -1d;
-    }
-
-    private static double StyleDouble(XDocument document, string key, string property)
-    {
-        var style = document.Descendants().Single(element =>
-            element.Name.LocalName == "Style" &&
-            element.Attribute(XName.Get("Key", "http://schemas.microsoft.com/winfx/2009/xaml"))?.Value == key);
-        var setter = style.Elements().Single(element =>
-            element.Name.LocalName == "Setter" && element.Attribute("Property")?.Value == property);
-        return double.Parse(setter.Attribute("Value")!.Value, NumberStyles.Number, CultureInfo.InvariantCulture);
     }
 
     private static string MobileDirectory() =>

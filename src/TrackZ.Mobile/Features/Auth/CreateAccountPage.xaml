@@ -4,12 +4,12 @@
              x:Class="TrackZ.Mobile.Features.Auth.CreateAccountPage"
              SafeAreaEdges="All"
              BackgroundColor="{DynamicResource TrackZBackground}">
-    <Grid Padding="0,24,0,0" RowDefinitions="Auto,*,Auto" BackgroundColor="{DynamicResource TrackZBackground}">
-        <VerticalStackLayout Padding="{DynamicResource TrackZPageHorizontalPadding}" Spacing="{DynamicResource TrackZSpace12}" Style="{DynamicResource TrackZAuthHeaderStyle}">
+    <Grid Padding="0,24,0,0" RowDefinitions="*,Auto" BackgroundColor="{DynamicResource TrackZBackground}">
+        <VerticalStackLayout Padding="{DynamicResource TrackZPageHorizontalPadding}" Spacing="{DynamicResource TrackZSpace12}" Style="{DynamicResource TrackZAuthHeaderStyle}" VerticalOptions="Start">
             <Label Style="{DynamicResource TrackZNavigationTitleStyle}" Text="{Binding Text.CreateAccountTitle}" />
             <Label x:Name="WelcomeBodyLabel" Style="{DynamicResource TrackZBodyStyle}" Text="{Binding Text.CreateAccountWelcomeBody}" />
         </VerticalStackLayout>
-        <VerticalStackLayout Grid.Row="1" Padding="{DynamicResource TrackZPageHorizontalPadding}" Spacing="{DynamicResource TrackZSpace12}" VerticalOptions="Center">
+        <VerticalStackLayout Grid.Row="0" Padding="{DynamicResource TrackZPageHorizontalPadding}" Spacing="{DynamicResource TrackZSpace12}" VerticalOptions="Center">
             <Border x:Name="EmailFieldContainer" Style="{DynamicResource TrackZFieldContainerStyle}">
                 <Entry x:Name="EmailInput" Style="{DynamicResource TrackZFieldStyle}" Text="{Binding Email}" Keyboard="Email" ReturnType="Next" SemanticProperties.Description="{Binding Text.EmailAccessibilityLabel}" />
             </Border>
@@ -21,7 +21,7 @@
             <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Text.CreateAccountRequirements}" />
             <Label Style="{DynamicResource TrackZFieldErrorStyle}" Text="{Binding FormError}" />
         </VerticalStackLayout>
-        <Border Grid.Row="2" Style="{DynamicResource TrackZStickyActionContainerStyle}">
+        <Border Grid.Row="1" Style="{DynamicResource TrackZStickyActionContainerStyle}">
             <VerticalStackLayout Spacing="{DynamicResource TrackZSpace8}">
                 <Button x:Name="SubmitAction" Style="{DynamicResource TrackZPrimaryButtonStyle}" Text="{Binding Text.CreateAccountAction}" Command="{Binding SubmitCommand}" Clicked="OnSubmitClicked" SemanticProperties.Description="{Binding Text.CreateAccountAction}" />
                 <Button x:Name="SwitchModeAction" Style="{DynamicResource TrackZQuietButtonStyle}" Text="{Binding Text.SignInLink}" Clicked="OnSwitchModeClicked" SemanticProperties.Description="{Binding Text.SignInLink}" />

@@ -118,8 +118,10 @@ public sealed class AuthPresentationTests
         Assert.Equal(50, create.PasswordEntry.MinimumHeightRequest);
     }
 
-    [Fact]
-    public async Task Composed_auth_pages_reserve_equal_header_geometry_and_keep_form_footer_rows_stable()
+    [Theory]
+    [InlineData(390, 844)]
+    [InlineData(430, 932)]
+    public async Task Composed_auth_pages_keep_measured_field_and_footer_anchors_stable_under_unequal_header_growth(double width, double height)
     {
         using var scope = TestApp.Create();
         var application = scope.App.Services.GetRequiredService<App>();
@@ -136,10 +138,34 @@ public sealed class AuthPresentationTests
         Assert.Equal(signHeader.MinimumHeightRequest, createHeader.MinimumHeightRequest);
         Assert.Equal(0, Grid.GetRow(signHeader));
         Assert.Equal(0, Grid.GetRow(createHeader));
-        Assert.Equal(1, Grid.GetRow(Assert.IsAssignableFrom<BindableObject>(signIn.EmailField.Parent)));
-        Assert.Equal(1, Grid.GetRow(Assert.IsAssignableFrom<BindableObject>(create.EmailField.Parent)));
-        Assert.Equal(2, Grid.GetRow(Assert.IsAssignableFrom<BindableObject>(signIn.SubmitButton.Parent!.Parent)));
-        Assert.Equal(2, Grid.GetRow(Assert.IsAssignableFrom<BindableObject>(create.SubmitButton.Parent!.Parent)));
+        Assert.Equal(0, Grid.GetRow(Assert.IsAssignableFrom<BindableObject>(signIn.EmailField.Parent)));
+        Assert.Equal(0, Grid.GetRow(Assert.IsAssignableFrom<BindableObject>(create.EmailField.Parent)));
+        Assert.Equal(1, Grid.GetRow(Assert.IsAssignableFrom<BindableObject>(signIn.SubmitButton.Parent!.Parent)));
+        Assert.Equal(1, Grid.GetRow(Assert.IsAssignableFrom<BindableObject>(create.SubmitButton.Parent!.Parent)));
+
+        var createHeaderLabels = createHeader.Children.OfType<Label>().ToArray();
+        Assert.NotEmpty(createHeaderLabels);
+        foreach (var label in createHeaderLabels)
+            label.FontSize *= 1.6d;
+        create.WelcomeBody.Text = string.Join(' ', Enumerable.Repeat(create.Form.Text.CreateAccountWelcomeBody, 4));
+        createHeader.HeightRequest = 240;
+
+        Arrange(signRoot, width, height);
+        Arrange(createRoot, width, height);
+
+        Assert.True(signHeader.Height > 0);
+        Assert.True(createHeader.Height > signHeader.Height);
+        Assert.True(signIn.EmailField.Height > 0);
+        Assert.True(create.EmailField.Height > 0);
+        Assert.True(AbsoluteY(createHeader, createRoot) + createHeader.Height < AbsoluteY(create.EmailField, createRoot));
+        Assert.Equal(AbsoluteY(signIn.EmailField, signRoot), AbsoluteY(create.EmailField, createRoot), 3);
+        Assert.Equal(signIn.EmailField.Height, create.EmailField.Height, 3);
+        Assert.Equal(AbsoluteY(signIn.PasswordField, signRoot), AbsoluteY(create.PasswordField, createRoot), 3);
+        Assert.Equal(signIn.PasswordField.Height, create.PasswordField.Height, 3);
+        var signFooter = Assert.IsAssignableFrom<VisualElement>(signIn.SubmitButton.Parent!.Parent);
+        var createFooter = Assert.IsAssignableFrom<VisualElement>(create.SubmitButton.Parent!.Parent);
+        Assert.Equal(AbsoluteY(signFooter, signRoot), AbsoluteY(createFooter, createRoot), 3);
+        Assert.Equal(signFooter.Height, createFooter.Height, 3);
     }
 
     [Fact]
@@ -210,6 +236,62 @@ public sealed class AuthPresentationTests
         static string Part(string value) => Convert.ToBase64String(Encoding.UTF8.GetBytes(value))
             .TrimEnd('=').Replace('+', '-').Replace('/', '_');
         return $"{Part("{\"alg\":\"none\"}")}.{Part($"{{\"sub\":\"99999999-9999-9999-9999-999999999999\",\"sid\":\"aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb\",\"exp\":{expiresAt.ToUnixTimeSeconds()}}}")}.signature";
+    }
+
+    private static void Arrange(VisualElement element, double width, double height)
+    {
+        AttachHeadlessLayoutHandlers(element);
+        element.Measure(width, height);
+        element.Arrange(new Rect(0, 0, width, height));
+    }
+
+    private static void AttachHeadlessLayoutHandlers(VisualElement element)
+    {
+        element.Handler = new HeadlessLayoutHandler(element);
+        if (element is not IVisualTreeElement tree) return;
+        foreach (var child in tree.GetVisualChildren().OfType<VisualElement>())
+            AttachHeadlessLayoutHandlers(child);
+    }
+
+    private static double AbsoluteY(VisualElement element, VisualElement root)
+    {
+        var y = element.Y;
+        for (var parent = element.Parent as VisualElement; parent is not null && parent != root; parent = parent.Parent as VisualElement)
+            y += parent.Y;
+        return y;
+    }
+
+    private sealed class HeadlessLayoutHandler(VisualElement view) : IViewHandler
+    {
+        public bool HasContainer { get; set; }
+        public object? ContainerView => null;
+        public object? PlatformView => null;
+        public IView VirtualView { get; private set; } = view;
+        IElement IElementHandler.VirtualView => VirtualView;
+        public IMauiContext? MauiContext { get; private set; }
+
+        public Size GetDesiredSize(double widthConstraint, double heightConstraint)
+        {
+            if (VirtualView is ICrossPlatformLayout layout)
+                return layout.CrossPlatformMeasure(widthConstraint, heightConstraint);
+            var visual = (VisualElement)VirtualView;
+            var width = visual.WidthRequest >= 0 ? visual.WidthRequest : Math.Max(0, visual.MinimumWidthRequest);
+            var height = visual.HeightRequest >= 0 ? visual.HeightRequest : Math.Max(0, visual.MinimumHeightRequest);
+            return new Size(Math.Min(width, widthConstraint), Math.Min(height, heightConstraint));
+        }
+
+        public void PlatformArrange(Rect frame)
+        {
+            ((VisualElement)VirtualView).Frame = frame;
+            if (VirtualView is ICrossPlatformLayout layout)
+                layout.CrossPlatformArrange(new Rect(0, 0, frame.Width, frame.Height));
+        }
+
+        public void SetMauiContext(IMauiContext mauiContext) => MauiContext = mauiContext;
+        public void SetVirtualView(IElement view) => VirtualView = (IView)view;
+        public void UpdateValue(string property) { }
+        public void Invoke(string command, object? args = null) { }
+        public void DisconnectHandler() { }
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]

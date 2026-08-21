@@ -83,6 +83,46 @@ public sealed class ProgressDashboardViewModelTests
     }
 
     [Fact]
+    public async Task Dashboard_keeps_exact_authoritative_cache_when_the_following_refresh_fails()
+    {
+        var cached = Snapshot(11, 640, 3);
+        var sut = new ProgressDashboardViewModel(
+            new CachedThenFailingRefreshSource(cached),
+            new OnlineConnectivity(),
+            new KilogramPreference(),
+            new AccountSessionBoundary(),
+            GamificationResources.English);
+
+        await sut.LoadAsync();
+
+        Assert.True(sut.HasAuthoritativeProgressData);
+        Assert.Equal(11, sut.Level);
+        Assert.Equal(640, sut.TotalXp);
+        Assert.Equal(0.2d, sut.LevelProgress, 3);
+        Assert.Equal(GamificationResources.English.LoadFailed, sut.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task Summary_keeps_exact_authoritative_cache_when_the_following_refresh_fails()
+    {
+        var workoutId = Guid.NewGuid();
+        var cached = Snapshot(11, 640, 3);
+        var sut = new WorkoutSummaryViewModel(
+            new SummarySource(new CompletedWorkoutSummary(workoutId, 900m, 2, 18)),
+            new CachedThenFailingRefreshSource(cached),
+            new OnlineConnectivity(),
+            GamificationResources.English);
+
+        await sut.LoadAsync(workoutId);
+
+        Assert.True(sut.HasAuthoritativeProgressData);
+        Assert.Equal(11, sut.Level);
+        Assert.Equal(640, sut.TotalXp);
+        Assert.Equal(0.2d, sut.LevelProgress, 3);
+        Assert.Equal(GamificationResources.English.LoadFailed, sut.ErrorMessage);
+    }
+
+    [Fact]
     public async Task Dashboard_uses_one_authoritative_refresh_for_level_streak_badges_and_prs()
     {
         var source = new SequenceSource(Snapshot(11, 640, 3), Snapshot(12, 720, 4));
@@ -192,6 +232,18 @@ public sealed class ProgressDashboardViewModelTests
         public Task<ProgressSnapshot?> GetCachedAsync(CancellationToken cancellationToken = default) => Task.FromResult<ProgressSnapshot?>(cached);
         public Task<ProgressSnapshot> RefreshAsync(CancellationToken cancellationToken = default) { RefreshCount++; return Task.FromResult(refreshed); }
         public Task<ProgressSnapshot> UpdateWeeklyGoalAsync(int weeklyGoal, CancellationToken cancellationToken = default) => Task.FromResult(refreshed);
+    }
+
+    private sealed class CachedThenFailingRefreshSource(ProgressSnapshot cached) : IProgressSnapshotSource
+    {
+        public Task<ProgressSnapshot?> GetCachedAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult<ProgressSnapshot?>(cached);
+
+        public Task<ProgressSnapshot> RefreshAsync(CancellationToken cancellationToken = default) =>
+            Task.FromException<ProgressSnapshot>(new InvalidOperationException("refresh unavailable"));
+
+        public Task<ProgressSnapshot> UpdateWeeklyGoalAsync(int weeklyGoal, CancellationToken cancellationToken = default) =>
+            RefreshAsync(cancellationToken);
     }
 
     private sealed class OnlineConnectivity : IConnectivityService
