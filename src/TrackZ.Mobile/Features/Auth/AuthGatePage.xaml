@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="TrackZ.Mobile.Features.Auth.AuthGatePage"
+             BackgroundColor="{DynamicResource TrackZBackground}">
+    <Grid Padding="18,24">
+        <ActivityIndicator IsRunning="True"
+                           Color="{DynamicResource TrackZPrimary}"
+                           HorizontalOptions="Center"
+                           VerticalOptions="Center" />
+    </Grid>
+</ContentPage>

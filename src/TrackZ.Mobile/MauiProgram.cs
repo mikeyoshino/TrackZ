@@ -14,6 +14,7 @@ using TrackZ.Mobile.Features.Summary;
 using TrackZ.Mobile.Presentation;
 using TrackZ.Mobile.Features.Train;
 using TrackZ.Mobile.Networking;
+using TrackZ.Mobile.Features.Auth;
 
 namespace TrackZ.Mobile;
 
@@ -24,6 +25,8 @@ public static class MauiProgram
 		var builder = MauiApp.CreateBuilder();
 		builder
 			.UseMauiApp<App>();
+		builder.Services.AddSingleton<App>();
+		builder.Services.AddSingleton<IApplication>(services => services.GetRequiredService<App>());
 
 		builder.Services.AddSingleton<IMobileTokenStorage, SecureMobileTokenStorage>();
 		builder.Services.AddSingleton<IAccountSessionBoundary, AccountSessionBoundary>();
@@ -57,6 +60,10 @@ public static class MauiProgram
 		builder.Services.AddSingleton<TrackZExerciseApiClient>();
 		builder.Services.AddSingleton<TrackZIdentityRefreshClient>();
 		builder.Services.AddSingleton<TrackZIdentityApiClient>();
+		builder.Services.AddSingleton<IIdentitySessionApi>(services => services.GetRequiredService<TrackZIdentityApiClient>());
+		builder.Services.AddSingleton<IDeviceNameProvider, MauiDeviceNameProvider>();
+		builder.Services.AddSingleton(AuthTextSet.English);
+		builder.Services.AddSingleton<AuthGateCoordinator>();
 		builder.Services.AddSingleton<TrackZSyncApiClient>();
 		builder.Services.AddSingleton<TrackZProgressApiClient>();
 		builder.Services.AddSingleton<IProgressApi>(services => services.GetRequiredService<TrackZProgressApiClient>());
@@ -153,6 +160,11 @@ public static class MauiProgram
 		builder.Services.AddSingleton<ExerciseProgressPage>();
 		builder.Services.AddSingleton<ProfilePage>();
 		builder.Services.AddSingleton<TrainPage>();
+		builder.Services.AddTransient<AuthFormViewModel>();
+		builder.Services.AddTransient<SignInPage>();
+		builder.Services.AddTransient<CreateAccountPage>();
+		builder.Services.AddSingleton<AuthGatePage>();
+		builder.Services.AddSingleton<AuthShell>();
 		builder.Services.AddSingleton<AppShell>();
 		configureTestServices?.Invoke(builder.Services);
 

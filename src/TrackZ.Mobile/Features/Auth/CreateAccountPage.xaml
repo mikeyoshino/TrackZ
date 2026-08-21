@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="TrackZ.Mobile.Features.Auth.CreateAccountPage"
+             SafeAreaEdges="All"
+             BackgroundColor="{DynamicResource TrackZBackground}">
+    <Grid Padding="18,24" RowDefinitions="Auto,*,Auto" BackgroundColor="{DynamicResource TrackZBackground}">
+        <VerticalStackLayout Spacing="12">
+            <Label Style="{DynamicResource TrackZPageTitleStyle}" Text="{Binding Text.CreateAccountTitle}" />
+            <Label Style="{DynamicResource TrackZBodyStyle}" Text="Create an account to keep your workouts in sync." />
+        </VerticalStackLayout>
+        <VerticalStackLayout Grid.Row="1" Spacing="12" VerticalOptions="Center">
+            <Border Style="{DynamicResource TrackZFieldContainerStyle}">
+                <Entry x:Name="EmailInput" Style="{DynamicResource TrackZFieldStyle}" Text="{Binding Email}" Keyboard="Email" ReturnType="Next" SemanticProperties.Description="Email" />
+            </Border>
+            <Label Style="{DynamicResource TrackZFieldErrorStyle}" Text="{Binding EmailError}" />
+            <Border Style="{DynamicResource TrackZFieldContainerStyle}">
+                <Entry x:Name="PasswordInput" Style="{DynamicResource TrackZFieldStyle}" Text="{Binding Password}" IsPassword="True" ReturnType="Go" SemanticProperties.Description="Password" />
+            </Border>
+            <Label Style="{DynamicResource TrackZFieldErrorStyle}" Text="{Binding PasswordError}" />
+            <Label Style="{DynamicResource TrackZFieldErrorStyle}" Text="Use a password that meets the requirements." />
+            <Label Style="{DynamicResource TrackZFieldErrorStyle}" Text="{Binding FormError}" />
+        </VerticalStackLayout>
+        <VerticalStackLayout Grid.Row="2" Spacing="8">
+            <Button x:Name="SubmitAction" Style="{DynamicResource TrackZPrimaryButtonStyle}" Text="{Binding Text.CreateAccountAction}" Command="{Binding SubmitCommand}" Clicked="OnSubmitClicked" SemanticProperties.Description="Create account" />
+            <Button x:Name="SwitchModeAction" Style="{DynamicResource TrackZQuietButtonStyle}" Text="{Binding Text.SignInLink}" Clicked="OnSwitchModeClicked" SemanticProperties.Description="Sign in" />
+        </VerticalStackLayout>
+    </Grid>
+</ContentPage>
