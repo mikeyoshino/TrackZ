@@ -12,7 +12,34 @@ using TrackZ.Mobile.Features.Workout;
 
 namespace TrackZ.Mobile.Features.Exercises;
 
-public sealed record BodyPartFilterOption(BodyPart Value, string Label);
+public sealed class BodyPartFilterOption : INotifyPropertyChanged
+{
+    private bool _isSelected;
+
+    public BodyPartFilterOption(BodyPart? value, string label, Action<BodyPart?> select)
+    {
+        Value = value;
+        Label = label;
+        SelectCommand = new RelayCommand(_ => select(Value));
+    }
+
+    public BodyPart? Value { get; }
+    public string Label { get; }
+    public ICommand SelectCommand { get; }
+
+    public bool IsSelected
+    {
+        get => _isSelected;
+        internal set
+        {
+            if (_isSelected == value) return;
+            _isSelected = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsSelected)));
+        }
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+}
 
 public enum ExercisePickerPresentationState
 {
@@ -73,13 +100,15 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged
         _unitPreference = unitPreference;
         BodyPartOptions =
         [
-            new(BodyPart.Chest, _text.BodyPartChest),
-            new(BodyPart.Back, _text.BodyPartBack),
-            new(BodyPart.Shoulders, _text.BodyPartShoulders),
-            new(BodyPart.Arms, _text.BodyPartArms),
-            new(BodyPart.Legs, _text.BodyPartLegs),
-            new(BodyPart.Core, _text.BodyPartCore)
+            new(null, _text.All, SelectBodyPart),
+            new(BodyPart.Chest, _text.BodyPartChest, SelectBodyPart),
+            new(BodyPart.Back, _text.BodyPartBack, SelectBodyPart),
+            new(BodyPart.Shoulders, _text.BodyPartShoulders, SelectBodyPart),
+            new(BodyPart.Arms, _text.BodyPartArms, SelectBodyPart),
+            new(BodyPart.Legs, _text.BodyPartLegs, SelectBodyPart),
+            new(BodyPart.Core, _text.BodyPartCore, SelectBodyPart)
         ];
+        BodyPartOptions[0].IsSelected = true;
         _boundary.SessionReset += OnSessionReset;
         if (_unitPreference is not null) _unitPreference.Changed += OnWeightUnitChanged;
         ToggleSelectionCommand = new RelayCommand(ToggleSelection);
@@ -147,6 +176,7 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged
             _selectedBodyPart = value;
             OnPropertyChanged();
             OnPropertyChanged(nameof(SelectedBodyPartOption));
+            UpdateBodyPartSelection();
             ApplyFilter();
         }
     }
@@ -179,6 +209,8 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged
         UpdatePresentation();
         _selectedBodyPart = bodyPart;
         OnPropertyChanged(nameof(SelectedBodyPart));
+        OnPropertyChanged(nameof(SelectedBodyPartOption));
+        UpdateBodyPartSelection();
         if (!await _boundary.TryCommitAsync(generation, async token =>
         {
             _catalog = await _cache.GetAllAsync(token);
@@ -345,6 +377,14 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged
             exercise.IsSelected = _selectedIdSet.Contains(id);
         OnPropertyChanged(nameof(SelectedExerciseIds));
         OnPropertyChanged(nameof(SelectedCountText));
+    }
+
+    private void SelectBodyPart(BodyPart? bodyPart) => SelectedBodyPart = bodyPart;
+
+    private void UpdateBodyPartSelection()
+    {
+        foreach (var option in BodyPartOptions)
+            option.IsSelected = option.Value == _selectedBodyPart;
     }
 
     private void ApplyFilter()

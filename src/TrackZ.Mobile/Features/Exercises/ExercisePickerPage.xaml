@@ -24,32 +24,42 @@
                 Text="{Binding SearchText, Mode=TwoWay}" />
         </Grid>
 
-        <Grid Grid.Row="2" Padding="{DynamicResource TrackZPageHorizontalPadding}" ColumnDefinitions="Auto,*" ColumnSpacing="{DynamicResource TrackZSpace8}">
-            <Button Clicked="OnClearBodyPartClicked" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="{Binding Text.All}" />
+        <Grid Grid.Row="2" Padding="{DynamicResource TrackZPageHorizontalPadding}">
             <CollectionView
-                Grid.Column="1"
                 HeightRequest="{DynamicResource TrackZMinimumTarget}"
                 HorizontalScrollBarVisibility="Never"
                 ItemsSource="{Binding BodyPartOptions}"
-                SelectedItem="{Binding SelectedBodyPartOption, Mode=TwoWay}"
-                SelectionMode="Single">
+                SelectionMode="None">
                 <CollectionView.ItemsLayout>
                     <LinearItemsLayout ItemSpacing="8" Orientation="Horizontal" />
                 </CollectionView.ItemsLayout>
                 <CollectionView.ItemTemplate>
                     <DataTemplate x:DataType="viewModels:BodyPartFilterOption">
-                        <Border Style="{DynamicResource TrackZListRowStyle}">
+                        <Border Style="{DynamicResource TrackZSelectionChipStyle}">
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Command="{Binding SelectCommand}" />
+                            </Border.GestureRecognizers>
                             <VisualStateManager.VisualStateGroups>
                                 <VisualStateGroup x:Name="CommonStates">
                                     <VisualState x:Name="Normal" />
                                     <VisualState x:Name="Selected">
+                                        <VisualState.StateTriggers>
+                                            <StateTrigger IsActive="{Binding IsSelected}" />
+                                        </VisualState.StateTriggers>
                                         <VisualState.Setters>
-                                            <Setter Property="Style" Value="{DynamicResource TrackZSelectionChipStyle}" />
+                                            <Setter Property="BackgroundColor" Value="{DynamicResource TrackZPrimary}" />
+                                            <Setter Property="Stroke" Value="{DynamicResource TrackZPrimary}" />
                                         </VisualState.Setters>
                                     </VisualState>
                                 </VisualStateGroup>
                             </VisualStateManager.VisualStateGroups>
-                            <Label Style="{DynamicResource TrackZBodyStyle}" Text="{Binding Label}" />
+                            <Label Style="{DynamicResource TrackZBodyStyle}" Text="{Binding Label}">
+                                <Label.Triggers>
+                                    <DataTrigger Binding="{Binding IsSelected}" TargetType="Label" Value="True">
+                                        <Setter Property="TextColor" Value="{DynamicResource TrackZPrimaryContrast}" />
+                                    </DataTrigger>
+                                </Label.Triggers>
+                            </Label>
                         </Border>
                     </DataTemplate>
                 </CollectionView.ItemTemplate>
@@ -102,7 +112,12 @@
             <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="{DynamicResource TrackZSpace12}">
                 <Button Clicked="OnCreateCustomClicked" Style="{DynamicResource TrackZQuietButtonStyle}" Text="{Binding Text.CreateCustom}" />
                 <Label Grid.Column="1" HorizontalTextAlignment="Center" Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding SelectedCountText}" VerticalOptions="Center" />
-                <Button Grid.Column="2" Clicked="OnDoneClicked" Style="{DynamicResource TrackZPrimaryButtonStyle}" Text="{Binding Text.Done}" />
+                <Button
+                    x:Name="DoneButton"
+                    Grid.Column="2"
+                    Command="{Binding Source={x:Reference Page}, Path=DoneCommand}"
+                    Style="{DynamicResource TrackZPrimaryButtonStyle}"
+                    Text="{Binding Text.Done}" />
             </Grid>
         </Border>
     </Grid>

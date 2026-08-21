@@ -1,22 +1,30 @@
 using System.Windows.Input;
 using TrackZ.Mobile.Features.Exercises.Models;
+using TrackZ.Mobile.Features.Workout;
 
 namespace TrackZ.Mobile.Features.Exercises;
 
 public partial class ExercisePickerPage : ContentPage, IQueryAttributable
 {
     private readonly ExercisePickerViewModel _viewModel;
+    private readonly IExercisePickerNavigator _navigator;
     private TrackZ.Domain.Exercises.BodyPart? _requestedBodyPart;
 
-    public ExercisePickerPage(ExercisePickerViewModel viewModel)
+    public ExercisePickerPage(
+        ExercisePickerViewModel viewModel,
+        IExercisePickerNavigator navigator)
     {
-        InitializeComponent();
-        BindingContext = _viewModel = viewModel;
+        _viewModel = viewModel;
+        _navigator = navigator;
         EditCustomCommand = new Command<CachedExercise>(EditCustomExercise);
+        DoneCommand = new AsyncCommand(_ => CompleteSelectionAsync());
+        InitializeComponent();
+        BindingContext = _viewModel;
     }
 
-    public event Action<IReadOnlyCollection<Guid>>? SelectionCompleted;
+    public event Func<IReadOnlyCollection<Guid>, Task>? SelectionCompleted;
     public ICommand EditCustomCommand { get; }
+    public IAsyncCommand DoneCommand { get; }
 
     public void ApplyQueryAttributes(IDictionary<string, object> query)
     {
@@ -39,15 +47,15 @@ public partial class ExercisePickerPage : ContentPage, IQueryAttributable
     private async void OnCreateCustomClicked(object? sender, EventArgs eventArgs) =>
         await Shell.Current.GoToAsync(nameof(CustomExercisePage));
 
-    private void OnClearBodyPartClicked(object? sender, EventArgs eventArgs) =>
-        _viewModel.SelectedBodyPart = null;
-
-    private async void OnDoneClicked(object? sender, EventArgs eventArgs)
+    private async Task CompleteSelectionAsync()
     {
         var selected = _viewModel.SelectedExerciseIds.ToArray();
-        SelectionCompleted?.Invoke(selected);
-        if (Shell.Current.Navigation.NavigationStack.Count > 1)
-            await Shell.Current.GoToAsync("..");
+        var callbacks = SelectionCompleted?.GetInvocationList()
+            .Cast<Func<IReadOnlyCollection<Guid>, Task>>()
+            .ToArray() ?? [];
+        foreach (var callback in callbacks)
+            await callback(selected);
+        await _navigator.ReturnToWorkoutAsync();
     }
 
     private async void EditCustomExercise(CachedExercise exercise) =>

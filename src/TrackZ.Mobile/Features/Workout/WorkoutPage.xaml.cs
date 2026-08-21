@@ -28,11 +28,8 @@ public partial class WorkoutPage : ContentPage
     private async void OnAddExerciseClicked(object? sender, EventArgs eventArgs) =>
         await Shell.Current.GoToAsync(nameof(ExercisePickerPage));
 
-    private async void OnSelectionCompleted(IReadOnlyCollection<Guid> selected)
-    {
-        await _viewModel.AddExercisesAsync(selected.ToArray());
-        await Shell.Current.GoToAsync("active-workout");
-    }
+    private Task OnSelectionCompleted(IReadOnlyCollection<Guid> selected) =>
+        _viewModel.AddExercisesAsync(selected.ToArray());
 
     private async void OpenLogger(WorkoutExerciseDraftItem? exercise)
     {

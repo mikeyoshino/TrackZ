@@ -303,7 +303,7 @@ public sealed class ExercisePickerViewModelTests : IAsyncLifetime
         Assert.Equal("เข้าสู่ระบบ", sut.Text.SignIn);
         Assert.Equal("ลองอีกครั้ง", sut.Text.TryAgain);
         Assert.Equal("เลือกแล้ว: 0", sut.SelectedCountText);
-        Assert.Equal(["หน้าอก", "หลัง", "ไหล่", "แขน", "ขา", "แกนกลางลำตัว"],
+        Assert.Equal(["ทั้งหมด", "หน้าอก", "หลัง", "ไหล่", "แขน", "ขา", "แกนกลางลำตัว"],
             sut.BodyPartOptions.Select(item => item.Label));
 
         sut.ToggleSelectionCommand.Execute(exercise.Id);

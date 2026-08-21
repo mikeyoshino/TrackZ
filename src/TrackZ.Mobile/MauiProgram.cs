@@ -171,6 +171,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<IBodyAreaPicker>(services => new MauiBodyAreaPicker(
 			services.GetRequiredService<INativeSheetPresenter>(),
 			services.GetRequiredService<BodyAreaSheetPage>));
+		builder.Services.AddSingleton<IExercisePickerNavigator, MauiExercisePickerNavigator>();
 		builder.Services.AddSingleton<ExercisePickerPage>();
 		builder.Services.AddTransient<CustomExercisePage>();
 		builder.Services.AddSingleton<WorkoutPage>();
