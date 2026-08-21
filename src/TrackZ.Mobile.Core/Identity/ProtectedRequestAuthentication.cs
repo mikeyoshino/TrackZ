@@ -5,31 +5,47 @@ namespace TrackZ.Mobile.Identity;
 
 public interface IProtectedRequestAuthentication
 {
-    Task<bool> TryRefreshAsync(CancellationToken cancellationToken);
-    Task RequireSignInAsync(CancellationToken cancellationToken);
+    Task<bool> TryRefreshAsync(
+        AccountSessionGeneration expectedGeneration,
+        CancellationToken cancellationToken);
+    Task RequireSignInAsync(
+        AccountSessionGeneration expectedGeneration,
+        CancellationToken cancellationToken);
 }
 
 public sealed class ProtectedRequestAuthentication(
     TrackZIdentityRefreshClient refreshClient,
     IDeviceNameProvider deviceName,
-    IAuthEntryPoint authEntryPoint) : IProtectedRequestAuthentication
+    IAuthEntryPoint authEntryPoint,
+    IAccountSessionBoundary sessionBoundary) : IProtectedRequestAuthentication
 {
-    public async Task<bool> TryRefreshAsync(CancellationToken cancellationToken)
+    public async Task<bool> TryRefreshAsync(
+        AccountSessionGeneration expectedGeneration,
+        CancellationToken cancellationToken)
     {
+        if (sessionBoundary.IsCancellationRequested(expectedGeneration)) return false;
         try
         {
-            await refreshClient.RefreshAsync(deviceName.DeviceName, cancellationToken);
+            await refreshClient.RefreshAsync(
+                deviceName.DeviceName, expectedGeneration, cancellationToken);
             return true;
+        }
+        catch (OperationCanceledException) when (
+            sessionBoundary.IsCancellationRequested(expectedGeneration))
+        {
+            return false;
         }
         catch (MobileApiException exception) when (
             exception.ErrorCode == BusinessErrorCode.RefreshTokenInvalid
             || exception.IsAuthenticationRequired)
         {
-            await authEntryPoint.RequireSignInAsync(cancellationToken);
+            await authEntryPoint.RequireSignInAsync(expectedGeneration, cancellationToken);
             return false;
         }
     }
 
-    public Task RequireSignInAsync(CancellationToken cancellationToken) =>
-        authEntryPoint.RequireSignInAsync(cancellationToken);
+    public Task RequireSignInAsync(
+        AccountSessionGeneration expectedGeneration,
+        CancellationToken cancellationToken) =>
+        authEntryPoint.RequireSignInAsync(expectedGeneration, cancellationToken);
 }

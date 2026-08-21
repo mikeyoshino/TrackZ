@@ -138,6 +138,35 @@ public sealed class ExercisePickerViewModelTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Delayed_sign_in_command_uses_the_generation_that_produced_authentication_required()
+    {
+        var boundary = new AccountSessionBoundary();
+        var authenticationRequiredGeneration = boundary.Capture();
+        var entryPoint = new RecordingAuthEntryPoint();
+        var sut = new ExercisePickerViewModel(
+            _cache,
+            new ApiProblemCatalogApi(new MobileApiException(
+                TrackZ.Contracts.Errors.BusinessErrorCode.InvalidRequest,
+                "Authentication is required.",
+                isAuthenticationRequired: true)),
+            new StubConnectivity(true),
+            new FixedClock(),
+            boundary: boundary,
+            authEntryPoint: entryPoint);
+        await sut.LoadAsync();
+        await sut.RefreshCompletion;
+        Assert.Equal(ExercisePickerPresentationState.AuthenticationRequired, sut.PresentationState);
+
+        await boundary.ResetAsync(_ => Task.CompletedTask);
+        var newAccountGeneration = boundary.Capture();
+        await sut.SignInCommand.ExecuteAsync();
+
+        Assert.NotEqual(authenticationRequiredGeneration, newAccountGeneration);
+        Assert.Equal(0, entryPoint.UnfencedCallCount);
+        Assert.Equal(authenticationRequiredGeneration, Assert.Single(entryPoint.ExpectedGenerations));
+    }
+
+    [Fact]
     public async Task Account_reset_during_refresh_prevents_stale_picker_state_mutation()
     {
         var boundary = new AccountSessionBoundary();
@@ -902,9 +931,21 @@ public sealed class ExercisePickerViewModelTests : IAsyncLifetime
     private sealed class RecordingAuthEntryPoint : IAuthEntryPoint
     {
         public int CallCount { get; private set; }
+        public int UnfencedCallCount { get; private set; }
+        public List<AccountSessionGeneration> ExpectedGenerations { get; } = [];
         public Task RequireSignInAsync(CancellationToken cancellationToken = default)
         {
             CallCount++;
+            UnfencedCallCount++;
+            return Task.CompletedTask;
+        }
+
+        public Task RequireSignInAsync(
+            AccountSessionGeneration expectedGeneration,
+            CancellationToken cancellationToken = default)
+        {
+            CallCount++;
+            ExpectedGenerations.Add(expectedGeneration);
             return Task.CompletedTask;
         }
     }

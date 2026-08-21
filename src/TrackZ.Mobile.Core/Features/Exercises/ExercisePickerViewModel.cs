@@ -47,6 +47,7 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged
     private bool _isInitialLoading = true;
     private bool _hasCatalogBacking;
     private MobileApiException? _lastError;
+    private AccountSessionGeneration? _authenticationRequiredGeneration;
 
     public ExercisePickerViewModel(
         ExerciseCache cache,
@@ -83,7 +84,7 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged
         if (_unitPreference is not null) _unitPreference.Changed += OnWeightUnitChanged;
         ToggleSelectionCommand = new RelayCommand(ToggleSelection);
         RetryCommand = new AsyncCommand(_ => RetryAsync());
-        SignInCommand = new AsyncCommand(_ => _authEntryPoint.RequireSignInAsync());
+        SignInCommand = new AsyncCommand(_ => RequireSignInAsync());
     }
 
     public ObservableCollection<ExercisePickerItem> Exercises { get; } = [];
@@ -234,7 +235,7 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged
         catch (MobileApiException exception)
         {
             await _boundary.TryCommitAsync(generation, _ =>
-                _dispatcher.InvokeAsync(() => SetRequestFailure(exception)), cancellationToken);
+                _dispatcher.InvokeAsync(() => SetRequestFailure(exception, generation)), cancellationToken);
         }
         catch (Exception exception) when (exception is HttpRequestException or IOException or TimeoutException)
         {
@@ -243,7 +244,7 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged
                     BusinessErrorCode.InternalServerError,
                     "The exercise catalog could not be loaded.",
                     innerException: exception,
-                    isRetryable: true))), cancellationToken);
+                    isRetryable: true), generation)), cancellationToken);
         }
         catch (OperationCanceledException exception) when (
             !cancellationToken.IsCancellationRequested
@@ -254,7 +255,7 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged
                     BusinessErrorCode.InternalServerError,
                     "The exercise catalog could not be loaded.",
                     innerException: exception,
-                    isRetryable: true))), cancellationToken);
+                    isRetryable: true), generation)), cancellationToken);
         }
         finally
         {
@@ -382,9 +383,12 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged
         await RefreshCompletion;
     }
 
-    private void SetRequestFailure(MobileApiException exception)
+    private void SetRequestFailure(
+        MobileApiException exception,
+        AccountSessionGeneration generation)
     {
         _lastError = exception;
+        _authenticationRequiredGeneration = exception.IsAuthenticationRequired ? generation : null;
         _isInitialLoading = false;
         OnPropertyChanged(nameof(LastError));
         OnPropertyChanged(nameof(LastErrorCode));
@@ -393,6 +397,7 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged
 
     private void ClearRequestFailure()
     {
+        _authenticationRequiredGeneration = null;
         if (_lastError is null) return;
         _lastError = null;
         OnPropertyChanged(nameof(LastError));
@@ -473,10 +478,21 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged
         UpdatePresentation();
     }
 
+    private Task RequireSignInAsync()
+    {
+        var expectedGeneration = _authenticationRequiredGeneration;
+        return expectedGeneration is { } generation
+            ? _authEntryPoint.RequireSignInAsync(generation)
+            : Task.CompletedTask;
+    }
+
     private sealed class NullAuthEntryPoint : IAuthEntryPoint
     {
         public static NullAuthEntryPoint Instance { get; } = new();
         public Task RequireSignInAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task RequireSignInAsync(
+            AccountSessionGeneration expectedGeneration,
+            CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 
     private void OnPropertyChanged([CallerMemberName] string? name = null) =>

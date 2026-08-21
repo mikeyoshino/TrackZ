@@ -332,9 +332,14 @@ public sealed class TrackZIdentityRefreshClient(
 
     public async Task RefreshAsync(
         string deviceName,
+        CancellationToken cancellationToken = default) =>
+        await RefreshAsync(deviceName, sessionBoundary.Capture(), cancellationToken);
+
+    public async Task RefreshAsync(
+        string deviceName,
+        AccountSessionGeneration generation,
         CancellationToken cancellationToken = default)
     {
-        var generation = sessionBoundary.Capture();
         var observedEpoch = Volatile.Read(ref _refreshEpoch);
         string? observedRefreshToken = null;
         if (!await sessionBoundary.TryCommitAsync(generation, async token =>

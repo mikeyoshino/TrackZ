@@ -134,6 +134,97 @@ public sealed class AuthenticatedApiHandlerTests
     }
 
     [Fact]
+    public async Task Old_generation_401_after_new_login_never_refreshes_replays_or_clears_new_account()
+    {
+        var boundary = new AccountSessionBoundary();
+        var tokens = new MutableTokenProvider();
+        var transport = new PausedUnauthorizedHandler();
+        var recovery = new RecordingAuthenticationRecovery(succeeds: true);
+        using var client = ClientWithHandler(transport, recovery, tokens, ApiOrigin, boundary);
+
+        var oldRequest = client.GetAsync("exercises?account=A");
+        await transport.Entered.WaitAsync(TimeSpan.FromSeconds(2));
+        await boundary.ResetAsync(_ =>
+        {
+            tokens.Token = "account-B-token";
+            return Task.CompletedTask;
+        });
+        transport.Release();
+
+        using var response = await oldRequest;
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal(["Bearer old-token"], transport.AuthorizationValues);
+        Assert.Equal(1, transport.RequestCount);
+        Assert.Equal(0, recovery.RefreshCount);
+        Assert.Equal(0, recovery.RequireSignInCount);
+        Assert.Equal("account-B-token", tokens.Token);
+    }
+
+    [Theory]
+    [InlineData("transport")]
+    [InlineData("malformed")]
+    public async Task Concurrent_401_responses_share_one_refresh_exception_and_later_request_can_retry(
+        string failureKind)
+    {
+        Exception failure = failureKind == "transport"
+            ? new HttpRequestException("refresh transport failed")
+            : new TrackZ.Mobile.Features.Exercises.MobileApiException(
+                TrackZ.Contracts.Errors.BusinessErrorCode.InternalServerError,
+                "The server returned an invalid response.");
+        var transport = new ConcurrentUnauthorizedHandler(expectedInitialRequests: 2);
+        var recovery = new GatedExceptionRecovery(failure);
+        using var client = ClientWithHandler(
+            transport, recovery, new MutableTokenProvider(), ApiOrigin);
+
+        var first = client.GetAsync("exercises?request=1");
+        var second = client.GetAsync("exercises?request=2");
+        await transport.InitialRequestsEntered.WaitAsync(TimeSpan.FromSeconds(2));
+        transport.ReleaseInitialResponses();
+        await recovery.RefreshEntered.WaitAsync(TimeSpan.FromSeconds(2));
+        recovery.ReleaseRefresh();
+
+        var firstError = await Record.ExceptionAsync(() => first);
+        var secondError = await Record.ExceptionAsync(() => second);
+
+        Assert.Same(failure, firstError);
+        Assert.Same(failure, secondError);
+        Assert.Equal(1, recovery.RefreshCount);
+        Assert.Equal(2, transport.RequestCount);
+
+        var laterError = await Record.ExceptionAsync(() =>
+            client.GetAsync("exercises?request=later"));
+
+        Assert.Same(failure, laterError);
+        Assert.Equal(2, recovery.RefreshCount);
+        Assert.Equal(3, transport.RequestCount);
+    }
+
+    [Fact]
+    public async Task Rejected_refresh_returns_the_original_401_with_problem_details_and_headers_untouched()
+    {
+        const string problemJson =
+            "{\"code\":\"InvalidCredentials\",\"message\":\"Session expired.\",\"fieldErrors\":{\"email\":[\"Sign in again.\"]}}";
+        var original = new HttpResponseMessage(HttpStatusCode.Unauthorized)
+        {
+            Content = new StringContent(problemJson)
+        };
+        original.Headers.TryAddWithoutValidation("X-Auth-Reason", "expired");
+        var transport = new ReturningResponseHandler(original);
+        var recovery = new RecordingAuthenticationRecovery(succeeds: false);
+        using var client = ClientWithHandler(
+            transport, recovery, new MutableTokenProvider(), ApiOrigin);
+
+        using var response = await client.GetAsync("exercises");
+
+        Assert.Same(original, response);
+        Assert.Equal("expired", Assert.Single(response.Headers.GetValues("X-Auth-Reason")));
+        Assert.Equal(problemJson, await response.Content.ReadAsStringAsync());
+        Assert.Equal(1, recovery.RefreshCount);
+        Assert.Equal(1, transport.RequestCount);
+    }
+
+    [Fact]
     public async Task Caller_cancellation_during_refresh_is_preserved()
     {
         var transport = new SequenceHandler(HttpStatusCode.Unauthorized);
@@ -201,9 +292,14 @@ public sealed class AuthenticatedApiHandlerTests
         HttpMessageHandler transport,
         IProtectedRequestAuthentication recovery,
         IAccessTokenProvider tokenProvider,
-        Uri apiOrigin)
+        Uri apiOrigin,
+        IAccountSessionBoundary? boundary = null)
     {
-        var handler = new AuthenticatedApiHandler(tokenProvider, recovery, apiOrigin)
+        var handler = new AuthenticatedApiHandler(
+            tokenProvider,
+            recovery,
+            apiOrigin,
+            boundary ?? new AccountSessionBoundary())
         {
             InnerHandler = transport
         };
@@ -237,13 +333,17 @@ public sealed class AuthenticatedApiHandlerTests
         public int RefreshCount { get; private set; }
         public int RequireSignInCount { get; private set; }
 
-        public Task<bool> TryRefreshAsync(CancellationToken cancellationToken)
+        public Task<bool> TryRefreshAsync(
+            AccountSessionGeneration expectedGeneration,
+            CancellationToken cancellationToken)
         {
             RefreshCount++;
             return Task.FromResult(succeeds);
         }
 
-        public Task RequireSignInAsync(CancellationToken cancellationToken)
+        public Task RequireSignInAsync(
+            AccountSessionGeneration expectedGeneration,
+            CancellationToken cancellationToken)
         {
             RequireSignInCount++;
             return Task.CompletedTask;
@@ -257,7 +357,9 @@ public sealed class AuthenticatedApiHandlerTests
         public Task RefreshEntered => _entered.Task;
         public int RefreshCount { get; private set; }
 
-        public async Task<bool> TryRefreshAsync(CancellationToken cancellationToken)
+        public async Task<bool> TryRefreshAsync(
+            AccountSessionGeneration expectedGeneration,
+            CancellationToken cancellationToken)
         {
             RefreshCount++;
             _entered.TrySetResult();
@@ -266,7 +368,9 @@ public sealed class AuthenticatedApiHandlerTests
             return true;
         }
 
-        public Task RequireSignInAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task RequireSignInAsync(
+            AccountSessionGeneration expectedGeneration,
+            CancellationToken cancellationToken) => Task.CompletedTask;
         public void ReleaseRefresh() => _release.TrySetResult();
     }
 
@@ -276,7 +380,9 @@ public sealed class AuthenticatedApiHandlerTests
         public Task RefreshEntered => _entered.Task;
         public bool CancellationObserved { get; private set; }
 
-        public async Task<bool> TryRefreshAsync(CancellationToken cancellationToken)
+        public async Task<bool> TryRefreshAsync(
+            AccountSessionGeneration expectedGeneration,
+            CancellationToken cancellationToken)
         {
             _entered.TrySetResult();
             try
@@ -291,7 +397,33 @@ public sealed class AuthenticatedApiHandlerTests
             }
         }
 
-        public Task RequireSignInAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task RequireSignInAsync(
+            AccountSessionGeneration expectedGeneration,
+            CancellationToken cancellationToken) => Task.CompletedTask;
+    }
+
+    private sealed class GatedExceptionRecovery(Exception failure) : IProtectedRequestAuthentication
+    {
+        private readonly TaskCompletionSource _entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public Task RefreshEntered => _entered.Task;
+        public int RefreshCount { get; private set; }
+
+        public async Task<bool> TryRefreshAsync(
+            AccountSessionGeneration expectedGeneration,
+            CancellationToken cancellationToken)
+        {
+            RefreshCount++;
+            _entered.TrySetResult();
+            await _release.Task.WaitAsync(cancellationToken);
+            throw failure;
+        }
+
+        public Task RequireSignInAsync(
+            AccountSessionGeneration expectedGeneration,
+            CancellationToken cancellationToken) => Task.CompletedTask;
+
+        public void ReleaseRefresh() => _release.TrySetResult();
     }
 
     private sealed class SequenceHandler(params HttpStatusCode[] statuses) : HttpMessageHandler
@@ -308,6 +440,19 @@ public sealed class AuthenticatedApiHandlerTests
         }
     }
 
+    private sealed class ReturningResponseHandler(HttpResponseMessage response) : HttpMessageHandler
+    {
+        public int RequestCount { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            RequestCount++;
+            return Task.FromResult(response);
+        }
+    }
+
     private sealed class RedirectHandler : HttpMessageHandler
     {
         public int RequestCount { get; private set; }
@@ -318,6 +463,28 @@ public sealed class AuthenticatedApiHandlerTests
             response.Headers.Location = new Uri("https://evil.example/steal");
             return Task.FromResult(response);
         }
+    }
+
+    private sealed class PausedUnauthorizedHandler : HttpMessageHandler
+    {
+        private readonly TaskCompletionSource _entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public Task Entered => _entered.Task;
+        public int RequestCount { get; private set; }
+        public List<string?> AuthorizationValues { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            RequestCount++;
+            AuthorizationValues.Add(request.Headers.Authorization?.ToString());
+            _entered.TrySetResult();
+            await _release.Task.WaitAsync(cancellationToken);
+            return new HttpResponseMessage(HttpStatusCode.Unauthorized);
+        }
+
+        public void Release() => _release.TrySetResult();
     }
 
     private sealed class ConcurrentUnauthorizedHandler(int expectedInitialRequests) : HttpMessageHandler

@@ -71,7 +71,8 @@ public static class MauiProgram
 			new AuthenticatedApiHandler(
 				services.GetRequiredService<IAccessTokenProvider>(),
 				services.GetRequiredService<IProtectedRequestAuthentication>(),
-				apiOrigin)
+				apiOrigin,
+				services.GetRequiredService<IAccountSessionBoundary>())
 			{
 				InnerHandler = new HttpClientHandler { AllowAutoRedirect = false }
 			})
@@ -203,4 +204,10 @@ public sealed class MauiAuthEntryPoint(IServiceProvider services) : IAuthEntryPo
 {
 	public Task RequireSignInAsync(CancellationToken cancellationToken = default) =>
 		services.GetRequiredService<AuthGateCoordinator>().RequireSignInAsync(cancellationToken);
+
+	public Task RequireSignInAsync(
+		AccountSessionGeneration expectedGeneration,
+		CancellationToken cancellationToken = default) =>
+		services.GetRequiredService<AuthGateCoordinator>().RequireSignInAsync(
+			expectedGeneration, cancellationToken);
 }

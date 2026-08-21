@@ -66,5 +66,8 @@ public sealed class NativePresentationCompositionTests
     private sealed class StubAuthEntryPoint : IAuthEntryPoint
     {
         public Task RequireSignInAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task RequireSignInAsync(
+            AccountSessionGeneration expectedGeneration,
+            CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 }

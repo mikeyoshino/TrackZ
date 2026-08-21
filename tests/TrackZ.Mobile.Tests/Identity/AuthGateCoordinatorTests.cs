@@ -225,6 +225,22 @@ public sealed class AuthGateCoordinatorTests
     }
 
     [Fact]
+    public async Task Expected_generation_require_sign_in_cannot_clear_a_replaced_account()
+    {
+        var fixture = Fixture.For(SessionCase.Valid);
+        await fixture.Coordinator.InitializeAsync();
+        var oldGeneration = fixture.Boundary.Capture();
+        await fixture.Boundary.ResetAsync(_ => Task.CompletedTask);
+
+        await ((IAuthEntryPoint)fixture.Coordinator).RequireSignInAsync(oldGeneration);
+
+        Assert.Equal(AuthGateState.SignedIn, fixture.Coordinator.Snapshot.State);
+        Assert.NotNull(await fixture.Store.GetAccessTokenAsync());
+        Assert.NotNull(await fixture.Store.GetRefreshTokenAsync());
+        Assert.Equal(0, fixture.Cleaner.ClearCount);
+    }
+
+    [Fact]
     public async Task Malformed_stored_identity_clears_private_account_data_and_signs_out()
     {
         var fixture = Fixture.For(SessionCase.Valid);

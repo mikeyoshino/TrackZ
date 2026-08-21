@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Headers;
+using System.Runtime.ExceptionServices;
 using TrackZ.Mobile.Features.Exercises.Services;
 using TrackZ.Mobile.Identity;
 
@@ -10,23 +11,27 @@ public sealed class AuthenticatedApiHandler : DelegatingHandler
     private readonly IAccessTokenProvider _tokenProvider;
     private readonly IProtectedRequestAuthentication _authentication;
     private readonly Uri _apiOrigin;
+    private readonly IAccountSessionBoundary _sessionBoundary;
     private readonly SemaphoreSlim _refreshGate = new(1, 1);
     private long _refreshEpoch;
-    private bool _lastRefreshSucceeded;
+    private RefreshAttemptOutcome? _lastRefreshOutcome;
 
     public AuthenticatedApiHandler(
         IAccessTokenProvider tokenProvider,
         IProtectedRequestAuthentication authentication,
-        Uri apiOrigin)
+        Uri apiOrigin,
+        IAccountSessionBoundary sessionBoundary)
     {
         ArgumentNullException.ThrowIfNull(tokenProvider);
         ArgumentNullException.ThrowIfNull(authentication);
         ArgumentNullException.ThrowIfNull(apiOrigin);
+        ArgumentNullException.ThrowIfNull(sessionBoundary);
         if (!apiOrigin.IsAbsoluteUri || apiOrigin.Scheme is not ("http" or "https"))
             throw new ArgumentException("An absolute HTTP API origin is required.", nameof(apiOrigin));
         _tokenProvider = tokenProvider;
         _authentication = authentication;
         _apiOrigin = apiOrigin;
+        _sessionBoundary = sessionBoundary;
     }
 
     protected override async Task<HttpResponseMessage> SendAsync(
@@ -34,9 +39,10 @@ public sealed class AuthenticatedApiHandler : DelegatingHandler
         CancellationToken cancellationToken)
     {
         var isProtectedOrigin = IsApiOrigin(request.RequestUri);
+        var requestGeneration = _sessionBoundary.Capture();
         var observedRefreshEpoch = Volatile.Read(ref _refreshEpoch);
         if (isProtectedOrigin)
-            await AttachCurrentBearerAsync(request, cancellationToken);
+            _ = await AttachCurrentBearerAsync(request, requestGeneration, cancellationToken);
         else if (string.Equals(request.Headers.Authorization?.Scheme, "Bearer", StringComparison.OrdinalIgnoreCase))
             request.Headers.Authorization = null;
 
@@ -46,30 +52,68 @@ public sealed class AuthenticatedApiHandler : DelegatingHandler
             || request.Method != HttpMethod.Get && request.Method != HttpMethod.Head)
             return response;
 
-        response.Dispose();
-        if (!await TryRefreshSingleFlightAsync(observedRefreshEpoch, cancellationToken))
-            return new HttpResponseMessage(HttpStatusCode.Unauthorized) { RequestMessage = request };
+        if (_sessionBoundary.IsCancellationRequested(requestGeneration)) return response;
 
-        using var replay = CloneSafeRequest(request);
-        await AttachCurrentBearerAsync(replay, cancellationToken);
-        var finalResponse = await base.SendAsync(replay, cancellationToken);
-        if (finalResponse.StatusCode == HttpStatusCode.Unauthorized)
-            await _authentication.RequireSignInAsync(cancellationToken);
-        return finalResponse;
+        HttpResponseMessage? finalResponse = null;
+        try
+        {
+            if (!await TryRefreshSingleFlightAsync(
+                observedRefreshEpoch, requestGeneration, cancellationToken))
+                return response;
+
+            if (_sessionBoundary.IsCancellationRequested(requestGeneration)) return response;
+
+            using var replay = CloneSafeRequest(request);
+            if (!await AttachCurrentBearerAsync(replay, requestGeneration, cancellationToken))
+                return response;
+
+            response.Dispose();
+            finalResponse = await base.SendAsync(replay, cancellationToken);
+            if (finalResponse.StatusCode == HttpStatusCode.Unauthorized)
+                await _authentication.RequireSignInAsync(requestGeneration, cancellationToken);
+            return finalResponse;
+        }
+        catch
+        {
+            response.Dispose();
+            finalResponse?.Dispose();
+            throw;
+        }
     }
 
     private async Task<bool> TryRefreshSingleFlightAsync(
         long observedRefreshEpoch,
+        AccountSessionGeneration requestGeneration,
         CancellationToken cancellationToken)
     {
         await _refreshGate.WaitAsync(cancellationToken);
         try
         {
             if (Volatile.Read(ref _refreshEpoch) != observedRefreshEpoch)
-                return _lastRefreshSucceeded;
-            _lastRefreshSucceeded = await _authentication.TryRefreshAsync(cancellationToken);
+            {
+                var shared = _lastRefreshOutcome;
+                if (shared is not null && shared.Generation == requestGeneration)
+                    return shared.GetResult();
+            }
+
+            RefreshAttemptOutcome outcome;
+            try
+            {
+                outcome = new RefreshAttemptOutcome(
+                    requestGeneration,
+                    await _authentication.TryRefreshAsync(requestGeneration, cancellationToken),
+                    null);
+            }
+            catch (Exception exception)
+            {
+                outcome = new RefreshAttemptOutcome(
+                    requestGeneration,
+                    false,
+                    ExceptionDispatchInfo.Capture(exception));
+            }
+            _lastRefreshOutcome = outcome;
             Interlocked.Increment(ref _refreshEpoch);
-            return _lastRefreshSucceeded;
+            return outcome.GetResult();
         }
         finally
         {
@@ -77,14 +121,33 @@ public sealed class AuthenticatedApiHandler : DelegatingHandler
         }
     }
 
-    private async Task AttachCurrentBearerAsync(
+    private sealed record RefreshAttemptOutcome(
+        AccountSessionGeneration Generation,
+        bool Succeeded,
+        ExceptionDispatchInfo? Failure)
+    {
+        public bool GetResult()
+        {
+            Failure?.Throw();
+            return Succeeded;
+        }
+    }
+
+    private async Task<bool> AttachCurrentBearerAsync(
         HttpRequestMessage request,
+        AccountSessionGeneration requestGeneration,
         CancellationToken cancellationToken)
     {
-        var token = await _tokenProvider.GetAccessTokenAsync(cancellationToken);
-        request.Headers.Authorization = string.IsNullOrWhiteSpace(token)
-            ? null
-            : new AuthenticationHeaderValue("Bearer", token);
+        request.Headers.Authorization = null;
+        string? token = null;
+        var attached = await _sessionBoundary.TryCommitAsync(requestGeneration, async generationToken =>
+        {
+            token = await _tokenProvider.GetAccessTokenAsync(generationToken);
+            request.Headers.Authorization = string.IsNullOrWhiteSpace(token)
+                ? null
+                : new AuthenticationHeaderValue("Bearer", token);
+        }, cancellationToken);
+        return attached;
     }
 
     private static HttpRequestMessage CloneSafeRequest(HttpRequestMessage request)

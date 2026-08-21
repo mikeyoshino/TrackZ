@@ -56,6 +56,9 @@ public interface IIdentitySessionApi
 public interface IAuthEntryPoint
 {
     Task RequireSignInAsync(CancellationToken cancellationToken = default);
+    Task RequireSignInAsync(
+        AccountSessionGeneration expectedGeneration,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed class AuthGateCoordinator : IAuthEntryPoint
@@ -108,9 +111,13 @@ public sealed class AuthGateCoordinator : IAuthEntryPoint
         }
     }
 
-    public async Task RequireSignInAsync(CancellationToken cancellationToken = default)
+    public Task RequireSignInAsync(CancellationToken cancellationToken = default) =>
+        RequireSignInAsync(_sessionBoundary.Capture(), cancellationToken);
+
+    public async Task RequireSignInAsync(
+        AccountSessionGeneration expectedGeneration,
+        CancellationToken cancellationToken = default)
     {
-        var generation = _sessionBoundary.Capture();
         await _transitionGate.WaitAsync(cancellationToken);
         try
         {
@@ -118,7 +125,7 @@ public sealed class AuthGateCoordinator : IAuthEntryPoint
             var resetStarted = false;
             try
             {
-                if (!await _sessionBoundary.TryResetAsync(generation, async token =>
+                if (!await _sessionBoundary.TryResetAsync(expectedGeneration, async token =>
                 {
                     resetStarted = true;
                     await ClearStoredAccountAsync(token);
