@@ -119,6 +119,30 @@ public sealed class AuthGateCoordinatorTests
         Assert.Null(await store.GetAccessTokenAsync());
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Stale_installed_identity_receipt_after_external_reset_cannot_publish_signed_in(bool register)
+    {
+        var storage = new MemoryTokenStorage();
+        var store = new MobileTokenStore(storage);
+        var boundary = new AccountSessionBoundary();
+        var identity = new StaleReceiptIdentity(store, boundary);
+        var gate = new AuthGateCoordinator(store, identity, new RecordingCleaner(), boundary,
+            new TestDeviceNameProvider(), new OfflineConnectivity(), new FixedTimeProvider(DateTimeOffset.UtcNow));
+
+        var transition = register
+            ? gate.RegisterAsync("lift@example.com", "Correct-Horse-9")
+            : gate.SignInAsync("lift@example.com", "Correct-Horse-9");
+        await identity.ReceiptReady;
+        await boundary.ResetAsync(token => store.ClearAsync(token));
+        identity.ReleaseReceipt();
+        await transition;
+
+        Assert.NotEqual(AuthGateState.SignedIn, gate.Snapshot.State);
+        Assert.Null(await store.GetAccessTokenAsync());
+    }
+
     [Fact]
     public async Task Reset_while_refresh_is_delayed_cannot_publish_a_stale_signed_in_state()
     {
@@ -400,5 +424,38 @@ public sealed class AuthGateCoordinatorTests
         }
         public Task RefreshAsync(string deviceName, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task LogoutAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
+    private sealed class StaleReceiptIdentity(MobileTokenStore store, IAccountSessionBoundary boundary) : IIdentitySessionApi
+    {
+        private readonly TaskCompletionSource _receiptReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _releaseReceipt = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public Task ReceiptReady => _receiptReady.Task;
+        public void ReleaseReceipt() => _releaseReceipt.TrySetResult();
+        public Task LoginAsync(string email, string password, string deviceName, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task RegisterAndLoginAsync(string email, string password, string deviceName, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task RefreshAsync(string deviceName, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task LogoutAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task<IdentityTransitionReceipt?> LoginWithReceiptAsync(
+            string email,
+            string password,
+            string deviceName,
+            CancellationToken cancellationToken = default) => CreateStaleReceiptAsync(cancellationToken);
+        public Task<IdentityTransitionReceipt?> RegisterAndLoginWithReceiptAsync(
+            string email,
+            string password,
+            string deviceName,
+            CancellationToken cancellationToken = default) => CreateStaleReceiptAsync(cancellationToken);
+
+        private async Task<IdentityTransitionReceipt?> CreateStaleReceiptAsync(CancellationToken cancellationToken)
+        {
+            var accessToken = CreateToken(DateTimeOffset.UtcNow.AddMinutes(15));
+            var snapshot = MobileTokenStore.CreateSnapshot(accessToken, "refresh-one");
+            await boundary.ResetAsync(token => store.SaveAsync(accessToken, "refresh-one", token), cancellationToken);
+            var receipt = new IdentityTransitionReceipt(boundary.Capture(), snapshot);
+            _receiptReady.TrySetResult();
+            await _releaseReceipt.Task;
+            return receipt;
+        }
     }
 }
