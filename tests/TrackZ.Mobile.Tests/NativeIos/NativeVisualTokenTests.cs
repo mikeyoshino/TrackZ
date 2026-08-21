@@ -43,8 +43,17 @@ public sealed class NativeVisualTokenTests
         AssertStyle<Button>(app, "TrackZSecondaryButtonStyle", ("MinimumHeightRequest", 44d));
         AssertStyle<Button>(app, "TrackZDestructiveButtonStyle", ("MinimumHeightRequest", 44d));
         AssertStyle<Entry>(app, "TrackZFieldStyle", ("MinimumHeightRequest", 50d));
+        AssertStyle<Border>(app, "TrackZFieldContainerStyle", ("MinimumHeightRequest", 50d));
         AssertStyle<Border>(app, "TrackZCardStyle", ("StrokeShape", "RoundRectangle 16"));
         AssertStyle<Border>(app, "TrackZListRowStyle", ("StrokeShape", "RoundRectangle 16"));
+
+        var fieldMinimumHeight = Assert.IsType<double>(SetterValue<Entry>(app, "TrackZFieldStyle", "MinimumHeightRequest"));
+        var fieldContainerMinimumHeight = Assert.IsType<double>(SetterValue<Border>(app, "TrackZFieldContainerStyle", "MinimumHeightRequest"));
+        var fieldContainerPadding = AsThickness(SetterValue<Border>(app, "TrackZFieldContainerStyle", "Padding"));
+        Assert.Equal(50d, fieldMinimumHeight);
+        Assert.Equal(0d, fieldContainerPadding.Top);
+        Assert.Equal(0d, fieldContainerPadding.Bottom);
+        Assert.Equal(50d, Math.Max(fieldContainerMinimumHeight, fieldMinimumHeight + fieldContainerPadding.Top + fieldContainerPadding.Bottom));
 
         var primaryPadding = Assert.IsType<Thickness>(SetterValue<Button>(app, "TrackZPrimaryButtonStyle", "Padding"));
         Assert.Equal(16, primaryPadding.Left);
@@ -221,14 +230,19 @@ public sealed class NativeVisualTokenTests
     }
 
     [Theory]
-    [InlineData("<Root ColumnSpacing=\"3\" />")]
-    [InlineData("<Root Padding=\"3\" />")]
-    [InlineData("<Root Spacing=\"0\" />")]
-    public void Native_spacing_audit_rejects_off_scale_and_zero_mutations(string xaml)
+    [InlineData("<Root ColumnSpacing=\"3\" />", false)]
+    [InlineData("<Root Padding=\"3\" />", false)]
+    [InlineData("<Root Spacing=\"0\" />", false)]
+    [InlineData("<Root Padding=\"12,0\" />", true)]
+    [InlineData("<Root Padding=\"12,3\" />", false)]
+    public void Native_spacing_audit_applies_property_specific_zero_rules(string xaml, bool shouldPass)
     {
         using var app = CreateApp();
 
-        Assert.ThrowsAny<Xunit.Sdk.XunitException>(() => AssertNativeSpacing(app, XDocument.Parse(xaml)));
+        if (shouldPass)
+            AssertNativeSpacing(app, XDocument.Parse(xaml));
+        else
+            Assert.ThrowsAny<Xunit.Sdk.XunitException>(() => AssertNativeSpacing(app, XDocument.Parse(xaml)));
     }
 
     private static void AssertStyle<T>(MauiApp app, string key, params (string Property, object Expected)[] expectedSetters)
@@ -300,6 +314,7 @@ public sealed class NativeVisualTokenTests
     private static void AssertNativeSpacing(MauiApp app, XDocument document)
     {
         var allowed = new HashSet<double> { 4, 8, 12, 16, 24, 32 };
+        var allowedPadding = new HashSet<double>(allowed) { 0 };
         foreach (var (property, value, stickyActionContainer) in SpacingValues(document))
         {
             var parts = ResolveThicknessParts(app, value).ToArray();
@@ -309,7 +324,7 @@ public sealed class NativeVisualTokenTests
                 continue;
             }
 
-            Assert.All(parts, part => Assert.Contains(part, allowed));
+            Assert.All(parts, part => Assert.Contains(part, property == "Padding" ? allowedPadding : allowed));
         }
     }
 

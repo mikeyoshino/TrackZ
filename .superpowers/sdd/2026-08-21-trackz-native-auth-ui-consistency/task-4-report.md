@@ -131,3 +131,30 @@ exit 0
 ```
 
 Fixes: a single audit helper now inspects every XAML root and descendant, direct `Spacing`/`RowSpacing`/`ColumnSpacing`/`Padding` attributes, and semantic style setter values. It rejects zero and off-scale axes everywhere except the named `TrackZStickyActionContainerStyle` page-edge exception. That style is explicitly `18,12` and merged-resource-tested; ordinary primary button padding remains `16,12`. `TrackZFieldContainerStyle` uses the uniform `TrackZSpace12` resource instead of a literal zero vertical axis. Existing 88+12+12=112 geometry, disabled resources, typography attributes, and lime-role gates remain green.
+
+## Fix Round 4/5 — padding-axis absence and composed field geometry
+
+RED command:
+
+```text
+dotnet test tests/TrackZ.Mobile.Tests/TrackZ.Mobile.Tests.csproj --no-restore --filter "FullyQualifiedName~NativeVisualTokenTests|FullyQualifiedName~AccessibilitySemanticsTests|FullyQualifiedName~NativePresentationCompositionTests|FullyQualifiedName~ExercisePickerViewModelTests" --verbosity minimal -m:1
+Failed! - Failed: 2, Passed: 77, Skipped: 0, Total: 79
+```
+
+The new `Padding="12,0"` acceptance row failed because the audit rejected the zero vertical axis, while the composed-field test reported expected vertical padding `0` but actual `12` from the uniform container padding.
+
+GREEN command:
+
+```text
+dotnet test tests/TrackZ.Mobile.Tests/TrackZ.Mobile.Tests.csproj --no-restore --filter "FullyQualifiedName~NativeVisualTokenTests|FullyQualifiedName~AccessibilitySemanticsTests|FullyQualifiedName~NativePresentationCompositionTests|FullyQualifiedName~ExercisePickerViewModelTests" --verbosity minimal -m:1
+Passed! - Failed: 0, Passed: 79, Skipped: 0, Total: 79
+```
+
+iOS XAML compile:
+
+```text
+dotnet msbuild src/TrackZ.Mobile/TrackZ.Mobile.csproj -t:Compile -p:TargetFramework=net10.0-ios -p:BuildProjectReferences=false -m:1 -verbosity:minimal
+exit 0
+```
+
+Fixes: the unified spacing helper continues to reject zero and off-scale values for `Spacing`, `RowSpacing`, and `ColumnSpacing`; `Padding` alone permits zero axes as absence while requiring every nonzero axis to be `4/8/12/16/24/32`. The named sticky action exception remains exactly `18,12`. Explicit mutation rows prove `Spacing="0"` fails, `Padding="12,0"` passes, and `Padding="12,3"` fails. `TrackZFieldContainerStyle` is restored to horizontal-only `12,0`; merged-resource assertions prove the Entry minimum is `50`, the container vertical padding is `0`, and the composed minimum is exactly `50`, not `74`. The focused green suite preserves primary `16,12`, sticky `18,12`, shared `88/112` exercise geometry, disabled semantic colors, typography, lime-role, and card gates. `git diff --check` and iOS Compile pass; no remaining concerns.
