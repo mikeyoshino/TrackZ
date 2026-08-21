@@ -39,7 +39,7 @@ public sealed class ProtectedRequestAuthentication(
             exception.ErrorCode == BusinessErrorCode.RefreshTokenInvalid
             || exception.IsAuthenticationRequired)
         {
-            await authEntryPoint.RequireSignInAsync(expectedGeneration, cancellationToken);
+            await authEntryPoint.RequireSignInAsync(expectedGeneration, CancellationToken.None);
             return false;
         }
     }

@@ -201,6 +201,84 @@ public sealed class AuthenticatedApiHandlerTests
     }
 
     [Fact]
+    public async Task Leader_caller_cancellation_does_not_cancel_shared_refresh_for_live_waiter()
+    {
+        var boundary = new AccountSessionBoundary();
+        var generation = boundary.Capture();
+        var transport = new OrderedConcurrentUnauthorizedHandler();
+        var tokens = new MutableTokenProvider();
+        var recovery = new CancellationOwnershipRecovery(() => tokens.Token = "new-token");
+        using var client = ClientWithHandler(transport, recovery, tokens, ApiOrigin, boundary);
+        using var leaderCancellation = new CancellationTokenSource();
+        using var waiterCancellation = new CancellationTokenSource();
+
+        var leader = client.GetAsync("exercises?request=leader", leaderCancellation.Token);
+        await transport.LeaderEntered.WaitAsync(TimeSpan.FromSeconds(2));
+        transport.ReleaseLeaderResponse();
+        await recovery.RefreshEntered.WaitAsync(TimeSpan.FromSeconds(2));
+
+        var waiter = client.GetAsync("exercises?request=waiter", waiterCancellation.Token);
+        await transport.WaiterEntered.WaitAsync(TimeSpan.FromSeconds(2));
+        transport.ReleaseWaiterResponse();
+        await transport.WaiterResponseReturned.WaitAsync(TimeSpan.FromSeconds(2));
+
+        leaderCancellation.Cancel();
+        recovery.InspectRefreshCancellation();
+        await recovery.CancellationInspected.WaitAsync(TimeSpan.FromSeconds(2));
+        recovery.ReleaseRefresh();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => leader);
+        using var waiterResponse = await waiter;
+
+        Assert.False(recovery.RefreshCancellationWasRequested);
+        Assert.Equal(HttpStatusCode.OK, waiterResponse.StatusCode);
+        Assert.Equal(1, recovery.RefreshCount);
+        Assert.Equal(0, recovery.RequireSignInCount);
+        Assert.Equal(3, transport.RequestCount);
+        Assert.Equal(generation, boundary.Capture());
+        Assert.Equal("new-token", tokens.Token);
+    }
+
+    [Fact]
+    public async Task Waiter_caller_cancellation_does_not_cancel_leader_or_shared_refresh()
+    {
+        var boundary = new AccountSessionBoundary();
+        var generation = boundary.Capture();
+        var transport = new OrderedConcurrentUnauthorizedHandler();
+        var tokens = new MutableTokenProvider();
+        var recovery = new CancellationOwnershipRecovery(() => tokens.Token = "new-token");
+        using var client = ClientWithHandler(transport, recovery, tokens, ApiOrigin, boundary);
+        using var leaderCancellation = new CancellationTokenSource();
+        using var waiterCancellation = new CancellationTokenSource();
+
+        var leader = client.GetAsync("exercises?request=leader", leaderCancellation.Token);
+        await transport.LeaderEntered.WaitAsync(TimeSpan.FromSeconds(2));
+        transport.ReleaseLeaderResponse();
+        await recovery.RefreshEntered.WaitAsync(TimeSpan.FromSeconds(2));
+
+        var waiter = client.GetAsync("exercises?request=waiter", waiterCancellation.Token);
+        await transport.WaiterEntered.WaitAsync(TimeSpan.FromSeconds(2));
+        transport.ReleaseWaiterResponse();
+        await transport.WaiterResponseReturned.WaitAsync(TimeSpan.FromSeconds(2));
+
+        waiterCancellation.Cancel();
+        recovery.InspectRefreshCancellation();
+        await recovery.CancellationInspected.WaitAsync(TimeSpan.FromSeconds(2));
+        recovery.ReleaseRefresh();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => waiter);
+        using var leaderResponse = await leader;
+
+        Assert.False(recovery.RefreshCancellationWasRequested);
+        Assert.Equal(HttpStatusCode.OK, leaderResponse.StatusCode);
+        Assert.Equal(1, recovery.RefreshCount);
+        Assert.Equal(0, recovery.RequireSignInCount);
+        Assert.Equal(3, transport.RequestCount);
+        Assert.Equal(generation, boundary.Capture());
+        Assert.Equal("new-token", tokens.Token);
+    }
+
+    [Fact]
     public async Task Rejected_refresh_returns_the_original_401_with_problem_details_and_headers_untouched()
     {
         const string problemJson =
@@ -225,7 +303,7 @@ public sealed class AuthenticatedApiHandlerTests
     }
 
     [Fact]
-    public async Task Caller_cancellation_during_refresh_is_preserved()
+    public async Task Caller_cancellation_is_preserved_without_canceling_shared_refresh()
     {
         var transport = new SequenceHandler(HttpStatusCode.Unauthorized);
         var recovery = new CancellationObservingRecovery();
@@ -237,7 +315,9 @@ public sealed class AuthenticatedApiHandlerTests
         cancellation.Cancel();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pending);
-        Assert.True(recovery.CancellationObserved);
+        Assert.False(recovery.RefreshCancellationWasRequested);
+        recovery.ReleaseRefresh();
+        await recovery.RefreshCompleted.WaitAsync(TimeSpan.FromSeconds(2));
         Assert.Equal(1, transport.RequestCount);
     }
 
@@ -286,6 +366,38 @@ public sealed class AuthenticatedApiHandlerTests
         Assert.Equal(1, rawTransport.RequestCount);
         Assert.Equal("/mobile/api/v1/auth/refresh", rawTransport.RequestUri!.AbsolutePath);
         Assert.Null(rawTransport.Authorization);
+    }
+
+    [Fact]
+    public async Task Rejected_refresh_can_reset_its_generation_and_return_false_without_self_cancellation()
+    {
+        var boundary = new AccountSessionBoundary();
+        var generation = boundary.Capture();
+        var tokenStore = new MobileTokenStore(new MemoryTokenStorage());
+        await tokenStore.SaveAsync(TestJwt(), "refresh-token");
+        using var rawClient = new HttpClient(new ReturningResponseHandler(new HttpResponseMessage(
+            HttpStatusCode.Unauthorized)
+        {
+            Content = new StringContent(
+                """
+                {"type":"https://trackz.test/problem","title":"Request failed","status":401,"errorCode":10003,"message":"Refresh token is invalid.","traceId":"trace-1","fieldErrors":null}
+                """,
+                System.Text.Encoding.UTF8,
+                "application/json")
+        })) { BaseAddress = ApiOrigin };
+        var entryPoint = new ResettingAuthEntryPoint(boundary);
+        var recovery = new ProtectedRequestAuthentication(
+            new TrackZIdentityRefreshClient(rawClient, tokenStore, boundary),
+            new StubDeviceNameProvider(),
+            entryPoint,
+            boundary);
+        using var sessionCancellation = boundary.CreateCancellationLease(generation);
+
+        var refreshed = await recovery.TryRefreshAsync(generation, sessionCancellation.Token);
+
+        Assert.False(refreshed);
+        Assert.Equal(1, entryPoint.CallCount);
+        Assert.True(boundary.IsCancellationRequested(generation));
     }
 
     private static HttpClient ClientWithHandler(
@@ -377,29 +489,35 @@ public sealed class AuthenticatedApiHandlerTests
     private sealed class CancellationObservingRecovery : IProtectedRequestAuthentication
     {
         private readonly TaskCompletionSource _entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _completed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private CancellationToken _refreshCancellationToken;
         public Task RefreshEntered => _entered.Task;
-        public bool CancellationObserved { get; private set; }
+        public Task RefreshCompleted => _completed.Task;
+        public bool RefreshCancellationWasRequested => _refreshCancellationToken.IsCancellationRequested;
 
         public async Task<bool> TryRefreshAsync(
             AccountSessionGeneration expectedGeneration,
             CancellationToken cancellationToken)
         {
+            _refreshCancellationToken = cancellationToken;
             _entered.TrySetResult();
             try
             {
-                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                await _release.Task.WaitAsync(cancellationToken);
                 return false;
             }
-            catch (OperationCanceledException)
+            finally
             {
-                CancellationObserved = true;
-                throw;
+                _completed.TrySetResult();
             }
         }
 
         public Task RequireSignInAsync(
             AccountSessionGeneration expectedGeneration,
             CancellationToken cancellationToken) => Task.CompletedTask;
+
+        public void ReleaseRefresh() => _release.TrySetResult();
     }
 
     private sealed class GatedExceptionRecovery(Exception failure) : IProtectedRequestAuthentication
@@ -423,6 +541,44 @@ public sealed class AuthenticatedApiHandlerTests
             AccountSessionGeneration expectedGeneration,
             CancellationToken cancellationToken) => Task.CompletedTask;
 
+        public void ReleaseRefresh() => _release.TrySetResult();
+    }
+
+    private sealed class CancellationOwnershipRecovery(Action onRefresh) : IProtectedRequestAuthentication
+    {
+        private readonly TaskCompletionSource _entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _inspect = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _inspected = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public Task RefreshEntered => _entered.Task;
+        public Task CancellationInspected => _inspected.Task;
+        public bool RefreshCancellationWasRequested { get; private set; }
+        public int RefreshCount { get; private set; }
+        public int RequireSignInCount { get; private set; }
+
+        public async Task<bool> TryRefreshAsync(
+            AccountSessionGeneration expectedGeneration,
+            CancellationToken cancellationToken)
+        {
+            RefreshCount++;
+            _entered.TrySetResult();
+            await _inspect.Task;
+            RefreshCancellationWasRequested = cancellationToken.IsCancellationRequested;
+            _inspected.TrySetResult();
+            await _release.Task.WaitAsync(cancellationToken);
+            onRefresh();
+            return true;
+        }
+
+        public Task RequireSignInAsync(
+            AccountSessionGeneration expectedGeneration,
+            CancellationToken cancellationToken)
+        {
+            RequireSignInCount++;
+            return Task.CompletedTask;
+        }
+
+        public void InspectRefreshCancellation() => _inspect.TrySetResult();
         public void ReleaseRefresh() => _release.TrySetResult();
     }
 
@@ -485,6 +641,44 @@ public sealed class AuthenticatedApiHandlerTests
         }
 
         public void Release() => _release.TrySetResult();
+    }
+
+    private sealed class OrderedConcurrentUnauthorizedHandler : HttpMessageHandler
+    {
+        private readonly TaskCompletionSource _leaderEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _releaseLeader = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _waiterEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _releaseWaiter = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _waiterReturned = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _requestCount;
+        public Task LeaderEntered => _leaderEntered.Task;
+        public Task WaiterEntered => _waiterEntered.Task;
+        public Task WaiterResponseReturned => _waiterReturned.Task;
+        public int RequestCount => Volatile.Read(ref _requestCount);
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref _requestCount);
+            if (request.Headers.Authorization?.Parameter != "old-token")
+                return new HttpResponseMessage(HttpStatusCode.OK);
+
+            if (request.RequestUri!.Query.Contains("request=leader", StringComparison.Ordinal))
+            {
+                _leaderEntered.TrySetResult();
+                await _releaseLeader.Task.WaitAsync(cancellationToken);
+                return new HttpResponseMessage(HttpStatusCode.Unauthorized);
+            }
+
+            _waiterEntered.TrySetResult();
+            await _releaseWaiter.Task.WaitAsync(cancellationToken);
+            _waiterReturned.TrySetResult();
+            return new HttpResponseMessage(HttpStatusCode.Unauthorized);
+        }
+
+        public void ReleaseLeaderResponse() => _releaseLeader.TrySetResult();
+        public void ReleaseWaiterResponse() => _releaseWaiter.TrySetResult();
     }
 
     private sealed class ConcurrentUnauthorizedHandler(int expectedInitialRequests) : HttpMessageHandler
@@ -567,6 +761,30 @@ public sealed class AuthenticatedApiHandlerTests
         {
             _values.Remove(key);
             return Task.CompletedTask;
+        }
+    }
+
+    private sealed class StubDeviceNameProvider : IDeviceNameProvider
+    {
+        public string DeviceName => "test-device";
+    }
+
+    private sealed class ResettingAuthEntryPoint(IAccountSessionBoundary boundary) : IAuthEntryPoint
+    {
+        public int CallCount { get; private set; }
+
+        public Task RequireSignInAsync(CancellationToken cancellationToken = default) =>
+            RequireSignInAsync(boundary.Capture(), cancellationToken);
+
+        public async Task RequireSignInAsync(
+            AccountSessionGeneration expectedGeneration,
+            CancellationToken cancellationToken = default)
+        {
+            CallCount++;
+            _ = await boundary.TryResetAsync(
+                expectedGeneration,
+                _ => Task.CompletedTask,
+                cancellationToken);
         }
     }
 }

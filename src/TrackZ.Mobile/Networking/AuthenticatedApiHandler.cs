@@ -12,9 +12,9 @@ public sealed class AuthenticatedApiHandler : DelegatingHandler
     private readonly IProtectedRequestAuthentication _authentication;
     private readonly Uri _apiOrigin;
     private readonly IAccountSessionBoundary _sessionBoundary;
-    private readonly SemaphoreSlim _refreshGate = new(1, 1);
+    private readonly object _refreshLock = new();
     private long _refreshEpoch;
-    private RefreshAttemptOutcome? _lastRefreshOutcome;
+    private RefreshAttempt? _lastRefreshAttempt;
 
     public AuthenticatedApiHandler(
         IAccessTokenProvider tokenProvider,
@@ -86,43 +86,64 @@ public sealed class AuthenticatedApiHandler : DelegatingHandler
         AccountSessionGeneration requestGeneration,
         CancellationToken cancellationToken)
     {
-        await _refreshGate.WaitAsync(cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        RefreshAttempt attempt;
+        var ownsAttempt = false;
+        lock (_refreshLock)
+        {
+            if (_lastRefreshAttempt is { } shared
+                && shared.ObservedEpoch == observedRefreshEpoch
+                && shared.Generation == requestGeneration)
+            {
+                attempt = shared;
+            }
+            else
+            {
+                attempt = new RefreshAttempt(observedRefreshEpoch, requestGeneration);
+                _lastRefreshAttempt = attempt;
+                ownsAttempt = true;
+            }
+        }
+
+        if (ownsAttempt) _ = RunRefreshAttemptAsync(attempt);
+        var outcome = await attempt.Completion.Task.WaitAsync(cancellationToken);
+        return outcome.GetResult();
+    }
+
+    private async Task RunRefreshAttemptAsync(RefreshAttempt attempt)
+    {
+        RefreshAttemptOutcome outcome;
         try
         {
-            if (Volatile.Read(ref _refreshEpoch) != observedRefreshEpoch)
-            {
-                var shared = _lastRefreshOutcome;
-                if (shared is not null && shared.Generation == requestGeneration)
-                    return shared.GetResult();
-            }
-
-            RefreshAttemptOutcome outcome;
-            try
-            {
-                outcome = new RefreshAttemptOutcome(
-                    requestGeneration,
-                    await _authentication.TryRefreshAsync(requestGeneration, cancellationToken),
-                    null);
-            }
-            catch (Exception exception)
-            {
-                outcome = new RefreshAttemptOutcome(
-                    requestGeneration,
-                    false,
-                    ExceptionDispatchInfo.Capture(exception));
-            }
-            _lastRefreshOutcome = outcome;
-            Interlocked.Increment(ref _refreshEpoch);
-            return outcome.GetResult();
+            using var sessionCancellation = _sessionBoundary.CreateCancellationLease(attempt.Generation);
+            outcome = new RefreshAttemptOutcome(
+                await _authentication.TryRefreshAsync(
+                    attempt.Generation, sessionCancellation.Token),
+                null);
+        }
+        catch (Exception exception)
+        {
+            outcome = new RefreshAttemptOutcome(
+                false,
+                ExceptionDispatchInfo.Capture(exception));
         }
         finally
         {
-            _refreshGate.Release();
+            Interlocked.Increment(ref _refreshEpoch);
         }
+
+        attempt.Completion.TrySetResult(outcome);
+    }
+
+    private sealed record RefreshAttempt(
+        long ObservedEpoch,
+        AccountSessionGeneration Generation)
+    {
+        public TaskCompletionSource<RefreshAttemptOutcome> Completion { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 
     private sealed record RefreshAttemptOutcome(
-        AccountSessionGeneration Generation,
         bool Succeeded,
         ExceptionDispatchInfo? Failure)
     {
