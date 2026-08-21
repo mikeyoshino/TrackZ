@@ -94,11 +94,7 @@ public sealed class AuthGateCoordinator : IAuthEntryPoint
             await _transitionGate.WaitAsync(cancellationToken);
             try
             {
-                var generation = _sessionBoundary.Capture();
-                using var lease = _sessionBoundary.CreateCancellationLease(generation, cancellationToken);
-                await _identity.LoginAsync(email, password, _deviceName.DeviceName, lease.Token);
-                if (_sessionBoundary.IsCancellationRequested(generation))
-                    throw new OperationCanceledException("The account session changed.");
+                await _identity.LoginAsync(email, password, _deviceName.DeviceName, cancellationToken);
                 Publish(new AuthGateSnapshot(AuthGateState.SignedIn));
                 Volatile.Write(ref _initialised, 1);
             }
@@ -121,11 +117,7 @@ public sealed class AuthGateCoordinator : IAuthEntryPoint
             await _transitionGate.WaitAsync(cancellationToken);
             try
             {
-                var generation = _sessionBoundary.Capture();
-                using var lease = _sessionBoundary.CreateCancellationLease(generation, cancellationToken);
-                await _identity.RegisterAndLoginAsync(email, password, _deviceName.DeviceName, lease.Token);
-                if (_sessionBoundary.IsCancellationRequested(generation))
-                    throw new OperationCanceledException("The account session changed.");
+                await _identity.RegisterAndLoginAsync(email, password, _deviceName.DeviceName, cancellationToken);
                 Publish(new AuthGateSnapshot(AuthGateState.SignedIn));
                 Volatile.Write(ref _initialised, 1);
             }
@@ -206,12 +198,18 @@ public sealed class AuthGateCoordinator : IAuthEntryPoint
         Publish(new AuthGateSnapshot(AuthGateState.Refreshing));
         try
         {
-            await _identity.RefreshAsync(_deviceName.DeviceName, cancellationToken);
+            using var lease = _sessionBoundary.CreateCancellationLease(generation, cancellationToken);
+            await _identity.RefreshAsync(_deviceName.DeviceName, lease.Token);
+            if (_sessionBoundary.IsCancellationRequested(generation)) return;
             Publish(new AuthGateSnapshot(AuthGateState.SignedIn));
         }
         catch (OperationCanceledException) when (_sessionBoundary.IsCancellationRequested(generation))
         {
             // The newer account transition owns terminal state.
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            Publish(new AuthGateSnapshot(AuthGateState.SignedIn, IsOfflineSession: true));
         }
         catch (Exception exception) when (IsOffline(exception))
         {

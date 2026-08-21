@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text;
 using TrackZ.Contracts.Errors;
 using TrackZ.Mobile.Features.Exercises;
 using TrackZ.Mobile.Identity;
@@ -59,6 +60,68 @@ public sealed class AuthGateCoordinatorTests
 
         Assert.Equal(1, fixture.Identity.LoginCalls);
         Assert.Equal(AuthGateState.SignedIn, fixture.Coordinator.Snapshot.State);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Successful_concrete_identity_transition_publishes_signed_in_after_its_account_reset(bool register)
+    {
+        var storage = new MemoryTokenStorage();
+        var store = new MobileTokenStore(storage);
+        var boundary = new AccountSessionBoundary();
+        var now = new DateTimeOffset(2026, 8, 21, 12, 0, 0, TimeSpan.Zero);
+        var responses = register
+            ? new[]
+            {
+                Json(HttpStatusCode.Created, "{\"userId\":\"99999999-9999-9999-9999-999999999999\",\"email\":\"lift@example.com\"}"),
+                TokenResponse(now.AddMinutes(15))
+            }
+            : [TokenResponse(now.AddMinutes(15))];
+        var identity = new TrackZIdentityApiClient(
+            new HttpClient(new ResponseQueueHandler(responses)) { BaseAddress = new Uri("https://trackz.test") },
+            store,
+            new RecordingCleaner(),
+            boundary);
+        var gate = new AuthGateCoordinator(store, identity, new RecordingCleaner(), boundary,
+            new TestDeviceNameProvider(), new OfflineConnectivity(), new FixedTimeProvider(now));
+
+        if (register)
+            await gate.RegisterAsync("lift@example.com", "Correct-Horse-9");
+        else
+            await gate.SignInAsync("lift@example.com", "Correct-Horse-9");
+
+        Assert.Equal(AuthGateState.SignedIn, gate.Snapshot.State);
+        Assert.NotNull(await store.GetAccessTokenAsync());
+    }
+
+    [Fact]
+    public async Task Reset_while_refresh_is_delayed_cannot_publish_a_stale_signed_in_state()
+    {
+        var fixture = Fixture.For(SessionCase.ExpiredRefreshSucceeds);
+        fixture.Identity.GateRefresh();
+        var initialize = fixture.Coordinator.InitializeAsync();
+        await fixture.Identity.RefreshEntered;
+
+        await fixture.Boundary.ResetAsync(token => fixture.Store.ClearAsync(token));
+        fixture.Identity.ReleaseRefresh();
+        await initialize;
+
+        Assert.NotEqual(AuthGateState.SignedIn, fixture.Coordinator.Snapshot.State);
+        Assert.Null(await fixture.Store.GetAccessTokenAsync());
+    }
+
+    [Fact]
+    public async Task Timeout_shaped_refresh_cancellation_preserves_the_complete_offline_session()
+    {
+        var fixture = Fixture.For(SessionCase.ExpiredRefreshSucceeds);
+        fixture.Identity.RefreshFailure = new TaskCanceledException("The request timed out.");
+
+        await fixture.Coordinator.InitializeAsync();
+
+        Assert.Equal(new AuthGateSnapshot(AuthGateState.SignedIn, IsOfflineSession: true), fixture.Coordinator.Snapshot);
+        Assert.NotNull(await fixture.Store.GetAccessTokenAsync());
+        Assert.Equal(0, fixture.Cleaner.ClearCount);
     }
 
     [Fact]
@@ -122,6 +185,7 @@ public sealed class AuthGateCoordinatorTests
         var submit = form.SubmitCommand.ExecuteAsync();
         await fixture.Identity.LoginEntered;
         await fixture.Boundary.ResetAsync(_ => Task.CompletedTask);
+        fixture.Identity.CancelLoginAfterGate();
         fixture.Identity.ReleaseLogin();
         await submit;
 
@@ -167,7 +231,7 @@ public sealed class AuthGateCoordinatorTests
             if (scenario is not SessionCase.None)
             {
                 var expiry = scenario == SessionCase.Valid ? now.AddMinutes(15) : now.AddMinutes(-1);
-                store.SaveAsync(Token(expiry), "refresh").GetAwaiter().GetResult();
+                store.SaveAsync(CreateToken(expiry), "refresh").GetAwaiter().GetResult();
             }
             if (scenario == SessionCase.ExpiredRefreshRejected)
                 identity.RefreshFailure = new MobileApiException(BusinessErrorCode.RefreshTokenInvalid, "Refresh token is invalid.");
@@ -176,12 +240,6 @@ public sealed class AuthGateCoordinatorTests
             return new Fixture(storage, store, identity, cleaner, boundary, coordinator, coordinator.Snapshot.State);
         }
 
-        private static string Token(DateTimeOffset expiresAt)
-        {
-            static string Part(string text) => Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(text))
-                .TrimEnd('=').Replace('+', '-').Replace('/', '_');
-            return $"{Part("{\"alg\":\"none\"}")}.{Part($"{{\"sub\":\"99999999-9999-9999-9999-999999999999\",\"sid\":\"aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb\",\"exp\":{expiresAt.ToUnixTimeSeconds()}}}")}.signature";
-        }
     }
 
     public enum SessionCase { None, Valid, ExpiredRefreshSucceeds, ExpiredRefreshRejected, ExpiredRefreshOffline }
@@ -204,7 +262,11 @@ public sealed class AuthGateCoordinatorTests
     {
         private readonly TaskCompletionSource _loginEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource _releaseLogin = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _refreshEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _releaseRefresh = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private bool _gateLogin;
+        private bool _gateRefresh;
+        private bool _cancelLoginAfterGate;
         public int LoginCalls { get; private set; }
         public int RegisterCalls { get; private set; }
         public int RefreshCalls { get; private set; }
@@ -212,19 +274,33 @@ public sealed class AuthGateCoordinatorTests
         public Exception? LoginFailure { get; set; }
         public Exception? LogoutFailure { get; set; }
         public Task LoginEntered => _loginEntered.Task;
+        public Task RefreshEntered => _refreshEntered.Task;
         public void GateLogin() => _gateLogin = true;
+        public void CancelLoginAfterGate() => _cancelLoginAfterGate = true;
+        public void GateRefresh() => _gateRefresh = true;
         public void ReleaseLogin() => _releaseLogin.TrySetResult();
+        public void ReleaseRefresh() => _releaseRefresh.TrySetResult();
         public async Task LoginAsync(string email, string password, string deviceName, CancellationToken cancellationToken = default)
         {
             LoginCalls++;
             if (LoginFailure is not null) throw LoginFailure;
-            if (_gateLogin) { _loginEntered.TrySetResult(); await _releaseLogin.Task.WaitAsync(cancellationToken); }
+            if (_gateLogin)
+            {
+                _loginEntered.TrySetResult();
+                await _releaseLogin.Task.WaitAsync(cancellationToken);
+                if (_cancelLoginAfterGate) throw new OperationCanceledException("The account session changed.");
+            }
         }
         public Task RegisterAndLoginAsync(string email, string password, string deviceName, CancellationToken cancellationToken = default) { RegisterCalls++; return Task.CompletedTask; }
-        public Task RefreshAsync(string deviceName, CancellationToken cancellationToken = default)
+        public async Task RefreshAsync(string deviceName, CancellationToken cancellationToken = default)
         {
             RefreshCalls++;
-            return RefreshFailure is null ? Task.CompletedTask : Task.FromException(RefreshFailure);
+            if (RefreshFailure is not null) throw RefreshFailure;
+            if (_gateRefresh)
+            {
+                _refreshEntered.TrySetResult();
+                await _releaseRefresh.Task.WaitAsync(cancellationToken);
+            }
         }
         public Task LogoutAsync(CancellationToken cancellationToken = default) =>
             LogoutFailure is null ? Task.CompletedTask : Task.FromException(LogoutFailure);
@@ -233,4 +309,26 @@ public sealed class AuthGateCoordinatorTests
     private sealed class TestDeviceNameProvider : IDeviceNameProvider { public string DeviceName => "iPhone Simulator"; }
     private sealed class OfflineConnectivity : IConnectivityService { public bool IsOnline => false; public event EventHandler? ConnectivityChanged { add { } remove { } } }
     private sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider { public override DateTimeOffset GetUtcNow() => now; }
+
+    private static HttpResponseMessage TokenResponse(DateTimeOffset expiresAt) => Json(HttpStatusCode.OK,
+        $$"""{"accessToken":"{{CreateToken(expiresAt)}}","refreshToken":"refresh-one","expiresAt":"{{expiresAt:O}}"}""");
+
+    private static HttpResponseMessage Json(HttpStatusCode status, string json) => new(status)
+    {
+        Content = new StringContent(json, Encoding.UTF8, "application/json")
+    };
+
+    private static string CreateToken(DateTimeOffset expiresAt)
+    {
+        static string Part(string text) => Convert.ToBase64String(Encoding.UTF8.GetBytes(text))
+            .TrimEnd('=').Replace('+', '-').Replace('/', '_');
+        return $"{Part("{\"alg\":\"none\"}")}.{Part($"{{\"sub\":\"99999999-9999-9999-9999-999999999999\",\"sid\":\"aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb\",\"exp\":{expiresAt.ToUnixTimeSeconds()}}}")}.signature";
+    }
+
+    private sealed class ResponseQueueHandler(IEnumerable<HttpResponseMessage> responses) : HttpMessageHandler
+    {
+        private readonly Queue<HttpResponseMessage> _responses = new(responses);
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(_responses.Dequeue());
+    }
 }
