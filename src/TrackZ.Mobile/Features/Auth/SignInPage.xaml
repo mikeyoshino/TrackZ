@@ -5,7 +5,7 @@
              SafeAreaEdges="All"
              BackgroundColor="{DynamicResource TrackZBackground}">
     <Grid Padding="0,24,0,0" RowDefinitions="Auto,*,Auto" BackgroundColor="{DynamicResource TrackZBackground}">
-        <VerticalStackLayout Padding="{DynamicResource TrackZPageHorizontalPadding}" Spacing="{DynamicResource TrackZSpace12}">
+        <VerticalStackLayout Padding="{DynamicResource TrackZPageHorizontalPadding}" Spacing="{DynamicResource TrackZSpace12}" Style="{DynamicResource TrackZAuthHeaderStyle}">
             <Label Style="{DynamicResource TrackZPageTitleStyle}" Text="{Binding Text.SignInTitle}" />
             <Label x:Name="WelcomeBodyLabel" Style="{DynamicResource TrackZBodyStyle}" Text="{Binding Text.SignInWelcomeBody}" />
         </VerticalStackLayout>

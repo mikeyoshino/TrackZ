@@ -151,6 +151,7 @@ public sealed class WorkoutSummaryViewModel(
     private int _level = 1;
     private int _currentLevelRequiredXp;
     private int? _nextLevelRequiredXp;
+    private bool _hasAuthoritativeProgressData;
     private ProgressReveal? _reveal;
 
     public decimal TotalVolumeKg { get => _totalVolumeKg; private set { if (Set(ref _totalVolumeKg, value)) OnPropertyChanged(nameof(TotalVolumeText)); } }
@@ -174,7 +175,18 @@ public sealed class WorkoutSummaryViewModel(
     }
     public int CurrentLevelRequiredXp { get => _currentLevelRequiredXp; private set => Set(ref _currentLevelRequiredXp, value); }
     public int? NextLevelRequiredXp { get => _nextLevelRequiredXp; private set => Set(ref _nextLevelRequiredXp, value); }
-    public double LevelProgress => NextLevelRequiredXp is not { } next || next <= CurrentLevelRequiredXp
+    public bool HasAuthoritativeProgressData
+    {
+        get => _hasAuthoritativeProgressData;
+        private set
+        {
+            if (Set(ref _hasAuthoritativeProgressData, value))
+                OnPropertyChanged(nameof(LevelProgress));
+        }
+    }
+    public double LevelProgress => !HasAuthoritativeProgressData
+        ? 0d
+        : NextLevelRequiredXp is not { } next || next <= CurrentLevelRequiredXp
         ? 1d
         : Math.Clamp((double)(TotalXp - CurrentLevelRequiredXp) / (next - CurrentLevelRequiredXp), 0d, 1d);
     public string XpEarnedText => string.Format(Text.XpEarnedFormat, Reveal?.XpDelta ?? 0);
@@ -233,6 +245,7 @@ public sealed class WorkoutSummaryViewModel(
         Level = snapshot.Profile.Level;
         CurrentLevelRequiredXp = snapshot.Profile.CurrentLevelRequiredXp;
         NextLevelRequiredXp = snapshot.Profile.NextLevelRequiredXp;
+        HasAuthoritativeProgressData = true;
         OnPropertyChanged(nameof(LevelProgress));
     }
 

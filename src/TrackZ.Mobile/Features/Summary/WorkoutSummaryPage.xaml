@@ -20,7 +20,7 @@
                     <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding LevelAdvancedText}" />
                 </VerticalStackLayout>
             </Border>
-            <Border Style="{DynamicResource TrackZCardStyle}">
+            <Border x:Name="SummaryXpCard" IsVisible="{Binding HasAuthoritativeProgressData}" Style="{DynamicResource TrackZCardStyle}">
                 <components:XpBar Level="{Binding Level}" LevelLabel="{Binding Text.Level}" TotalXp="{Binding TotalXp}" XpLabel="{Binding Text.Xp}" Progress="{Binding LevelProgress}" />
             </Border>
             <Grid ColumnDefinitions="*,*,*" ColumnSpacing="{DynamicResource TrackZSpace8}">
@@ -43,7 +43,7 @@
                     </VerticalStackLayout>
                 </Border>
             </Grid>
-            <Label SemanticProperties.Description="{Binding SyncAccessibilityText}" Style="{DynamicResource TrackZPerformanceMetadataStyle}" Text="{Binding SyncAccessibilityText}" />
+            <Label x:Name="SummarySyncStatus" IsVisible="{Binding HasAuthoritativeProgressData}" SemanticProperties.Description="{Binding SyncAccessibilityText}" Style="{DynamicResource TrackZPerformanceMetadataStyle}" Text="{Binding SyncAccessibilityText}" />
             <Label Style="{DynamicResource TrackZInlineErrorStyle}" Text="{Binding ErrorMessage}" />
         </VerticalStackLayout>
     </ScrollView>

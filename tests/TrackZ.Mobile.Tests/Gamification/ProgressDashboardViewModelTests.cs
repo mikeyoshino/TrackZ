@@ -11,6 +11,77 @@ namespace TrackZ.Mobile.Tests.Gamification;
 
 public sealed class ProgressDashboardViewModelTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Progress_remains_unavailable_without_a_real_snapshot_even_when_loading_fails(bool throwOnRead)
+    {
+        var source = new MaybeSnapshotSource(snapshot: null, throwOnRead);
+        var dashboard = new ProgressDashboardViewModel(
+            source,
+            new OfflineConnectivity(),
+            new KilogramPreference(),
+            new AccountSessionBoundary(),
+            GamificationResources.English);
+        var workoutId = Guid.NewGuid();
+        var summary = new WorkoutSummaryViewModel(
+            new SummarySource(new CompletedWorkoutSummary(workoutId, 500m, 1, 8)),
+            source,
+            new OfflineConnectivity(),
+            GamificationResources.English);
+
+        Assert.False(dashboard.HasAuthoritativeProgressData);
+        Assert.False(summary.HasAuthoritativeProgressData);
+        Assert.Equal(0d, dashboard.LevelProgress);
+        Assert.Equal(0d, summary.LevelProgress);
+
+        await dashboard.LoadAsync();
+        await summary.LoadAsync(workoutId);
+
+        Assert.False(dashboard.HasAuthoritativeProgressData);
+        Assert.False(summary.HasAuthoritativeProgressData);
+        Assert.Equal(0d, dashboard.LevelProgress);
+        Assert.Equal(0d, summary.LevelProgress);
+    }
+
+    [Fact]
+    public async Task Real_zero_xp_level_one_snapshot_is_authoritative_and_visible()
+    {
+        var snapshot = Snapshot(1, 0, 0) with
+        {
+            Profile = Snapshot(1, 0, 0).Profile with
+            {
+                CurrentLevelRequiredXp = 0,
+                NextLevelRequiredXp = 100
+            }
+        };
+        var source = new MaybeSnapshotSource(snapshot, throwOnRead: false);
+        var dashboard = new ProgressDashboardViewModel(
+            source,
+            new OfflineConnectivity(),
+            new KilogramPreference(),
+            new AccountSessionBoundary(),
+            GamificationResources.English);
+        var workoutId = Guid.NewGuid();
+        var summary = new WorkoutSummaryViewModel(
+            new SummarySource(new CompletedWorkoutSummary(workoutId, 0m, 0, 0)),
+            source,
+            new OfflineConnectivity(),
+            GamificationResources.English);
+
+        await dashboard.LoadAsync();
+        await summary.LoadAsync(workoutId);
+
+        Assert.True(dashboard.HasAuthoritativeProgressData);
+        Assert.True(summary.HasAuthoritativeProgressData);
+        Assert.Equal(1, dashboard.Level);
+        Assert.Equal(1, summary.Level);
+        Assert.Equal(0, dashboard.TotalXp);
+        Assert.Equal(0, summary.TotalXp);
+        Assert.Equal(0d, dashboard.LevelProgress);
+        Assert.Equal(0d, summary.LevelProgress);
+    }
+
     [Fact]
     public async Task Dashboard_uses_one_authoritative_refresh_for_level_streak_badges_and_prs()
     {
@@ -30,6 +101,7 @@ public sealed class ProgressDashboardViewModelTests
         Assert.Single(sut.Badges);
         Assert.Single(sut.Exercises);
         Assert.Equal(1, source.RefreshCount);
+        Assert.True(sut.HasAuthoritativeProgressData);
     }
 
     [Fact]
@@ -52,6 +124,7 @@ public sealed class ProgressDashboardViewModelTests
         Assert.Equal(0.6d, sut.LevelProgress, 3);
         Assert.True(sut.IsProgressRevealConfirmed);
         Assert.False(sut.IsProgressRevealPending);
+        Assert.True(sut.HasAuthoritativeProgressData);
     }
     [Fact]
     public void Progress_reveal_never_invents_negative_xp_and_preserves_authoritative_badges()
@@ -125,6 +198,28 @@ public sealed class ProgressDashboardViewModelTests
     {
         public bool IsOnline => true;
         public event EventHandler? ConnectivityChanged { add { } remove { } }
+    }
+
+    private sealed class OfflineConnectivity : IConnectivityService
+    {
+        public bool IsOnline => false;
+        public event EventHandler? ConnectivityChanged { add { } remove { } }
+    }
+
+    private sealed class MaybeSnapshotSource(ProgressSnapshot? snapshot, bool throwOnRead) : IProgressSnapshotSource
+    {
+        public Task<ProgressSnapshot?> GetCachedAsync(CancellationToken cancellationToken = default) =>
+            throwOnRead
+                ? Task.FromException<ProgressSnapshot?>(new InvalidOperationException("snapshot unavailable"))
+                : Task.FromResult(snapshot);
+
+        public Task<ProgressSnapshot> RefreshAsync(CancellationToken cancellationToken = default) =>
+            snapshot is null
+                ? Task.FromException<ProgressSnapshot>(new InvalidOperationException("snapshot unavailable"))
+                : Task.FromResult(snapshot);
+
+        public Task<ProgressSnapshot> UpdateWeeklyGoalAsync(int weeklyGoal, CancellationToken cancellationToken = default) =>
+            RefreshAsync(cancellationToken);
     }
 
     private sealed class KilogramPreference : IWeightUnitPreference

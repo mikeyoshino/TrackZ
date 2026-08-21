@@ -20,6 +20,7 @@ public sealed class ProgressDashboardViewModel : GamificationViewModelBase
     private int _bestStreakWeeks;
     private int _currentLevelRequiredXp;
     private int? _nextLevelRequiredXp;
+    private bool _hasAuthoritativeProgressData;
 
     public ProgressDashboardViewModel(
         IProgressSnapshotSource snapshots,
@@ -45,7 +46,18 @@ public sealed class ProgressDashboardViewModel : GamificationViewModelBase
     public int BestStreakWeeks { get => _bestStreakWeeks; private set => Set(ref _bestStreakWeeks, value); }
     public double WeeklyProgress => Math.Clamp((double)WeeklyCompletedWorkouts / Math.Max(1, WeeklyGoal), 0d, 1d);
     public string WeeklyProgressText => $"{WeeklyCompletedWorkouts}/{WeeklyGoal}";
-    public double LevelProgress => NextLevelRequiredXp is not { } next || next <= _currentLevelRequiredXp
+    public bool HasAuthoritativeProgressData
+    {
+        get => _hasAuthoritativeProgressData;
+        private set
+        {
+            if (Set(ref _hasAuthoritativeProgressData, value))
+                OnPropertyChanged(nameof(LevelProgress));
+        }
+    }
+    public double LevelProgress => !HasAuthoritativeProgressData
+        ? 0d
+        : NextLevelRequiredXp is not { } next || next <= _currentLevelRequiredXp
         ? 1d
         : Math.Clamp((double)(TotalXp - _currentLevelRequiredXp) / (next - _currentLevelRequiredXp), 0d, 1d);
     public int? NextLevelRequiredXp { get => _nextLevelRequiredXp; private set => Set(ref _nextLevelRequiredXp, value); }
@@ -92,6 +104,7 @@ public sealed class ProgressDashboardViewModel : GamificationViewModelBase
         Level = snapshot.Profile.Level;
         _currentLevelRequiredXp = snapshot.Profile.CurrentLevelRequiredXp;
         NextLevelRequiredXp = snapshot.Profile.NextLevelRequiredXp;
+        HasAuthoritativeProgressData = true;
         WeeklyGoal = snapshot.Profile.WeeklyGoal;
         WeeklyCompletedWorkouts = snapshot.Profile.WeeklyCompletedWorkouts;
         CurrentStreakWeeks = snapshot.Profile.CurrentStreakWeeks;
@@ -114,6 +127,9 @@ public sealed class ProgressDashboardViewModel : GamificationViewModelBase
         Exercises.Clear();
         TotalXp = 0;
         Level = 1;
+        _currentLevelRequiredXp = 0;
+        NextLevelRequiredXp = null;
+        HasAuthoritativeProgressData = false;
         CurrentStreakWeeks = 0;
         BestStreakWeeks = 0;
         ErrorMessage = null;

@@ -36,7 +36,12 @@
                 <CollectionView.ItemTemplate>
                     <DataTemplate x:DataType="train:RecentWorkoutItem">
                         <Border Margin="0,0,0,12" Style="{DynamicResource TrackZListRowStyle}">
-                            <Grid ColumnDefinitions="56,*,Auto" ColumnSpacing="{DynamicResource TrackZSpace12}">
+                            <Grid ColumnSpacing="{DynamicResource TrackZSpace12}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="{DynamicResource TrackZExerciseArtworkColumnWidth}" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
                                 <Border HeightRequest="{DynamicResource TrackZExerciseArtworkSize}" WidthRequest="{DynamicResource TrackZExerciseArtworkSize}" Style="{DynamicResource TrackZArtworkFrameStyle}">
                                     <Image Aspect="AspectFill" SemanticProperties.Description="{Binding Title}" Source="{Binding ThumbnailPath}" />
                                 </Border>

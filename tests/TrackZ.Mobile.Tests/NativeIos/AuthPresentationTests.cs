@@ -92,9 +92,12 @@ public sealed class AuthPresentationTests
     }
 
     [Fact]
-    public void Auth_fields_are_exactly_50_points_and_actions_are_at_least_44_points()
+    public async Task Auth_fields_are_exactly_50_points_and_actions_are_at_least_44_points()
     {
         using var scope = TestApp.Create();
+        var application = scope.App.Services.GetRequiredService<App>();
+        _ = application.CreateTestWindow();
+        await application.Initialization;
 
         var signIn = scope.App.Services.GetRequiredService<SignInPage>();
         var create = scope.App.Services.GetRequiredService<CreateAccountPage>();
@@ -113,6 +116,30 @@ public sealed class AuthPresentationTests
         Assert.Equal(50, create.PasswordField.MinimumHeightRequest);
         Assert.Equal(50, create.EmailEntry.MinimumHeightRequest);
         Assert.Equal(50, create.PasswordEntry.MinimumHeightRequest);
+    }
+
+    [Fact]
+    public async Task Composed_auth_pages_reserve_equal_header_geometry_and_keep_form_footer_rows_stable()
+    {
+        using var scope = TestApp.Create();
+        var application = scope.App.Services.GetRequiredService<App>();
+        _ = application.CreateTestWindow();
+        await application.Initialization;
+        var signIn = scope.App.Services.GetRequiredService<SignInPage>();
+        var create = scope.App.Services.GetRequiredService<CreateAccountPage>();
+        var signRoot = Assert.IsType<Grid>(signIn.Content);
+        var createRoot = Assert.IsType<Grid>(create.Content);
+        var signHeader = Assert.IsType<VerticalStackLayout>(signRoot.Children[0]);
+        var createHeader = Assert.IsType<VerticalStackLayout>(createRoot.Children[0]);
+
+        Assert.Equal(112d, signHeader.MinimumHeightRequest);
+        Assert.Equal(signHeader.MinimumHeightRequest, createHeader.MinimumHeightRequest);
+        Assert.Equal(0, Grid.GetRow(signHeader));
+        Assert.Equal(0, Grid.GetRow(createHeader));
+        Assert.Equal(1, Grid.GetRow(Assert.IsAssignableFrom<BindableObject>(signIn.EmailField.Parent)));
+        Assert.Equal(1, Grid.GetRow(Assert.IsAssignableFrom<BindableObject>(create.EmailField.Parent)));
+        Assert.Equal(2, Grid.GetRow(Assert.IsAssignableFrom<BindableObject>(signIn.SubmitButton.Parent!.Parent)));
+        Assert.Equal(2, Grid.GetRow(Assert.IsAssignableFrom<BindableObject>(create.SubmitButton.Parent!.Parent)));
     }
 
     [Fact]
