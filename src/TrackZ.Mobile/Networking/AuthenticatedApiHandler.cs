@@ -92,7 +92,7 @@ public sealed class AuthenticatedApiHandler : DelegatingHandler
         lock (_refreshLock)
         {
             if (_lastRefreshAttempt is { } shared
-                && shared.ObservedEpoch == observedRefreshEpoch
+                && shared.ObservedEpoch >= observedRefreshEpoch
                 && shared.Generation == requestGeneration)
             {
                 attempt = shared;

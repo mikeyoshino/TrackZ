@@ -200,6 +200,60 @@ public sealed class AuthenticatedApiHandlerTests
         Assert.Equal(3, transport.RequestCount);
     }
 
+    [Theory]
+    [InlineData("success")]
+    [InlineData("rejected")]
+    [InlineData("exception")]
+    public async Task Delayed_old_epoch_401_consumes_latest_attempt_without_historical_refresh(
+        string latestOutcome)
+    {
+        var boundary = new AccountSessionBoundary();
+        var generation = boundary.Capture();
+        var tokens = new MutableTokenProvider();
+        var failure = new HttpRequestException("latest refresh failed");
+        var recovery = new EpochSequenceRecovery(latestOutcome, failure, tokens);
+        var transport = new HistoricalEpochHandler();
+        using var client = ClientWithHandler(transport, recovery, tokens, ApiOrigin, boundary);
+
+        var delayedEpochZero = client.GetAsync("exercises?request=delayed-epoch-zero");
+        await transport.DelayedRequestEntered.WaitAsync(TimeSpan.FromSeconds(2));
+
+        using var epochZeroResponse = await client.GetAsync("exercises?request=epoch-zero");
+        Assert.Equal(HttpStatusCode.OK, epochZeroResponse.StatusCode);
+
+        var epochOneError = await Record.ExceptionAsync(async () =>
+        {
+            using var response = await client.GetAsync("exercises?request=epoch-one");
+            Assert.Equal(
+                latestOutcome == "rejected" ? HttpStatusCode.Unauthorized : HttpStatusCode.OK,
+                response.StatusCode);
+        });
+        if (latestOutcome == "exception") Assert.Same(failure, epochOneError);
+        else Assert.Null(epochOneError);
+
+        transport.ReleaseDelayedRequest();
+        var delayedError = await Record.ExceptionAsync(async () =>
+        {
+            using var response = await delayedEpochZero;
+            Assert.Equal(
+                latestOutcome == "rejected" ? HttpStatusCode.Unauthorized : HttpStatusCode.OK,
+                response.StatusCode);
+        });
+
+        if (latestOutcome == "exception") Assert.Same(failure, delayedError);
+        else Assert.Null(delayedError);
+        Assert.Equal(2, recovery.RefreshCount);
+        Assert.Equal(0, recovery.RequireSignInCount);
+        Assert.Equal(generation, boundary.Capture());
+        Assert.Equal(
+            latestOutcome == "success" ? "epoch-two-token" : "epoch-one-token",
+            tokens.Token);
+        IReadOnlyList<string?> expectedDelayedAuthorization = latestOutcome == "success"
+            ? ["Bearer old-token", "Bearer epoch-two-token"]
+            : ["Bearer old-token"];
+        Assert.Equal(expectedDelayedAuthorization, transport.DelayedAuthorizationValues);
+    }
+
     [Fact]
     public async Task Leader_caller_cancellation_does_not_cancel_shared_refresh_for_live_waiter()
     {
@@ -582,6 +636,46 @@ public sealed class AuthenticatedApiHandlerTests
         public void ReleaseRefresh() => _release.TrySetResult();
     }
 
+    private sealed class EpochSequenceRecovery(
+        string latestOutcome,
+        Exception latestFailure,
+        MutableTokenProvider tokens) : IProtectedRequestAuthentication
+    {
+        private int _refreshCount;
+        public int RefreshCount => Volatile.Read(ref _refreshCount);
+        public int RequireSignInCount { get; private set; }
+
+        public Task<bool> TryRefreshAsync(
+            AccountSessionGeneration expectedGeneration,
+            CancellationToken cancellationToken)
+        {
+            var attempt = Interlocked.Increment(ref _refreshCount);
+            if (attempt == 1)
+            {
+                tokens.Token = "epoch-one-token";
+                return Task.FromResult(true);
+            }
+            if (attempt == 2)
+            {
+                if (latestOutcome == "exception") return Task.FromException<bool>(latestFailure);
+                if (latestOutcome == "rejected") return Task.FromResult(false);
+                tokens.Token = "epoch-two-token";
+                return Task.FromResult(true);
+            }
+
+            tokens.Token = "historical-refresh-token";
+            return Task.FromResult(true);
+        }
+
+        public Task RequireSignInAsync(
+            AccountSessionGeneration expectedGeneration,
+            CancellationToken cancellationToken)
+        {
+            RequireSignInCount++;
+            return Task.CompletedTask;
+        }
+    }
+
     private sealed class SequenceHandler(params HttpStatusCode[] statuses) : HttpMessageHandler
     {
         private readonly Queue<HttpStatusCode> _statuses = new(statuses);
@@ -679,6 +773,46 @@ public sealed class AuthenticatedApiHandlerTests
 
         public void ReleaseLeaderResponse() => _releaseLeader.TrySetResult();
         public void ReleaseWaiterResponse() => _releaseWaiter.TrySetResult();
+    }
+
+    private sealed class HistoricalEpochHandler : HttpMessageHandler
+    {
+        private readonly TaskCompletionSource _delayedEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _releaseDelayed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly Dictionary<string, int> _requestCounts = [];
+        private readonly List<string?> _delayedAuthorizationValues = [];
+        public Task DelayedRequestEntered => _delayedEntered.Task;
+        public IReadOnlyList<string?> DelayedAuthorizationValues
+        {
+            get
+            {
+                lock (_requestCounts) return [.. _delayedAuthorizationValues];
+            }
+        }
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            var requestName = request.RequestUri!.Query;
+            int requestCount;
+            lock (_requestCounts)
+            {
+                requestCount = _requestCounts.GetValueOrDefault(requestName) + 1;
+                _requestCounts[requestName] = requestCount;
+                if (requestName.Contains("delayed-epoch-zero", StringComparison.Ordinal))
+                    _delayedAuthorizationValues.Add(request.Headers.Authorization?.ToString());
+            }
+            if (requestCount != 1) return new HttpResponseMessage(HttpStatusCode.OK);
+            if (requestName.Contains("delayed-epoch-zero", StringComparison.Ordinal))
+            {
+                _delayedEntered.TrySetResult();
+                await _releaseDelayed.Task.WaitAsync(cancellationToken);
+            }
+            return new HttpResponseMessage(HttpStatusCode.Unauthorized);
+        }
+
+        public void ReleaseDelayedRequest() => _releaseDelayed.TrySetResult();
     }
 
     private sealed class ConcurrentUnauthorizedHandler(int expectedInitialRequests) : HttpMessageHandler
