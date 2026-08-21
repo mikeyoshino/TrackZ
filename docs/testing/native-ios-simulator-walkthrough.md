@@ -81,8 +81,10 @@ xcrun simctl launch booted com.trackz.app
 4. Verify LAST and PR are visible when history exists. No card may show a prescribed set target.
 5. Select two exercises and start the workout. Add, remove, and reorder once, then relaunch and
    confirm the active workout and order survive.
-6. Open Machine Shoulder Press, use Match Last, edit weight/reps, and save. Confirm the set is
-   durable before the haptic or visual success feedback occurs.
+6. Open Machine Shoulder Press, tap **+ Add set**, and confirm the inline editor scrolls into view.
+   Use Match Last, edit weight/reps, and tap the sticky **Save set** action. Confirm the durable row
+   appears under TODAY before the haptic or visual success feedback occurs. Open another draft,
+   change its values, cancel, and confirm reopening restores the durable suggestion.
 7. Stop the API, save another set offline, relaunch, and verify both the set and cached artwork are
    still present. Restart the API and verify the sync state resolves without duplicating the set.
 8. Edit and delete a historical set through native actions. Exercise conflicts must present
@@ -103,7 +105,7 @@ Capture the same states on the smallest supported iPhone and an available Pro Ma
 - Train Today with and without an active workout;
 - Shoulders picker showing API artwork, LAST, PR, selected and failed-artwork states;
 - active workout with two exercises and logged-set counts;
-- set-entry sheet and saved/PR feedback;
+- inline set editor, TODAY rows, and saved/PR feedback;
 - history list and detail;
 - workout summary and Progress;
 - You settings at a large Dynamic Type size.

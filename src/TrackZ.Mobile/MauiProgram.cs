@@ -160,6 +160,7 @@ public static class MauiProgram
 		builder.Services.AddTransient<CustomExerciseViewModel>();
 		builder.Services.AddTransient<WorkoutViewModel>();
 		builder.Services.AddTransient<SetLoggerViewModel>();
+		builder.Services.AddSingleton<IInlineSetEditorTransition, MauiInlineSetEditorTransition>();
 		builder.Services.AddTransient<WorkoutHistoryViewModel>();
 		builder.Services.AddTransient<WorkoutHistoryDetailViewModel>();
 		builder.Services.AddTransient<WorkoutSummaryViewModel>();

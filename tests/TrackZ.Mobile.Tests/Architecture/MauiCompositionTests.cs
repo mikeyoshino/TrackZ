@@ -5,6 +5,7 @@ using System.Text;
 using TrackZ.Contracts.Exercises;
 using TrackZ.Contracts.Sync;
 using TrackZ.Domain.Exercises;
+using TrackZ.Mobile.Components;
 using TrackZ.Mobile.Data;
 using TrackZ.Mobile.Data.Models;
 using TrackZ.Mobile.Features.Exercises;
@@ -583,6 +584,11 @@ public sealed class MauiCompositionTests
             services.AddSingleton<IExerciseThumbnailCache>(new HeadlessThumbnailCache());
             services.AddSingleton<IWorkoutPreferenceStore>(preferences);
             services.AddSingleton<IWeightUnitPreference, WeightUnitPreference>();
+            services.RemoveAll<MauiSetSavedFeedback>();
+            services.AddSingleton(new MauiSetSavedFeedback(() => false));
+            services.RemoveAll<ISetSavedFeedback>();
+            services.AddSingleton<ISetSavedFeedback>(services =>
+                services.GetRequiredService<MauiSetSavedFeedback>());
         });
 
         try
@@ -598,6 +604,14 @@ public sealed class MauiCompositionTests
             Assert.IsType<SetLoggerViewModel>(secondPage.BindingContext);
             Assert.NotSame(firstPage, secondPage);
             Assert.NotSame(firstPage.BindingContext, secondPage.BindingContext);
+            var firstLogger = Assert.IsType<SetLoggerViewModel>(firstPage.BindingContext);
+            Assert.Same(
+                firstLogger.BeginSetCommand,
+                Assert.IsType<Button>(firstPage.FindByName("AddSetButton")).Command);
+            Assert.Same(
+                firstLogger.SaveDraftSetCommand,
+                Assert.IsType<Button>(firstPage.FindByName("SaveDraftSetButton")).Command);
+            Assert.False(Assert.IsType<Border>(firstPage.FindByName("InlineSetEditor")).IsVisible);
             Assert.Same(concreteStatus, interfaceStatus);
             Assert.Same(interfaceStatus, app.Services.GetRequiredService<IWorkoutOutboxStatusSource>());
             Assert.IsType<WorkoutHistoryViewModel>(firstHistoryPage.BindingContext);
@@ -607,6 +621,8 @@ public sealed class MauiCompositionTests
             Assert.Same(concreteStatus, app.Services.GetRequiredService<IHistoryOutboxStatusSource>());
             firstHistoryPage.Deactivate();
             secondHistoryPage.Deactivate();
+
+            await AssertInlineSetEditorTransitionAsync(app.Services, firstLogger);
 
             await app.Services.GetRequiredService<ExerciseCache>().ReplaceAllAsync([
                 new ExerciseSummaryDto(
@@ -685,6 +701,75 @@ public sealed class MauiCompositionTests
         page.Deactivate();
     }
 
+    private static async Task AssertInlineSetEditorTransitionAsync(
+        IServiceProvider services,
+        SetLoggerViewModel logger)
+    {
+        var exerciseId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+        await services.GetRequiredService<ActiveWorkoutCoordinator>().StartAsync([
+            new WorkoutExerciseSelection(exerciseId, TrackingMode.Weighted)
+        ]);
+        await logger.LoadAsync(exerciseId, "Composed Press");
+        var transition = new GatedInlineSetEditorTransition();
+        var pulse = new CompletablePulseDriver();
+        var page = new TestSetLoggerPage(
+            logger,
+            services.GetRequiredService<MauiSetSavedFeedback>(),
+            pulse,
+            transition);
+        page.Appear();
+
+        logger.BeginSetCommand.Execute(null);
+        var cancelledReveal = await transition.NextAttemptAsync();
+
+        Assert.Same(page.FindByName<ScrollView>("SetLoggerScroll"), cancelledReveal.Scroll);
+        Assert.Same(page.FindByName<Border>("InlineSetEditor"), cancelledReveal.Editor);
+        Assert.Same(
+            page.FindByName<WeightStepper>("DraftWeightStepper").Input,
+            cancelledReveal.FocusTarget);
+        Assert.IsType<Entry>(cancelledReveal.FocusTarget);
+        Assert.Equal("Set 1", cancelledReveal.Announcement);
+
+        logger.CancelDraftSetCommand.Execute(null);
+        var cancelRestore = await transition.NextRestoredTargetAsync();
+        await cancelledReveal.Exited.Task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        Assert.Same(page.FindByName<Button>("AddSetButton"), cancelRestore);
+        Assert.True(cancelledReveal.CancellationToken.IsCancellationRequested);
+        Assert.False(cancelledReveal.Completed);
+
+        logger.BeginSetCommand.Execute(null);
+        var savedReveal = await transition.NextAttemptAsync();
+        savedReveal.Release.TrySetResult();
+        await savedReveal.Exited.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        Assert.True(savedReveal.Completed);
+        logger.WeightKg = 70m;
+        logger.Reps = 8;
+
+        var saving = logger.SaveDraftSetCommand.ExecuteAsync();
+        await pulse.Started.Task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        Assert.True(logger.IsBusy);
+        Assert.False(logger.CanBeginSet);
+        Assert.Equal(1, transition.RestoreCount);
+
+        pulse.Complete.TrySetResult();
+        await saving.WaitAsync(TimeSpan.FromSeconds(1));
+        var saveRestore = await transition.NextRestoredTargetAsync();
+
+        Assert.False(logger.IsBusy);
+        Assert.True(logger.CanBeginSet);
+        Assert.Same(page.FindByName<Button>("AddSetButton"), saveRestore);
+
+        logger.BeginSetCommand.Execute(null);
+        var deactivatedReveal = await transition.NextAttemptAsync();
+        page.Deactivate();
+        await deactivatedReveal.Exited.Task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        Assert.True(deactivatedReveal.CancellationToken.IsCancellationRequested);
+        Assert.False(deactivatedReveal.Completed);
+    }
+
     private static async Task AssertRunningPulseIsCancelledPromptlyAsync(IServiceProvider services)
     {
         var boundary = services.GetRequiredService<IAccountSessionBoundary>();
@@ -743,12 +828,129 @@ public sealed class MauiCompositionTests
         return new WeakReference(logger);
     }
 
-    private sealed class TestSetLoggerPage(
-        SetLoggerViewModel viewModel,
-        MauiSetSavedFeedback feedback,
-        ISetSavedPulseDriver pulse) : SetLoggerPage(viewModel, feedback, pulse)
+    private sealed class TestSetLoggerPage : SetLoggerPage
     {
+        public TestSetLoggerPage(
+            SetLoggerViewModel viewModel,
+            MauiSetSavedFeedback feedback,
+            ISetSavedPulseDriver pulse) : base(viewModel, feedback, pulse)
+        {
+        }
+
+        public TestSetLoggerPage(
+            SetLoggerViewModel viewModel,
+            MauiSetSavedFeedback feedback,
+            ISetSavedPulseDriver pulse,
+            IInlineSetEditorTransition transition) : base(viewModel, feedback, pulse, transition)
+        {
+        }
+
         public void Appear() => base.OnAppearing();
+    }
+
+    private sealed class GatedInlineSetEditorTransition : IInlineSetEditorTransition
+    {
+        private readonly Queue<RevealAttempt> _attempts = new();
+        private readonly SemaphoreSlim _attemptAvailable = new(0);
+        private readonly Queue<VisualElement> _restoredTargets = new();
+        private readonly SemaphoreSlim _restoreAvailable = new(0);
+        public int RestoreCount { get; private set; }
+
+        public async Task RevealAsync(
+            ScrollView scroll,
+            VisualElement editor,
+            VisualElement focusTarget,
+            string announcement,
+            CancellationToken cancellationToken)
+        {
+            var attempt = new RevealAttempt(
+                scroll,
+                editor,
+                focusTarget,
+                announcement,
+                cancellationToken);
+            lock (_attempts) _attempts.Enqueue(attempt);
+            _attemptAvailable.Release();
+            try
+            {
+                await attempt.Release.Task.WaitAsync(cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+                attempt.Completed = true;
+            }
+            finally
+            {
+                attempt.Exited.TrySetResult();
+            }
+        }
+
+        public async Task<RevealAttempt> NextAttemptAsync()
+        {
+            await _attemptAvailable.WaitAsync(TimeSpan.FromSeconds(1));
+            lock (_attempts) return _attempts.Dequeue();
+        }
+
+        public void RestoreFocus(VisualElement target)
+        {
+            lock (_restoredTargets)
+            {
+                _restoredTargets.Enqueue(target);
+                RestoreCount++;
+            }
+            _restoreAvailable.Release();
+        }
+
+        public async Task<VisualElement> NextRestoredTargetAsync()
+        {
+            await _restoreAvailable.WaitAsync(TimeSpan.FromSeconds(1));
+            lock (_restoredTargets) return _restoredTargets.Dequeue();
+        }
+
+        public sealed class RevealAttempt(
+            ScrollView scroll,
+            VisualElement editor,
+            VisualElement focusTarget,
+            string announcement,
+            CancellationToken cancellationToken)
+        {
+            public ScrollView Scroll { get; } = scroll;
+            public VisualElement Editor { get; } = editor;
+            public VisualElement FocusTarget { get; } = focusTarget;
+            public string Announcement { get; } = announcement;
+            public CancellationToken CancellationToken { get; } = cancellationToken;
+            public TaskCompletionSource Release { get; } =
+                new(TaskCreationOptions.RunContinuationsAsynchronously);
+            public TaskCompletionSource Exited { get; } =
+                new(TaskCreationOptions.RunContinuationsAsynchronously);
+            public bool Completed { get; set; }
+        }
+    }
+
+    private sealed class NoopPulseDriver : ISetSavedPulseDriver
+    {
+        public Task InvokeAsync(Func<Task> action) => action();
+        public Task StartAsync(SetSavedOutcome outcome, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+        public void Cancel() { }
+    }
+
+    private sealed class CompletablePulseDriver : ISetSavedPulseDriver
+    {
+        public TaskCompletionSource Started { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Complete { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task InvokeAsync(Func<Task> action) => action();
+
+        public async Task StartAsync(
+            SetSavedOutcome outcome,
+            CancellationToken cancellationToken)
+        {
+            Started.TrySetResult();
+            await Complete.Task.WaitAsync(cancellationToken);
+        }
+
+        public void Cancel() { }
     }
 
     private sealed class GatedPulseDriver(bool blockBeforeStart) : ISetSavedPulseDriver

@@ -26,6 +26,82 @@ public sealed class SetLoggerViewModelTests : IDisposable
     private readonly string _databasePath = Path.Combine(Path.GetTempPath(), $"trackz-logger-{Guid.NewGuid():N}.db");
 
     [Fact]
+    public async Task Add_set_opens_one_inline_draft_without_persisting_a_set_or_outbox_operation()
+    {
+        var fixture = await CreateFixtureAsync(TrackingMode.Weighted);
+        var sut = fixture.CreateLogger(Previous(
+            TrackingMode.Weighted,
+            Set(0, 70m, null, 10)));
+        await sut.LoadAsync(ExerciseId, "Bench Press");
+        var before = await new OutboxRepository(fixture.Database).PendingAsync();
+
+        sut.BeginSetCommand.Execute(null);
+        sut.BeginSetCommand.Execute(null);
+
+        Assert.True(sut.HasDraftSet);
+        Assert.False(sut.BeginSetCommand.CanExecute(null));
+        Assert.Equal(1, sut.DraftSetNumber);
+        Assert.Equal(70m, sut.WeightKg);
+        Assert.Equal(10, sut.Reps);
+        Assert.Empty(Assert.Single((await fixture.Repository.GetActiveAsync())!.Exercises).Sets);
+        Assert.Equal(before.Count, (await new OutboxRepository(fixture.Database).PendingAsync()).Count);
+    }
+
+    [Fact]
+    public async Task Save_inline_draft_persists_once_then_collapses_it_into_the_today_list()
+    {
+        var fixture = await CreateFixtureAsync(TrackingMode.Weighted);
+        var sut = fixture.CreateLogger(null);
+        await sut.LoadAsync(ExerciseId, "Bench Press");
+        sut.BeginSetCommand.Execute(null);
+        sut.WeightKg = 72.5m;
+        sut.Reps = 8;
+
+        await sut.SaveDraftSetCommand.ExecuteAsync();
+        await sut.SaveDraftSetCommand.ExecuteAsync();
+
+        Assert.False(sut.HasDraftSet);
+        Assert.True(sut.BeginSetCommand.CanExecute(null));
+        var visible = Assert.Single(sut.TodaySets);
+        Assert.Equal("72.5 kg × 8", visible.MeasurementText);
+        var persisted = Assert.Single(Assert.Single((await fixture.Repository.GetActiveAsync())!.Exercises).Sets);
+        Assert.Equal(72.5m, persisted.WeightKg);
+        Assert.Equal(8, persisted.Reps);
+        Assert.Single(
+            await new OutboxRepository(fixture.Database).PendingAsync(),
+            operation => operation.Type == OutboxOperationType.SaveSet);
+    }
+
+    [Theory]
+    [InlineData(TrackingMode.Weighted)]
+    [InlineData(TrackingMode.Assisted)]
+    [InlineData(TrackingMode.Bodyweight)]
+    public async Task Cancel_then_reopen_discards_transient_input_for_every_tracking_mode(
+        TrackingMode mode)
+    {
+        var fixture = await CreateFixtureAsync(mode);
+        var sut = fixture.CreateLogger(null);
+        await sut.LoadAsync(ExerciseId, "Exercise");
+        sut.BeginSetCommand.Execute(null);
+        sut.WeightKg = mode == TrackingMode.Weighted ? 72.5m : null;
+        sut.AssistedKg = mode == TrackingMode.Assisted ? 25m : null;
+        sut.Reps = 12;
+
+        sut.CancelDraftSetCommand.Execute(null);
+        sut.BeginSetCommand.Execute(null);
+
+        Assert.True(sut.HasDraftSet);
+        Assert.Null(sut.WeightKg);
+        Assert.Null(sut.AssistedKg);
+        Assert.Equal(0, sut.Reps);
+        Assert.Empty(sut.TodaySets);
+        Assert.Empty(Assert.Single((await fixture.Repository.GetActiveAsync())!.Exercises).Sets);
+        Assert.DoesNotContain(
+            await new OutboxRepository(fixture.Database).PendingAsync(),
+            operation => operation.Type == OutboxOperationType.SaveSet);
+    }
+
+    [Fact]
     public async Task Match_last_uses_corresponding_next_set_in_original_order()
     {
         var fixture = await CreateFixtureAsync(TrackingMode.Weighted);

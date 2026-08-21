@@ -143,6 +143,10 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
     private string _exerciseMetadataText = string.Empty;
     private string _previousBestText = string.Empty;
     private string _allTimePrText = string.Empty;
+    private bool _hasDraftSet;
+    private decimal? _draftBaselineWeightKg;
+    private decimal? _draftBaselineAssistedKg;
+    private int _draftBaselineReps;
 
     public SetLoggerViewModel(
         ActiveWorkoutCoordinator coordinator,
@@ -171,6 +175,9 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         _displayUnit = unitPreference?.Current ?? WeightDisplayUnit.Kilograms;
         MatchLastCommand = new RelayCommand(_ => MatchLast(), _ => CanMatchLast);
         CompleteSetCommand = new AsyncCommand(_ => CompleteSetAsync(), _ => CanCompleteSet);
+        BeginSetCommand = new RelayCommand(_ => BeginSet(), _ => CanBeginSet);
+        CancelDraftSetCommand = new RelayCommand(_ => CancelDraftSet(), _ => CanCancelDraftSet);
+        SaveDraftSetCommand = new AsyncCommand(_ => CompleteSetAsync(), _ => CanSaveDraftSet);
         IncrementWeightCommand = new RelayCommand(_ => DisplayWeight += WeightStep, _ => !_disposed && UsesWeight && !IsBusy);
         DecrementWeightCommand = new RelayCommand(_ => DisplayWeight = Math.Max(0m, DisplayWeight - WeightStep), _ => !_disposed && UsesWeight && !IsBusy);
         IncrementRepsCommand = new RelayCommand(_ => Reps = Math.Min(999, Reps + 1), _ => !_disposed && !IsBusy);
@@ -187,6 +194,9 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
     public ObservableCollection<SetDisplayRow> TodaySets { get; } = [];
     public ICommand MatchLastCommand { get; }
     public AsyncCommand CompleteSetCommand { get; }
+    public ICommand BeginSetCommand { get; }
+    public ICommand CancelDraftSetCommand { get; }
+    public AsyncCommand SaveDraftSetCommand { get; }
     public ICommand IncrementWeightCommand { get; }
     public ICommand DecrementWeightCommand { get; }
     public ICommand IncrementRepsCommand { get; }
@@ -354,6 +364,9 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         {
             if (!Set(ref _isBusy, value)) return;
             OnPropertyChanged(nameof(CanCompleteSet));
+            OnPropertyChanged(nameof(CanBeginSet));
+            OnPropertyChanged(nameof(CanCancelDraftSet));
+            OnPropertyChanged(nameof(CanSaveDraftSet));
             RaiseCommands();
         }
     }
@@ -365,6 +378,24 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
     }
 
     public bool CanCompleteSet => !_disposed && !IsBusy && IsValidMeasurement();
+    public bool HasDraftSet
+    {
+        get => _hasDraftSet;
+        private set
+        {
+            if (!Set(ref _hasDraftSet, value)) return;
+            OnPropertyChanged(nameof(CanBeginSet));
+            OnPropertyChanged(nameof(CanCancelDraftSet));
+            OnPropertyChanged(nameof(CanSaveDraftSet));
+            OnPropertyChanged(nameof(HasNoDraftSet));
+            RaiseCommands();
+        }
+    }
+    public bool HasNoDraftSet => !HasDraftSet;
+    public bool CanBeginSet => !_disposed && !IsBusy && _exerciseId != Guid.Empty && !HasDraftSet;
+    public bool CanCancelDraftSet => !_disposed && !IsBusy && HasDraftSet;
+    public bool CanSaveDraftSet => HasDraftSet && CanCompleteSet;
+    public int DraftSetNumber => NextSetNumber;
     public bool CanMatchLast => !_disposed && !IsBusy && TodaySets.Count < LastSets.Count;
     public int NextSetNumber => TodaySets.Count + 1;
     public string NextSetText => string.Format(
@@ -419,6 +450,7 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         var loadGeneration = Interlocked.Increment(ref _loadGeneration);
         var generation = _boundary.Capture();
         var loaded = false;
+        HasDraftSet = false;
         IsBusy = true;
         ErrorMessage = null;
         try
@@ -609,9 +641,11 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
             if (_disposed || _boundary.IsCancellationRequested(generation)) return;
             var presentation = CreateSavedPresentation(saved);
             TodaySets.Add(Row(saved, TrackingMode));
+            HasDraftSet = false;
             OnPropertyChanged(nameof(CanMatchLast));
             OnPropertyChanged(nameof(NextSetNumber));
             OnPropertyChanged(nameof(NextSetText));
+            OnPropertyChanged(nameof(DraftSetNumber));
             try
             {
                 await RefreshSyncStateCoreAsync(token);
@@ -656,6 +690,35 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         WeightKg = target.WeightKg;
         AssistedKg = target.AssistedKg;
         Reps = target.Reps;
+    }
+
+    private void BeginSet()
+    {
+        if (!CanBeginSet) return;
+        var suggestion = TodaySets.Count < LastSets.Count
+            ? LastSets[TodaySets.Count]
+            : TodaySets.LastOrDefault();
+        _draftBaselineWeightKg = suggestion?.WeightKg;
+        _draftBaselineAssistedKg = suggestion?.AssistedKg;
+        _draftBaselineReps = suggestion?.Reps ?? 0;
+        RestoreDraftBaseline();
+        ErrorMessage = null;
+        HasDraftSet = true;
+    }
+
+    private void CancelDraftSet()
+    {
+        if (!CanCancelDraftSet) return;
+        RestoreDraftBaseline();
+        HasDraftSet = false;
+        ErrorMessage = null;
+    }
+
+    private void RestoreDraftBaseline()
+    {
+        WeightKg = _draftBaselineWeightKg;
+        AssistedKg = _draftBaselineAssistedKg;
+        Reps = _draftBaselineReps;
     }
 
     private SetSavedPresentation CreateSavedPresentation(LocalSet saved)
@@ -1002,6 +1065,7 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
     private void MeasurementChanged()
     {
         OnPropertyChanged(nameof(CanCompleteSet));
+        OnPropertyChanged(nameof(CanSaveDraftSet));
         OnPropertyChanged(nameof(ValidationMessage));
         OnPropertyChanged(nameof(CanMatchLast));
         RaiseCommands();
@@ -1010,6 +1074,9 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
     private void RaiseCommands()
     {
         CompleteSetCommand.RaiseCanExecuteChanged();
+        SaveDraftSetCommand.RaiseCanExecuteChanged();
+        (BeginSetCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        (CancelDraftSetCommand as RelayCommand)?.RaiseCanExecuteChanged();
         (MatchLastCommand as RelayCommand)?.RaiseCanExecuteChanged();
         (IncrementWeightCommand as RelayCommand)?.RaiseCanExecuteChanged();
         (DecrementWeightCommand as RelayCommand)?.RaiseCanExecuteChanged();
@@ -1031,6 +1098,7 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         _lifetime.Cancel();
         _boundary.SessionReset -= OnSessionReset;
         _connectivity.ConnectivityChanged -= OnConnectivityChanged;
+        HasDraftSet = false;
         if (_isBusy)
         {
             _isBusy = false;
@@ -1056,8 +1124,10 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         AllTimePrText = string.Empty;
         LastSets.Clear();
         TodaySets.Clear();
+        HasDraftSet = false;
         OnPropertyChanged(nameof(NextSetNumber));
         OnPropertyChanged(nameof(NextSetText));
+        OnPropertyChanged(nameof(DraftSetNumber));
         WeightKg = null;
         AssistedKg = null;
         Reps = 0;

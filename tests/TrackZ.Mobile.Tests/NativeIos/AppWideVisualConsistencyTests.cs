@@ -59,7 +59,7 @@ public sealed class AppWideVisualConsistencyTests
             ["Features/Exercises/ExercisePickerPage.xaml"] = 1,
             ["Features/Exercises/CustomExercisePage.xaml"] = 1,
             ["Features/Workout/WorkoutPage.xaml"] = 2,
-            ["Features/Workout/SetLoggerPage.xaml"] = 1,
+            ["Features/Workout/SetLoggerPage.xaml"] = 2,
             ["Features/Workout/SetEntrySheetPage.xaml"] = 1,
             ["Features/History/WorkoutHistoryPage.xaml"] = 0,
             ["Features/History/WorkoutHistoryDetailPage.xaml"] = 0,
@@ -492,8 +492,13 @@ public sealed class AppWideVisualConsistencyTests
             yield return $"The page must expose exactly {expectedPrimaryCount} visible/action-capable primary action(s); one visible primary action is allowed unless complementary actions are explicitly allowlisted.";
         if (expectedPrimaryCount == 2 &&
             !primaryActions.Select(action => action.Attribute("IsVisible")?.Value).Order(StringComparer.Ordinal)
-                .SequenceEqual(new[] { "{Binding HasStarted}", "{Binding IsDraft}" }.Order(StringComparer.Ordinal), StringComparer.Ordinal))
-            yield return "Workout complementary primary actions must remain mutually exclusive through IsDraft and HasStarted.";
+                .SequenceEqual(
+                    (relativePath == "Features/Workout/SetLoggerPage.xaml"
+                        ? new[] { "{Binding HasDraftSet}", "{Binding HasNoDraftSet}" }
+                        : new[] { "{Binding HasStarted}", "{Binding IsDraft}" })
+                    .Order(StringComparer.Ordinal),
+                    StringComparer.Ordinal))
+            yield return "Complementary primary actions must remain mutually exclusive through their exact phase visibility bindings.";
 
         if (BottomActionPages.Contains(relativePath, StringComparer.Ordinal))
         {

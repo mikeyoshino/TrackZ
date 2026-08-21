@@ -12,6 +12,7 @@ public partial class RepsStepper : ContentView
     public static readonly BindableProperty DecrementCommandProperty = BindableProperty.Create(nameof(DecrementCommand), typeof(ICommand), typeof(RepsStepper));
 
     public RepsStepper() => InitializeComponent();
+    public Entry Input => ValueInput;
     public int Value { get => (int)GetValue(ValueProperty); set => SetValue(ValueProperty, value); }
     public string Caption { get => (string)GetValue(CaptionProperty); set => SetValue(CaptionProperty, value); }
     public string IncrementLabel { get => (string)GetValue(IncrementLabelProperty); set => SetValue(IncrementLabelProperty, value); }

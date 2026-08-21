@@ -11,7 +11,7 @@
     SafeAreaEdges="All"
     Title="{Binding Text.SetLoggerTitle}">
     <Grid Padding="0,16,0,0" RowDefinitions="*,Auto">
-        <ScrollView>
+        <ScrollView x:Name="SetLoggerScroll">
             <VerticalStackLayout Padding="{DynamicResource TrackZPageBottomContentPadding}" Spacing="{DynamicResource TrackZSpace16}">
                 <Grid ColumnDefinitions="88,*,Auto" ColumnSpacing="{DynamicResource TrackZSpace12}">
                     <Grid x:Name="SetLoggerArtwork" HeightRequest="{DynamicResource TrackZExerciseArtworkSize}" WidthRequest="{DynamicResource TrackZExerciseArtworkSize}">
@@ -34,6 +34,66 @@
                         <components:LastSetTable Header="{Binding Text.Last}" ItemsSource="{Binding LastSets}" />
                         <components:LastSetTable Grid.Column="1" Header="{Binding Text.Today}" ItemsSource="{Binding TodaySets}" />
                     </Grid>
+                </Border>
+
+                <Border
+                    x:Name="InlineSetEditor"
+                    IsVisible="{Binding HasDraftSet}"
+                    Style="{DynamicResource TrackZCardStyle}"
+                    Stroke="{DynamicResource TrackZPrimary}">
+                    <VerticalStackLayout Spacing="{DynamicResource TrackZSpace16}">
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="{DynamicResource TrackZSpace8}">
+                            <VerticalStackLayout Spacing="{DynamicResource TrackZSpace4}">
+                                <Label
+                                    x:Name="DraftSetHeading"
+                                    SemanticProperties.HeadingLevel="Level2"
+                                    Style="{DynamicResource TrackZNavigationTitleStyle}"
+                                    Text="{Binding NextSetText}" />
+                                <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding ExerciseName}" />
+                            </VerticalStackLayout>
+                            <Button
+                                Grid.Column="1"
+                                Command="{Binding CancelDraftSetCommand}"
+                                Style="{DynamicResource TrackZQuietButtonStyle}"
+                                Text="{Binding Text.Cancel}" />
+                        </Grid>
+
+                        <Button
+                            Command="{Binding MatchLastCommand}"
+                            SemanticProperties.Description="{Binding Text.MatchLast}"
+                            Style="{DynamicResource TrackZSecondaryButtonStyle}"
+                            Text="{Binding Text.MatchLast}" />
+
+                        <Grid ColumnDefinitions="*,*" ColumnSpacing="{DynamicResource TrackZSpace8}" IsVisible="{Binding UsesWeight}">
+                            <Button Command="{Binding UseKilogramsCommand}" IsEnabled="{Binding IsPounds}" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="{Binding Text.Kilograms}" />
+                            <Button Grid.Column="1" Command="{Binding UsePoundsCommand}" IsEnabled="{Binding IsKilograms}" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="{Binding Text.Pounds}" />
+                        </Grid>
+
+                        <components:WeightStepper
+                            x:Name="DraftWeightStepper"
+                            Caption="{Binding WeightCaption}"
+                            DecrementCommand="{Binding DecrementWeightCommand}"
+                            DecrementLabel="{Binding DecrementWeightDescription}"
+                            IncrementCommand="{Binding IncrementWeightCommand}"
+                            IncrementLabel="{Binding IncrementWeightDescription}"
+                            IsVisible="{Binding UsesWeight}"
+                            UnitLabel="{Binding WeightUnitLabel}"
+                            Value="{Binding DisplayWeight, Mode=TwoWay}" />
+
+                        <Label IsVisible="{Binding IsAssisted}" Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Text.LowerAssistanceProgress}" />
+                        <Label HorizontalTextAlignment="Center" IsVisible="{Binding IsBodyweight}" Style="{DynamicResource TrackZSectionTitleStyle}" Text="{Binding Text.Bodyweight}" />
+
+                        <components:RepsStepper
+                            x:Name="DraftRepsStepper"
+                            Caption="{Binding Text.Reps}"
+                            DecrementCommand="{Binding DecrementRepsCommand}"
+                            DecrementLabel="{Binding DecrementRepsDescription}"
+                            IncrementCommand="{Binding IncrementRepsCommand}"
+                            IncrementLabel="{Binding IncrementRepsDescription}"
+                            Value="{Binding Reps, Mode=TwoWay}" />
+
+                        <Label HorizontalTextAlignment="Center" Style="{DynamicResource TrackZInlineErrorStyle}" Text="{Binding ValidationMessage}" />
+                    </VerticalStackLayout>
                 </Border>
 
                 <Border IsVisible="{Binding HasConflict}" Style="{DynamicResource TrackZCardStyle}" Stroke="{DynamicResource TrackZWarning}">
@@ -60,11 +120,22 @@
         </ScrollView>
 
         <Border Grid.Row="1" Style="{DynamicResource TrackZStickyActionContainerStyle}">
-            <Button
-                Clicked="OnLogNextSetClicked"
-                SemanticProperties.Description="{Binding Text.LogNextSet}"
-                Style="{DynamicResource TrackZPrimaryButtonStyle}"
-                Text="{Binding Text.LogNextSet}" />
+            <Grid>
+                <Button
+                    x:Name="AddSetButton"
+                    Command="{Binding BeginSetCommand}"
+                    IsVisible="{Binding HasNoDraftSet}"
+                    SemanticProperties.Description="{Binding Text.LogNextSet}"
+                    Style="{DynamicResource TrackZPrimaryButtonStyle}"
+                    Text="{Binding Text.LogNextSet}" />
+                <Button
+                    x:Name="SaveDraftSetButton"
+                    Command="{Binding SaveDraftSetCommand}"
+                    IsVisible="{Binding HasDraftSet}"
+                    SemanticProperties.Description="{Binding Text.SaveSet}"
+                    Style="{DynamicResource TrackZPrimaryButtonStyle}"
+                    Text="{Binding Text.SaveSet}" />
+            </Grid>
         </Border>
     </Grid>
 </ContentPage>

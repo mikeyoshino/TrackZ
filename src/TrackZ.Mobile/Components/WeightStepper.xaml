@@ -17,6 +17,7 @@
             <Border Grid.Column="1" Style="{DynamicResource TrackZFieldContainerStyle}">
                 <Grid ColumnDefinitions="*,Auto">
                     <Entry
+                        x:Name="ValueInput"
                         FontAttributes="Bold"
                         FontSize="24"
                         HorizontalTextAlignment="Center"

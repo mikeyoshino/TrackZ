@@ -101,7 +101,7 @@
   <data name="SelectExerciseFormat" xml:space="preserve"><value>เลือก {0}</value></data>
   <data name="ArtworkForExerciseFormat" xml:space="preserve"><value>ภาพแสดงการเคลื่อนไหวของท่า {0}</value></data>
   <data name="SetsLoggedFormat" xml:space="preserve"><value>บันทึกแล้ว {0} เซ็ต</value></data>
-  <data name="LogNextSet" xml:space="preserve"><value>บันทึกเซ็ตถัดไป</value></data>
+  <data name="LogNextSet" xml:space="preserve"><value>+ เพิ่มเซ็ต</value></data>
   <data name="SaveSet" xml:space="preserve"><value>บันทึกเซ็ต</value></data>
   <data name="NextSetFormat" xml:space="preserve"><value>เซ็ตที่ {0}</value></data>
   <data name="SetSaved" xml:space="preserve"><value>บันทึกเซ็ตแล้ว</value></data>

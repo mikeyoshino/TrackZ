@@ -10,6 +10,7 @@
             <Button Command="{Binding DecrementCommand, Source={x:Reference Root}}" SemanticProperties.Description="{Binding DecrementLabel, Source={x:Reference Root}}" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="−" />
             <Border Grid.Column="1" Style="{DynamicResource TrackZFieldContainerStyle}">
                 <Entry
+                    x:Name="ValueInput"
                     FontAttributes="Bold"
                     FontSize="24"
                     HorizontalTextAlignment="Center"

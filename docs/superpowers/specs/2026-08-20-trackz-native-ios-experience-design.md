@@ -120,14 +120,16 @@ The header contains the API exercise artwork, exercise name, body area/equipment
 
 ### 6.2 Set Entry Sheet
 
-Tapping **Log next set** opens a native iOS sheet. The sheet provides:
+Tapping **+ Add set** expands one inline editor beneath the previous-versus-today comparison. The editor is scrolled into view and announced for assistive technology. It provides:
 
 - the next set number;
 - a **Match last set** shortcut;
 - large weight/assistance and repetition steppers;
 - direct numeric keyboard entry when the displayed value is tapped;
 - the shared kg/lb preference while preserving canonical kilograms in persistence and API contracts;
-- one primary **Save set** action.
+- one sticky primary **Save set** action in the same thumb position as **+ Add set**.
+
+Add and Save use phase-stable commands, so a rapid second Add event cannot become a Save. Cancel restores the durable suggested measurement and collapses the editor without writing SQLite or the outbox. A successful Save persists first, appends the set to TODAY, then collapses the editor and runs feedback/sync.
 
 Bodyweight exercises omit weight. Assisted exercises clearly label assistance and visually communicate that lower assistance represents progress.
 
@@ -357,7 +359,7 @@ The collaborative Visual Companion established and approved these references:
 
 - **Visual direction:** Native Performance;
 - **Workout flow:** Today → body-area sheet → API exercise library → active workout;
-- **Logger:** previous-versus-today comparison → native entry sheet → durable save reward;
+- **Logger:** previous-versus-today comparison → inline set editor → durable save reward;
 - **Motivation:** completion reveal → level/streak → long-term progress and earned badges.
 
 The mockups are design references, not production HTML and not assets to embed in the application.

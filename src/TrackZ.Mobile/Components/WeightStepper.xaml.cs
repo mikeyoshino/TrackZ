@@ -20,6 +20,7 @@ public partial class WeightStepper : ContentView
         nameof(DecrementCommand), typeof(ICommand), typeof(WeightStepper));
 
     public WeightStepper() => InitializeComponent();
+    public Entry Input => ValueInput;
     public decimal Value { get => (decimal)GetValue(ValueProperty); set => SetValue(ValueProperty, value); }
     public string Caption { get => (string)GetValue(CaptionProperty); set => SetValue(CaptionProperty, value); }
     public string UnitLabel { get => (string)GetValue(UnitLabelProperty); set => SetValue(UnitLabelProperty, value); }
