@@ -32,19 +32,7 @@ public sealed class ObjectStorageExerciseCatalogAssetDeployment(IObjectStorage s
     public async Task DeployAsync(string catalogPath, CancellationToken cancellationToken = default)
     {
         _verifiedInThisRun.Clear();
-        var items = ExerciseManifest.Load(catalogPath);
-        ExerciseManifest.ValidateAssets(catalogPath, items);
-
-        var expected = new List<ExpectedObject>(items.Count * 2);
-        foreach (var item in items)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var renditions = await ProcessAsync(
-                ExerciseManifest.ResolveAssetPath(catalogPath, item),
-                cancellationToken);
-            expected.Add(new ExpectedObject(item, ExerciseCatalogSeeder.MasterKey(item.Id), renditions.Master));
-            expected.Add(new ExpectedObject(item, ExerciseCatalogSeeder.ThumbnailKey(item.Id), renditions.Thumbnail));
-        }
+        var (items, expected) = await BuildExpectedAsync(catalogPath, cancellationToken);
 
         var missing = new List<ExpectedObject>();
         foreach (var candidate in expected)
@@ -65,13 +53,16 @@ public sealed class ObjectStorageExerciseCatalogAssetDeployment(IObjectStorage s
             await storage.PutAsync("system/", candidate.Key, content, "image/png", cancellationToken);
         }
 
-        foreach (var candidate in expected)
-        {
-            var deployed = await storage.GetAsync("system/", candidate.Key, cancellationToken);
-            if (deployed is null || !await MatchesAsync(deployed, candidate.Bytes, cancellationToken))
-                throw new InvalidOperationException($"Artwork deployment for '{candidate.Item.Name}' is incomplete or conflicting.");
-        }
+        await VerifyExpectedAsync(expected, cancellationToken);
         foreach (var item in items) _verifiedInThisRun.Add(item.Id);
+    }
+
+    public async Task VerifyExactAsync(
+        string catalogPath,
+        CancellationToken cancellationToken = default)
+    {
+        var (_, expected) = await BuildExpectedAsync(catalogPath, cancellationToken);
+        await VerifyExpectedAsync(expected, cancellationToken);
     }
 
     public ValueTask<bool> IsDeployedAsync(
@@ -80,6 +71,38 @@ public sealed class ObjectStorageExerciseCatalogAssetDeployment(IObjectStorage s
     {
         cancellationToken.ThrowIfCancellationRequested();
         return ValueTask.FromResult(_verifiedInThisRun.Contains(item.Id));
+    }
+
+    private async Task VerifyExpectedAsync(
+        IReadOnlyList<ExpectedObject> expected,
+        CancellationToken cancellationToken)
+    {
+        foreach (var candidate in expected)
+        {
+            var deployed = await storage.GetAsync("system/", candidate.Key, cancellationToken);
+            if (deployed is null || !await MatchesAsync(deployed, candidate.Bytes, cancellationToken))
+                throw new InvalidOperationException($"Artwork deployment for '{candidate.Item.Name}' is incomplete or conflicting.");
+        }
+    }
+
+    private static async Task<(IReadOnlyList<ExerciseManifestItem> Items, IReadOnlyList<ExpectedObject> Expected)>
+        BuildExpectedAsync(
+            string catalogPath,
+            CancellationToken cancellationToken)
+    {
+        var items = ExerciseManifest.Load(catalogPath);
+        ExerciseManifest.ValidateAssets(catalogPath, items);
+        var expected = new List<ExpectedObject>(items.Count * 2);
+        foreach (var item in items)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var renditions = await ProcessAsync(
+                ExerciseManifest.ResolveAssetPath(catalogPath, item),
+                cancellationToken);
+            expected.Add(new ExpectedObject(item, ExerciseCatalogSeeder.MasterKey(item.Id), renditions.Master));
+            expected.Add(new ExpectedObject(item, ExerciseCatalogSeeder.ThumbnailKey(item.Id), renditions.Thumbnail));
+        }
+        return (items, expected);
     }
 
     private static async Task<bool> MatchesAsync(

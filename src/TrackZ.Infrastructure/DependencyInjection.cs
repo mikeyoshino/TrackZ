@@ -68,6 +68,7 @@ public static class DependencyInjection
         services.AddScoped<LevelThresholdSeeder>();
         services.AddScoped<BadgeDefinitionSeeder>();
         services.AddScoped<ExerciseCatalogDeploymentService>();
+        services.AddScoped<ExerciseCatalogPublicationService>();
         services.AddSingleton(TimeProvider.System);
         services.AddOptions<MediaAccessOptions>()
             .Bind(configuration.GetSection(MediaAccessOptions.SectionName))

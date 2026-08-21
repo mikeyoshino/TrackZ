@@ -10,7 +10,9 @@ using TrackZ.Contracts.Errors;
 using TrackZ.Api;
 
 var catalogDeploymentCommand = ExerciseCatalogDeploymentCommand.Parse(args);
-var builder = WebApplication.CreateBuilder(catalogDeploymentCommand is null ? args : []);
+var catalogPublicationCommand = ExerciseCatalogPublicationCommand.Parse(args);
+var startupCommand = catalogDeploymentCommand is not null || catalogPublicationCommand is not null;
+var builder = WebApplication.CreateBuilder(startupCommand ? [] : args);
 
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
@@ -76,6 +78,11 @@ var app = builder.Build();
 if (catalogDeploymentCommand is not null)
 {
     await catalogDeploymentCommand.ExecuteAsync(app.Services);
+    return;
+}
+if (catalogPublicationCommand is not null)
+{
+    await catalogPublicationCommand.ExecuteAsync(app.Services);
     return;
 }
 

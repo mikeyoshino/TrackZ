@@ -9,6 +9,13 @@ public sealed class ExerciseCatalogDeploymentCommandTests
     {
         Assert.Null(ExerciseCatalogDeploymentCommand.Parse([]));
         Assert.Null(ExerciseCatalogDeploymentCommand.Parse(["--urls", "http://localhost:5000"]));
+        Assert.Null(ExerciseCatalogDeploymentCommand.Parse(
+        [
+            "publish-exercise-catalog",
+            "--manifest", "assets/exercises/catalog.json",
+            "--reviewer-id", "11111111-1111-1111-1111-111111111111",
+            "--rights-reference", "local-simulator-review-2026-08-21"
+        ]));
 
         var parsed = ExerciseCatalogDeploymentCommand.Parse(
             ["deploy-exercise-catalog", "--manifest", "assets/exercises/catalog.json"]);

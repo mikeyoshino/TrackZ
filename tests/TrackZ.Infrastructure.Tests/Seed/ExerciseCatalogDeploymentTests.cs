@@ -41,6 +41,12 @@ public sealed class ExerciseCatalogDeploymentTests
             Assert.False(image.MovementApproved);
             Assert.False(image.RightsApproved);
         });
+
+        await command.DeployAndSeedAsync(CatalogPath);
+
+        var redeployedImages = await database.Db.ExerciseImages.AsNoTracking().ToArrayAsync();
+        Assert.Equal(48, redeployedImages.Length);
+        Assert.All(redeployedImages, image => Assert.Equal(ExerciseImageReviewState.Draft, image.ReviewState));
     }
 
     [Fact]
