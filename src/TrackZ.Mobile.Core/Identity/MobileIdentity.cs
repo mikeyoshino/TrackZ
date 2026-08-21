@@ -69,11 +69,11 @@ public sealed class MobileTokenStore(IMobileTokenStorage storage) : IAccessToken
 
     public async Task SaveAsync(string accessToken, string refreshToken, CancellationToken cancellationToken = default)
     {
-        var (userId, sessionId, _) = ParseIdentity(accessToken);
+        var snapshot = CreateSnapshot(accessToken, refreshToken);
         await storage.SetAsync(MobileTokenKeys.AccessToken, accessToken, cancellationToken);
         await storage.SetAsync(MobileTokenKeys.RefreshToken, refreshToken, cancellationToken);
-        await storage.SetAsync(MobileTokenKeys.SessionId, sessionId.ToString("D"), cancellationToken);
-        await storage.SetAsync(MobileTokenKeys.UserId, userId.ToString("D"), cancellationToken);
+        await storage.SetAsync(MobileTokenKeys.SessionId, snapshot.SessionId.ToString("D"), cancellationToken);
+        await storage.SetAsync(MobileTokenKeys.UserId, snapshot.UserId.ToString("D"), cancellationToken);
     }
 
     public async Task ClearAsync(CancellationToken cancellationToken = default)
@@ -85,6 +85,13 @@ public sealed class MobileTokenStore(IMobileTokenStorage storage) : IAccessToken
     }
 
     public static Guid ReadUserId(string accessToken) => ParseIdentity(accessToken).UserId;
+
+    internal static MobileIdentitySnapshot CreateSnapshot(string accessToken, string refreshToken)
+    {
+        if (string.IsNullOrWhiteSpace(refreshToken)) throw InvalidIdentity();
+        var parsed = ParseIdentity(accessToken);
+        return new MobileIdentitySnapshot(parsed.UserId, parsed.SessionId, parsed.ExpiresAt, refreshToken);
+    }
 
     private static (Guid UserId, Guid SessionId, DateTimeOffset ExpiresAt) ParseIdentity(string accessToken)
     {
@@ -127,21 +134,36 @@ public sealed class TrackZIdentityApiClient(
     private readonly TrackZIdentityRefreshClient _refreshClient = refreshClient
         ?? new TrackZIdentityRefreshClient(httpClient, tokenStore, sessionBoundary);
 
-    public async Task LoginAsync(string email, string password, string deviceName, CancellationToken cancellationToken = default)
+    public async Task LoginAsync(string email, string password, string deviceName, CancellationToken cancellationToken = default) =>
+        _ = await LoginWithReceiptAsync(email, password, deviceName, cancellationToken);
+
+    public async Task<IdentityTransitionReceipt?> LoginWithReceiptAsync(
+        string email,
+        string password,
+        string deviceName,
+        CancellationToken cancellationToken = default)
     {
         var generation = sessionBoundary.Capture();
         using var response = await httpClient.PostAsJsonAsync(
             "/api/v1/auth/login", new { email, password, deviceName }, cancellationToken);
         var tokens = await ReadTokensAsync(response, cancellationToken);
-        _ = MobileTokenStore.ReadUserId(tokens.AccessToken);
+        var snapshot = MobileTokenStore.CreateSnapshot(tokens.AccessToken, tokens.RefreshToken);
         if (!await sessionBoundary.TryResetAsync(generation, async token =>
         {
             await privateDataCleaner.ClearAsync(token);
             await tokenStore.SaveAsync(tokens.AccessToken, tokens.RefreshToken, token);
         }, cancellationToken)) throw new OperationCanceledException("The account session changed.");
+        return new IdentityTransitionReceipt(sessionBoundary.Capture(), snapshot);
     }
 
     public async Task RegisterAndLoginAsync(
+        string email,
+        string password,
+        string deviceName,
+        CancellationToken cancellationToken = default) =>
+        _ = await RegisterAndLoginWithReceiptAsync(email, password, deviceName, cancellationToken);
+
+    public async Task<IdentityTransitionReceipt?> RegisterAndLoginWithReceiptAsync(
         string email,
         string password,
         string deviceName,
@@ -150,7 +172,7 @@ public sealed class TrackZIdentityApiClient(
         using var response = await httpClient.PostAsJsonAsync(
             "/api/v1/auth/register", new { email, password }, cancellationToken);
         await ReadRegistrationAsync(response, cancellationToken);
-        await LoginAsync(email, password, deviceName, cancellationToken);
+        return await LoginWithReceiptAsync(email, password, deviceName, cancellationToken);
     }
 
     public Task RefreshAsync(string deviceName, CancellationToken cancellationToken = default) =>

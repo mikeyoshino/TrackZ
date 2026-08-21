@@ -95,6 +95,30 @@ public sealed class AuthGateCoordinatorTests
         Assert.NotNull(await store.GetAccessTokenAsync());
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task External_reset_during_identity_success_without_boundary_cooperation_cannot_publish_signed_in(bool register)
+    {
+        var storage = new MemoryTokenStorage();
+        var store = new MobileTokenStore(storage);
+        var boundary = new AccountSessionBoundary();
+        var identity = new BoundaryIgnoringIdentity();
+        var gate = new AuthGateCoordinator(store, identity, new RecordingCleaner(), boundary,
+            new TestDeviceNameProvider(), new OfflineConnectivity(), new FixedTimeProvider(DateTimeOffset.UtcNow));
+
+        var transition = register
+            ? gate.RegisterAsync("lift@example.com", "Correct-Horse-9")
+            : gate.SignInAsync("lift@example.com", "Correct-Horse-9");
+        await identity.Entered;
+        await boundary.ResetAsync(token => store.ClearAsync(token));
+        identity.Release();
+        await transition;
+
+        Assert.NotEqual(AuthGateState.SignedIn, gate.Snapshot.State);
+        Assert.Null(await store.GetAccessTokenAsync());
+    }
+
     [Fact]
     public async Task Reset_while_refresh_is_delayed_cannot_publish_a_stale_signed_in_state()
     {
@@ -223,9 +247,9 @@ public sealed class AuthGateCoordinatorTests
             var storage = new MemoryTokenStorage();
             var store = new MobileTokenStore(storage);
             var now = new DateTimeOffset(2026, 8, 21, 12, 0, 0, TimeSpan.Zero);
-            var identity = new RecordingIdentity();
-            var cleaner = new RecordingCleaner();
             var boundary = new AccountSessionBoundary();
+            var identity = new RecordingIdentity(store, boundary);
+            var cleaner = new RecordingCleaner();
             var coordinator = new AuthGateCoordinator(store, identity, cleaner, boundary,
                 new TestDeviceNameProvider(), new OfflineConnectivity(), new FixedTimeProvider(now));
             if (scenario is not SessionCase.None)
@@ -258,7 +282,7 @@ public sealed class AuthGateCoordinatorTests
         public Task ClearAsync(CancellationToken cancellationToken = default) { ClearCount++; return Task.CompletedTask; }
     }
 
-    private sealed class RecordingIdentity : IIdentitySessionApi
+    private sealed class RecordingIdentity(MobileTokenStore store, IAccountSessionBoundary boundary) : IIdentitySessionApi
     {
         private readonly TaskCompletionSource _loginEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource _releaseLogin = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -291,7 +315,25 @@ public sealed class AuthGateCoordinatorTests
                 if (_cancelLoginAfterGate) throw new OperationCanceledException("The account session changed.");
             }
         }
+        public async Task<IdentityTransitionReceipt?> LoginWithReceiptAsync(
+            string email,
+            string password,
+            string deviceName,
+            CancellationToken cancellationToken = default)
+        {
+            await LoginAsync(email, password, deviceName, cancellationToken);
+            return await InstallIdentityAsync(cancellationToken);
+        }
         public Task RegisterAndLoginAsync(string email, string password, string deviceName, CancellationToken cancellationToken = default) { RegisterCalls++; return Task.CompletedTask; }
+        public async Task<IdentityTransitionReceipt?> RegisterAndLoginWithReceiptAsync(
+            string email,
+            string password,
+            string deviceName,
+            CancellationToken cancellationToken = default)
+        {
+            await RegisterAndLoginAsync(email, password, deviceName, cancellationToken);
+            return await InstallIdentityAsync(cancellationToken);
+        }
         public async Task RefreshAsync(string deviceName, CancellationToken cancellationToken = default)
         {
             RefreshCalls++;
@@ -304,6 +346,14 @@ public sealed class AuthGateCoordinatorTests
         }
         public Task LogoutAsync(CancellationToken cancellationToken = default) =>
             LogoutFailure is null ? Task.CompletedTask : Task.FromException(LogoutFailure);
+
+        private async Task<IdentityTransitionReceipt> InstallIdentityAsync(CancellationToken cancellationToken)
+        {
+            var accessToken = CreateToken(DateTimeOffset.UtcNow.AddMinutes(15));
+            var snapshot = MobileTokenStore.CreateSnapshot(accessToken, "refresh-one");
+            await boundary.ResetAsync(token => store.SaveAsync(accessToken, "refresh-one", token), cancellationToken);
+            return new IdentityTransitionReceipt(boundary.Capture(), snapshot);
+        }
     }
 
     private sealed class TestDeviceNameProvider : IDeviceNameProvider { public string DeviceName => "iPhone Simulator"; }
@@ -330,5 +380,25 @@ public sealed class AuthGateCoordinatorTests
         private readonly Queue<HttpResponseMessage> _responses = new(responses);
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
             Task.FromResult(_responses.Dequeue());
+    }
+
+    private sealed class BoundaryIgnoringIdentity : IIdentitySessionApi
+    {
+        private readonly TaskCompletionSource _entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public Task Entered => _entered.Task;
+        public void Release() => _release.TrySetResult();
+        public async Task LoginAsync(string email, string password, string deviceName, CancellationToken cancellationToken = default)
+        {
+            _entered.TrySetResult();
+            await _release.Task;
+        }
+        public async Task RegisterAndLoginAsync(string email, string password, string deviceName, CancellationToken cancellationToken = default)
+        {
+            _entered.TrySetResult();
+            await _release.Task;
+        }
+        public Task RefreshAsync(string deviceName, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task LogoutAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 }

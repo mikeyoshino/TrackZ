@@ -21,12 +21,36 @@ public interface IDeviceNameProvider
     string DeviceName { get; }
 }
 
+public sealed record IdentityTransitionReceipt(
+    AccountSessionGeneration Generation,
+    MobileIdentitySnapshot Identity);
+
 public interface IIdentitySessionApi
 {
     Task LoginAsync(string email, string password, string deviceName, CancellationToken cancellationToken = default);
     Task RegisterAndLoginAsync(string email, string password, string deviceName, CancellationToken cancellationToken = default);
     Task RefreshAsync(string deviceName, CancellationToken cancellationToken = default);
     Task LogoutAsync(CancellationToken cancellationToken = default);
+
+    async Task<IdentityTransitionReceipt?> LoginWithReceiptAsync(
+        string email,
+        string password,
+        string deviceName,
+        CancellationToken cancellationToken = default)
+    {
+        await LoginAsync(email, password, deviceName, cancellationToken);
+        return null;
+    }
+
+    async Task<IdentityTransitionReceipt?> RegisterAndLoginWithReceiptAsync(
+        string email,
+        string password,
+        string deviceName,
+        CancellationToken cancellationToken = default)
+    {
+        await RegisterAndLoginAsync(email, password, deviceName, cancellationToken);
+        return null;
+    }
 }
 
 public interface IAuthEntryPoint
@@ -94,9 +118,10 @@ public sealed class AuthGateCoordinator : IAuthEntryPoint
             await _transitionGate.WaitAsync(cancellationToken);
             try
             {
-                await _identity.LoginAsync(email, password, _deviceName.DeviceName, cancellationToken);
-                Publish(new AuthGateSnapshot(AuthGateState.SignedIn));
-                Volatile.Write(ref _initialised, 1);
+                var receipt = await _identity.LoginWithReceiptAsync(
+                    email, password, _deviceName.DeviceName, cancellationToken);
+                if (await TryPublishSignedInAsync(receipt, cancellationToken))
+                    Volatile.Write(ref _initialised, 1);
             }
             finally
             {
@@ -117,9 +142,10 @@ public sealed class AuthGateCoordinator : IAuthEntryPoint
             await _transitionGate.WaitAsync(cancellationToken);
             try
             {
-                await _identity.RegisterAndLoginAsync(email, password, _deviceName.DeviceName, cancellationToken);
-                Publish(new AuthGateSnapshot(AuthGateState.SignedIn));
-                Volatile.Write(ref _initialised, 1);
+                var receipt = await _identity.RegisterAndLoginWithReceiptAsync(
+                    email, password, _deviceName.DeviceName, cancellationToken);
+                if (await TryPublishSignedInAsync(receipt, cancellationToken))
+                    Volatile.Write(ref _initialised, 1);
             }
             finally
             {
@@ -223,6 +249,29 @@ public sealed class AuthGateCoordinator : IAuthEntryPoint
     }
 
     private static bool IsOffline(Exception exception) => exception is HttpRequestException or IOException or TimeoutException;
+
+    private async Task<bool> TryPublishSignedInAsync(
+        IdentityTransitionReceipt? receipt,
+        CancellationToken cancellationToken)
+    {
+        if (receipt is null) return false;
+        var published = false;
+        try
+        {
+            var committed = await _sessionBoundary.TryCommitAsync(receipt.Generation, async token =>
+            {
+                var snapshot = await _tokenStore.GetSnapshotAsync(token);
+                if (snapshot != receipt.Identity) return;
+                Publish(new AuthGateSnapshot(AuthGateState.SignedIn));
+                published = true;
+            }, cancellationToken);
+            return committed && published;
+        }
+        catch (MobileApiException)
+        {
+            return false;
+        }
+    }
 
     private async Task ClearAccountAsync(CancellationToken cancellationToken)
     {
