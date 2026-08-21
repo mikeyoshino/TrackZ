@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using TrackZ.Contracts.Errors;
 using TrackZ.Mobile.Features.Exercises;
@@ -27,20 +28,39 @@ public sealed record AuthTextSet(
     string EmailAlreadyExists,
     string PasswordPolicyViolation,
     string RetryableConnectionFailure,
-    string InvalidResponse)
+    string InvalidResponse,
+    string SignInWelcomeBody,
+    string CreateAccountWelcomeBody,
+    string CreateAccountRequirements,
+    string EmailAccessibilityLabel,
+    string PasswordAccessibilityLabel,
+    string CheckingSessionAccessibilityLabel)
 {
     public static AuthTextSet English { get; } = new(
         "Sign in", "Create account", "Email", "Password", "Sign in", "Create account",
         "New to TrackZ?", "Already have an account?", "Create account", "Sign in",
         "Email or password is incorrect.", "Use another email address.",
         "Use a password that meets the requirements.", "Check your connection and try again.",
-        "The server returned an invalid response.");
+        "The server returned an invalid response.",
+        "Sign in to keep your workouts in sync.",
+        "Create an account to keep your workouts in sync.",
+        "Use a password that meets the requirements.",
+        "Email", "Password", "Checking session");
 
     public static AuthTextSet Thai { get; } = new(
         "เข้าสู่ระบบ", "สร้างบัญชี", "อีเมล", "รหัสผ่าน", "เข้าสู่ระบบ", "สร้างบัญชี",
         "เพิ่งใช้ TrackZ ใช่ไหม?", "มีบัญชีอยู่แล้ว?", "สร้างบัญชี", "เข้าสู่ระบบ",
         "อีเมลหรือรหัสผ่านไม่ถูกต้อง", "โปรดใช้อีเมลอื่น", "โปรดใช้รหัสผ่านที่ตรงตามข้อกำหนด",
-        "ตรวจสอบการเชื่อมต่อแล้วลองอีกครั้ง", "เซิร์ฟเวอร์ตอบกลับข้อมูลไม่ถูกต้อง");
+        "ตรวจสอบการเชื่อมต่อแล้วลองอีกครั้ง", "เซิร์ฟเวอร์ตอบกลับข้อมูลไม่ถูกต้อง",
+        "เข้าสู่ระบบเพื่อซิงค์การออกกำลังกายของคุณ",
+        "สร้างบัญชีเพื่อซิงค์การออกกำลังกายของคุณ",
+        "ใช้รหัสผ่านที่ตรงตามข้อกำหนด",
+        "อีเมล", "รหัสผ่าน", "กำลังตรวจสอบเซสชัน");
+
+    public static AuthTextSet For(CultureInfo culture) =>
+        string.Equals(culture.TwoLetterISOLanguageName, "th", StringComparison.OrdinalIgnoreCase)
+            ? Thai
+            : English;
 }
 
 public sealed class AuthFormViewModel : INotifyPropertyChanged

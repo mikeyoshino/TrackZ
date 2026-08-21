@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.Logging;
+﻿using System.Globalization;
+using Microsoft.Extensions.Logging;
 using TrackZ.Mobile.Data;
 using TrackZ.Mobile.Features.Exercises;
 using TrackZ.Mobile.Features.Exercises.Data;
@@ -62,7 +63,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<TrackZIdentityApiClient>();
 		builder.Services.AddSingleton<IIdentitySessionApi>(services => services.GetRequiredService<TrackZIdentityApiClient>());
 		builder.Services.AddSingleton<IDeviceNameProvider, MauiDeviceNameProvider>();
-		builder.Services.AddSingleton(AuthTextSet.English);
+		builder.Services.AddSingleton(_ => AuthTextSet.For(CultureInfo.CurrentUICulture));
 		builder.Services.AddSingleton<AuthGateCoordinator>();
 		builder.Services.AddSingleton<TrackZSyncApiClient>();
 		builder.Services.AddSingleton<TrackZProgressApiClient>();

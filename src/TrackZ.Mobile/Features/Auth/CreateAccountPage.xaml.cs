@@ -17,6 +17,9 @@ public partial class CreateAccountPage : ContentPage
 
     public AuthGateCoordinator Gate { get; }
     public AuthFormViewModel Form { get; }
+    public Label WelcomeBody => WelcomeBodyLabel;
+    public Border EmailField => EmailFieldContainer;
+    public Border PasswordField => PasswordFieldContainer;
     public Microsoft.Maui.Controls.Entry EmailEntry => EmailInput;
     public Microsoft.Maui.Controls.Entry PasswordEntry => PasswordInput;
     public Button SubmitButton => SubmitAction;

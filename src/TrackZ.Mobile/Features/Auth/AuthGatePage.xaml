@@ -4,8 +4,10 @@
              x:Class="TrackZ.Mobile.Features.Auth.AuthGatePage"
              BackgroundColor="{DynamicResource TrackZBackground}">
     <Grid Padding="18,24">
-        <ActivityIndicator IsRunning="True"
+        <ActivityIndicator x:Name="StatusIndicatorView"
+                           IsRunning="True"
                            Color="{DynamicResource TrackZPrimary}"
+                           SemanticProperties.Description="{Binding CheckingSessionAccessibilityLabel}"
                            HorizontalOptions="Center"
                            VerticalOptions="Center" />
     </Grid>

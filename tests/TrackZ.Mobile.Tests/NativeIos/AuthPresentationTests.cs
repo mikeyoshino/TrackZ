@@ -1,5 +1,6 @@
 using System.Text;
 using System.Reflection;
+using System.Globalization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Maui.Dispatching;
@@ -90,7 +91,7 @@ public sealed class AuthPresentationTests
     }
 
     [Fact]
-    public void Auth_pages_expose_44_point_or_larger_actionable_controls()
+    public void Auth_fields_are_exactly_50_points_and_actions_are_at_least_44_points()
     {
         using var scope = TestApp.Create();
 
@@ -103,6 +104,14 @@ public sealed class AuthPresentationTests
         };
 
         Assert.All(controls, control => Assert.True(control.MinimumHeightRequest >= 44));
+        Assert.Equal(50, signIn.EmailField.MinimumHeightRequest);
+        Assert.Equal(50, signIn.PasswordField.MinimumHeightRequest);
+        Assert.Equal(50, signIn.EmailEntry.MinimumHeightRequest);
+        Assert.Equal(50, signIn.PasswordEntry.MinimumHeightRequest);
+        Assert.Equal(50, create.EmailField.MinimumHeightRequest);
+        Assert.Equal(50, create.PasswordField.MinimumHeightRequest);
+        Assert.Equal(50, create.EmailEntry.MinimumHeightRequest);
+        Assert.Equal(50, create.PasswordEntry.MinimumHeightRequest);
     }
 
     [Fact]
@@ -117,6 +126,40 @@ public sealed class AuthPresentationTests
         Assert.NotSame(signIn.Form, create.Form);
         Assert.Equal(AuthFormMode.SignIn, signIn.Form.Mode);
         Assert.Equal(AuthFormMode.CreateAccount, create.Form.Mode);
+    }
+
+    [Fact]
+    public void English_culture_binds_real_auth_page_text_and_semantics()
+    {
+        using var culture = new UiCultureScope("en-US");
+        using var scope = TestApp.Create();
+
+        var signIn = scope.App.Services.GetRequiredService<SignInPage>();
+        var create = scope.App.Services.GetRequiredService<CreateAccountPage>();
+        var gate = scope.App.Services.GetRequiredService<AuthGatePage>();
+
+        Assert.Equal(AuthTextSet.English, signIn.Form.Text);
+        Assert.Equal(AuthTextSet.English.SignInWelcomeBody, signIn.WelcomeBody.Text);
+        Assert.Equal(AuthTextSet.English.CreateAccountWelcomeBody, create.WelcomeBody.Text);
+        Assert.Equal(AuthTextSet.English.EmailAccessibilityLabel, SemanticProperties.GetDescription(signIn.EmailEntry));
+        Assert.Equal(AuthTextSet.English.CheckingSessionAccessibilityLabel, SemanticProperties.GetDescription(gate.StatusIndicator));
+    }
+
+    [Fact]
+    public void Thai_culture_binds_real_auth_page_text_and_semantics()
+    {
+        using var culture = new UiCultureScope("th-TH");
+        using var scope = TestApp.Create();
+
+        var signIn = scope.App.Services.GetRequiredService<SignInPage>();
+        var create = scope.App.Services.GetRequiredService<CreateAccountPage>();
+        var gate = scope.App.Services.GetRequiredService<AuthGatePage>();
+
+        Assert.Equal(AuthTextSet.Thai, signIn.Form.Text);
+        Assert.Equal(AuthTextSet.Thai.SignInWelcomeBody, signIn.WelcomeBody.Text);
+        Assert.Equal(AuthTextSet.Thai.CreateAccountWelcomeBody, create.WelcomeBody.Text);
+        Assert.Equal(AuthTextSet.Thai.PasswordAccessibilityLabel, SemanticProperties.GetDescription(create.PasswordEntry));
+        Assert.Equal(AuthTextSet.Thai.CheckingSessionAccessibilityLabel, SemanticProperties.GetDescription(gate.StatusIndicator));
     }
 
     private static string CreateToken(DateTimeOffset expiresAt)
@@ -256,5 +299,15 @@ public sealed class AuthPresentationTests
         public event EventHandler? Tick { add { } remove { } }
         public void Start() => IsRunning = true;
         public void Stop() => IsRunning = false;
+    }
+
+    private sealed class UiCultureScope : IDisposable
+    {
+        private readonly CultureInfo _original = CultureInfo.CurrentUICulture;
+
+        public UiCultureScope(string cultureName) =>
+            CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo(cultureName);
+
+        public void Dispose() => CultureInfo.CurrentUICulture = _original;
     }
 }

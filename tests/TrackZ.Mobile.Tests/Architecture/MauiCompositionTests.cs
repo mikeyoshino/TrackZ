@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Maui.Dispatching;
-using System.Reflection;
+using System.Text;
 using TrackZ.Contracts.Exercises;
 using TrackZ.Contracts.Sync;
 using TrackZ.Domain.Exercises;
@@ -43,6 +44,7 @@ public sealed class MauiCompositionTests
         DispatcherProvider.SetCurrent(new HeadlessDispatcherProvider());
         var app = MauiProgram.CreateMauiApp(services =>
         {
+            ConfigureAuthenticatedServices(services);
             services.AddSingleton(new ExerciseHistoryCache(Path.Combine(root, "history.db")));
             services.AddSingleton(new ExerciseCache(exercisePath));
             services.AddSingleton(new TrackZLocalDatabase(workoutPath));
@@ -58,12 +60,9 @@ public sealed class MauiCompositionTests
 
         try
         {
-            var application = new App(
-                app.Services.GetRequiredService<AppShell>(),
-                app.Services.GetRequiredService<IWorkoutSyncLifecycle>());
-            var createWindow = typeof(App).GetMethod(
-                "CreateWindow", BindingFlags.Instance | BindingFlags.NonPublic)!;
-            _ = Assert.IsType<Window>(createWindow.Invoke(application, [null]));
+            var application = app.Services.GetRequiredService<App>();
+            _ = application.CreateTestWindow();
+            await application.Initialization;
 
             await customApi.CreateEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
             var first = await Task.WhenAny(
@@ -109,6 +108,7 @@ public sealed class MauiCompositionTests
         DispatcherProvider.SetCurrent(new HeadlessDispatcherProvider());
         var app = MauiProgram.CreateMauiApp(services =>
         {
+            ConfigureAuthenticatedServices(services);
             services.AddSingleton(new ExerciseHistoryCache(Path.Combine(root, "history.db")));
             services.AddSingleton(new ExerciseCache(exercisePath));
             services.AddSingleton(new TrackZLocalDatabase(workoutPath));
@@ -124,12 +124,9 @@ public sealed class MauiCompositionTests
 
         try
         {
-            var application = new App(
-                app.Services.GetRequiredService<AppShell>(),
-                app.Services.GetRequiredService<IWorkoutSyncLifecycle>());
-            var createWindow = typeof(App).GetMethod(
-                "CreateWindow", BindingFlags.Instance | BindingFlags.NonPublic)!;
-            _ = Assert.IsType<Window>(createWindow.Invoke(application, [null]));
+            var application = app.Services.GetRequiredService<App>();
+            _ = application.CreateTestWindow();
+            await application.Initialization;
 
             await WaitUntilAsync(async () =>
                 (await app.Services.GetRequiredService<ExerciseCache>().GetPendingAsync()).Count == 0
@@ -179,6 +176,7 @@ public sealed class MauiCompositionTests
         DispatcherProvider.SetCurrent(new HeadlessDispatcherProvider());
         var app = MauiProgram.CreateMauiApp(services =>
         {
+            ConfigureAuthenticatedServices(services);
             services.AddSingleton(new ExerciseHistoryCache(Path.Combine(root, "history.db")));
             services.AddSingleton(new ExerciseCache(exercisePath));
             services.AddSingleton(new TrackZLocalDatabase(workoutPath));
@@ -195,12 +193,9 @@ public sealed class MauiCompositionTests
 
         try
         {
-            var application = new App(
-                app.Services.GetRequiredService<AppShell>(),
-                app.Services.GetRequiredService<IWorkoutSyncLifecycle>());
-            var createWindow = typeof(App).GetMethod(
-                "CreateWindow", BindingFlags.Instance | BindingFlags.NonPublic)!;
-            _ = Assert.IsType<Window>(createWindow.Invoke(application, [null]));
+            var application = app.Services.GetRequiredService<App>();
+            _ = application.CreateTestWindow();
+            await application.Initialization;
 
             await WaitUntilAsync(async () =>
                 (await app.Services.GetRequiredService<ExerciseCache>().GetPendingAsync()).Count == 0
@@ -249,6 +244,7 @@ public sealed class MauiCompositionTests
         DispatcherProvider.SetCurrent(new HeadlessDispatcherProvider());
         var app = MauiProgram.CreateMauiApp(services =>
         {
+            ConfigureAuthenticatedServices(services);
             services.AddSingleton(new ExerciseHistoryCache(Path.Combine(root, "history.db")));
             services.AddSingleton(new ExerciseCache(exercisePath));
             services.AddSingleton(new TrackZLocalDatabase(workoutPath));
@@ -264,12 +260,9 @@ public sealed class MauiCompositionTests
 
         try
         {
-            var application = new App(
-                app.Services.GetRequiredService<AppShell>(),
-                app.Services.GetRequiredService<IWorkoutSyncLifecycle>());
-            var createWindow = typeof(App).GetMethod(
-                "CreateWindow", BindingFlags.Instance | BindingFlags.NonPublic)!;
-            _ = Assert.IsType<Window>(createWindow.Invoke(application, [null]));
+            var application = app.Services.GetRequiredService<App>();
+            _ = application.CreateTestWindow();
+            await application.Initialization;
 
             await WaitUntilAsync(async () =>
                 (await app.Services.GetRequiredService<ExerciseCache>().GetPendingAsync()).Count == 0
@@ -301,6 +294,7 @@ public sealed class MauiCompositionTests
         var connectivity = new LifecycleConnectivity();
         var app = MauiProgram.CreateMauiApp(services =>
         {
+            ConfigureAuthenticatedServices(services);
             services.AddSingleton(new ExerciseHistoryCache(Path.Combine(root, "history.db")));
             services.AddSingleton(new ExerciseCache(Path.Combine(root, "exercises.db")));
             services.AddSingleton(new TrackZLocalDatabase(Path.Combine(root, "workouts.db")));
@@ -319,13 +313,9 @@ public sealed class MauiCompositionTests
                 new WorkoutExerciseSelection(Guid.NewGuid(), TrackingMode.Weighted)
             ]);
             Assert.Single(await app.Services.GetRequiredService<OutboxRepository>().PendingAsync());
-
-            var application = new App(
-                app.Services.GetRequiredService<AppShell>(),
-                app.Services.GetRequiredService<IWorkoutSyncLifecycle>());
-            var createWindow = typeof(App).GetMethod(
-                "CreateWindow", BindingFlags.Instance | BindingFlags.NonPublic)!;
-            _ = Assert.IsType<Window>(createWindow.Invoke(application, [null]));
+            var application = app.Services.GetRequiredService<App>();
+            _ = application.CreateTestWindow();
+            await application.Initialization;
 
             await WaitUntilAsync(async () =>
                 (await app.Services.GetRequiredService<OutboxRepository>().PendingAsync()).Count == 0);
@@ -353,6 +343,7 @@ public sealed class MauiCompositionTests
         var connectivity = new LifecycleConnectivity();
         var app = MauiProgram.CreateMauiApp(services =>
         {
+            ConfigureAuthenticatedServices(services);
             services.AddSingleton(new ExerciseHistoryCache(Path.Combine(root, "history.db")));
             services.AddSingleton(new ExerciseCache(Path.Combine(root, "exercises.db")));
             services.AddSingleton(new TrackZLocalDatabase(Path.Combine(root, "workouts.db")));
@@ -370,12 +361,9 @@ public sealed class MauiCompositionTests
             await app.Services.GetRequiredService<ActiveWorkoutCoordinator>().StartAsync([
                 new WorkoutExerciseSelection(Guid.NewGuid(), TrackingMode.Weighted)
             ]);
-            var application = new App(
-                app.Services.GetRequiredService<AppShell>(),
-                app.Services.GetRequiredService<IWorkoutSyncLifecycle>());
-            var createWindow = typeof(App).GetMethod(
-                "CreateWindow", BindingFlags.Instance | BindingFlags.NonPublic)!;
-            _ = Assert.IsType<Window>(createWindow.Invoke(application, [null]));
+            var application = app.Services.GetRequiredService<App>();
+            _ = application.CreateTestWindow();
+            await application.Initialization;
 
             await api.PushAttempted.Task.WaitAsync(TimeSpan.FromSeconds(2));
             connectivity.Disconnect();
@@ -414,6 +402,7 @@ public sealed class MauiCompositionTests
         var recovery = new LifecycleAuthenticationRecovery();
         var app = MauiProgram.CreateMauiApp(services =>
         {
+            ConfigureAuthenticatedServices(services);
             services.AddSingleton(new ExerciseHistoryCache(Path.Combine(root, "history.db")));
             services.AddSingleton(new ExerciseCache(Path.Combine(root, "exercises.db")));
             services.AddSingleton(new TrackZLocalDatabase(Path.Combine(root, "workouts.db")));
@@ -432,12 +421,9 @@ public sealed class MauiCompositionTests
             await app.Services.GetRequiredService<ActiveWorkoutCoordinator>().StartAsync([
                 new WorkoutExerciseSelection(Guid.NewGuid(), TrackingMode.Weighted)
             ]);
-            var application = new App(
-                app.Services.GetRequiredService<AppShell>(),
-                app.Services.GetRequiredService<IWorkoutSyncLifecycle>());
-            var createWindow = typeof(App).GetMethod(
-                "CreateWindow", BindingFlags.Instance | BindingFlags.NonPublic)!;
-            _ = Assert.IsType<Window>(createWindow.Invoke(application, [null]));
+            var application = app.Services.GetRequiredService<App>();
+            _ = application.CreateTestWindow();
+            await application.Initialization;
 
             await WaitUntilAsync(async () =>
                 (await app.Services.GetRequiredService<OutboxRepository>().PendingAsync()).Count == 0);
@@ -475,6 +461,7 @@ public sealed class MauiCompositionTests
         DispatcherProvider.SetCurrent(new HeadlessDispatcherProvider());
         var app = MauiProgram.CreateMauiApp(services =>
         {
+            ConfigureAuthenticatedServices(services);
             services.AddSingleton(new ExerciseHistoryCache(Path.Combine(root, "history.db")));
             services.AddSingleton(new ExerciseCache(exercisePath));
             services.AddSingleton(new TrackZLocalDatabase(workoutPath));
@@ -495,11 +482,9 @@ public sealed class MauiCompositionTests
                 new WorkoutExerciseSelection(exerciseId, TrackingMode.Weighted)
             ]);
             var lifecycle = app.Services.GetRequiredService<IWorkoutSyncLifecycle>();
-            var application = new App(
-                app.Services.GetRequiredService<AppShell>(), lifecycle);
-            var createWindow = typeof(App).GetMethod(
-                "CreateWindow", BindingFlags.Instance | BindingFlags.NonPublic)!;
-            _ = Assert.IsType<Window>(createWindow.Invoke(application, [null]));
+            var application = app.Services.GetRequiredService<App>();
+            _ = application.CreateTestWindow();
+            await application.Initialization;
 
             await workoutApi.PushAttempted.Task.WaitAsync(TimeSpan.FromSeconds(2));
             await Task.Delay(100);
@@ -535,6 +520,7 @@ public sealed class MauiCompositionTests
         var api = new LifecycleSyncApi(permanentFailures: 1);
         var app = MauiProgram.CreateMauiApp(services =>
         {
+            ConfigureAuthenticatedServices(services);
             services.AddSingleton(new ExerciseHistoryCache(Path.Combine(root, "history.db")));
             services.AddSingleton(new ExerciseCache(Path.Combine(root, "exercises.db")));
             services.AddSingleton(new TrackZLocalDatabase(Path.Combine(root, "workouts.db")));
@@ -556,12 +542,9 @@ public sealed class MauiCompositionTests
             await active.SaveSetAsync(
                 local.Exercises[0].ExerciseDefinitionId,
                 new LocalSet(70m, null, 8));
-            var application = new App(
-                app.Services.GetRequiredService<AppShell>(),
-                app.Services.GetRequiredService<IWorkoutSyncLifecycle>());
-            var createWindow = typeof(App).GetMethod(
-                "CreateWindow", BindingFlags.Instance | BindingFlags.NonPublic)!;
-            _ = Assert.IsType<Window>(createWindow.Invoke(application, [null]));
+            var application = app.Services.GetRequiredService<App>();
+            _ = application.CreateTestWindow();
+            await application.Initialization;
 
             await WaitUntilAsync(async () =>
                 (await app.Services.GetRequiredService<OutboxRepository>().PendingAsync()).Count == 0);
@@ -591,6 +574,7 @@ public sealed class MauiCompositionTests
         DispatcherProvider.SetCurrent(new HeadlessDispatcherProvider());
         var app = MauiProgram.CreateMauiApp(services =>
         {
+            ConfigureAuthenticatedServices(services);
             services.AddSingleton(new ExerciseHistoryCache(Path.Combine(root, "history.db")));
             services.AddSingleton(new ExerciseCache(Path.Combine(root, "exercises.db")));
             services.AddSingleton(new TrackZLocalDatabase(Path.Combine(root, "workouts.db")));
@@ -741,6 +725,14 @@ public sealed class MauiCompositionTests
         while (!await predicate()) await Task.Delay(20, timeout.Token);
     }
 
+    private static void ConfigureAuthenticatedServices(IServiceCollection services)
+    {
+        services.RemoveAll<IMobileTokenStorage>();
+        services.AddSingleton<IMobileTokenStorage, AuthenticatedTokenStorage>();
+        services.RemoveAll<IMobilePrivateDataCleaner>();
+        services.AddSingleton<IMobilePrivateDataCleaner, NoopPrivateDataCleaner>();
+    }
+
     [System.Runtime.CompilerServices.MethodImpl(
         System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
     private static WeakReference ResolveAndReleaseLogger(IServiceProvider services)
@@ -788,6 +780,45 @@ public sealed class MauiCompositionTests
     {
         public bool IsOnline => false;
         public event EventHandler? ConnectivityChanged { add { } remove { } }
+    }
+
+    private sealed class AuthenticatedTokenStorage : IMobileTokenStorage
+    {
+        private readonly Dictionary<string, string> _values = new()
+        {
+            [MobileTokenKeys.AccessToken] = CreateAccessToken(),
+            [MobileTokenKeys.RefreshToken] = "refresh-token",
+            [MobileTokenKeys.UserId] = "99999999-9999-9999-9999-999999999999",
+            [MobileTokenKeys.SessionId] = "aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb"
+        };
+
+        public Task<string?> GetAsync(string key, CancellationToken cancellationToken = default) =>
+            Task.FromResult(_values.GetValueOrDefault(key));
+
+        public Task SetAsync(string key, string value, CancellationToken cancellationToken = default)
+        {
+            _values[key] = value;
+            return Task.CompletedTask;
+        }
+
+        public Task RemoveAsync(string key, CancellationToken cancellationToken = default)
+        {
+            _values.Remove(key);
+            return Task.CompletedTask;
+        }
+
+        private static string CreateAccessToken()
+        {
+            static string Encode(string value) => Convert.ToBase64String(Encoding.UTF8.GetBytes(value))
+                .TrimEnd('=').Replace('+', '-').Replace('/', '_');
+            var expiration = DateTimeOffset.UtcNow.AddHours(1).ToUnixTimeSeconds();
+            return $"{Encode("{\"alg\":\"none\"}")}.{Encode($"{{\"sub\":\"99999999-9999-9999-9999-999999999999\",\"sid\":\"aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb\",\"exp\":{expiration}}}")}.signature";
+        }
+    }
+
+    private sealed class NoopPrivateDataCleaner : IMobilePrivateDataCleaner
+    {
+        public Task ClearAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 
     private sealed class LifecycleConnectivity : IConnectivityService

@@ -10,7 +10,6 @@ public partial class App : Application
 	private readonly IServiceProvider _services;
 	private readonly AuthGateCoordinator _authentication;
 	private readonly IWorkoutSyncLifecycle _synchronization;
-	private readonly AppShell? _legacyTestShell;
 	private readonly CancellationTokenSource _lifetime = new();
 	private Window? _window;
 	private bool _initializationStarted;
@@ -27,29 +26,10 @@ public partial class App : Application
 		_synchronization = synchronization;
 	}
 
-	internal App(AppShell shell, IWorkoutSyncLifecycle synchronization)
-	{
-		InitializeComponent();
-		_services = null!;
-		_authentication = null!;
-		_synchronization = synchronization;
-		_legacyTestShell = shell;
-	}
-
 	internal Task Initialization { get; private set; } = Task.CompletedTask;
 
 	protected override Window CreateWindow(IActivationState? activationState)
 	{
-		if (_legacyTestShell is not null)
-		{
-			var legacyWindow = new Window(_legacyTestShell);
-			legacyWindow.Created += (_, _) => _synchronization.Start();
-			legacyWindow.Resumed += (_, _) => _synchronization.Resume();
-			legacyWindow.Stopped += (_, _) => _synchronization.Stop();
-			legacyWindow.Destroying += (_, _) => _synchronization.Stop();
-			_synchronization.Start();
-			return legacyWindow;
-		}
 		var window = new Window(_services.GetRequiredService<AuthGatePage>());
 		_window = window;
 		_authentication.Changed += OnAuthenticationChanged;
