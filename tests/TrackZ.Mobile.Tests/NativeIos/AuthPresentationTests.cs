@@ -1,6 +1,7 @@
 using System.Text;
 using System.Reflection;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Maui.Dispatching;
@@ -129,6 +130,21 @@ public sealed class AuthPresentationTests
     }
 
     [Fact]
+    public async Task Popped_create_account_page_and_transient_form_are_released()
+    {
+        using var scope = TestApp.Create();
+        var signIn = scope.App.Services.GetRequiredService<SignInPage>();
+        var navigation = new NavigationPage(signIn);
+
+        var references = await PushAndPopCreateAccountAsync(navigation, scope.App.Services);
+        await WaitForCollectionAsync(references.Page, references.Form);
+
+        Assert.False(references.Page.TryGetTarget(out _));
+        Assert.False(references.Form.TryGetTarget(out _));
+        GC.KeepAlive(navigation);
+    }
+
+    [Fact]
     public void English_culture_binds_real_auth_page_text_and_semantics()
     {
         using var culture = new UiCultureScope("en-US");
@@ -167,6 +183,37 @@ public sealed class AuthPresentationTests
         static string Part(string value) => Convert.ToBase64String(Encoding.UTF8.GetBytes(value))
             .TrimEnd('=').Replace('+', '-').Replace('/', '_');
         return $"{Part("{\"alg\":\"none\"}")}.{Part($"{{\"sub\":\"99999999-9999-9999-9999-999999999999\",\"sid\":\"aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb\",\"exp\":{expiresAt.ToUnixTimeSeconds()}}}")}.signature";
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static async Task<(WeakReference<CreateAccountPage> Page, WeakReference<AuthFormViewModel> Form)> PushAndPopCreateAccountAsync(
+        NavigationPage navigation,
+        IServiceProvider services)
+    {
+        var page = services.GetRequiredService<CreateAccountPage>();
+        var pageReference = new WeakReference<CreateAccountPage>(page);
+        var formReference = new WeakReference<AuthFormViewModel>(page.Form);
+        await navigation.PushAsync(page, animated: false);
+        await navigation.PopAsync(animated: false);
+        return (pageReference, formReference);
+    }
+
+    private static async Task WaitForCollectionAsync(params object[] references)
+    {
+        for (var attempt = 0; attempt < 10; attempt++)
+        {
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+            if (references.All(reference => reference switch
+                {
+                    WeakReference<CreateAccountPage> page => !page.TryGetTarget(out _),
+                    WeakReference<AuthFormViewModel> form => !form.TryGetTarget(out _),
+                    _ => false
+                }))
+                return;
+            await Task.Yield();
+        }
     }
 
     private sealed class TestApp : IDisposable

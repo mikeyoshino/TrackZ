@@ -7,33 +7,24 @@
     xmlns:workout="clr-namespace:TrackZ.Mobile.Features.Workout;assembly=TrackZ.Mobile.Core"
     x:DataType="workout:SetLoggerViewModel"
     BackgroundColor="{DynamicResource TrackZSurface}"
+    SafeAreaEdges="All"
     Shell.NavBarIsVisible="False">
-    <Grid Padding="20,18,20,24" RowDefinitions="Auto,*,Auto" RowSpacing="16">
-        <Grid ColumnDefinitions="*,Auto">
-            <VerticalStackLayout Spacing="3">
-                <Label Style="{DynamicResource TrackZSectionTitleStyle}" Text="{Binding NextSetText}" />
+    <Grid Padding="0,16,0,0" RowDefinitions="Auto,*,Auto" RowSpacing="{DynamicResource TrackZSpace16}">
+        <Grid Padding="{DynamicResource TrackZPageHorizontalPadding}" ColumnDefinitions="*,Auto">
+            <VerticalStackLayout Spacing="{DynamicResource TrackZSpace4}">
+                <Label Style="{DynamicResource TrackZNavigationTitleStyle}" Text="{Binding NextSetText}" />
                 <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding ExerciseName}" />
             </VerticalStackLayout>
-            <Button
-                Grid.Column="1"
-                BackgroundColor="Transparent"
-                Clicked="OnCancelClicked"
-                MinimumHeightRequest="44"
-                Text="{Binding Text.Cancel}"
-                TextColor="{DynamicResource TrackZTextSecondary}" />
+            <Button Grid.Column="1" Clicked="OnCancelClicked" Style="{DynamicResource TrackZQuietButtonStyle}" Text="{Binding Text.Cancel}" />
         </Grid>
 
         <ScrollView Grid.Row="1">
-            <VerticalStackLayout Spacing="16">
-                <Button
-                    Command="{Binding MatchLastCommand}"
-                    MinimumHeightRequest="48"
-                    SemanticProperties.Description="{Binding Text.MatchLast}"
-                    Text="{Binding Text.MatchLast}" />
+            <VerticalStackLayout Padding="{DynamicResource TrackZPageHorizontalPadding}" Spacing="{DynamicResource TrackZSpace16}">
+                <Button Command="{Binding MatchLastCommand}" SemanticProperties.Description="{Binding Text.MatchLast}" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="{Binding Text.MatchLast}" />
 
-                <Grid ColumnDefinitions="*,*" ColumnSpacing="8" IsVisible="{Binding UsesWeight}">
-                    <Button Command="{Binding UseKilogramsCommand}" IsEnabled="{Binding IsPounds}" MinimumHeightRequest="44" Text="{Binding Text.Kilograms}" />
-                    <Button Grid.Column="1" Command="{Binding UsePoundsCommand}" IsEnabled="{Binding IsKilograms}" MinimumHeightRequest="44" Text="{Binding Text.Pounds}" />
+                <Grid ColumnDefinitions="*,*" ColumnSpacing="{DynamicResource TrackZSpace8}" IsVisible="{Binding UsesWeight}">
+                    <Button Command="{Binding UseKilogramsCommand}" IsEnabled="{Binding IsPounds}" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="{Binding Text.Kilograms}" />
+                    <Button Grid.Column="1" Command="{Binding UsePoundsCommand}" IsEnabled="{Binding IsKilograms}" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="{Binding Text.Pounds}" />
                 </Grid>
 
                 <components:WeightStepper
@@ -46,18 +37,8 @@
                     UnitLabel="{Binding WeightUnitLabel}"
                     Value="{Binding DisplayWeight, Mode=TwoWay}" />
 
-                <Label
-                    IsVisible="{Binding IsAssisted}"
-                    Style="{DynamicResource TrackZSecondaryStyle}"
-                    Text="{Binding Text.LowerAssistanceProgress}" />
-
-                <Label
-                    FontAttributes="Bold"
-                    FontSize="20"
-                    HorizontalTextAlignment="Center"
-                    IsVisible="{Binding IsBodyweight}"
-                    Text="{Binding Text.Bodyweight}"
-                    TextColor="{DynamicResource TrackZPrimary}" />
+                <Label IsVisible="{Binding IsAssisted}" Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Text.LowerAssistanceProgress}" />
+                <Label HorizontalTextAlignment="Center" IsVisible="{Binding IsBodyweight}" Style="{DynamicResource TrackZSectionTitleStyle}" Text="{Binding Text.Bodyweight}" />
 
                 <components:RepsStepper
                     Caption="{Binding Text.Reps}"
@@ -66,32 +47,30 @@
                     IncrementCommand="{Binding IncrementRepsCommand}"
                     IncrementLabel="{Binding IncrementRepsDescription}"
                     Value="{Binding Reps, Mode=TwoWay}" />
-                <Label HorizontalTextAlignment="Center" Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding ValidationMessage}" TextColor="{DynamicResource TrackZDanger}" />
+                <Label HorizontalTextAlignment="Center" Style="{DynamicResource TrackZInlineErrorStyle}" Text="{Binding ValidationMessage}" />
             </VerticalStackLayout>
         </ScrollView>
 
-        <Button
-            Grid.Row="2"
-            Clicked="OnSaveClicked"
-            IsEnabled="{Binding CanCompleteSet}"
-            MinimumHeightRequest="54"
-            SemanticProperties.Description="{Binding Text.SaveSet}"
-            Style="{DynamicResource TrackZPrimaryButtonStyle}"
-            Text="{Binding Text.SaveSet}" />
+        <Border Grid.Row="2" Style="{DynamicResource TrackZStickyActionContainerStyle}">
+            <Button
+                Clicked="OnSaveClicked"
+                IsEnabled="{Binding CanCompleteSet}"
+                SemanticProperties.Description="{Binding Text.SaveSet}"
+                Style="{DynamicResource TrackZPrimaryButtonStyle}"
+                Text="{Binding Text.SaveSet}" />
+        </Border>
 
         <Border
             x:Name="RewardOverlay"
             Grid.RowSpan="3"
-            Margin="18"
+            Margin="{DynamicResource TrackZPageMargin}"
             Opacity="0"
-            Padding="24"
-            BackgroundColor="{DynamicResource TrackZSurfaceRaised}"
             HorizontalOptions="Center"
+            Style="{DynamicResource TrackZCardStyle}"
             Stroke="{DynamicResource TrackZPrimary}"
-            StrokeShape="RoundRectangle 24"
             VerticalOptions="Center">
-            <VerticalStackLayout Spacing="6">
-                <Label x:Name="RewardPrimary" FontAttributes="Bold" FontSize="22" HorizontalTextAlignment="Center" TextColor="{DynamicResource TrackZPrimary}" />
+            <VerticalStackLayout Spacing="{DynamicResource TrackZSpace8}">
+                <Label x:Name="RewardPrimary" HorizontalTextAlignment="Center" Style="{DynamicResource TrackZPerformanceNumberStyle}" />
                 <Label x:Name="RewardSecondary" HorizontalTextAlignment="Center" Style="{DynamicResource TrackZSecondaryStyle}" />
             </VerticalStackLayout>
         </Border>

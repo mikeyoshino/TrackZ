@@ -8,13 +8,14 @@
     xmlns:history="clr-namespace:TrackZ.Mobile.Features.History;assembly=TrackZ.Mobile.Core"
     x:DataType="history:WorkoutHistoryViewModel"
     BackgroundColor="{DynamicResource TrackZBackground}"
+    SafeAreaEdges="All"
     Shell.NavBarIsVisible="False"
     Title="{Binding Text.HistoryTitle}">
-    <Grid Padding="18,10,18,16" RowDefinitions="Auto,*" RowSpacing="14">
+    <Grid Padding="{DynamicResource TrackZPageContentPadding}" RowDefinitions="Auto,*" RowSpacing="{DynamicResource TrackZSpace16}">
         <Grid ColumnDefinitions="*,Auto">
-            <VerticalStackLayout Spacing="3">
+            <VerticalStackLayout Spacing="{DynamicResource TrackZSpace4}">
                 <Label Style="{DynamicResource TrackZPageTitleStyle}" Text="{Binding Text.HistoryTitle}" />
-                <Label Text="{Binding ErrorMessage}" TextColor="{DynamicResource TrackZDanger}" />
+                <Label Style="{DynamicResource TrackZInlineErrorStyle}" Text="{Binding ErrorMessage}" />
             </VerticalStackLayout>
             <ActivityIndicator Grid.Column="1" IsRunning="{Binding IsBusy}" IsVisible="{Binding IsBusy}" />
         </Grid>
@@ -24,20 +25,20 @@
             </CollectionView.EmptyView>
             <CollectionView.GroupHeaderTemplate>
                 <DataTemplate x:DataType="history:HistoryMonthGroup">
-                    <Label Margin="2,14,2,8" Style="{DynamicResource TrackZSectionTitleStyle}" Text="{Binding Month}" />
+                    <Label Margin="0,16,0,8" Style="{DynamicResource TrackZSectionTitleStyle}" Text="{Binding Month}" />
                 </DataTemplate>
             </CollectionView.GroupHeaderTemplate>
             <CollectionView.ItemTemplate>
                 <DataTemplate x:DataType="history:HistoryWorkoutItem">
-                    <Border Margin="0,0,0,10" Style="{DynamicResource TrackZListRowStyle}">
-                        <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="12" RowSpacing="5">
-                            <Label FontAttributes="Bold" FontSize="17" Text="{Binding CompletedAt, StringFormat='{0:ddd, d MMM · HH:mm}'}" />
+                    <Border Margin="0,0,0,12" Style="{DynamicResource TrackZListRowStyle}">
+                        <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="{DynamicResource TrackZSpace12}" RowSpacing="{DynamicResource TrackZSpace4}">
+                            <Label Style="{DynamicResource TrackZNavigationTitleStyle}" Text="{Binding CompletedAt, StringFormat='{0:ddd, d MMM · HH:mm}'}" />
                             <components:SyncStatusPill Grid.Column="1" State="{Binding SyncState}" Text="{Binding SyncStatusText}" />
-                            <HorizontalStackLayout Grid.Row="1" Spacing="14">
+                            <HorizontalStackLayout Grid.Row="1" Spacing="{DynamicResource TrackZSpace16}">
                                 <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding ExerciseCountText}" />
                                 <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding SetCountText}" />
                             </HorizontalStackLayout>
-                            <Label Grid.Row="1" Grid.Column="1" FontSize="22" Text="›" TextColor="{DynamicResource TrackZTextSecondary}" />
+                            <Label Grid.Row="1" Grid.Column="1" Style="{DynamicResource TrackZSecondaryStyle}" Text="›" />
                         </Grid>
                     </Border>
                 </DataTemplate>

@@ -2,8 +2,9 @@
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              x:Class="TrackZ.Mobile.Features.Auth.AuthGatePage"
+             SafeAreaEdges="All"
              BackgroundColor="{DynamicResource TrackZBackground}">
-    <Grid Padding="18,24">
+    <Grid Padding="{DynamicResource TrackZAuthGatePadding}">
         <ActivityIndicator x:Name="StatusIndicatorView"
                            IsRunning="True"
                            Color="{DynamicResource TrackZPrimary}"

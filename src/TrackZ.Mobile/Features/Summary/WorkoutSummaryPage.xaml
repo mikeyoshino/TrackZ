@@ -7,23 +7,43 @@
     xmlns:gamification="clr-namespace:TrackZ.Mobile.Features.Gamification;assembly=TrackZ.Mobile.Core"
     x:DataType="gamification:WorkoutSummaryViewModel"
     BackgroundColor="{DynamicResource TrackZBackground}"
+    SafeAreaEdges="All"
     Title="{Binding Text.SummaryTitle}">
     <ScrollView>
-        <VerticalStackLayout Padding="20,24" Spacing="18">
-            <Label Style="{DynamicResource TrackZPageTitleStyle}" Text="{Binding Text.SummaryTitle}" />
+        <VerticalStackLayout Padding="{DynamicResource TrackZPageContentPadding}" Spacing="{DynamicResource TrackZSpace16}">
+            <Label Style="{DynamicResource TrackZNavigationTitleStyle}" Text="{Binding Text.SummaryTitle}" />
             <Border x:Name="SummaryReveal" Style="{DynamicResource TrackZCardStyle}">
-                <VerticalStackLayout Spacing="6"><Label FontAttributes="Bold" FontSize="22" Text="{Binding ProgressRevealStatus}" TextColor="{DynamicResource TrackZPrimary}" /><Label FontAttributes="Bold" Text="{Binding XpEarnedText}" /><Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding LevelAdvancedText}" /></VerticalStackLayout>
+                <VerticalStackLayout Spacing="{DynamicResource TrackZSpace8}">
+                    <Label Style="{DynamicResource TrackZPerformanceNumberStyle}" Text="{Binding ProgressRevealStatus}" />
+                    <Label Style="{DynamicResource TrackZNavigationTitleStyle}" Text="{Binding XpEarnedText}" />
+                    <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding LevelAdvancedText}" />
+                </VerticalStackLayout>
             </Border>
             <Border Style="{DynamicResource TrackZCardStyle}">
                 <components:XpBar Level="{Binding Level}" TotalXp="{Binding TotalXp}" Progress="0" />
             </Border>
-            <Grid ColumnDefinitions="*,*,*" ColumnSpacing="10">
-                <Border Style="{DynamicResource TrackZCardStyle}"><VerticalStackLayout><Label FontSize="24" FontAttributes="Bold" Text="{Binding TotalVolumeKg, StringFormat='{0:0.###} kg'}" /><Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Text.TotalVolume}" /></VerticalStackLayout></Border>
-                <Border Grid.Column="1" Style="{DynamicResource TrackZCardStyle}"><VerticalStackLayout><Label FontSize="24" FontAttributes="Bold" Text="{Binding CompletedSets}" /><Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Text.Sets}" /></VerticalStackLayout></Border>
-                <Border Grid.Column="2" Style="{DynamicResource TrackZCardStyle}"><VerticalStackLayout><Label FontSize="24" FontAttributes="Bold" Text="{Binding TotalReps}" /><Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Text.Reps}" /></VerticalStackLayout></Border>
+            <Grid ColumnDefinitions="*,*,*" ColumnSpacing="{DynamicResource TrackZSpace8}">
+                <Border Style="{DynamicResource TrackZCardStyle}">
+                    <VerticalStackLayout Spacing="{DynamicResource TrackZSpace4}">
+                        <Label Style="{DynamicResource TrackZSectionTitleStyle}" Text="{Binding TotalVolumeKg, StringFormat='{0:0.###} kg'}" />
+                        <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Text.TotalVolume}" />
+                    </VerticalStackLayout>
+                </Border>
+                <Border Grid.Column="1" Style="{DynamicResource TrackZCardStyle}">
+                    <VerticalStackLayout Spacing="{DynamicResource TrackZSpace4}">
+                        <Label Style="{DynamicResource TrackZSectionTitleStyle}" Text="{Binding CompletedSets}" />
+                        <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Text.Sets}" />
+                    </VerticalStackLayout>
+                </Border>
+                <Border Grid.Column="2" Style="{DynamicResource TrackZCardStyle}">
+                    <VerticalStackLayout Spacing="{DynamicResource TrackZSpace4}">
+                        <Label Style="{DynamicResource TrackZSectionTitleStyle}" Text="{Binding TotalReps}" />
+                        <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Text.Reps}" />
+                    </VerticalStackLayout>
+                </Border>
             </Grid>
-            <Label SemanticProperties.Description="{Binding SyncAccessibilityText}" Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding SyncAccessibilityText}" />
-            <Label Text="{Binding ErrorMessage}" TextColor="{DynamicResource TrackZDanger}" />
+            <Label SemanticProperties.Description="{Binding SyncAccessibilityText}" Style="{DynamicResource TrackZPerformanceMetadataStyle}" Text="{Binding SyncAccessibilityText}" />
+            <Label Style="{DynamicResource TrackZInlineErrorStyle}" Text="{Binding ErrorMessage}" />
         </VerticalStackLayout>
     </ScrollView>
 </ContentPage>

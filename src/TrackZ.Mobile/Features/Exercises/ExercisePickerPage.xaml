@@ -9,20 +9,26 @@
     xmlns:viewModels="clr-namespace:TrackZ.Mobile.Features.Exercises;assembly=TrackZ.Mobile.Core"
     x:DataType="viewModels:ExercisePickerViewModel"
     BackgroundColor="{DynamicResource TrackZBackground}"
+    SafeAreaEdges="All"
     Shell.NavBarHasShadow="False"
     Title="{Binding Text.ChooseExercises}">
-    <Grid Padding="16,8,16,0" RowDefinitions="Auto,Auto,Auto,*,Auto" RowSpacing="12">
-        <SearchBar
-            CancelButtonColor="{DynamicResource TrackZPrimary}"
-            MinimumHeightRequest="44"
-            Placeholder="{Binding Text.SearchExercises}"
-            Text="{Binding SearchText, Mode=TwoWay}" />
+    <Grid Padding="0,16,0,0" RowDefinitions="Auto,Auto,Auto,Auto,*,Auto" RowSpacing="{DynamicResource TrackZSpace12}">
+        <Grid Padding="{DynamicResource TrackZPageHorizontalPadding}">
+            <Label Style="{DynamicResource TrackZPageTitleStyle}" Text="{Binding Text.ChooseExercises}" />
+        </Grid>
 
-        <Grid Grid.Row="1" ColumnDefinitions="Auto,*" ColumnSpacing="8">
-            <Button Clicked="OnClearBodyPartClicked" MinimumHeightRequest="44" Padding="14,8" Text="{Binding Text.All}" />
+        <Grid Grid.Row="1" Padding="{DynamicResource TrackZPageHorizontalPadding}">
+            <SearchBar
+                Placeholder="{Binding Text.SearchExercises}"
+                Style="{DynamicResource TrackZSearchBarStyle}"
+                Text="{Binding SearchText, Mode=TwoWay}" />
+        </Grid>
+
+        <Grid Grid.Row="2" Padding="{DynamicResource TrackZPageHorizontalPadding}" ColumnDefinitions="Auto,*" ColumnSpacing="{DynamicResource TrackZSpace8}">
+            <Button Clicked="OnClearBodyPartClicked" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="{Binding Text.All}" />
             <CollectionView
                 Grid.Column="1"
-                HeightRequest="44"
+                HeightRequest="{DynamicResource TrackZMinimumTarget}"
                 HorizontalScrollBarVisibility="Never"
                 ItemsSource="{Binding BodyPartOptions}"
                 SelectedItem="{Binding SelectedBodyPartOption, Mode=TwoWay}"
@@ -32,7 +38,17 @@
                 </CollectionView.ItemsLayout>
                 <CollectionView.ItemTemplate>
                     <DataTemplate x:DataType="viewModels:BodyPartFilterOption">
-                        <Border Padding="14,8" Stroke="{DynamicResource TrackZHairline}" StrokeShape="RoundRectangle 999">
+                        <Border Style="{DynamicResource TrackZListRowStyle}">
+                            <VisualStateManager.VisualStateGroups>
+                                <VisualStateGroup x:Name="CommonStates">
+                                    <VisualState x:Name="Normal" />
+                                    <VisualState x:Name="Selected">
+                                        <VisualState.Setters>
+                                            <Setter Property="Style" Value="{DynamicResource TrackZSelectionChipStyle}" />
+                                        </VisualState.Setters>
+                                    </VisualState>
+                                </VisualStateGroup>
+                            </VisualStateManager.VisualStateGroups>
                             <Label Style="{DynamicResource TrackZBodyStyle}" Text="{Binding Label}" />
                         </Border>
                     </DataTemplate>
@@ -40,18 +56,18 @@
             </CollectionView>
         </Grid>
 
-        <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+        <Grid Grid.Row="3" Padding="{DynamicResource TrackZPageHorizontalPadding}" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="{DynamicResource TrackZSpace8}">
             <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding SelectedCountText}" VerticalOptions="Center" />
             <Label Grid.Column="1" IsVisible="{Binding ShowOfflineBanner}" Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Text.Offline}" VerticalOptions="Center" />
             <ActivityIndicator Grid.Column="2" IsRunning="{Binding IsRefreshing}" IsVisible="{Binding IsRefreshing}" />
         </Grid>
 
-        <Grid Grid.Row="3">
+        <Grid Grid.Row="4" Padding="{DynamicResource TrackZPageHorizontalPadding}">
             <CollectionView IsVisible="{Binding HasResults}" ItemsSource="{Binding Exercises}" SelectionMode="None">
                 <CollectionView.ItemTemplate>
                     <DataTemplate x:DataType="models:ExercisePickerItem">
                         <components:ExercisePerformanceCard
-                            Margin="0,0,0,10"
+                            Margin="0,0,0,12"
                             EditCommand="{Binding Source={x:Reference Page}, Path=EditCustomCommand}"
                             Exercise="{Binding .}"
                             ToggleCommand="{Binding Source={x:Reference Page}, Path=BindingContext.ToggleSelectionCommand}" />
@@ -83,11 +99,11 @@
                 Title="{Binding StateTitle}" />
         </Grid>
 
-        <Border Grid.Row="4" Margin="-16,0,-16,0" Padding="16,12" BackgroundColor="{DynamicResource TrackZSurface}" StrokeThickness="0">
-            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
-                <Button Clicked="OnCreateCustomClicked" MinimumHeightRequest="48" Text="{Binding Text.CreateCustom}" />
+        <Border Grid.Row="5" Style="{DynamicResource TrackZStickyActionContainerStyle}">
+            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="{DynamicResource TrackZSpace12}">
+                <Button Clicked="OnCreateCustomClicked" Style="{DynamicResource TrackZQuietButtonStyle}" Text="{Binding Text.CreateCustom}" />
                 <Label Grid.Column="1" HorizontalTextAlignment="Center" Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding SelectedCountText}" VerticalOptions="Center" />
-                <Button Grid.Column="2" Clicked="OnDoneClicked" MinimumHeightRequest="48" Style="{DynamicResource TrackZPrimaryButtonStyle}" Text="{Binding Text.Done}" />
+                <Button Grid.Column="2" Clicked="OnDoneClicked" Style="{DynamicResource TrackZPrimaryButtonStyle}" Text="{Binding Text.Done}" />
             </Grid>
         </Border>
     </Grid>

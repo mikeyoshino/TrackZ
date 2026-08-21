@@ -5,28 +5,28 @@
     xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
     BackgroundColor="{DynamicResource TrackZSurface}"
+    SafeAreaEdges="All"
     Shell.NavBarIsVisible="False">
-    <Grid Padding="20,18,20,24" RowDefinitions="Auto,*,Auto" RowSpacing="18">
-        <VerticalStackLayout Spacing="4">
-            <Label Style="{DynamicResource TrackZSectionTitleStyle}" Text="{Binding Text.ChooseWorkout}" />
+    <Grid Padding="0,16,0,0" RowDefinitions="Auto,*,Auto" RowSpacing="{DynamicResource TrackZSpace16}">
+        <VerticalStackLayout Padding="{DynamicResource TrackZPageHorizontalPadding}" Spacing="{DynamicResource TrackZSpace4}">
+            <Label Style="{DynamicResource TrackZNavigationTitleStyle}" Text="{Binding Text.ChooseWorkout}" />
             <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Text.AllBodyParts}" />
         </VerticalStackLayout>
 
-        <Grid Grid.Row="1" ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="12" RowSpacing="12">
-            <Button Grid.Row="0" Grid.Column="0" MinimumHeightRequest="52" CommandParameter="Chest" Clicked="OnBodyAreaClicked" Text="{Binding Text.BodyPartChest}" />
-            <Button Grid.Row="0" Grid.Column="1" MinimumHeightRequest="52" CommandParameter="Back" Clicked="OnBodyAreaClicked" Text="{Binding Text.BodyPartBack}" />
-            <Button Grid.Row="1" Grid.Column="0" MinimumHeightRequest="52" CommandParameter="Shoulders" Clicked="OnBodyAreaClicked" Text="{Binding Text.BodyPartShoulders}" />
-            <Button Grid.Row="1" Grid.Column="1" MinimumHeightRequest="52" CommandParameter="Arms" Clicked="OnBodyAreaClicked" Text="{Binding Text.BodyPartArms}" />
-            <Button Grid.Row="2" Grid.Column="0" MinimumHeightRequest="52" CommandParameter="Legs" Clicked="OnBodyAreaClicked" Text="{Binding Text.BodyPartLegs}" />
-            <Button Grid.Row="2" Grid.Column="1" MinimumHeightRequest="52" CommandParameter="Core" Clicked="OnBodyAreaClicked" Text="{Binding Text.BodyPartCore}" />
+        <Grid Grid.Row="1" Padding="{DynamicResource TrackZPageHorizontalPadding}" ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="{DynamicResource TrackZSpace12}" RowSpacing="{DynamicResource TrackZSpace12}">
+            <Button Grid.Row="0" Grid.Column="0" CommandParameter="Chest" Clicked="OnBodyAreaClicked" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="{Binding Text.BodyPartChest}" />
+            <Button Grid.Row="0" Grid.Column="1" CommandParameter="Back" Clicked="OnBodyAreaClicked" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="{Binding Text.BodyPartBack}" />
+            <Button Grid.Row="1" Grid.Column="0" CommandParameter="Shoulders" Clicked="OnBodyAreaClicked" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="{Binding Text.BodyPartShoulders}" />
+            <Button Grid.Row="1" Grid.Column="1" CommandParameter="Arms" Clicked="OnBodyAreaClicked" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="{Binding Text.BodyPartArms}" />
+            <Button Grid.Row="2" Grid.Column="0" CommandParameter="Legs" Clicked="OnBodyAreaClicked" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="{Binding Text.BodyPartLegs}" />
+            <Button Grid.Row="2" Grid.Column="1" CommandParameter="Core" Clicked="OnBodyAreaClicked" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="{Binding Text.BodyPartCore}" />
         </Grid>
 
-        <Button
-            Grid.Row="2"
-            BackgroundColor="Transparent"
-            Clicked="OnCancelClicked"
-            MinimumHeightRequest="48"
-            Text="{Binding Text.Cancel}"
-            TextColor="{DynamicResource TrackZTextSecondary}" />
+        <Border Grid.Row="2" Style="{DynamicResource TrackZStickyActionContainerStyle}">
+            <Button
+                Clicked="OnCancelClicked"
+                Style="{DynamicResource TrackZQuietButtonStyle}"
+                Text="{Binding Text.Cancel}" />
+        </Border>
     </Grid>
 </ContentPage>

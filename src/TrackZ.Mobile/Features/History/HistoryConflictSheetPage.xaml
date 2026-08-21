@@ -6,22 +6,25 @@
     xmlns:history="clr-namespace:TrackZ.Mobile.Features.History;assembly=TrackZ.Mobile.Core"
     x:DataType="history:WorkoutHistoryDetailViewModel"
     BackgroundColor="{DynamicResource TrackZSurface}"
+    SafeAreaEdges="All"
     Shell.NavBarIsVisible="False">
-    <Grid Padding="20" RowDefinitions="Auto,*,Auto" RowSpacing="18">
-        <VerticalStackLayout Spacing="5">
-            <Label Style="{DynamicResource TrackZSectionTitleStyle}" Text="{Binding Text.Conflicted}" />
+    <Grid Padding="0,16,0,0" RowDefinitions="Auto,*,Auto" RowSpacing="{DynamicResource TrackZSpace16}">
+        <VerticalStackLayout Padding="{DynamicResource TrackZPageHorizontalPadding}" Spacing="{DynamicResource TrackZSpace4}">
+            <Label Style="{DynamicResource TrackZNavigationTitleStyle}" Text="{Binding Text.Conflicted}" />
             <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Workout.SyncStatusText}" />
         </VerticalStackLayout>
-        <VerticalStackLayout Grid.Row="1" Spacing="10">
-            <Label FontAttributes="Bold" Text="{Binding Workout.ConflictOperationText}" />
-            <Label Text="{Binding Workout.ConflictLocalSummary}" />
+        <VerticalStackLayout Grid.Row="1" Padding="{DynamicResource TrackZPageHorizontalPadding}" Spacing="{DynamicResource TrackZSpace12}">
+            <Label Style="{DynamicResource TrackZSectionTitleStyle}" Text="{Binding Workout.ConflictOperationText}" />
+            <Label Style="{DynamicResource TrackZBodyStyle}" Text="{Binding Workout.ConflictLocalSummary}" />
             <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Workout.ConflictServerSummary}" />
-            <Label Text="{Binding Workout.ExerciseCountText}" />
-            <Label Text="{Binding Workout.SetCountText}" />
+            <Label Style="{DynamicResource TrackZPerformanceMetadataStyle}" Text="{Binding Workout.ExerciseCountText}" />
+            <Label Style="{DynamicResource TrackZPerformanceMetadataStyle}" Text="{Binding Workout.SetCountText}" />
         </VerticalStackLayout>
-        <Grid Grid.Row="2" ColumnDefinitions="*,*" ColumnSpacing="10">
-            <Button Clicked="OnKeepServerClicked" Text="{Binding Text.KeepServer}" />
-            <Button Grid.Column="1" Clicked="OnApplyLocalClicked" Style="{DynamicResource TrackZPrimaryButtonStyle}" Text="{Binding Text.ApplyLocal}" />
-        </Grid>
+        <Border Grid.Row="2" Style="{DynamicResource TrackZStickyActionContainerStyle}">
+            <Grid ColumnDefinitions="*,*" ColumnSpacing="{DynamicResource TrackZSpace12}">
+                <Button Clicked="OnKeepServerClicked" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="{Binding Text.KeepServer}" />
+                <Button Grid.Column="1" Clicked="OnApplyLocalClicked" Style="{DynamicResource TrackZPrimaryButtonStyle}" Text="{Binding Text.ApplyLocal}" />
+            </Grid>
+        </Border>
     </Grid>
 </ContentPage>

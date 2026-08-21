@@ -8,48 +8,59 @@
     xmlns:history="clr-namespace:TrackZ.Mobile.Features.History;assembly=TrackZ.Mobile.Core"
     x:DataType="history:WorkoutHistoryDetailViewModel"
     BackgroundColor="{DynamicResource TrackZBackground}"
+    SafeAreaEdges="All"
     Title="{Binding Text.HistoryTitle}">
-    <ScrollView>
-        <VerticalStackLayout Padding="18,10,18,28" Spacing="16">
-            <Grid ColumnDefinitions="*,Auto">
-                <VerticalStackLayout Spacing="4">
-                    <Label Style="{DynamicResource TrackZPageTitleStyle}" Text="{Binding Workout.CompletedAt, StringFormat='{0:ddd, d MMM}'}" />
-                    <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Workout.CompletedAt, StringFormat='{0:HH:mm}'}" />
-                </VerticalStackLayout>
-                <components:SyncStatusPill Grid.Column="1" State="{Binding Workout.SyncState}" Text="{Binding Workout.SyncStatusText}" />
-            </Grid>
+    <Grid Padding="0,16,0,0" RowDefinitions="*,Auto">
+        <ScrollView>
+            <VerticalStackLayout Padding="{DynamicResource TrackZPageBottomContentPadding}" Spacing="{DynamicResource TrackZSpace16}">
+                <Grid ColumnDefinitions="*,Auto">
+                    <VerticalStackLayout Spacing="{DynamicResource TrackZSpace4}">
+                        <Label Style="{DynamicResource TrackZNavigationTitleStyle}" Text="{Binding Workout.CompletedAt, StringFormat='{0:ddd, d MMM}'}" />
+                        <Label Style="{DynamicResource TrackZPerformanceMetadataStyle}" Text="{Binding Workout.CompletedAt, StringFormat='{0:HH:mm}'}" />
+                    </VerticalStackLayout>
+                    <components:SyncStatusPill Grid.Column="1" State="{Binding Workout.SyncState}" Text="{Binding Workout.SyncStatusText}" />
+                </Grid>
 
-            <VerticalStackLayout BindableLayout.ItemsSource="{Binding Workout.Exercises}" Spacing="12">
-                <BindableLayout.ItemTemplate>
-                    <DataTemplate x:DataType="history:HistoryExerciseItem">
-                        <Border Style="{DynamicResource TrackZCardStyle}">
-                            <VerticalStackLayout Spacing="10">
-                                <Grid ColumnDefinitions="*,Auto">
-                                    <Label FontAttributes="Bold" FontSize="17" Text="{Binding Name}" />
-                                    <Button Grid.Column="1" Command="{Binding Source={x:Reference Page}, Path=BindingContext.DeleteExerciseCommand}" CommandParameter="{Binding .}" Text="{Binding Source={x:Reference Page}, Path=BindingContext.Text.Delete}" />
-                                </Grid>
-                                <VerticalStackLayout BindableLayout.ItemsSource="{Binding Sets}" Spacing="8">
-                                    <BindableLayout.ItemTemplate>
-                                        <DataTemplate x:DataType="history:HistorySetItem">
-                                            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
-                                                <Label Text="{Binding SetNumber, StringFormat='#{0}'}" VerticalTextAlignment="Center" />
-                                                <Label Grid.Column="1" Text="{Binding MeasurementText}" VerticalTextAlignment="Center" />
-                                                <Button Grid.Column="2" Clicked="OnEditSetClicked" CommandParameter="{Binding .}" Text="{Binding Source={x:Reference Page}, Path=BindingContext.Text.Edit}" />
-                                            </Grid>
-                                        </DataTemplate>
-                                    </BindableLayout.ItemTemplate>
+                <VerticalStackLayout BindableLayout.ItemsSource="{Binding Workout.Exercises}" Spacing="{DynamicResource TrackZSpace12}">
+                    <BindableLayout.ItemTemplate>
+                        <DataTemplate x:DataType="history:HistoryExerciseItem">
+                            <Border Style="{DynamicResource TrackZCardStyle}">
+                                <VerticalStackLayout Spacing="{DynamicResource TrackZSpace12}">
+                                    <Grid ColumnDefinitions="*,Auto">
+                                        <Label Style="{DynamicResource TrackZNavigationTitleStyle}" Text="{Binding Name}" />
+                                        <Button
+                                            Grid.Column="1"
+                                            Command="{Binding Source={x:Reference Page}, Path=BindingContext.DeleteExerciseCommand}"
+                                            CommandParameter="{Binding .}"
+                                            Style="{DynamicResource TrackZDestructiveButtonStyle}"
+                                            Text="{Binding Source={x:Reference Page}, Path=BindingContext.Text.Delete}" />
+                                    </Grid>
+                                    <VerticalStackLayout BindableLayout.ItemsSource="{Binding Sets}" Spacing="{DynamicResource TrackZSpace8}">
+                                        <BindableLayout.ItemTemplate>
+                                            <DataTemplate x:DataType="history:HistorySetItem">
+                                                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="{DynamicResource TrackZSpace12}">
+                                                    <Label Style="{DynamicResource TrackZPerformanceMetadataStyle}" Text="{Binding SetNumber, StringFormat='#{0}'}" VerticalTextAlignment="Center" />
+                                                    <Label Grid.Column="1" Style="{DynamicResource TrackZBodyStyle}" Text="{Binding MeasurementText}" VerticalTextAlignment="Center" />
+                                                    <Button Grid.Column="2" Clicked="OnEditSetClicked" CommandParameter="{Binding .}" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="{Binding Source={x:Reference Page}, Path=BindingContext.Text.Edit}" />
+                                                </Grid>
+                                            </DataTemplate>
+                                        </BindableLayout.ItemTemplate>
+                                    </VerticalStackLayout>
                                 </VerticalStackLayout>
-                            </VerticalStackLayout>
-                        </Border>
-                    </DataTemplate>
-                </BindableLayout.ItemTemplate>
-            </VerticalStackLayout>
+                            </Border>
+                        </DataTemplate>
+                    </BindableLayout.ItemTemplate>
+                </VerticalStackLayout>
 
-            <Button Clicked="OnConflictClicked" IsVisible="{Binding Workout.HasConflict}" Text="{Binding Text.Conflicted}" />
-            <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
-                <Button Command="{Binding UndoCommand}" CommandParameter="{Binding Workout}" Text="{Binding Text.Undo}" />
-                <Button Grid.Column="1" Command="{Binding DeleteWorkoutCommand}" CommandParameter="{Binding Workout}" Text="{Binding Text.Delete}" TextColor="{DynamicResource TrackZDanger}" />
+                <Button Clicked="OnConflictClicked" IsVisible="{Binding Workout.HasConflict}" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="{Binding Text.Conflicted}" />
+            </VerticalStackLayout>
+        </ScrollView>
+
+        <Border Grid.Row="1" Style="{DynamicResource TrackZStickyActionContainerStyle}">
+            <Grid ColumnDefinitions="*,*" ColumnSpacing="{DynamicResource TrackZSpace12}">
+                <Button Command="{Binding UndoCommand}" CommandParameter="{Binding Workout}" Style="{DynamicResource TrackZQuietButtonStyle}" Text="{Binding Text.Undo}" />
+                <Button Grid.Column="1" Command="{Binding DeleteWorkoutCommand}" CommandParameter="{Binding Workout}" Style="{DynamicResource TrackZDestructiveButtonStyle}" Text="{Binding Text.Delete}" />
             </Grid>
-        </VerticalStackLayout>
-    </ScrollView>
+        </Border>
+    </Grid>
 </ContentPage>

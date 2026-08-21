@@ -17,6 +17,11 @@
     <x:Double x:Key="TrackZExerciseArtworkColumnWidth">88</x:Double>
     <x:Double x:Key="TrackZExerciseArtworkSize">88</x:Double>
     <x:Double x:Key="TrackZArtworkRadius">14</x:Double>
+    <Thickness x:Key="TrackZPageHorizontalPadding">18,0</Thickness>
+    <Thickness x:Key="TrackZPageContentPadding">18,16,18,24</Thickness>
+    <Thickness x:Key="TrackZPageBottomContentPadding">18,0,18,24</Thickness>
+    <Thickness x:Key="TrackZAuthGatePadding">18,24</Thickness>
+    <Thickness x:Key="TrackZVerticalRowPadding">0,8</Thickness>
 
     <Style x:Key="TrackZPrimaryButtonStyle" TargetType="Button">
         <Setter Property="MinimumHeightRequest" Value="{StaticResource TrackZPrimaryActionHeight}" />

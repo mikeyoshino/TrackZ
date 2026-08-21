@@ -5,14 +5,14 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
     xmlns:gamification="clr-namespace:TrackZ.Contracts.Gamification;assembly=TrackZ.Contracts"
     x:DataType="gamification:EarnedBadgeDto">
-    <Border Padding="12" BackgroundColor="{DynamicResource TrackZSurface}" Stroke="{DynamicResource TrackZHairline}" StrokeShape="RoundRectangle 18">
-        <Grid ColumnDefinitions="44,*" ColumnSpacing="12">
+    <Border Style="{DynamicResource TrackZCardStyle}">
+        <Grid ColumnDefinitions="44,*" ColumnSpacing="{DynamicResource TrackZSpace12}">
             <Border HeightRequest="44" WidthRequest="44" BackgroundColor="{DynamicResource TrackZSurfaceRaised}" Stroke="{DynamicResource TrackZPrimary}" StrokeShape="RoundRectangle 22">
-                <Label HorizontalTextAlignment="Center" Text="★" TextColor="{DynamicResource TrackZPrimary}" VerticalTextAlignment="Center" />
+                <Label HorizontalTextAlignment="Center" Style="{DynamicResource TrackZNavigationTitleStyle}" Text="★" TextColor="{DynamicResource TrackZPrimary}" VerticalTextAlignment="Center" />
             </Border>
-            <VerticalStackLayout Grid.Column="1" VerticalOptions="Center">
-                <Label FontAttributes="Bold" Text="{Binding NameResourceKey}" TextColor="{DynamicResource TrackZTextPrimary}" />
-                <Label FontSize="11" Text="{Binding EarnedAt, StringFormat='Earned {0:d}'}" TextColor="{DynamicResource TrackZTextSecondary}" />
+            <VerticalStackLayout Grid.Column="1" Spacing="{DynamicResource TrackZSpace4}" VerticalOptions="Center">
+                <Label Style="{DynamicResource TrackZNavigationTitleStyle}" Text="{Binding NameResourceKey}" />
+                <Label Style="{DynamicResource TrackZPerformanceMetadataStyle}" Text="{Binding EarnedAt, StringFormat='Earned {0:d}'}" />
             </VerticalStackLayout>
         </Grid>
     </Border>

@@ -7,6 +7,27 @@ namespace TrackZ.Mobile.Tests.Acceptance;
 public sealed class NativeIosExperienceAcceptanceTests
 {
     [Fact]
+    public void Root_destinations_share_the_native_title_margin_and_safe_area_contract()
+    {
+        var mobileDirectory = Path.Combine(FindSolutionDirectory(), "src", "TrackZ.Mobile");
+        var rootDestinations = new[]
+        {
+            "Features/Train/TrainPage.xaml",
+            "Features/Exercises/ExercisePickerPage.xaml",
+            "Features/Progress/ExerciseProgressPage.xaml",
+            "Features/Profile/ProfilePage.xaml"
+        };
+
+        foreach (var relativePath in rootDestinations)
+        {
+            var xaml = File.ReadAllText(Path.Combine(mobileDirectory, relativePath));
+            Assert.Contains("TrackZPageTitleStyle", xaml, StringComparison.Ordinal);
+            Assert.Contains("TrackZPage", xaml, StringComparison.Ordinal);
+            Assert.Contains("SafeAreaEdges=\"All\"", xaml, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
     public void Active_workout_row_carries_api_artwork_and_logged_sets_without_a_prescribed_target()
     {
         var row = new WorkoutExerciseDraftItem(
@@ -18,5 +39,18 @@ public sealed class NativeIosExperienceAcceptanceTests
         Assert.Equal(2, row.LoggedSetCount);
         Assert.DoesNotContain("of", row.LoggedSetText, StringComparison.OrdinalIgnoreCase);
         Assert.NotNull(typeof(ProgressReveal));
+    }
+
+    private static string FindSolutionDirectory()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            if (File.Exists(Path.Combine(directory.FullName, "TrackZ.slnx")))
+                return directory.FullName;
+            directory = directory.Parent;
+        }
+
+        throw new DirectoryNotFoundException("TrackZ.slnx was not found from the test output directory.");
     }
 }

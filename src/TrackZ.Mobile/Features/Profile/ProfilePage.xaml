@@ -1,17 +1,57 @@
 <?xml version="1.0" encoding="utf-8" ?>
-<ContentPage x:Class="TrackZ.Mobile.Features.Profile.ProfilePage" x:Name="Page" xmlns="http://schemas.microsoft.com/dotnet/2021/maui" xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml" xmlns:gamification="clr-namespace:TrackZ.Mobile.Features.Gamification;assembly=TrackZ.Mobile.Core" x:DataType="gamification:ProfileViewModel" BackgroundColor="{DynamicResource TrackZBackground}" Shell.NavBarIsVisible="False" Title="{Binding Text.ProfileTitle}">
-    <ScrollView><VerticalStackLayout Padding="18,10,18,28" Spacing="16">
-        <Label Style="{DynamicResource TrackZPageTitleStyle}" Text="{Binding Text.ProfileTitle}" />
-        <Border Style="{DynamicResource TrackZCardStyle}"><VerticalStackLayout Spacing="12">
-            <Label Style="{DynamicResource TrackZSectionTitleStyle}" Text="{Binding Source={x:Reference Page}, Path=WorkoutText.Weight}" />
-            <Grid ColumnDefinitions="*,*" ColumnSpacing="8"><Button Clicked="OnKilogramsClicked" Text="{Binding Source={x:Reference Page}, Path=WorkoutText.Kilograms}" /><Button Grid.Column="1" Clicked="OnPoundsClicked" Text="{Binding Source={x:Reference Page}, Path=WorkoutText.Pounds}" /></Grid>
-        </VerticalStackLayout></Border>
-        <Border Style="{DynamicResource TrackZCardStyle}"><Grid ColumnDefinitions="*,Auto"><VerticalStackLayout><Label FontAttributes="Bold" Text="{Binding Text.WeeklyGoal}" /><Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding WeeklyCompletedWorkouts, StringFormat='{0}'}" /></VerticalStackLayout><Stepper Grid.Column="1" Minimum="1" Maximum="7" Value="{Binding WeeklyGoal}" /></Grid></Border>
-        <Button Command="{Binding SaveWeeklyGoalCommand}" Style="{DynamicResource TrackZPrimaryButtonStyle}" Text="{Binding Text.Save}" />
-        <Border Style="{DynamicResource TrackZListRowStyle}"><Grid ColumnDefinitions="*,Auto"><Label Text="{Binding Text.Haptics}" /><Switch x:Name="HapticsSwitch" Grid.Column="1" Toggled="OnHapticsToggled" /></Grid></Border>
-        <Border Style="{DynamicResource TrackZListRowStyle}"><Grid ColumnDefinitions="*,Auto"><Label Text="{Binding Text.ReduceMotion}" /><Switch x:Name="ReduceMotionSwitch" Grid.Column="1" Toggled="OnReduceMotionToggled" /></Grid></Border>
-        <Label SemanticProperties.Description="{Binding SyncAccessibilityText}" Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding SyncAccessibilityText}" />
-        <Label Text="{Binding ErrorMessage}" TextColor="{DynamicResource TrackZDanger}" />
-        <Button Clicked="OnSignOutClicked" Text="{Binding Text.SignOut}" TextColor="{DynamicResource TrackZDanger}" />
-    </VerticalStackLayout></ScrollView>
+<ContentPage
+    x:Class="TrackZ.Mobile.Features.Profile.ProfilePage"
+    x:Name="Page"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:gamification="clr-namespace:TrackZ.Mobile.Features.Gamification;assembly=TrackZ.Mobile.Core"
+    x:DataType="gamification:ProfileViewModel"
+    BackgroundColor="{DynamicResource TrackZBackground}"
+    SafeAreaEdges="All"
+    Shell.NavBarIsVisible="False"
+    Title="{Binding Text.ProfileTitle}">
+    <Grid Padding="0,16,0,0" RowDefinitions="*,Auto">
+        <ScrollView>
+            <VerticalStackLayout Padding="{DynamicResource TrackZPageBottomContentPadding}" Spacing="{DynamicResource TrackZSpace16}">
+                <Label Style="{DynamicResource TrackZPageTitleStyle}" Text="{Binding Text.ProfileTitle}" />
+                <Border Style="{DynamicResource TrackZCardStyle}">
+                    <VerticalStackLayout Spacing="{DynamicResource TrackZSpace12}">
+                        <Label Style="{DynamicResource TrackZSectionTitleStyle}" Text="{Binding Source={x:Reference Page}, Path=WorkoutText.Weight}" />
+                        <Grid ColumnDefinitions="*,*" ColumnSpacing="{DynamicResource TrackZSpace8}">
+                            <Button Clicked="OnKilogramsClicked" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="{Binding Source={x:Reference Page}, Path=WorkoutText.Kilograms}" />
+                            <Button Grid.Column="1" Clicked="OnPoundsClicked" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="{Binding Source={x:Reference Page}, Path=WorkoutText.Pounds}" />
+                        </Grid>
+                    </VerticalStackLayout>
+                </Border>
+                <Border Style="{DynamicResource TrackZCardStyle}">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <VerticalStackLayout Spacing="{DynamicResource TrackZSpace4}">
+                            <Label Style="{DynamicResource TrackZNavigationTitleStyle}" Text="{Binding Text.WeeklyGoal}" />
+                            <Label Style="{DynamicResource TrackZPerformanceMetadataStyle}" Text="{Binding WeeklyCompletedWorkouts, StringFormat='{0}'}" />
+                        </VerticalStackLayout>
+                        <Stepper Grid.Column="1" Minimum="1" Maximum="7" Value="{Binding WeeklyGoal}" />
+                    </Grid>
+                </Border>
+                <Border Style="{DynamicResource TrackZListRowStyle}">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <Label Style="{DynamicResource TrackZBodyStyle}" Text="{Binding Text.Haptics}" />
+                        <Switch x:Name="HapticsSwitch" Grid.Column="1" Toggled="OnHapticsToggled" />
+                    </Grid>
+                </Border>
+                <Border Style="{DynamicResource TrackZListRowStyle}">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <Label Style="{DynamicResource TrackZBodyStyle}" Text="{Binding Text.ReduceMotion}" />
+                        <Switch x:Name="ReduceMotionSwitch" Grid.Column="1" Toggled="OnReduceMotionToggled" />
+                    </Grid>
+                </Border>
+                <Label SemanticProperties.Description="{Binding SyncAccessibilityText}" Style="{DynamicResource TrackZPerformanceMetadataStyle}" Text="{Binding SyncAccessibilityText}" />
+                <Label Style="{DynamicResource TrackZInlineErrorStyle}" Text="{Binding ErrorMessage}" />
+                <Button Clicked="OnSignOutClicked" Style="{DynamicResource TrackZDestructiveButtonStyle}" Text="{Binding Text.SignOut}" />
+            </VerticalStackLayout>
+        </ScrollView>
+
+        <Border Grid.Row="1" Style="{DynamicResource TrackZStickyActionContainerStyle}">
+            <Button Command="{Binding SaveWeeklyGoalCommand}" Style="{DynamicResource TrackZPrimaryButtonStyle}" Text="{Binding Text.Save}" />
+        </Border>
+    </Grid>
 </ContentPage>

@@ -66,6 +66,32 @@ public sealed class NativeVisualTokenTests
     }
 
     [Fact]
+    public void Composite_page_padding_resources_preserve_margin_and_spacing_contracts()
+    {
+        using var app = CreateApp();
+        var margin = Assert.IsType<double>(Resources(app)["TrackZPageMargin"]);
+        var expected = new Dictionary<string, (double Top, double Bottom)>
+        {
+            ["TrackZPageHorizontalPadding"] = (0, 0),
+            ["TrackZPageContentPadding"] = (16, 24),
+            ["TrackZPageBottomContentPadding"] = (0, 24),
+            ["TrackZAuthGatePadding"] = (24, 24)
+        };
+
+        foreach (var (key, vertical) in expected)
+        {
+            var padding = Assert.IsType<Thickness>(Resources(app)[key]);
+            Assert.Equal(margin, padding.Left);
+            Assert.Equal(margin, padding.Right);
+            Assert.Equal(vertical.Top, padding.Top);
+            Assert.Equal(vertical.Bottom, padding.Bottom);
+        }
+
+        var rowPadding = Assert.IsType<Thickness>(Resources(app)["TrackZVerticalRowPadding"]);
+        Assert.Equal(new Thickness(0, 8), rowPadding);
+    }
+
+    [Fact]
     public void Semantic_typography_and_lime_roles_are_exact()
     {
         using var app = CreateApp();

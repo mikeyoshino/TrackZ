@@ -8,58 +8,63 @@
     xmlns:workout="clr-namespace:TrackZ.Mobile.Features.Workout;assembly=TrackZ.Mobile.Core"
     x:DataType="workout:SetLoggerViewModel"
     BackgroundColor="{DynamicResource TrackZBackground}"
+    SafeAreaEdges="All"
     Title="{Binding Text.SetLoggerTitle}">
-    <ScrollView>
-        <VerticalStackLayout Padding="18,18,18,30" Spacing="18">
-            <Grid ColumnDefinitions="72,*,Auto" ColumnSpacing="12">
-                <Grid HeightRequest="64" WidthRequest="64">
-                    <Image Aspect="AspectFit" IsVisible="{Binding HasArtwork}" SemanticProperties.Description="{Binding ExerciseName}" Source="{Binding ThumbnailUri}" />
-                    <Border BackgroundColor="{DynamicResource TrackZSurfaceRaised}" IsVisible="{Binding ShowsArtworkPlaceholder}" StrokeThickness="0" StrokeShape="RoundRectangle 14">
-                        <Image Aspect="AspectFit" HeightRequest="46" Source="exercise_placeholder.svg" WidthRequest="46" />
-                    </Border>
-                </Grid>
-                <VerticalStackLayout Grid.Column="1">
-                    <Label FontAttributes="Bold" FontSize="28" Text="{Binding ExerciseName}" />
-                    <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding ExerciseMetadataText}" />
-                    <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding PreviousBestText}" />
-                    <Label FontAttributes="Bold" FontSize="13" Text="{Binding AllTimePrText}" TextColor="{DynamicResource TrackZPrimary}" />
-                </VerticalStackLayout>
-                <components:SyncStatusPill Grid.Column="2" State="{Binding SyncState}" Text="{Binding SyncStatusText}" VerticalOptions="Start" />
-            </Grid>
-
-            <Border Style="{DynamicResource TrackZCardStyle}">
-                <Grid ColumnDefinitions="*,*" ColumnSpacing="20">
-                    <components:LastSetTable Header="{Binding Text.Last}" ItemsSource="{Binding LastSets}" />
-                    <components:LastSetTable Grid.Column="1" Header="{Binding Text.Today}" ItemsSource="{Binding TodaySets}" />
-                </Grid>
-            </Border>
-
-            <Border Padding="14" BackgroundColor="{DynamicResource TrackZSurfaceRaised}" IsVisible="{Binding HasConflict}" Stroke="{DynamicResource TrackZWarning}" StrokeShape="RoundRectangle 20">
-                <VerticalStackLayout Spacing="10">
-                    <Label FontAttributes="Bold" Text="{Binding Text.Conflicted}" TextColor="{DynamicResource TrackZWarning}" />
-                    <Label Text="{Binding ConflictLocalSummary}" />
-                    <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding ConflictServerSummary}" />
-                    <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
-                        <Button Command="{Binding KeepServerCommand}" Text="{Binding Text.KeepServer}" />
-                        <Button Grid.Column="1" Command="{Binding ApplyLocalCommand}" Text="{Binding Text.ApplyLocal}" />
+    <Grid Padding="0,16,0,0" RowDefinitions="*,Auto">
+        <ScrollView>
+            <VerticalStackLayout Padding="{DynamicResource TrackZPageBottomContentPadding}" Spacing="{DynamicResource TrackZSpace16}">
+                <Grid ColumnDefinitions="88,*,Auto" ColumnSpacing="{DynamicResource TrackZSpace12}">
+                    <Grid HeightRequest="{DynamicResource TrackZExerciseArtworkSize}" WidthRequest="{DynamicResource TrackZExerciseArtworkSize}">
+                        <Image Aspect="AspectFit" IsVisible="{Binding HasArtwork}" SemanticProperties.Description="{Binding ExerciseName}" Source="{Binding ThumbnailUri}" />
+                        <Border BackgroundColor="{DynamicResource TrackZSurfaceRaised}" IsVisible="{Binding ShowsArtworkPlaceholder}" StrokeThickness="0" StrokeShape="RoundRectangle 14">
+                            <Image Aspect="AspectFit" HeightRequest="46" Source="exercise_placeholder.svg" WidthRequest="46" />
+                        </Border>
                     </Grid>
-                </VerticalStackLayout>
-            </Border>
+                    <VerticalStackLayout Grid.Column="1" Spacing="{DynamicResource TrackZSpace4}" VerticalOptions="Center">
+                        <Label Style="{DynamicResource TrackZNavigationTitleStyle}" Text="{Binding ExerciseName}" />
+                        <Label Style="{DynamicResource TrackZPerformanceMetadataStyle}" Text="{Binding ExerciseMetadataText}" />
+                        <Label Style="{DynamicResource TrackZPerformanceMetadataStyle}" Text="{Binding PreviousBestText}" />
+                        <Label Style="{DynamicResource TrackZPerformanceMetadataStyle}" Text="{Binding AllTimePrText}" />
+                    </VerticalStackLayout>
+                    <components:SyncStatusPill Grid.Column="2" State="{Binding SyncState}" Text="{Binding SyncStatusText}" VerticalOptions="Start" />
+                </Grid>
 
-            <Border x:Name="SavedPulse" Padding="14" BackgroundColor="{DynamicResource TrackZSurfaceRaised}" Opacity="0" Stroke="{DynamicResource TrackZPrimary}" StrokeShape="RoundRectangle 16">
-                <VerticalStackLayout Spacing="2">
-                    <Label x:Name="SavedPrimary" FontAttributes="Bold" HorizontalTextAlignment="Center" TextColor="{DynamicResource TrackZPrimary}" />
-                    <Label x:Name="SavedSecondary" HorizontalTextAlignment="Center" Style="{DynamicResource TrackZSecondaryStyle}" />
-                </VerticalStackLayout>
-            </Border>
-            <Label HorizontalTextAlignment="Center" Text="{Binding ErrorMessage}" TextColor="{DynamicResource TrackZDanger}" />
+                <Border Style="{DynamicResource TrackZCardStyle}">
+                    <Grid ColumnDefinitions="*,*" ColumnSpacing="{DynamicResource TrackZSpace16}">
+                        <components:LastSetTable Header="{Binding Text.Last}" ItemsSource="{Binding LastSets}" />
+                        <components:LastSetTable Grid.Column="1" Header="{Binding Text.Today}" ItemsSource="{Binding TodaySets}" />
+                    </Grid>
+                </Border>
+
+                <Border IsVisible="{Binding HasConflict}" Style="{DynamicResource TrackZCardStyle}" Stroke="{DynamicResource TrackZWarning}">
+                    <VerticalStackLayout Spacing="{DynamicResource TrackZSpace12}">
+                        <Label Style="{DynamicResource TrackZNavigationTitleStyle}" Text="{Binding Text.Conflicted}" TextColor="{DynamicResource TrackZWarning}" />
+                        <Label Style="{DynamicResource TrackZBodyStyle}" Text="{Binding ConflictLocalSummary}" />
+                        <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding ConflictServerSummary}" />
+                        <Grid ColumnDefinitions="*,*" ColumnSpacing="{DynamicResource TrackZSpace8}">
+                            <Button Command="{Binding KeepServerCommand}" Style="{DynamicResource TrackZQuietButtonStyle}" Text="{Binding Text.KeepServer}" />
+                            <Button Grid.Column="1" Command="{Binding ApplyLocalCommand}" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="{Binding Text.ApplyLocal}" />
+                        </Grid>
+                    </VerticalStackLayout>
+                </Border>
+
+                <Border x:Name="SavedPulse" Opacity="0" Style="{DynamicResource TrackZCardStyle}" Stroke="{DynamicResource TrackZPrimary}">
+                    <VerticalStackLayout Spacing="{DynamicResource TrackZSpace4}">
+                        <Label x:Name="SavedPrimary" HorizontalTextAlignment="Center" Style="{DynamicResource TrackZPerformanceNumberStyle}" />
+                        <Label x:Name="SavedSecondary" HorizontalTextAlignment="Center" Style="{DynamicResource TrackZSecondaryStyle}" />
+                    </VerticalStackLayout>
+                </Border>
+                <Label HorizontalTextAlignment="Center" Style="{DynamicResource TrackZInlineErrorStyle}" Text="{Binding ErrorMessage}" />
+                <ActivityIndicator IsRunning="{Binding IsBusy}" IsVisible="{Binding IsBusy}" />
+            </VerticalStackLayout>
+        </ScrollView>
+
+        <Border Grid.Row="1" Style="{DynamicResource TrackZStickyActionContainerStyle}">
             <Button
                 Clicked="OnLogNextSetClicked"
-                MinimumHeightRequest="54"
                 SemanticProperties.Description="{Binding Text.LogNextSet}"
                 Style="{DynamicResource TrackZPrimaryButtonStyle}"
                 Text="{Binding Text.LogNextSet}" />
-            <ActivityIndicator IsRunning="{Binding IsBusy}" IsVisible="{Binding IsBusy}" />
-        </VerticalStackLayout>
-    </ScrollView>
+        </Border>
+    </Grid>
 </ContentPage>
