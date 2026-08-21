@@ -27,6 +27,12 @@ public interface IMobilePrivateDataCleaner
     Task ClearAsync(CancellationToken cancellationToken = default);
 }
 
+public sealed record MobileIdentitySnapshot(
+    Guid UserId,
+    Guid SessionId,
+    DateTimeOffset AccessTokenExpiresAt,
+    string RefreshToken);
+
 public sealed class MobileTokenStore(IMobileTokenStorage storage) : IAccessTokenProvider
 {
     public Task<string?> GetAccessTokenAsync(CancellationToken cancellationToken = default) =>
@@ -41,9 +47,29 @@ public sealed class MobileTokenStore(IMobileTokenStorage storage) : IAccessToken
     public Task<string?> GetUserIdAsync(CancellationToken cancellationToken = default) =>
         storage.GetAsync(MobileTokenKeys.UserId, cancellationToken);
 
+    public async Task<MobileIdentitySnapshot?> GetSnapshotAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var accessToken = await storage.GetAsync(MobileTokenKeys.AccessToken, cancellationToken);
+        var refreshToken = await storage.GetAsync(MobileTokenKeys.RefreshToken, cancellationToken);
+        var storedSessionId = await storage.GetAsync(MobileTokenKeys.SessionId, cancellationToken);
+        var storedUserId = await storage.GetAsync(MobileTokenKeys.UserId, cancellationToken);
+        if (accessToken is null && refreshToken is null && storedSessionId is null && storedUserId is null) return null;
+        if (string.IsNullOrWhiteSpace(accessToken)
+            || string.IsNullOrWhiteSpace(refreshToken)
+            || !Guid.TryParse(storedSessionId, out var sessionId)
+            || sessionId == Guid.Empty
+            || !Guid.TryParse(storedUserId, out var userId)
+            || userId == Guid.Empty) throw InvalidIdentity();
+
+        var parsed = ParseIdentity(accessToken);
+        if (parsed.UserId != userId || parsed.SessionId != sessionId) throw InvalidIdentity();
+        return new MobileIdentitySnapshot(parsed.UserId, parsed.SessionId, parsed.ExpiresAt, refreshToken);
+    }
+
     public async Task SaveAsync(string accessToken, string refreshToken, CancellationToken cancellationToken = default)
     {
-        var (userId, sessionId) = ParseIdentity(accessToken);
+        var (userId, sessionId, _) = ParseIdentity(accessToken);
         await storage.SetAsync(MobileTokenKeys.AccessToken, accessToken, cancellationToken);
         await storage.SetAsync(MobileTokenKeys.RefreshToken, refreshToken, cancellationToken);
         await storage.SetAsync(MobileTokenKeys.SessionId, sessionId.ToString("D"), cancellationToken);
@@ -60,7 +86,7 @@ public sealed class MobileTokenStore(IMobileTokenStorage storage) : IAccessToken
 
     public static Guid ReadUserId(string accessToken) => ParseIdentity(accessToken).UserId;
 
-    private static (Guid UserId, Guid SessionId) ParseIdentity(string accessToken)
+    private static (Guid UserId, Guid SessionId, DateTimeOffset ExpiresAt) ParseIdentity(string accessToken)
     {
         try
         {
@@ -74,13 +100,20 @@ public sealed class MobileTokenStore(IMobileTokenStorage storage) : IAccessToken
                 && userId != Guid.Empty
                 && document.RootElement.TryGetProperty("sid", out var value)
                 && Guid.TryParse(value.GetString(), out var sessionId)
-                && sessionId != Guid.Empty) return (userId, sessionId);
+                && sessionId != Guid.Empty
+                && document.RootElement.TryGetProperty("exp", out var expiry)
+                && expiry.ValueKind == JsonValueKind.Number
+                && expiry.TryGetInt64(out var unixSeconds)
+                && unixSeconds > 0) return (userId, sessionId, DateTimeOffset.FromUnixTimeSeconds(unixSeconds));
         }
-        catch (Exception exception) when (exception is FormatException or JsonException or InvalidOperationException)
+        catch (Exception exception) when (exception is ArgumentOutOfRangeException or FormatException or JsonException or InvalidOperationException)
         {
         }
-        throw new MobileApiException(BusinessErrorCode.InternalServerError, "The identity response was invalid.");
+        throw InvalidIdentity();
     }
+
+    private static MobileApiException InvalidIdentity() => new(
+        BusinessErrorCode.InternalServerError, "The identity response was invalid.");
 }
 
 public sealed class TrackZIdentityApiClient(
@@ -88,7 +121,7 @@ public sealed class TrackZIdentityApiClient(
     MobileTokenStore tokenStore,
     IMobilePrivateDataCleaner privateDataCleaner,
     IAccountSessionBoundary sessionBoundary,
-    TrackZIdentityRefreshClient? refreshClient = null)
+    TrackZIdentityRefreshClient? refreshClient = null) : IIdentitySessionApi
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly TrackZIdentityRefreshClient _refreshClient = refreshClient
@@ -106,6 +139,18 @@ public sealed class TrackZIdentityApiClient(
             await privateDataCleaner.ClearAsync(token);
             await tokenStore.SaveAsync(tokens.AccessToken, tokens.RefreshToken, token);
         }, cancellationToken)) throw new OperationCanceledException("The account session changed.");
+    }
+
+    public async Task RegisterAndLoginAsync(
+        string email,
+        string password,
+        string deviceName,
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await httpClient.PostAsJsonAsync(
+            "/api/v1/auth/register", new { email, password }, cancellationToken);
+        await ReadRegistrationAsync(response, cancellationToken);
+        await LoginAsync(email, password, deviceName, cancellationToken);
     }
 
     public Task RefreshAsync(string deviceName, CancellationToken cancellationToken = default) =>
@@ -170,6 +215,23 @@ public sealed class TrackZIdentityApiClient(
         }
     }
 
+    private static async Task ReadRegistrationAsync(
+        HttpResponseMessage response,
+        CancellationToken cancellationToken)
+    {
+        await EnsureSuccessAsync(response, cancellationToken);
+        try
+        {
+            var result = await response.Content.ReadFromJsonAsync<RegistrationResponse>(JsonOptions, cancellationToken);
+            if (result is null || result.UserId == Guid.Empty || string.IsNullOrWhiteSpace(result.Email))
+                throw new JsonException("Required registration properties are missing.");
+        }
+        catch (Exception exception) when (exception is JsonException or NotSupportedException)
+        {
+            throw new MobileApiException(BusinessErrorCode.InternalServerError, "The identity response was invalid.", innerException: exception);
+        }
+    }
+
     private static async Task EnsureSuccessAsync(
         HttpResponseMessage response,
         CancellationToken cancellationToken)
@@ -203,6 +265,8 @@ public sealed class TrackZIdentityApiClient(
         string AccessToken,
         string RefreshToken,
         DateTimeOffset ExpiresAt);
+
+    private sealed record RegistrationResponse(Guid UserId, string Email);
 }
 
 public sealed class TrackZIdentityRefreshClient(

@@ -9,6 +9,92 @@ namespace TrackZ.Mobile.Tests;
 public sealed class IdentityTokenIntegrationTests
 {
     [Fact]
+    public async Task Complete_snapshot_requires_matching_structural_identity_and_expiry()
+    {
+        var now = new DateTimeOffset(2026, 8, 21, 12, 0, 0, TimeSpan.Zero);
+        var userId = Guid.NewGuid();
+        var sessionId = Guid.NewGuid();
+        var storage = new MemoryTokenStorage();
+        var store = new MobileTokenStore(storage);
+        await store.SaveAsync(Jwt(sessionId, userId, now.AddMinutes(15)), "refresh-one");
+
+        var snapshot = await store.GetSnapshotAsync();
+
+        Assert.Equal(new MobileIdentitySnapshot(userId, sessionId, now.AddMinutes(15), "refresh-one"), snapshot);
+    }
+
+    [Theory]
+    [InlineData("{\"sub\":\"99999999-9999-9999-9999-999999999999\",\"sid\":\"aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb\"}")]
+    [InlineData("{\"sub\":\"99999999-9999-9999-9999-999999999999\",\"sid\":\"aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb\",\"exp\":\"not-a-number\"}")]
+    [InlineData("{\"sub\":\"\",\"sid\":\"aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb\",\"exp\":1787314500}")]
+    [InlineData("{\"sub\":\"99999999-9999-9999-9999-999999999999\",\"sid\":\"\",\"exp\":1787314500}")]
+    public async Task Snapshot_rejects_missing_or_invalid_structural_token_claims(string payload)
+    {
+        var storage = new MemoryTokenStorage();
+        var store = new MobileTokenStore(storage);
+        await storage.SetAsync(MobileTokenKeys.AccessToken, JwtPayload(payload));
+        await storage.SetAsync(MobileTokenKeys.RefreshToken, "refresh-one");
+        await storage.SetAsync(MobileTokenKeys.UserId, "99999999-9999-9999-9999-999999999999");
+        await storage.SetAsync(MobileTokenKeys.SessionId, "aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb");
+
+        var error = await Assert.ThrowsAsync<MobileApiException>(() => store.GetSnapshotAsync());
+
+        Assert.Equal(BusinessErrorCode.InternalServerError, error.ErrorCode);
+        Assert.Equal("The identity response was invalid.", error.Message);
+    }
+
+    [Fact]
+    public async Task Snapshot_rejects_malformed_base64url_and_stored_identity_mismatches()
+    {
+        var storage = new MemoryTokenStorage();
+        var store = new MobileTokenStore(storage);
+        await storage.SetAsync(MobileTokenKeys.AccessToken, "header.%%%bad.payload");
+        await storage.SetAsync(MobileTokenKeys.RefreshToken, "refresh-one");
+        await storage.SetAsync(MobileTokenKeys.UserId, "99999999-9999-9999-9999-999999999999");
+        await storage.SetAsync(MobileTokenKeys.SessionId, "aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb");
+
+        await Assert.ThrowsAsync<MobileApiException>(() => store.GetSnapshotAsync());
+
+        await storage.SetAsync(MobileTokenKeys.AccessToken, Jwt(
+            Guid.Parse("aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb"),
+            Guid.Parse("99999999-9999-9999-9999-999999999999"),
+            DateTimeOffset.FromUnixTimeSeconds(1787314500)));
+        await storage.SetAsync(MobileTokenKeys.UserId, "11111111-1111-1111-1111-111111111111");
+
+        await Assert.ThrowsAsync<MobileApiException>(() => store.GetSnapshotAsync());
+    }
+
+    [Fact]
+    public async Task Register_then_login_preserves_stable_problem_fields_and_uses_one_device_name()
+    {
+        var handler = new QueueHandler(
+            Json(HttpStatusCode.Created, "{\"userId\":\"99999999-9999-9999-9999-999999999999\",\"email\":\"lift@example.com\"}"),
+            Json(HttpStatusCode.OK, $$"""{"accessToken":"{{JwtWithSession(Guid.Parse("aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb"))}}","refreshToken":"refresh-one","expiresAt":"2026-08-15T12:00:00Z"}"""));
+        var client = Identity(handler, out _, out _);
+
+        await client.RegisterAndLoginAsync("lift@example.com", "Correct-Horse-9", "iPhone Simulator");
+
+        Assert.Equal(["/api/v1/auth/register", "/api/v1/auth/login"], handler.RequestPaths);
+        Assert.Contains("lift@example.com", handler.RequestBodies[0], StringComparison.Ordinal);
+        Assert.Contains("Correct-Horse-9", handler.RequestBodies[0], StringComparison.Ordinal);
+        Assert.Contains("iPhone Simulator", handler.RequestBodies[1], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Register_preserves_server_field_errors()
+    {
+        var handler = new QueueHandler(Problem(HttpStatusCode.BadRequest, BusinessErrorCode.EmailAlreadyExists,
+            "Email already exists.", new Dictionary<string, string[]> { ["email"] = ["Use another email address."] }));
+        var client = Identity(handler, out _, out _);
+
+        var error = await Assert.ThrowsAsync<MobileApiException>(() =>
+            client.RegisterAndLoginAsync("lift@example.com", "Correct-Horse-9", "iPhone Simulator"));
+
+        Assert.Equal(BusinessErrorCode.EmailAlreadyExists, error.ErrorCode);
+        Assert.Equal(["Use another email address."], error.FieldErrors!["email"]);
+    }
+
+    [Fact]
     public async Task Login_output_is_read_by_real_bearer_provider_and_logout_clears_shared_keys()
     {
         var sessionId = Guid.Parse("aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb");
@@ -347,11 +433,17 @@ public sealed class IdentityTokenIntegrationTests
         }
     }
 
-    private static string JwtWithSession(Guid sessionId, Guid? userId = null)
+    private static string JwtWithSession(Guid sessionId, Guid? userId = null) =>
+        Jwt(sessionId, userId ?? Guid.Parse("99999999-9999-9999-9999-999999999999"), DateTimeOffset.UtcNow.AddMinutes(15));
+
+    private static string Jwt(Guid sessionId, Guid userId, DateTimeOffset expiresAt) =>
+        JwtPayload($"{{\"sub\":\"{userId:D}\",\"sid\":\"{sessionId:D}\",\"exp\":{expiresAt.ToUnixTimeSeconds()}}}");
+
+    private static string JwtPayload(string payload)
     {
         static string Encode(string text) => Convert.ToBase64String(Encoding.UTF8.GetBytes(text))
             .TrimEnd('=').Replace('+', '-').Replace('/', '_');
-        return $"{Encode("{\"alg\":\"none\"}")}.{Encode($"{{\"sub\":\"{userId ?? Guid.Parse("99999999-9999-9999-9999-999999999999"):D}\",\"sid\":\"{sessionId:D}\"}}")}.signature";
+        return $"{Encode("{\"alg\":\"none\"}")}.{Encode(payload)}.signature";
     }
 
     private static HttpResponseMessage Json(HttpStatusCode status, string json) => new(status)
@@ -367,7 +459,7 @@ public sealed class IdentityTokenIntegrationTests
     {
         var fieldJson = fields is null
             ? "null"
-            : "{\"email\":[\"Check the email address.\"]}";
+            : System.Text.Json.JsonSerializer.Serialize(fields);
         return Json(status, $$"""
             {"type":"https://trackz.test/problem","title":"Request failed","status":{{(int)status}},"errorCode":{{(int)code}},"message":"{{message}}","traceId":"trace-1","fieldErrors":{{fieldJson}}}
             """);
@@ -394,8 +486,10 @@ public sealed class IdentityTokenIntegrationTests
     {
         private readonly Queue<HttpResponseMessage> _responses = new(responses);
         public List<string> RequestBodies { get; } = [];
+        public List<string> RequestPaths { get; } = [];
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            RequestPaths.Add(request.RequestUri!.AbsolutePath);
             RequestBodies.Add(request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync(cancellationToken));
             return _responses.Dequeue();
         }
