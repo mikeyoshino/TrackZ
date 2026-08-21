@@ -30,7 +30,7 @@
                 </Border>
             </Grid>
 
-            <VerticalStackLayout Grid.Column="1" Spacing="3">
+            <VerticalStackLayout Grid.Column="1" Spacing="{DynamicResource TrackZSpace4}">
                 <Label LineBreakMode="TailTruncation" Style="{DynamicResource TrackZNavigationTitleStyle}" Text="{Binding Exercise.Name, Source={x:Reference Root}}" />
                 <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Exercise.TrackingModeText, Source={x:Reference Root}}" />
             </VerticalStackLayout>
@@ -44,7 +44,7 @@
                     Text="{Binding Exercise.RetryArtworkText, Source={x:Reference Root}}" />
             </HorizontalStackLayout>
 
-            <VerticalStackLayout Grid.RowSpan="3" Grid.Column="2" Spacing="2" VerticalOptions="Center">
+            <VerticalStackLayout Grid.RowSpan="3" Grid.Column="2" Spacing="{DynamicResource TrackZSpace4}" VerticalOptions="Center">
                 <CheckBox
                     InputTransparent="True"
                     IsChecked="{Binding Exercise.IsSelected, Source={x:Reference Root}, Mode=OneWay}"

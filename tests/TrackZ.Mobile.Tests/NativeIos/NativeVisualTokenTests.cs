@@ -1,6 +1,8 @@
 using Microsoft.Maui.Controls;
 using RoundRectangle = Microsoft.Maui.Controls.Shapes.RoundRectangle;
 using Microsoft.Extensions.DependencyInjection;
+using System.Globalization;
+using System.Xml.Linq;
 using TrackZ.Mobile;
 using TrackZ.Mobile.Data;
 using TrackZ.Mobile.Features.Exercises;
@@ -42,6 +44,81 @@ public sealed class NativeVisualTokenTests
         AssertStyle<Button>(app, "TrackZDestructiveButtonStyle", ("MinimumHeightRequest", 44d));
         AssertStyle<Entry>(app, "TrackZFieldStyle", ("MinimumHeightRequest", 50d));
         AssertStyle<Border>(app, "TrackZCardStyle", ("StrokeShape", "RoundRectangle 16"));
+        AssertStyle<Border>(app, "TrackZListRowStyle", ("StrokeShape", "RoundRectangle 16"));
+    }
+
+    [Fact]
+    public void Semantic_typography_and_lime_roles_are_exact()
+    {
+        using var app = CreateApp();
+
+        AssertStyle<Label>(app, "TrackZPageTitleStyle", ("FontSize", 32d), ("FontAttributes", FontAttributes.Bold));
+        AssertStyle<Label>(app, "TrackZNavigationTitleStyle", ("FontSize", 17d), ("FontAttributes", FontAttributes.Bold));
+        AssertStyle<Label>(app, "TrackZSectionTitleStyle", ("FontSize", 20d), ("FontAttributes", FontAttributes.Bold));
+        AssertStyle<Label>(app, "TrackZBodyStyle", ("FontSize", 15d));
+        AssertStyle<Label>(app, "TrackZSecondaryStyle", ("FontSize", 13d));
+        AssertStyle<Label>(app, "TrackZFieldErrorStyle", ("FontSize", 12d));
+
+        var primary = Assert.IsType<Color>(Resources(app)["TrackZPrimary"]);
+        Assert.Equal(primary, SetterValue<Label>(app, "TrackZPerformanceNumberStyle", "TextColor"));
+        foreach (var style in new[] { "TrackZPageTitleStyle", "TrackZNavigationTitleStyle", "TrackZSectionTitleStyle", "TrackZBodyStyle", "TrackZSecondaryStyle", "TrackZFieldErrorStyle", "TrackZPerformanceMetadataStyle" })
+            Assert.NotEqual(primary, SetterValue<Label>(app, style, "TextColor"));
+    }
+
+    [Fact]
+    public void Disabled_implicit_control_states_use_semantic_neutral_resources_in_both_themes()
+    {
+        using var app = CreateApp();
+        var disabledText = Assert.IsType<Color>(Resources(app)["TrackZDisabledText"]);
+        var disabledSurface = Assert.IsType<Color>(Resources(app)["TrackZDisabledSurface"]);
+
+        AssertDisabledState(app, typeof(Button), ("TextColor", disabledText), ("BackgroundColor", disabledSurface));
+        AssertDisabledState(app, typeof(Entry), ("TextColor", disabledText), ("PlaceholderColor", disabledText));
+        AssertDisabledState(app, typeof(SearchBar), ("TextColor", disabledText), ("PlaceholderColor", disabledText));
+    }
+
+    [Fact]
+    public void Audited_components_resolve_native_spacing_artwork_targets_and_card_geometry()
+    {
+        using var app = CreateApp();
+        var componentDirectory = Path.Combine(FindSolutionDirectory(), "src", "TrackZ.Mobile", "Components");
+        var components = new[]
+        {
+            "TrackZStateView.xaml", "ExerciseListSkeleton.xaml", "ExercisePerformanceCard.xaml",
+            "ActiveWorkoutExerciseRow.xaml", "RepsStepper.xaml", "WeightStepper.xaml", "SyncStatusPill.xaml"
+        };
+        var allowedSpacing = new HashSet<double> { 4, 8, 12, 16, 24, 32 };
+
+        foreach (var component in components)
+        {
+            var document = XDocument.Load(Path.Combine(componentDirectory, component));
+            foreach (var attribute in document.Descendants().Attributes().Where(attribute => attribute.Name.LocalName is "Spacing" or "Padding"))
+                foreach (var value in ResolveThicknessParts(app, attribute.Value))
+                    Assert.Contains(value, allowedSpacing);
+
+            foreach (var button in document.Descendants().Where(element => element.Name.LocalName == "Button"))
+            {
+                var styleKey = ResourceKey(button.Attribute("Style")?.Value);
+                Assert.False(string.IsNullOrEmpty(styleKey), $"{component} buttons must use a semantic style.");
+                Assert.True(Convert.ToDouble(SetterValue<Button>(app, styleKey!, "MinimumHeightRequest"), CultureInfo.InvariantCulture) >= 44);
+                Assert.True(Convert.ToDouble(SetterValue<Button>(app, styleKey!, "MinimumWidthRequest"), CultureInfo.InvariantCulture) >= 44);
+            }
+        }
+
+        Assert.Equal(88d, Assert.IsType<double>(Resources(app)["TrackZExerciseArtworkSize"]));
+        Assert.Equal(88d, Assert.IsType<double>(Resources(app)["TrackZExerciseArtworkColumnWidth"]));
+        foreach (var component in new[] { "ExercisePerformanceCard.xaml", "ActiveWorkoutExerciseRow.xaml", "ExerciseListSkeleton.xaml" })
+        {
+            var xaml = File.ReadAllText(Path.Combine(componentDirectory, component));
+            Assert.Contains("ColumnDefinitions=\"88", xaml, StringComparison.Ordinal);
+            Assert.Contains("TrackZExerciseArtworkSize", xaml, StringComparison.Ordinal);
+        }
+
+        var statusPadding = Assert.IsType<Thickness>(SetterValue<Border>(app, "TrackZStatusPillStyle", "Padding"));
+        Assert.Equal(12, statusPadding.Left);
+        Assert.Equal(12, statusPadding.Right);
+        Assert.Equal(4, statusPadding.Top);
+        Assert.Equal(4, statusPadding.Bottom);
     }
 
     [Fact]
@@ -104,6 +181,69 @@ public sealed class NativeVisualTokenTests
             else
                 Assert.Equal(expected, setter.Value);
         }
+    }
+
+    private static object? SetterValue<T>(MauiApp app, string key, string property)
+        where T : BindableObject
+    {
+        var style = Assert.IsType<Style>(Resources(app)[key]);
+        Assert.Equal(typeof(T), style.TargetType);
+        var setter = FindSetter(style, property);
+        Assert.NotNull(setter);
+        return setter.Value;
+    }
+
+    private static void AssertDisabledState(MauiApp app, Type targetType, params (string Property, Color Expected)[] expected)
+    {
+        var style = Assert.Single(
+            AllResources(Resources(app)).SelectMany(resources => resources.Values).OfType<Style>(),
+            style => style.TargetType == targetType && FindSetter(style, "VisualStateGroups") is not null);
+        var stateSetter = FindSetter(style, "VisualStateGroups");
+        Assert.NotNull(stateSetter);
+        var stateGroups = Assert.IsType<VisualStateGroupList>(stateSetter.Value);
+        var disabled = Assert.Single(Assert.Single(stateGroups).States, state => state.Name == "Disabled");
+
+        foreach (var (property, color) in expected)
+        {
+            var setter = Assert.Single(disabled.Setters, candidate => candidate.Property.PropertyName == property);
+            AssertThemeBindingColor(setter.Value, color);
+        }
+    }
+
+    private static void AssertThemeBindingColor(object? value, Color expected)
+    {
+        Assert.NotNull(value);
+        var type = value.GetType();
+        var light = type.GetProperty("Light")?.GetValue(value);
+        var dark = type.GetProperty("Dark")?.GetValue(value);
+        Assert.Equal(expected, Assert.IsType<Color>(light));
+        Assert.Equal(expected, Assert.IsType<Color>(dark));
+    }
+
+    private static IEnumerable<double> ResolveThicknessParts(MauiApp app, string value)
+    {
+        if (value.StartsWith("{DynamicResource ", StringComparison.Ordinal))
+        {
+            var key = ResourceKey(value);
+            yield return Assert.IsType<double>(Resources(app)[key!]);
+            yield break;
+        }
+
+        foreach (var part in value.Split(','))
+            yield return double.Parse(part, CultureInfo.InvariantCulture);
+    }
+
+    private static string? ResourceKey(string? value) =>
+        value is not null && value.StartsWith("{DynamicResource ", StringComparison.Ordinal) && value.EndsWith('}')
+            ? value["{DynamicResource ".Length..^1]
+            : null;
+
+    private static IEnumerable<ResourceDictionary> AllResources(ResourceDictionary resources)
+    {
+        yield return resources;
+        foreach (var merged in resources.MergedDictionaries)
+            foreach (var dictionary in AllResources(merged))
+                yield return dictionary;
     }
 
     private static ResourceDictionary Resources(MauiApp app) =>

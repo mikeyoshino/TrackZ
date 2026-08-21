@@ -50,3 +50,30 @@ Controls include primary, secondary, destructive, quiet, field/container, card/l
 ## Self-review and concerns
 
 `git diff --check` passed. The iOS compile and focused suites above passed. No workout/domain behavior changed. The design says “semibold”; MAUI's built-in `FontAttributes` exposes Bold rather than a separate semibold enum, so the native system bold face is used for the 17/20 semantic heading styles. No other concerns.
+
+## Fix Round 1/5 — Important review findings
+
+RED command:
+
+```text
+dotnet test tests/TrackZ.Mobile.Tests/TrackZ.Mobile.Tests.csproj --no-restore --filter "FullyQualifiedName~NativeVisualTokenTests|FullyQualifiedName~AccessibilitySemanticsTests|FullyQualifiedName~NativePresentationCompositionTests|FullyQualifiedName~ExercisePickerViewModelTests" --verbosity minimal -m:1
+Failed! - Failed: 3, Passed: 70, Skipped: 0, Total: 73
+```
+
+The failures proved the off-scale `3`/`2` card stack spacing, lime `TrackZPerformanceMetadataStyle`, and absent `TrackZDisabledText`/`TrackZDisabledSurface` resources.
+
+GREEN command:
+
+```text
+dotnet test tests/TrackZ.Mobile.Tests/TrackZ.Mobile.Tests.csproj --no-restore --filter "FullyQualifiedName~NativeVisualTokenTests|FullyQualifiedName~AccessibilitySemanticsTests|FullyQualifiedName~NativePresentationCompositionTests|FullyQualifiedName~ExercisePickerViewModelTests" --verbosity minimal -m:1
+Passed! - Failed: 0, Passed: 73, Skipped: 0, Total: 73
+```
+
+iOS XAML compile:
+
+```text
+dotnet msbuild src/TrackZ.Mobile/TrackZ.Mobile.csproj -t:Compile -p:TargetFramework=net10.0-ios -p:BuildProjectReferences=false -m:1 -verbosity:minimal
+exit 0
+```
+
+Fixes: all audited component `Spacing`/`Padding` values now resolve to the 4/8/12/16/24/32 scale; the status pill uses `12,4`. Performance cards, active rows, and skeletons share the exact `88` artwork size and an `88` XAML artwork column. Both themes of implicit Button, Entry, and SearchBar disabled states use semantic `TrackZDisabledText` and `TrackZDisabledSurface`; no legacy gray binding remains in those states. The mutation-sensitive test gate resolves merged style setters and state bindings, validates typography, 44-point button targets, card radii, spacing axes, artwork resource usage, and lime role restrictions. `TrackZSelectionChipStyle` now also carries a 44-point minimum target.

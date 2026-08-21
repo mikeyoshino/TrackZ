@@ -39,6 +39,6 @@
     <Style x:Key="TrackZPerformanceMetadataStyle" TargetType="Label">
         <Setter Property="FontSize" Value="13" />
         <Setter Property="FontAttributes" Value="Bold" />
-        <Setter Property="TextColor" Value="{StaticResource TrackZPrimary}" />
+        <Setter Property="TextColor" Value="{StaticResource TrackZTextSecondary}" />
     </Style>
 </ResourceDictionary>

@@ -30,8 +30,8 @@
                     <VisualState x:Name="Normal" />
                     <VisualState x:Name="Disabled">
                         <VisualState.Setters>
-                            <Setter Property="TextColor" Value="{AppThemeBinding Light={StaticResource Gray950}, Dark={StaticResource Gray200}}" />
-                            <Setter Property="BackgroundColor" Value="{AppThemeBinding Light={StaticResource Gray200}, Dark={StaticResource Gray600}}" />
+                            <Setter Property="TextColor" Value="{AppThemeBinding Light={StaticResource TrackZDisabledText}, Dark={StaticResource TrackZDisabledText}}" />
+                            <Setter Property="BackgroundColor" Value="{AppThemeBinding Light={StaticResource TrackZDisabledSurface}, Dark={StaticResource TrackZDisabledSurface}}" />
                         </VisualState.Setters>
                     </VisualState>
                     <VisualState x:Name="PointerOver" />
@@ -91,7 +91,8 @@
                     <VisualState x:Name="Normal" />
                     <VisualState x:Name="Disabled">
                         <VisualState.Setters>
-                            <Setter Property="TextColor" Value="{AppThemeBinding Light={StaticResource Gray300}, Dark={StaticResource Gray600}}" />
+                            <Setter Property="TextColor" Value="{AppThemeBinding Light={StaticResource TrackZDisabledText}, Dark={StaticResource TrackZDisabledText}}" />
+                            <Setter Property="PlaceholderColor" Value="{AppThemeBinding Light={StaticResource TrackZDisabledText}, Dark={StaticResource TrackZDisabledText}}" />
                         </VisualState.Setters>
                     </VisualState>
                 </VisualStateGroup>
@@ -106,7 +107,8 @@
                     <VisualState x:Name="Normal" />
                     <VisualState x:Name="Disabled">
                         <VisualState.Setters>
-                            <Setter Property="TextColor" Value="{AppThemeBinding Light={StaticResource Gray300}, Dark={StaticResource Gray600}}" />
+                            <Setter Property="TextColor" Value="{AppThemeBinding Light={StaticResource TrackZDisabledText}, Dark={StaticResource TrackZDisabledText}}" />
+                            <Setter Property="PlaceholderColor" Value="{AppThemeBinding Light={StaticResource TrackZDisabledText}, Dark={StaticResource TrackZDisabledText}}" />
                         </VisualState.Setters>
                     </VisualState>
                 </VisualStateGroup>
@@ -237,8 +239,8 @@
                     <VisualState x:Name="Normal" />
                     <VisualState x:Name="Disabled">
                         <VisualState.Setters>
-                            <Setter Property="TextColor" Value="{AppThemeBinding Light={StaticResource Gray300}, Dark={StaticResource Gray600}}" />
-                            <Setter Property="PlaceholderColor" Value="{AppThemeBinding Light={StaticResource Gray300}, Dark={StaticResource Gray600}}" />
+                            <Setter Property="TextColor" Value="{AppThemeBinding Light={StaticResource TrackZDisabledText}, Dark={StaticResource TrackZDisabledText}}" />
+                            <Setter Property="PlaceholderColor" Value="{AppThemeBinding Light={StaticResource TrackZDisabledText}, Dark={StaticResource TrackZDisabledText}}" />
                         </VisualState.Setters>
                     </VisualState>
                 </VisualStateGroup>

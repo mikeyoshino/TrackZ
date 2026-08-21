@@ -39,8 +39,8 @@
             <Border.GestureRecognizers>
                 <TapGestureRecognizer Command="{Binding OpenCommand, Source={x:Reference Root}}" CommandParameter="{Binding Exercise, Source={x:Reference Root}}" />
             </Border.GestureRecognizers>
-            <Grid ColumnDefinitions="80,*,Auto" ColumnSpacing="{DynamicResource TrackZSpace12}">
-                <Grid HeightRequest="{DynamicResource TrackZActiveArtworkSize}" WidthRequest="{DynamicResource TrackZActiveArtworkSize}">
+            <Grid ColumnDefinitions="88,*,Auto" ColumnSpacing="{DynamicResource TrackZSpace12}">
+                <Grid HeightRequest="{DynamicResource TrackZExerciseArtworkSize}" WidthRequest="{DynamicResource TrackZExerciseArtworkSize}">
                     <Image Aspect="AspectFit" IsVisible="{Binding Exercise.HasArtwork, Source={x:Reference Root}}" Source="{Binding Exercise.ThumbnailUri, Source={x:Reference Root}}" />
                     <Border BackgroundColor="{DynamicResource TrackZSurfaceRaised}" IsVisible="{Binding Exercise.ShowsArtworkPlaceholder, Source={x:Reference Root}}" StrokeThickness="0" StrokeShape="RoundRectangle 14">
                         <Image Aspect="AspectFit" HeightRequest="52" Source="exercise_placeholder.svg" WidthRequest="52" />

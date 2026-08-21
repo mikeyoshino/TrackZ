@@ -9,6 +9,8 @@
     <Color x:Key="TrackZPrimaryContrast">#111609</Color>
     <Color x:Key="TrackZTextPrimary">#F5F7F8</Color>
     <Color x:Key="TrackZTextSecondary">#8D959F</Color>
+    <Color x:Key="TrackZDisabledText">#68717B</Color>
+    <Color x:Key="TrackZDisabledSurface">#252B31</Color>
     <Color x:Key="TrackZInformation">#73A9FF</Color>
     <Color x:Key="TrackZWarning">#FFC95C</Color>
     <Color x:Key="TrackZDanger">#FF6969</Color>
