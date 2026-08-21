@@ -2,6 +2,7 @@ using TrackZ.Contracts.Exercises;
 using TrackZ.Domain.Exercises;
 using TrackZ.Mobile.Features.Exercises;
 using TrackZ.Mobile.Features.Exercises.Data;
+using TrackZ.Mobile.Features.Exercises.Models;
 using TrackZ.Mobile.Features.Exercises.Services;
 using TrackZ.Mobile.Identity;
 using TrackZ.Mobile.Features.Workout;
@@ -25,6 +26,134 @@ public sealed class ExercisePickerViewModelTests : IAsyncLifetime
     {
         if (File.Exists(_databasePath)) File.Delete(_databasePath);
         return Task.CompletedTask;
+    }
+
+    public static TheoryData<string, bool, bool, BodyPart?, ExercisePickerPresentationState, int> PickerCases => new()
+    {
+        { "results", true, false, null, ExercisePickerPresentationState.Results, 1 },
+        { "authentication", true, false, null, ExercisePickerPresentationState.AuthenticationRequired, 0 },
+        { "request-failure", true, false, null, ExercisePickerPresentationState.RequestFailure, 0 },
+        { "timeout", true, false, null, ExercisePickerPresentationState.RequestFailure, 0 },
+        { "offline-empty", false, false, null, ExercisePickerPresentationState.OfflineWithoutCache, 0 },
+        { "offline-cache", false, true, null, ExercisePickerPresentationState.OfflineWithCache, 1 },
+        { "failure-with-cache", true, true, null, ExercisePickerPresentationState.OfflineWithCache, 1 },
+        { "no-filter-matches", true, false, BodyPart.Back, ExercisePickerPresentationState.NoFilterMatches, 0 }
+    };
+
+    [Theory]
+    [MemberData(nameof(PickerCases))]
+    public async Task Picker_exposes_honest_state(
+        string scenario,
+        bool isOnline,
+        bool seedCache,
+        BodyPart? bodyPart,
+        ExercisePickerPresentationState expectedState,
+        int expectedCount)
+    {
+        var exercise = ChestPressWithPerformance();
+        if (seedCache) await _cache.ReplaceAllAsync([exercise], DateTimeOffset.UtcNow);
+        IExerciseCatalogApi api = scenario switch
+        {
+            "authentication" => new ApiProblemCatalogApi(new MobileApiException(
+                TrackZ.Contracts.Errors.BusinessErrorCode.InvalidRequest,
+                "Authentication is required.",
+                isAuthenticationRequired: true)),
+            "request-failure" or "failure-with-cache" => new FailingCatalogApi(),
+            "timeout" => new TimeoutCatalogApi(),
+            _ => new ImmediateCatalogApi([exercise])
+        };
+        var sut = new ExercisePickerViewModel(
+            _cache, api, new StubConnectivity(isOnline), new FixedClock());
+
+        await sut.LoadAsync(bodyPart);
+        await sut.RefreshCompletion;
+
+        Assert.Equal(expectedState, sut.PresentationState);
+        Assert.Equal(expectedCount, sut.Exercises.Count);
+        Assert.Equal(expectedState is ExercisePickerPresentationState.Results or ExercisePickerPresentationState.OfflineWithCache, sut.HasResults);
+        Assert.Equal(expectedState == ExercisePickerPresentationState.InitialLoading, sut.ShowLoading);
+        Assert.Equal(expectedState == ExercisePickerPresentationState.AuthenticationRequired, sut.ShowAuthenticationRequired);
+        Assert.Equal(expectedState == ExercisePickerPresentationState.OfflineWithoutCache, sut.ShowOfflineEmpty);
+        Assert.Equal(expectedState == ExercisePickerPresentationState.RequestFailure, sut.ShowRequestFailure);
+        Assert.Equal(expectedState == ExercisePickerPresentationState.NoFilterMatches, sut.ShowNoMatches);
+    }
+
+    [Fact]
+    public async Task Picker_is_initial_loading_before_its_first_cache_read_completes()
+    {
+        var dispatcher = new GatedUiDispatcher();
+        var sut = new ExercisePickerViewModel(
+            _cache,
+            new ImmediateCatalogApi([ChestPressWithPerformance()]),
+            new StubConnectivity(true),
+            new FixedClock(),
+            dispatcher: dispatcher);
+
+        var loading = sut.LoadAsync();
+        await dispatcher.Entered.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.Equal(ExercisePickerPresentationState.InitialLoading, sut.PresentationState);
+        Assert.True(sut.ShowLoading);
+        dispatcher.Release();
+        await loading;
+        await sut.RefreshCompletion;
+    }
+
+    [Fact]
+    public async Task Retry_command_recovers_request_failure_with_a_fresh_generation()
+    {
+        var api = new FailThenSucceedCatalogApi(ChestPressWithPerformance());
+        var sut = new ExercisePickerViewModel(
+            _cache, api, new StubConnectivity(true), new FixedClock());
+        await sut.LoadAsync();
+        await sut.RefreshCompletion;
+        Assert.Equal(ExercisePickerPresentationState.RequestFailure, sut.PresentationState);
+
+        await sut.RetryCommand.ExecuteAsync();
+
+        Assert.Equal(ExercisePickerPresentationState.Results, sut.PresentationState);
+        Assert.Single(sut.Exercises);
+        Assert.Equal(2, api.RequestCount);
+    }
+
+    [Fact]
+    public async Task Sign_in_command_uses_the_auth_entry_point()
+    {
+        var entryPoint = new RecordingAuthEntryPoint();
+        var sut = new ExercisePickerViewModel(
+            _cache,
+            new ApiProblemCatalogApi(new MobileApiException(
+                TrackZ.Contracts.Errors.BusinessErrorCode.InvalidRequest,
+                "Authentication is required.",
+                isAuthenticationRequired: true)),
+            new StubConnectivity(true),
+            new FixedClock(),
+            authEntryPoint: entryPoint);
+        await sut.LoadAsync();
+        await sut.RefreshCompletion;
+
+        await sut.SignInCommand.ExecuteAsync();
+
+        Assert.Equal(1, entryPoint.CallCount);
+    }
+
+    [Fact]
+    public async Task Account_reset_during_refresh_prevents_stale_picker_state_mutation()
+    {
+        var boundary = new AccountSessionBoundary();
+        var api = new GatedCatalogApi();
+        var sut = new ExercisePickerViewModel(
+            _cache, api, new StubConnectivity(true), new FixedClock(), boundary: boundary);
+        await sut.LoadAsync();
+        var oldRefresh = sut.RefreshCompletion;
+
+        await boundary.ResetAsync(_ => Task.CompletedTask);
+        api.Complete([ChestPressWithPerformance()]);
+        await oldRefresh;
+
+        Assert.Empty(sut.Exercises);
+        Assert.Equal(ExercisePickerPresentationState.InitialLoading, sut.PresentationState);
+        Assert.Null(sut.LastError);
     }
 
     [Fact]
@@ -121,6 +250,8 @@ public sealed class ExercisePickerViewModelTests : IAsyncLifetime
         Assert.Equal("ไม่พบท่าออกกำลังกายที่ตรงกับตัวกรอง", sut.Text.NoMatchingExercises);
         Assert.Equal("สร้างท่าเอง", sut.Text.CreateCustom);
         Assert.Equal("เสร็จสิ้น", sut.Text.Done);
+        Assert.Equal("เข้าสู่ระบบ", sut.Text.SignIn);
+        Assert.Equal("ลองอีกครั้ง", sut.Text.TryAgain);
         Assert.Equal("เลือกแล้ว: 0", sut.SelectedCountText);
         Assert.Equal(["หน้าอก", "หลัง", "ไหล่", "แขน", "ขา", "แกนกลางลำตัว"],
             sut.BodyPartOptions.Select(item => item.Label));
@@ -398,6 +529,8 @@ public sealed class ExercisePickerViewModelTests : IAsyncLifetime
         Assert.Equal("New Metadata", cached.Name);
         Assert.Null(cached.ThumbnailUri);
         Assert.Null(sut.LastErrorCode);
+        Assert.Equal(ExercisePickerPresentationState.Results, sut.PresentationState);
+        Assert.Equal(ExerciseArtworkState.Failed, Assert.Single(sut.Exercises).ArtworkState);
     }
 
     [Fact]
@@ -670,6 +803,29 @@ public sealed class ExercisePickerViewModelTests : IAsyncLifetime
             throw new HttpRequestException("offline");
     }
 
+    private sealed class ApiProblemCatalogApi(MobileApiException exception) : IExerciseCatalogApi
+    {
+        public Task<IReadOnlyList<ExerciseSummaryDto>> GetAllAsync(CancellationToken cancellationToken = default) =>
+            throw exception;
+    }
+
+    private sealed class TimeoutCatalogApi : IExerciseCatalogApi
+    {
+        public Task<IReadOnlyList<ExerciseSummaryDto>> GetAllAsync(CancellationToken cancellationToken = default) =>
+            throw new TimeoutException("catalog timed out");
+    }
+
+    private sealed class FailThenSucceedCatalogApi(ExerciseSummaryDto exercise) : IExerciseCatalogApi
+    {
+        private int _requestCount;
+        public int RequestCount => Volatile.Read(ref _requestCount);
+        public Task<IReadOnlyList<ExerciseSummaryDto>> GetAllAsync(CancellationToken cancellationToken = default)
+        {
+            if (Interlocked.Increment(ref _requestCount) == 1) throw new HttpRequestException("offline");
+            return Task.FromResult<IReadOnlyList<ExerciseSummaryDto>>([exercise]);
+        }
+    }
+
     private sealed class ImmediateCatalogApi(IReadOnlyList<ExerciseSummaryDto> exercises) : IExerciseCatalogApi
     {
         public Task<IReadOnlyList<ExerciseSummaryDto>> GetAllAsync(CancellationToken cancellationToken = default) =>
@@ -727,6 +883,30 @@ public sealed class ExercisePickerViewModelTests : IAsyncLifetime
     private sealed class FixedClock : IClock
     {
         public DateTimeOffset UtcNow => new(2026, 8, 15, 2, 3, 4, TimeSpan.Zero);
+    }
+
+    private sealed class GatedUiDispatcher : IUiDispatcher
+    {
+        private readonly TaskCompletionSource _entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public Task Entered => _entered.Task;
+        public async Task InvokeAsync(Action action)
+        {
+            _entered.TrySetResult();
+            await _release.Task;
+            action();
+        }
+        public void Release() => _release.TrySetResult();
+    }
+
+    private sealed class RecordingAuthEntryPoint : IAuthEntryPoint
+    {
+        public int CallCount { get; private set; }
+        public Task RequireSignInAsync(CancellationToken cancellationToken = default)
+        {
+            CallCount++;
+            return Task.CompletedTask;
+        }
     }
 
     private static HttpResponseMessage Json(HttpStatusCode status, string json) => new(status)

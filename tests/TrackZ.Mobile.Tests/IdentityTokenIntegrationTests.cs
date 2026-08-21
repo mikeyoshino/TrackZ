@@ -126,6 +126,25 @@ public sealed class IdentityTokenIntegrationTests
         Assert.Equal(2, cleaner.ClearCount);
         Assert.Contains("refresh-one", handler.RequestBodies[1], StringComparison.Ordinal);
         Assert.Contains(sessionId.ToString("D"), handler.RequestBodies[2], StringComparison.Ordinal);
+        Assert.Equal([null, null, $"Bearer {refreshedAccessToken}"], handler.AuthorizationValues);
+    }
+
+    [Fact]
+    public async Task Logout_never_attaches_the_session_bearer_outside_the_configured_api_origin()
+    {
+        var store = new MobileTokenStore(new MemoryTokenStorage());
+        await store.SaveAsync(JwtWithSession(Guid.NewGuid()), "refresh-one");
+        var handler = new QueueHandler(new HttpResponseMessage(HttpStatusCode.NoContent));
+        var identity = new TrackZIdentityApiClient(
+            new HttpClient(handler) { BaseAddress = new Uri("https://evil.example/") },
+            store,
+            new RecordingPrivateDataCleaner(),
+            new AccountSessionBoundary(),
+            apiOrigin: new Uri("https://api.trackz.test/"));
+
+        await identity.LogoutAsync();
+
+        Assert.Null(Assert.Single(handler.AuthorizationValues));
     }
 
     [Fact]
@@ -487,10 +506,12 @@ public sealed class IdentityTokenIntegrationTests
         private readonly Queue<HttpResponseMessage> _responses = new(responses);
         public List<string> RequestBodies { get; } = [];
         public List<string> RequestPaths { get; } = [];
+        public List<string?> AuthorizationValues { get; } = [];
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             RequestPaths.Add(request.RequestUri!.AbsolutePath);
             RequestBodies.Add(request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync(cancellationToken));
+            AuthorizationValues.Add(request.Headers.Authorization?.ToString());
             return _responses.Dequeue();
         }
     }

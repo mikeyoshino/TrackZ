@@ -186,6 +186,45 @@ public sealed class AuthGateCoordinatorTests
     }
 
     [Fact]
+    public async Task Require_sign_in_after_initialization_clears_account_and_publishes_signed_out_once()
+    {
+        var fixture = Fixture.For(SessionCase.Valid);
+        await fixture.Coordinator.InitializeAsync();
+        var signedOutEvents = 0;
+        fixture.Coordinator.Changed += (_, snapshot) =>
+        {
+            if (snapshot.State == AuthGateState.SignedOut) signedOutEvents++;
+        };
+
+        await ((IAuthEntryPoint)fixture.Coordinator).RequireSignInAsync();
+
+        Assert.Equal(AuthGateState.SignedOut, fixture.Coordinator.Snapshot.State);
+        Assert.Equal(1, signedOutEvents);
+        Assert.Equal(1, fixture.Cleaner.ClearCount);
+        Assert.Null(await fixture.Store.GetAccessTokenAsync());
+        Assert.Null(await fixture.Store.GetRefreshTokenAsync());
+        Assert.Equal(0, fixture.Identity.LogoutCalls);
+    }
+
+    [Fact]
+    public async Task Delayed_require_sign_in_from_an_old_generation_cannot_clear_a_new_login()
+    {
+        var fixture = Fixture.For(SessionCase.Valid);
+        await fixture.Coordinator.InitializeAsync();
+        fixture.Identity.GateLogin();
+        var login = fixture.Coordinator.SignInAsync("new@example.com", "Correct-Horse-9");
+        await fixture.Identity.LoginEntered;
+
+        var staleRequireSignIn = ((IAuthEntryPoint)fixture.Coordinator).RequireSignInAsync();
+        fixture.Identity.ReleaseLogin();
+        await Task.WhenAll(login, staleRequireSignIn);
+
+        Assert.Equal(AuthGateState.SignedIn, fixture.Coordinator.Snapshot.State);
+        Assert.NotNull(await fixture.Store.GetAccessTokenAsync());
+        Assert.Equal(0, fixture.Cleaner.ClearCount);
+    }
+
+    [Fact]
     public async Task Malformed_stored_identity_clears_private_account_data_and_signs_out()
     {
         var fixture = Fixture.For(SessionCase.Valid);
@@ -318,6 +357,7 @@ public sealed class AuthGateCoordinatorTests
         public int LoginCalls { get; private set; }
         public int RegisterCalls { get; private set; }
         public int RefreshCalls { get; private set; }
+        public int LogoutCalls { get; private set; }
         public Exception? RefreshFailure { get; set; }
         public Exception? LoginFailure { get; set; }
         public Exception? LogoutFailure { get; set; }
@@ -368,8 +408,11 @@ public sealed class AuthGateCoordinatorTests
                 await _releaseRefresh.Task.WaitAsync(cancellationToken);
             }
         }
-        public Task LogoutAsync(CancellationToken cancellationToken = default) =>
-            LogoutFailure is null ? Task.CompletedTask : Task.FromException(LogoutFailure);
+        public Task LogoutAsync(CancellationToken cancellationToken = default)
+        {
+            LogoutCalls++;
+            return LogoutFailure is null ? Task.CompletedTask : Task.FromException(LogoutFailure);
+        }
 
         private async Task<IdentityTransitionReceipt> InstallIdentityAsync(CancellationToken cancellationToken)
         {

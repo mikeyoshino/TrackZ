@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using TrackZ.Contracts.Errors;
@@ -32,6 +33,11 @@ public sealed record MobileIdentitySnapshot(
     Guid SessionId,
     DateTimeOffset AccessTokenExpiresAt,
     string RefreshToken);
+
+public sealed class IdentityHttpTransport(HttpClient httpClient)
+{
+    public HttpClient HttpClient { get; } = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
+}
 
 public sealed class MobileTokenStore(IMobileTokenStorage storage) : IAccessTokenProvider
 {
@@ -128,11 +134,13 @@ public sealed class TrackZIdentityApiClient(
     MobileTokenStore tokenStore,
     IMobilePrivateDataCleaner privateDataCleaner,
     IAccountSessionBoundary sessionBoundary,
-    TrackZIdentityRefreshClient? refreshClient = null) : IIdentitySessionApi
+    TrackZIdentityRefreshClient? refreshClient = null,
+    Uri? apiOrigin = null) : IIdentitySessionApi
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly TrackZIdentityRefreshClient _refreshClient = refreshClient
         ?? new TrackZIdentityRefreshClient(httpClient, tokenStore, sessionBoundary);
+    private readonly Uri? _apiOrigin = apiOrigin ?? httpClient.BaseAddress;
 
     public async Task LoginAsync(string email, string password, string deviceName, CancellationToken cancellationToken = default) =>
         _ = await LoginWithReceiptAsync(email, password, deviceName, cancellationToken);
@@ -145,7 +153,7 @@ public sealed class TrackZIdentityApiClient(
     {
         var generation = sessionBoundary.Capture();
         using var response = await httpClient.PostAsJsonAsync(
-            "/api/v1/auth/login", new { email, password, deviceName }, cancellationToken);
+            "api/v1/auth/login", new { email, password, deviceName }, cancellationToken);
         var tokens = await ReadTokensAsync(response, cancellationToken);
         var snapshot = MobileTokenStore.CreateSnapshot(tokens.AccessToken, tokens.RefreshToken);
         if (!await sessionBoundary.TryResetAsync(generation, async token =>
@@ -170,7 +178,7 @@ public sealed class TrackZIdentityApiClient(
         CancellationToken cancellationToken = default)
     {
         using var response = await httpClient.PostAsJsonAsync(
-            "/api/v1/auth/register", new { email, password }, cancellationToken);
+            "api/v1/auth/register", new { email, password }, cancellationToken);
         await ReadRegistrationAsync(response, cancellationToken);
         return await LoginWithReceiptAsync(email, password, deviceName, cancellationToken);
     }
@@ -186,14 +194,24 @@ public sealed class TrackZIdentityApiClient(
         try
         {
             string? sessionId = null;
+            string? accessToken = null;
             if (!await sessionBoundary.TryCommitAsync(generation, async token =>
             {
                 sessionId = await tokenStore.GetSessionIdAsync(token);
+                accessToken = await tokenStore.GetAccessTokenAsync(token);
             }, cancellationToken)) return;
             if (Guid.TryParse(sessionId, out var parsed) && parsed != Guid.Empty)
             {
-                using var response = await httpClient.PostAsJsonAsync(
-                    "/api/v1/auth/logout", new { sessionId = parsed }, sessionCancellation.Token);
+                using var request = new HttpRequestMessage(HttpMethod.Post, "api/v1/auth/logout")
+                {
+                    Content = JsonContent.Create(new { sessionId = parsed })
+                };
+                var absoluteRequestUri = httpClient.BaseAddress is null
+                    ? request.RequestUri
+                    : new Uri(httpClient.BaseAddress, request.RequestUri!);
+                if (!string.IsNullOrWhiteSpace(accessToken) && IsExactApiOrigin(absoluteRequestUri))
+                    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+                using var response = await httpClient.SendAsync(request, sessionCancellation.Token);
                 await EnsureSuccessAsync(response, sessionCancellation.Token);
             }
         }
@@ -283,6 +301,19 @@ public sealed class TrackZIdentityApiClient(
         "The server returned an invalid response.",
         innerException: exception);
 
+    private bool IsExactApiOrigin(Uri? requestUri)
+    {
+        if (_apiOrigin is null || requestUri is not { IsAbsoluteUri: true }) return false;
+        if (!string.Equals(requestUri.Scheme, _apiOrigin.Scheme, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(requestUri.IdnHost, _apiOrigin.IdnHost, StringComparison.OrdinalIgnoreCase)
+            || requestUri.Port != _apiOrigin.Port)
+            return false;
+        var root = _apiOrigin.AbsolutePath;
+        if (root == "/") return requestUri.AbsolutePath.StartsWith("/", StringComparison.Ordinal);
+        var normalizedRoot = root.EndsWith('/') ? root : root + "/";
+        return requestUri.AbsolutePath.StartsWith(normalizedRoot, StringComparison.Ordinal);
+    }
+
     internal sealed record TokenResponse(
         string AccessToken,
         string RefreshToken,
@@ -322,7 +353,7 @@ public sealed class TrackZIdentityRefreshClient(
             sessionCancellation.Token.ThrowIfCancellationRequested();
 
             using var response = await httpClient.PostAsJsonAsync(
-                "/api/v1/auth/refresh",
+                "api/v1/auth/refresh",
                 new { refreshToken = observedRefreshToken, deviceName },
                 sessionCancellation.Token);
             var tokens = await TrackZIdentityApiClient.ReadTokensAsync(

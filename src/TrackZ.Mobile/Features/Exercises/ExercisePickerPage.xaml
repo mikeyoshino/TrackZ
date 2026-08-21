@@ -40,29 +40,48 @@
             </CollectionView>
         </Grid>
 
-        <Grid Grid.Row="2" ColumnDefinitions="*,Auto">
+        <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
             <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding SelectedCountText}" VerticalOptions="Center" />
-            <ActivityIndicator Grid.Column="1" IsRunning="{Binding IsRefreshing}" IsVisible="{Binding IsRefreshing}" />
+            <Label Grid.Column="1" IsVisible="{Binding ShowOfflineBanner}" Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Text.Offline}" VerticalOptions="Center" />
+            <ActivityIndicator Grid.Column="2" IsRunning="{Binding IsRefreshing}" IsVisible="{Binding IsRefreshing}" />
         </Grid>
 
-        <CollectionView Grid.Row="3" ItemsSource="{Binding Exercises}" SelectionMode="None">
-            <CollectionView.EmptyView>
-                <Label
-                    HorizontalTextAlignment="Center"
-                    Style="{DynamicResource TrackZSecondaryStyle}"
-                    Text="{Binding Source={x:Reference Page}, Path=BindingContext.Text.NoMatchingExercises}"
-                    VerticalTextAlignment="Center" />
-            </CollectionView.EmptyView>
-            <CollectionView.ItemTemplate>
-                <DataTemplate x:DataType="models:ExercisePickerItem">
-                    <components:ExercisePerformanceCard
-                        Margin="0,0,0,10"
-                        EditCommand="{Binding Source={x:Reference Page}, Path=EditCustomCommand}"
-                        Exercise="{Binding .}"
-                        ToggleCommand="{Binding Source={x:Reference Page}, Path=BindingContext.ToggleSelectionCommand}" />
-                </DataTemplate>
-            </CollectionView.ItemTemplate>
-        </CollectionView>
+        <Grid Grid.Row="3">
+            <CollectionView IsVisible="{Binding HasResults}" ItemsSource="{Binding Exercises}" SelectionMode="None">
+                <CollectionView.ItemTemplate>
+                    <DataTemplate x:DataType="models:ExercisePickerItem">
+                        <components:ExercisePerformanceCard
+                            Margin="0,0,0,10"
+                            EditCommand="{Binding Source={x:Reference Page}, Path=EditCustomCommand}"
+                            Exercise="{Binding .}"
+                            ToggleCommand="{Binding Source={x:Reference Page}, Path=BindingContext.ToggleSelectionCommand}" />
+                    </DataTemplate>
+                </CollectionView.ItemTemplate>
+            </CollectionView>
+            <components:ExerciseListSkeleton IsVisible="{Binding ShowLoading}" />
+            <components:TrackZStateView
+                ActionCommand="{Binding SignInCommand}"
+                ActionText="{Binding Text.SignIn}"
+                IsVisible="{Binding ShowAuthenticationRequired}"
+                Message="{Binding StateMessage}"
+                Title="{Binding StateTitle}" />
+            <components:TrackZStateView
+                ActionCommand="{Binding RetryCommand}"
+                ActionText="{Binding Text.TryAgain}"
+                IsVisible="{Binding ShowOfflineEmpty}"
+                Message="{Binding StateMessage}"
+                Title="{Binding StateTitle}" />
+            <components:TrackZStateView
+                ActionCommand="{Binding RetryCommand}"
+                ActionText="{Binding Text.TryAgain}"
+                IsVisible="{Binding ShowRequestFailure}"
+                Message="{Binding StateMessage}"
+                Title="{Binding StateTitle}" />
+            <components:TrackZStateView
+                IsVisible="{Binding ShowNoMatches}"
+                Message="{Binding StateMessage}"
+                Title="{Binding StateTitle}" />
+        </Grid>
 
         <Border Grid.Row="4" Margin="-16,0,-16,0" Padding="16,12" BackgroundColor="{DynamicResource TrackZSurface}" StrokeThickness="0">
             <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">

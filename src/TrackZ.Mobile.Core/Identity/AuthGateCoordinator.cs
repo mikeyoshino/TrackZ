@@ -108,7 +108,36 @@ public sealed class AuthGateCoordinator : IAuthEntryPoint
         }
     }
 
-    public Task RequireSignInAsync(CancellationToken cancellationToken = default) => InitializeAsync(cancellationToken);
+    public async Task RequireSignInAsync(CancellationToken cancellationToken = default)
+    {
+        var generation = _sessionBoundary.Capture();
+        await _transitionGate.WaitAsync(cancellationToken);
+        try
+        {
+            if (Volatile.Read(ref _initialised) != 0 && Snapshot.State == AuthGateState.SignedOut) return;
+            var resetStarted = false;
+            try
+            {
+                if (!await _sessionBoundary.TryResetAsync(generation, async token =>
+                {
+                    resetStarted = true;
+                    await ClearStoredAccountAsync(token);
+                }, cancellationToken)) return;
+            }
+            finally
+            {
+                if (resetStarted)
+                {
+                    Publish(new AuthGateSnapshot(AuthGateState.SignedOut));
+                    Volatile.Write(ref _initialised, 1);
+                }
+            }
+        }
+        finally
+        {
+            _transitionGate.Release();
+        }
+    }
 
     public async Task SignInAsync(string email, string password, CancellationToken cancellationToken = default)
     {
@@ -275,17 +304,19 @@ public sealed class AuthGateCoordinator : IAuthEntryPoint
 
     private async Task ClearAccountAsync(CancellationToken cancellationToken)
     {
-        await _sessionBoundary.ResetAsync(async token =>
+        await _sessionBoundary.ResetAsync(ClearStoredAccountAsync, cancellationToken);
+    }
+
+    private async Task ClearStoredAccountAsync(CancellationToken token)
+    {
+        try
         {
-            try
-            {
-                await _privateDataCleaner.ClearAsync(token);
-            }
-            finally
-            {
-                await _tokenStore.ClearAsync(CancellationToken.None);
-            }
-        }, cancellationToken);
+            await _privateDataCleaner.ClearAsync(token);
+        }
+        finally
+        {
+            await _tokenStore.ClearAsync(CancellationToken.None);
+        }
     }
 
     private void Publish(AuthGateSnapshot snapshot)

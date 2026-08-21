@@ -43,6 +43,8 @@
   <data name="NoMatchingExercises" xml:space="preserve"><value>ไม่พบท่าออกกำลังกายที่ตรงกับตัวกรอง</value></data>
   <data name="CreateCustom" xml:space="preserve"><value>สร้างท่าเอง</value></data>
   <data name="Done" xml:space="preserve"><value>เสร็จสิ้น</value></data>
+  <data name="SignIn" xml:space="preserve"><value>เข้าสู่ระบบ</value></data>
+  <data name="TryAgain" xml:space="preserve"><value>ลองอีกครั้ง</value></data>
   <data name="BodyPartChest" xml:space="preserve"><value>หน้าอก</value></data>
   <data name="BodyPartBack" xml:space="preserve"><value>หลัง</value></data>
   <data name="BodyPartShoulders" xml:space="preserve"><value>ไหล่</value></data>

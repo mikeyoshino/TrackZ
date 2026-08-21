@@ -42,10 +42,38 @@ public static class MauiProgram
 #endif
 		var apiOrigin = origins.ApiOrigin;
 		var mediaOrigin = origins.MediaOrigin;
+		builder.Services.AddSingleton(new IdentityHttpTransport(new HttpClient(new HttpClientHandler
+		{
+			AllowAutoRedirect = false
+		})
+		{
+			BaseAddress = apiOrigin,
+			Timeout = TimeSpan.FromSeconds(30)
+		}));
+		builder.Services.AddSingleton(services => new TrackZIdentityRefreshClient(
+			services.GetRequiredService<IdentityHttpTransport>().HttpClient,
+			services.GetRequiredService<MobileTokenStore>(),
+			services.GetRequiredService<IAccountSessionBoundary>()));
+		builder.Services.AddSingleton(services => new TrackZIdentityApiClient(
+			services.GetRequiredService<IdentityHttpTransport>().HttpClient,
+			services.GetRequiredService<MobileTokenStore>(),
+			services.GetRequiredService<IMobilePrivateDataCleaner>(),
+			services.GetRequiredService<IAccountSessionBoundary>(),
+			services.GetRequiredService<TrackZIdentityRefreshClient>(),
+			apiOrigin));
+		builder.Services.AddSingleton<IIdentitySessionApi>(services => services.GetRequiredService<TrackZIdentityApiClient>());
+		builder.Services.AddSingleton<IDeviceNameProvider, MauiDeviceNameProvider>();
+		builder.Services.AddSingleton(_ => AuthTextSet.For(CultureInfo.CurrentUICulture));
+		builder.Services.AddSingleton<AuthGateCoordinator>();
+		builder.Services.AddSingleton<IAuthEntryPoint, MauiAuthEntryPoint>();
+		builder.Services.AddSingleton<IProtectedRequestAuthentication, ProtectedRequestAuthentication>();
 		builder.Services.AddSingleton(services => new HttpClient(
-			new BearerTokenHandler(services.GetRequiredService<IAccessTokenProvider>(), apiOrigin)
+			new AuthenticatedApiHandler(
+				services.GetRequiredService<IAccessTokenProvider>(),
+				services.GetRequiredService<IProtectedRequestAuthentication>(),
+				apiOrigin)
 			{
-				InnerHandler = new HttpClientHandler()
+				InnerHandler = new HttpClientHandler { AllowAutoRedirect = false }
 			})
 		{
 			BaseAddress = apiOrigin,
@@ -59,12 +87,6 @@ public static class MauiProgram
 			Timeout = TimeSpan.FromSeconds(30)
 		}));
 		builder.Services.AddSingleton<TrackZExerciseApiClient>();
-		builder.Services.AddSingleton<TrackZIdentityRefreshClient>();
-		builder.Services.AddSingleton<TrackZIdentityApiClient>();
-		builder.Services.AddSingleton<IIdentitySessionApi>(services => services.GetRequiredService<TrackZIdentityApiClient>());
-		builder.Services.AddSingleton<IDeviceNameProvider, MauiDeviceNameProvider>();
-		builder.Services.AddSingleton(_ => AuthTextSet.For(CultureInfo.CurrentUICulture));
-		builder.Services.AddSingleton<AuthGateCoordinator>();
 		builder.Services.AddSingleton<TrackZSyncApiClient>();
 		builder.Services.AddSingleton<TrackZProgressApiClient>();
 		builder.Services.AddSingleton<IProgressApi>(services => services.GetRequiredService<TrackZProgressApiClient>());
@@ -175,4 +197,10 @@ public static class MauiProgram
 
 		return builder.Build();
 	}
+}
+
+public sealed class MauiAuthEntryPoint(IServiceProvider services) : IAuthEntryPoint
+{
+	public Task RequireSignInAsync(CancellationToken cancellationToken = default) =>
+		services.GetRequiredService<AuthGateCoordinator>().RequireSignInAsync(cancellationToken);
 }
