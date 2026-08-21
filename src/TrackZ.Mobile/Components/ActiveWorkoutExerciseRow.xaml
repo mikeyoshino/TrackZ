@@ -33,24 +33,24 @@
         </SwipeView.RightItems>
 
         <Border
-            MinimumHeightRequest="104"
+            MinimumHeightRequest="{DynamicResource TrackZExerciseCardHeight}"
             SemanticProperties.Description="{Binding Exercise.AccessibilitySummary, Source={x:Reference Root}}"
             Style="{DynamicResource TrackZListRowStyle}">
             <Border.GestureRecognizers>
                 <TapGestureRecognizer Command="{Binding OpenCommand, Source={x:Reference Root}}" CommandParameter="{Binding Exercise, Source={x:Reference Root}}" />
             </Border.GestureRecognizers>
-            <Grid ColumnDefinitions="80,*,Auto" ColumnSpacing="12">
-                <Grid HeightRequest="72" WidthRequest="72">
+            <Grid ColumnDefinitions="80,*,Auto" ColumnSpacing="{DynamicResource TrackZSpace12}">
+                <Grid HeightRequest="{DynamicResource TrackZActiveArtworkSize}" WidthRequest="{DynamicResource TrackZActiveArtworkSize}">
                     <Image Aspect="AspectFit" IsVisible="{Binding Exercise.HasArtwork, Source={x:Reference Root}}" Source="{Binding Exercise.ThumbnailUri, Source={x:Reference Root}}" />
                     <Border BackgroundColor="{DynamicResource TrackZSurfaceRaised}" IsVisible="{Binding Exercise.ShowsArtworkPlaceholder, Source={x:Reference Root}}" StrokeThickness="0" StrokeShape="RoundRectangle 14">
                         <Image Aspect="AspectFit" HeightRequest="52" Source="exercise_placeholder.svg" WidthRequest="52" />
                     </Border>
                 </Grid>
-                <VerticalStackLayout Grid.Column="1" Spacing="4" VerticalOptions="Center">
-                    <Label FontAttributes="Bold" FontSize="17" LineBreakMode="TailTruncation" Text="{Binding Exercise.Name, Source={x:Reference Root}}" />
+                <VerticalStackLayout Grid.Column="1" Spacing="{DynamicResource TrackZSpace4}" VerticalOptions="Center">
+                    <Label LineBreakMode="TailTruncation" Style="{DynamicResource TrackZNavigationTitleStyle}" Text="{Binding Exercise.Name, Source={x:Reference Root}}" />
                     <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Exercise.TrackingModeText, Source={x:Reference Root}}" />
                     <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Exercise.LastText, Source={x:Reference Root}}" />
-                    <Label FontAttributes="Bold" FontSize="13" Text="{Binding Exercise.LoggedSetText, Source={x:Reference Root}}" TextColor="{DynamicResource TrackZPrimary}" />
+                    <Label Style="{DynamicResource TrackZPerformanceMetadataStyle}" Text="{Binding Exercise.LoggedSetText, Source={x:Reference Root}}" />
                 </VerticalStackLayout>
                 <Label Grid.Column="2" FontSize="24" Text="›" TextColor="{DynamicResource TrackZTextSecondary}" VerticalOptions="Center" />
             </Grid>

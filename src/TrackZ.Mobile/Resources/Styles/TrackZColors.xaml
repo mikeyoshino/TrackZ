@@ -14,4 +14,11 @@
     <Color x:Key="TrackZDanger">#FF6969</Color>
     <Color x:Key="TrackZHairline">#2B3137</Color>
     <Color x:Key="TrackZBorder">#2B3137</Color>
+    <Color x:Key="TrackZSyncSyncedSurface">#173126</Color>
+    <Color x:Key="TrackZSyncPendingSurface">#31321F</Color>
+    <Color x:Key="TrackZSyncOfflineSurface">#292D34</Color>
+    <Color x:Key="TrackZSyncingSurface">#192A3D</Color>
+    <Color x:Key="TrackZSyncReconcilingSurface">#473617</Color>
+    <Color x:Key="TrackZSyncConflictSurface">#3A2025</Color>
+    <Color x:Key="TrackZSyncFailureSurface">#491D25</Color>
 </ResourceDictionary>

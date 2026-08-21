@@ -24,15 +24,15 @@ public partial class SyncStatusPill : ContentView
 
     private void ApplyState(WorkoutSyncState state)
     {
-        Pill.BackgroundColor = state switch
+        Pill.SetDynamicResource(BackgroundColorProperty, state switch
         {
-            WorkoutSyncState.Conflicted => Color.FromArgb("#3A2025"),
-            WorkoutSyncState.PermanentFailure => Color.FromArgb("#491D25"),
-            WorkoutSyncState.Offline => Color.FromArgb("#292D34"),
-            WorkoutSyncState.Pending => Color.FromArgb("#31321F"),
-            WorkoutSyncState.Syncing => Color.FromArgb("#192A3D"),
-            WorkoutSyncState.Reconciling => Color.FromArgb("#473617"),
-            _ => Color.FromArgb("#173126")
-        };
+            WorkoutSyncState.Conflicted => "TrackZSyncConflictSurface",
+            WorkoutSyncState.PermanentFailure => "TrackZSyncFailureSurface",
+            WorkoutSyncState.Offline => "TrackZSyncOfflineSurface",
+            WorkoutSyncState.Pending => "TrackZSyncPendingSurface",
+            WorkoutSyncState.Syncing => "TrackZSyncingSurface",
+            WorkoutSyncState.Reconciling => "TrackZSyncReconcilingSurface",
+            _ => "TrackZSyncSyncedSurface"
+        });
     }
 }

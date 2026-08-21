@@ -3,34 +3,34 @@
     x:Class="TrackZ.Mobile.Components.ExerciseListSkeleton"
     xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml">
-    <VerticalStackLayout Spacing="10">
-        <Border HeightRequest="104" Style="{DynamicResource TrackZCardStyle}">
-            <Grid ColumnDefinitions="80,*" ColumnSpacing="12">
-                <BoxView BackgroundColor="{DynamicResource TrackZSurfaceRaised}" CornerRadius="14" />
-                <VerticalStackLayout Grid.Column="1" Spacing="10" VerticalOptions="Center">
-                    <BoxView BackgroundColor="{DynamicResource TrackZSurfaceRaised}" CornerRadius="6" HeightRequest="16" WidthRequest="160" HorizontalOptions="Start" />
-                    <BoxView BackgroundColor="{DynamicResource TrackZSurfaceRaised}" CornerRadius="5" HeightRequest="12" WidthRequest="110" HorizontalOptions="Start" />
-                    <BoxView BackgroundColor="{DynamicResource TrackZSurfaceRaised}" CornerRadius="5" HeightRequest="12" WidthRequest="190" HorizontalOptions="Start" />
+    <VerticalStackLayout Spacing="{DynamicResource TrackZSpace12}">
+        <Border HeightRequest="{DynamicResource TrackZExerciseCardHeight}" Style="{DynamicResource TrackZCardStyle}">
+            <Grid ColumnDefinitions="80,*" ColumnSpacing="{DynamicResource TrackZSpace12}">
+                <BoxView Style="{DynamicResource TrackZSkeletonStyle}" />
+                <VerticalStackLayout Grid.Column="1" Spacing="{DynamicResource TrackZSpace8}" VerticalOptions="Center">
+                    <BoxView HeightRequest="16" HorizontalOptions="Start" Style="{DynamicResource TrackZSkeletonStyle}" WidthRequest="160" />
+                    <BoxView HeightRequest="12" HorizontalOptions="Start" Style="{DynamicResource TrackZSkeletonStyle}" WidthRequest="110" />
+                    <BoxView HeightRequest="12" HorizontalOptions="Start" Style="{DynamicResource TrackZSkeletonStyle}" WidthRequest="190" />
                 </VerticalStackLayout>
             </Grid>
         </Border>
-        <Border HeightRequest="104" Style="{DynamicResource TrackZCardStyle}">
-            <Grid ColumnDefinitions="80,*" ColumnSpacing="12">
-                <BoxView BackgroundColor="{DynamicResource TrackZSurfaceRaised}" CornerRadius="14" />
-                <VerticalStackLayout Grid.Column="1" Spacing="10" VerticalOptions="Center">
-                    <BoxView BackgroundColor="{DynamicResource TrackZSurfaceRaised}" CornerRadius="6" HeightRequest="16" WidthRequest="140" HorizontalOptions="Start" />
-                    <BoxView BackgroundColor="{DynamicResource TrackZSurfaceRaised}" CornerRadius="5" HeightRequest="12" WidthRequest="100" HorizontalOptions="Start" />
-                    <BoxView BackgroundColor="{DynamicResource TrackZSurfaceRaised}" CornerRadius="5" HeightRequest="12" WidthRequest="175" HorizontalOptions="Start" />
+        <Border HeightRequest="{DynamicResource TrackZExerciseCardHeight}" Style="{DynamicResource TrackZCardStyle}">
+            <Grid ColumnDefinitions="80,*" ColumnSpacing="{DynamicResource TrackZSpace12}">
+                <BoxView Style="{DynamicResource TrackZSkeletonStyle}" />
+                <VerticalStackLayout Grid.Column="1" Spacing="{DynamicResource TrackZSpace8}" VerticalOptions="Center">
+                    <BoxView HeightRequest="16" HorizontalOptions="Start" Style="{DynamicResource TrackZSkeletonStyle}" WidthRequest="140" />
+                    <BoxView HeightRequest="12" HorizontalOptions="Start" Style="{DynamicResource TrackZSkeletonStyle}" WidthRequest="100" />
+                    <BoxView HeightRequest="12" HorizontalOptions="Start" Style="{DynamicResource TrackZSkeletonStyle}" WidthRequest="175" />
                 </VerticalStackLayout>
             </Grid>
         </Border>
-        <Border HeightRequest="104" Style="{DynamicResource TrackZCardStyle}">
-            <Grid ColumnDefinitions="80,*" ColumnSpacing="12">
-                <BoxView BackgroundColor="{DynamicResource TrackZSurfaceRaised}" CornerRadius="14" />
-                <VerticalStackLayout Grid.Column="1" Spacing="10" VerticalOptions="Center">
-                    <BoxView BackgroundColor="{DynamicResource TrackZSurfaceRaised}" CornerRadius="6" HeightRequest="16" WidthRequest="180" HorizontalOptions="Start" />
-                    <BoxView BackgroundColor="{DynamicResource TrackZSurfaceRaised}" CornerRadius="5" HeightRequest="12" WidthRequest="120" HorizontalOptions="Start" />
-                    <BoxView BackgroundColor="{DynamicResource TrackZSurfaceRaised}" CornerRadius="5" HeightRequest="12" WidthRequest="155" HorizontalOptions="Start" />
+        <Border HeightRequest="{DynamicResource TrackZExerciseCardHeight}" Style="{DynamicResource TrackZCardStyle}">
+            <Grid ColumnDefinitions="80,*" ColumnSpacing="{DynamicResource TrackZSpace12}">
+                <BoxView Style="{DynamicResource TrackZSkeletonStyle}" />
+                <VerticalStackLayout Grid.Column="1" Spacing="{DynamicResource TrackZSpace8}" VerticalOptions="Center">
+                    <BoxView HeightRequest="16" HorizontalOptions="Start" Style="{DynamicResource TrackZSkeletonStyle}" WidthRequest="180" />
+                    <BoxView HeightRequest="12" HorizontalOptions="Start" Style="{DynamicResource TrackZSkeletonStyle}" WidthRequest="120" />
+                    <BoxView HeightRequest="12" HorizontalOptions="Start" Style="{DynamicResource TrackZSkeletonStyle}" WidthRequest="155" />
                 </VerticalStackLayout>
             </Grid>
         </Border>

@@ -2,8 +2,26 @@
 <ResourceDictionary
     xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml">
+    <x:Double x:Key="TrackZSpace4">4</x:Double>
+    <x:Double x:Key="TrackZSpace8">8</x:Double>
+    <x:Double x:Key="TrackZSpace12">12</x:Double>
+    <x:Double x:Key="TrackZSpace16">16</x:Double>
+    <x:Double x:Key="TrackZSpace24">24</x:Double>
+    <x:Double x:Key="TrackZSpace32">32</x:Double>
+    <x:Double x:Key="TrackZPageMargin">18</x:Double>
+    <x:Double x:Key="TrackZCardRadius">16</x:Double>
+    <x:Double x:Key="TrackZPrimaryActionHeight">52</x:Double>
+    <x:Double x:Key="TrackZMinimumTarget">44</x:Double>
+    <x:Double x:Key="TrackZFieldHeight">50</x:Double>
+    <x:Double x:Key="TrackZExerciseCardHeight">104</x:Double>
+    <x:Double x:Key="TrackZExerciseArtworkColumnWidth">88</x:Double>
+    <x:Double x:Key="TrackZExerciseArtworkSize">80</x:Double>
+    <x:Double x:Key="TrackZActiveArtworkSize">72</x:Double>
+    <x:Double x:Key="TrackZArtworkRadius">14</x:Double>
+
     <Style x:Key="TrackZPrimaryButtonStyle" TargetType="Button">
-        <Setter Property="MinimumHeightRequest" Value="52" />
+        <Setter Property="MinimumHeightRequest" Value="{StaticResource TrackZPrimaryActionHeight}" />
+        <Setter Property="MinimumWidthRequest" Value="{StaticResource TrackZMinimumTarget}" />
         <Setter Property="Padding" Value="18,12" />
         <Setter Property="CornerRadius" Value="15" />
         <Setter Property="FontSize" Value="17" />
@@ -11,45 +29,86 @@
         <Setter Property="BackgroundColor" Value="{StaticResource TrackZPrimary}" />
         <Setter Property="TextColor" Value="{StaticResource TrackZPrimaryContrast}" />
     </Style>
+    <Style x:Key="TrackZSecondaryButtonStyle" TargetType="Button">
+        <Setter Property="MinimumHeightRequest" Value="{StaticResource TrackZMinimumTarget}" />
+        <Setter Property="MinimumWidthRequest" Value="{StaticResource TrackZMinimumTarget}" />
+        <Setter Property="Padding" Value="16,8" />
+        <Setter Property="CornerRadius" Value="15" />
+        <Setter Property="FontSize" Value="15" />
+        <Setter Property="FontAttributes" Value="Bold" />
+        <Setter Property="BackgroundColor" Value="{StaticResource TrackZSurfaceRaised}" />
+        <Setter Property="TextColor" Value="{StaticResource TrackZTextPrimary}" />
+    </Style>
+    <Style x:Key="TrackZDestructiveButtonStyle" TargetType="Button" BasedOn="{StaticResource TrackZSecondaryButtonStyle}">
+        <Setter Property="BackgroundColor" Value="{StaticResource TrackZDanger}" />
+        <Setter Property="TextColor" Value="{StaticResource TrackZPrimaryContrast}" />
+    </Style>
     <Style x:Key="TrackZQuietButtonStyle" TargetType="Button">
-        <Setter Property="MinimumHeightRequest" Value="50" />
-        <Setter Property="Padding" Value="12,10" />
+        <Setter Property="MinimumHeightRequest" Value="{StaticResource TrackZMinimumTarget}" />
+        <Setter Property="MinimumWidthRequest" Value="{StaticResource TrackZMinimumTarget}" />
+        <Setter Property="Padding" Value="12,8" />
         <Setter Property="BackgroundColor" Value="Transparent" />
-        <Setter Property="TextColor" Value="{StaticResource TrackZPrimary}" />
-        <Setter Property="FontSize" Value="16" />
+        <Setter Property="TextColor" Value="{StaticResource TrackZTextSecondary}" />
+        <Setter Property="FontSize" Value="15" />
     </Style>
     <Style x:Key="TrackZFieldContainerStyle" TargetType="Border">
         <Setter Property="Padding" Value="12,0" />
         <Setter Property="BackgroundColor" Value="{StaticResource TrackZSurface}" />
         <Setter Property="Stroke" Value="{StaticResource TrackZHairline}" />
         <Setter Property="StrokeThickness" Value="1" />
-        <Setter Property="StrokeShape" Value="RoundRectangle 12" />
-        <Setter Property="MinimumHeightRequest" Value="50" />
+        <Setter Property="StrokeShape" Value="RoundRectangle 15" />
+        <Setter Property="MinimumHeightRequest" Value="{StaticResource TrackZFieldHeight}" />
     </Style>
     <Style x:Key="TrackZFieldStyle" TargetType="Entry">
-        <Setter Property="MinimumHeightRequest" Value="50" />
+        <Setter Property="MinimumHeightRequest" Value="{StaticResource TrackZFieldHeight}" />
+        <Setter Property="MinimumWidthRequest" Value="{StaticResource TrackZMinimumTarget}" />
+        <Setter Property="FontSize" Value="15" />
         <Setter Property="TextColor" Value="{StaticResource TrackZTextPrimary}" />
         <Setter Property="PlaceholderColor" Value="{StaticResource TrackZTextSecondary}" />
         <Setter Property="BackgroundColor" Value="Transparent" />
     </Style>
-    <Style x:Key="TrackZFieldErrorStyle" TargetType="Label">
-        <Setter Property="FontSize" Value="13" />
-        <Setter Property="TextColor" Value="{StaticResource TrackZDanger}" />
-        <Setter Property="LineBreakMode" Value="WordWrap" />
-    </Style>
     <Style x:Key="TrackZCardStyle" TargetType="Border">
-        <Setter Property="Padding" Value="16" />
-        <Setter Property="BackgroundColor" Value="{StaticResource TrackZSurface}" />
-        <Setter Property="Stroke" Value="{StaticResource TrackZHairline}" />
-        <Setter Property="StrokeThickness" Value="1" />
-        <Setter Property="StrokeShape" Value="RoundRectangle 20" />
-    </Style>
-    <Style x:Key="TrackZListRowStyle" TargetType="Border">
-        <Setter Property="Padding" Value="12" />
+        <Setter Property="Padding" Value="{StaticResource TrackZSpace16}" />
         <Setter Property="BackgroundColor" Value="{StaticResource TrackZSurface}" />
         <Setter Property="Stroke" Value="{StaticResource TrackZHairline}" />
         <Setter Property="StrokeThickness" Value="1" />
         <Setter Property="StrokeShape" Value="RoundRectangle 16" />
+    </Style>
+    <Style x:Key="TrackZListRowStyle" TargetType="Border">
+        <Setter Property="Padding" Value="{StaticResource TrackZSpace12}" />
+        <Setter Property="BackgroundColor" Value="{StaticResource TrackZSurface}" />
+        <Setter Property="Stroke" Value="{StaticResource TrackZHairline}" />
+        <Setter Property="StrokeThickness" Value="1" />
+        <Setter Property="StrokeShape" Value="RoundRectangle 16" />
+    </Style>
+    <Style x:Key="TrackZSelectionChipStyle" TargetType="Border">
+        <Setter Property="Padding" Value="8,4" />
+        <Setter Property="BackgroundColor" Value="{StaticResource TrackZSurfaceRaised}" />
+        <Setter Property="Stroke" Value="{StaticResource TrackZPrimary}" />
+        <Setter Property="StrokeThickness" Value="1" />
+        <Setter Property="StrokeShape" Value="RoundRectangle 16" />
+    </Style>
+    <Style x:Key="TrackZStickyActionContainerStyle" TargetType="Border">
+        <Setter Property="Padding" Value="18,12" />
+        <Setter Property="BackgroundColor" Value="{StaticResource TrackZBackground}" />
+        <Setter Property="Stroke" Value="{StaticResource TrackZHairline}" />
+        <Setter Property="StrokeThickness" Value="1" />
+        <Setter Property="StrokeShape" Value="RoundRectangle 16" />
+    </Style>
+    <Style x:Key="TrackZInlineErrorStyle" TargetType="Label" BasedOn="{StaticResource TrackZFieldErrorStyle}" />
+    <Style x:Key="TrackZSkeletonStyle" TargetType="BoxView">
+        <Setter Property="BackgroundColor" Value="{StaticResource TrackZSurfaceRaised}" />
+        <Setter Property="Opacity" Value="0.55" />
+        <Setter Property="CornerRadius" Value="{StaticResource TrackZSpace8}" />
+    </Style>
+    <Style x:Key="TrackZSearchBarStyle" TargetType="SearchBar">
+        <Setter Property="TextColor" Value="{StaticResource TrackZTextPrimary}" />
+        <Setter Property="PlaceholderColor" Value="{StaticResource TrackZTextSecondary}" />
+        <Setter Property="CancelButtonColor" Value="{StaticResource TrackZTextSecondary}" />
+        <Setter Property="BackgroundColor" Value="Transparent" />
+        <Setter Property="FontSize" Value="15" />
+        <Setter Property="MinimumHeightRequest" Value="{StaticResource TrackZFieldHeight}" />
+        <Setter Property="MinimumWidthRequest" Value="{StaticResource TrackZMinimumTarget}" />
     </Style>
     <Style x:Key="TrackZStatusPillStyle" TargetType="Border">
         <Setter Property="Padding" Value="10,6" />

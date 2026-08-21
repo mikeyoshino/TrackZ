@@ -4,23 +4,22 @@
     x:Name="Root"
     xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml">
-    <VerticalStackLayout Spacing="7">
-        <Label FontAttributes="Bold" FontSize="12" Text="{Binding Caption, Source={x:Reference Root}}" TextColor="{DynamicResource TrackZTextSecondary}" />
-        <Grid ColumnDefinitions="52,*,52" ColumnSpacing="8">
-            <Button Command="{Binding DecrementCommand, Source={x:Reference Root}}" CornerRadius="14" FontSize="24" HeightRequest="52" MinimumHeightRequest="44" MinimumWidthRequest="44" SemanticProperties.Description="{Binding DecrementLabel, Source={x:Reference Root}}" Text="−" />
-            <Border Grid.Column="1" Padding="10,0" BackgroundColor="{DynamicResource TrackZSurfaceRaised}" Stroke="{DynamicResource TrackZHairline}" StrokeShape="RoundRectangle 14">
+    <VerticalStackLayout Spacing="{DynamicResource TrackZSpace8}">
+        <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Caption, Source={x:Reference Root}}" />
+        <Grid ColumnDefinitions="52,*,52" ColumnSpacing="{DynamicResource TrackZSpace8}">
+            <Button Command="{Binding DecrementCommand, Source={x:Reference Root}}" SemanticProperties.Description="{Binding DecrementLabel, Source={x:Reference Root}}" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="−" />
+            <Border Grid.Column="1" Style="{DynamicResource TrackZFieldContainerStyle}">
                 <Entry
                     FontAttributes="Bold"
                     FontSize="24"
                     HorizontalTextAlignment="Center"
                     Keyboard="Numeric"
                     MaxLength="3"
-                    MinimumHeightRequest="44"
                     ReturnType="Done"
                     SemanticProperties.Description="{Binding Caption, Source={x:Reference Root}}"
                     Text="{Binding Value, Source={x:Reference Root}, Mode=TwoWay}" />
             </Border>
-            <Button Grid.Column="2" Command="{Binding IncrementCommand, Source={x:Reference Root}}" CornerRadius="14" FontSize="24" HeightRequest="52" MinimumHeightRequest="44" MinimumWidthRequest="44" SemanticProperties.Description="{Binding IncrementLabel, Source={x:Reference Root}}" Text="+" />
+            <Button Grid.Column="2" Command="{Binding IncrementCommand, Source={x:Reference Root}}" SemanticProperties.Description="{Binding IncrementLabel, Source={x:Reference Root}}" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="+" />
         </Grid>
     </VerticalStackLayout>
 </ContentView>

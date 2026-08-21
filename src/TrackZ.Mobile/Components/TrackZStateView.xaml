@@ -7,8 +7,8 @@
     <VerticalStackLayout
         HorizontalOptions="Center"
         MaximumWidthRequest="360"
-        Padding="24"
-        Spacing="12"
+        Padding="{DynamicResource TrackZSpace24}"
+        Spacing="{DynamicResource TrackZSpace12}"
         VerticalOptions="Center">
         <Label
             HorizontalTextAlignment="Center"
@@ -21,7 +21,6 @@
         <Button
             x:Name="ActionButton"
             IsVisible="False"
-            MinimumHeightRequest="48"
-            Style="{DynamicResource TrackZPrimaryButtonStyle}" />
+            Style="{DynamicResource TrackZSecondaryButtonStyle}" />
     </VerticalStackLayout>
 </ContentView>

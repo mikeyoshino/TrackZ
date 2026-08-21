@@ -6,12 +6,12 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
     xmlns:models="clr-namespace:TrackZ.Mobile.Features.Exercises.Models;assembly=TrackZ.Mobile.Core"
     x:DataType="models:ExercisePickerItem">
-    <Border MinimumHeightRequest="104" Style="{DynamicResource TrackZListRowStyle}">
+    <Border MinimumHeightRequest="{DynamicResource TrackZExerciseCardHeight}" Style="{DynamicResource TrackZListRowStyle}">
         <Border.GestureRecognizers>
             <TapGestureRecognizer Command="{Binding ToggleCommand, Source={x:Reference Root}}" CommandParameter="{Binding Exercise, Source={x:Reference Root}}" />
         </Border.GestureRecognizers>
-        <Grid ColumnDefinitions="88,*,Auto" ColumnSpacing="12" RowDefinitions="Auto,Auto,Auto">
-            <Grid Grid.RowSpan="3" HeightRequest="80" WidthRequest="80">
+        <Grid ColumnDefinitions="88,*,Auto" ColumnSpacing="{DynamicResource TrackZSpace12}" RowDefinitions="Auto,Auto,Auto">
+            <Grid Grid.RowSpan="3" HeightRequest="{DynamicResource TrackZExerciseArtworkSize}" WidthRequest="{DynamicResource TrackZExerciseArtworkSize}">
                 <Image
                     Aspect="AspectFit"
                     IsVisible="{Binding Exercise.HasArtwork, Source={x:Reference Root}}"
@@ -31,18 +31,16 @@
             </Grid>
 
             <VerticalStackLayout Grid.Column="1" Spacing="3">
-                <Label FontAttributes="Bold" FontSize="17" LineBreakMode="TailTruncation" Text="{Binding Exercise.Name, Source={x:Reference Root}}" />
+                <Label LineBreakMode="TailTruncation" Style="{DynamicResource TrackZNavigationTitleStyle}" Text="{Binding Exercise.Name, Source={x:Reference Root}}" />
                 <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Exercise.TrackingModeText, Source={x:Reference Root}}" />
             </VerticalStackLayout>
             <Label Grid.Row="1" Grid.Column="1" Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Exercise.LastText, Source={x:Reference Root}}" />
-            <HorizontalStackLayout Grid.Row="2" Grid.Column="1" Spacing="8">
-                <Label FontAttributes="Bold" FontSize="12" Text="{Binding Exercise.PersonalRecordText, Source={x:Reference Root}}" TextColor="{DynamicResource TrackZPrimary}" />
+            <HorizontalStackLayout Grid.Row="2" Grid.Column="1" Spacing="{DynamicResource TrackZSpace8}">
+                <Label Style="{DynamicResource TrackZPerformanceMetadataStyle}" Text="{Binding Exercise.PersonalRecordText, Source={x:Reference Root}}" />
                 <Button
                     Command="{Binding Exercise.RetryArtworkCommand, Source={x:Reference Root}}"
-                    FontSize="12"
                     IsVisible="{Binding Exercise.HasFailedArtwork, Source={x:Reference Root}}"
-                    MinimumHeightRequest="44"
-                    Padding="8,4"
+                    Style="{DynamicResource TrackZQuietButtonStyle}"
                     Text="{Binding Exercise.RetryArtworkText, Source={x:Reference Root}}" />
             </HorizontalStackLayout>
 
@@ -50,18 +48,14 @@
                 <CheckBox
                     InputTransparent="True"
                     IsChecked="{Binding Exercise.IsSelected, Source={x:Reference Root}, Mode=OneWay}"
-                    MinimumHeightRequest="44"
-                    MinimumWidthRequest="44"
                     SemanticProperties.Description="{Binding Exercise.SelectionAccessibilityText, Source={x:Reference Root}}" />
                 <Button
                     Command="{Binding EditCommand, Source={x:Reference Root}}"
                     CommandParameter="{Binding Exercise.Exercise, Source={x:Reference Root}}"
-                    FontSize="11"
                     IsVisible="{Binding Exercise.IsCustom, Source={x:Reference Root}}"
-                    MinimumHeightRequest="44"
-                    Padding="8,4"
+                    Style="{DynamicResource TrackZQuietButtonStyle}"
                     Text="{Binding Exercise.EditLabel, Source={x:Reference Root}}" />
-                <Label FontSize="11" Text="{Binding Exercise.SyncLabel, Source={x:Reference Root}}" TextColor="{DynamicResource TrackZWarning}" />
+                <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Exercise.SyncLabel, Source={x:Reference Root}}" />
             </VerticalStackLayout>
         </Grid>
     </Border>
