@@ -203,6 +203,27 @@ public sealed class ExercisePickerViewModelTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Rendered_picker_item_owns_a_namescope_independent_selection_command()
+    {
+        await _cache.ReplaceAllAsync(
+            [ChestPressWithPerformance()],
+            new DateTimeOffset(2026, 8, 15, 1, 0, 0, TimeSpan.Zero));
+        var sut = new ExercisePickerViewModel(
+            _cache,
+            new StubCatalogApi(),
+            new StubConnectivity(false),
+            new FixedClock());
+        await sut.LoadAsync(BodyPart.Chest);
+        var item = Assert.Single(sut.Exercises);
+
+        item.ToggleSelectionCommand.Execute(null);
+
+        Assert.True(item.IsSelected);
+        Assert.Equal([item.Id], sut.SelectedExerciseIds);
+        Assert.Equal("Selected: 1", sut.SelectedCountText);
+    }
+
+    [Fact]
     public async Task Load_shows_cache_before_online_refresh_then_replaces_it_transactionally()
     {
         var cached = ChestPressWithPerformance();

@@ -6,6 +6,7 @@
     BackgroundColor="{DynamicResource TrackZBackground}"
     Shell.BackgroundColor="{DynamicResource TrackZBackground}"
     Shell.ForegroundColor="{DynamicResource TrackZTextPrimary}"
+    Shell.TitleColor="{DynamicResource TrackZTextPrimary}"
     Shell.TabBarBackgroundColor="{DynamicResource TrackZSurface}"
     Shell.TabBarDisabledColor="{DynamicResource TrackZTextSecondary}"
     Shell.TabBarForegroundColor="{DynamicResource TrackZPrimary}"

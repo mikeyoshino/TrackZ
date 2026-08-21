@@ -43,7 +43,7 @@
                 <Grid HeightRequest="{DynamicResource TrackZExerciseArtworkSize}" WidthRequest="{DynamicResource TrackZExerciseArtworkSize}">
                     <Image Aspect="AspectFit" IsVisible="{Binding Exercise.HasArtwork, Source={x:Reference Root}}" Source="{Binding Exercise.ThumbnailUri, Source={x:Reference Root}}" />
                     <Border BackgroundColor="{DynamicResource TrackZSurfaceRaised}" IsVisible="{Binding Exercise.ShowsArtworkPlaceholder, Source={x:Reference Root}}" StrokeThickness="0" StrokeShape="RoundRectangle 14">
-                        <Image Aspect="AspectFit" HeightRequest="52" Source="exercise_placeholder.svg" WidthRequest="52" />
+                        <Image Aspect="AspectFit" HeightRequest="52" Source="exercise_placeholder.png" WidthRequest="52" />
                     </Border>
                 </Grid>
                 <VerticalStackLayout Grid.Column="1" Spacing="{DynamicResource TrackZSpace4}" VerticalOptions="Center">

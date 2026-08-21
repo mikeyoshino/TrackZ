@@ -22,11 +22,11 @@ public partial class AppShell : Shell
 		var tabs = new TabBar();
 		tabs.Items.Add(CreateTab(
 			WorkoutResources.Current.TrainTab,
-			"tab_train.svg",
+			"tab_train.png",
 			new ShellContent { Route = "train", Content = trainPage }));
 		tabs.Items.Add(CreateTab(
 			WorkoutResources.Current.HistoryTab,
-			"tab_history.svg",
+			"tab_history.png",
 			new ShellContent
 			{
 				Route = "history",
@@ -34,7 +34,7 @@ public partial class AppShell : Shell
 			}));
 		tabs.Items.Add(CreateTab(
 			GamificationResources.Current.ProgressTitle,
-			"tab_progress.svg",
+			"tab_progress.png",
 			new ShellContent
 			{
 				Route = "progress",
@@ -42,7 +42,7 @@ public partial class AppShell : Shell
 			}));
 		tabs.Items.Add(CreateTab(
 			GamificationResources.Current.YouTab,
-			"tab_you.svg",
+			"tab_you.png",
 			new ShellContent
 			{
 				Route = "you",

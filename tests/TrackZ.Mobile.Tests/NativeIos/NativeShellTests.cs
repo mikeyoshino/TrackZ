@@ -31,6 +31,7 @@ public sealed class NativeShellTests
 
         try
         {
+            _ = app.Services.GetRequiredService<App>();
             var shell = app.Services.GetRequiredService<AppShell>();
             var routes = shell.Items
                 .SelectMany(item => item.Items)
@@ -38,8 +39,22 @@ public sealed class NativeShellTests
                 .Select(content => content.Route)
                 .ToArray();
 
+            var icons = shell.Items
+                .SelectMany(item => item.Items)
+                .Select(tab => Assert.IsType<FileImageSource>(tab.Icon).File)
+                .ToArray();
+
             Assert.Equal(["train", "history", "progress", "you"], routes);
+            Assert.Equal([
+                "tab_train.png",
+                "tab_history.png",
+                "tab_progress.png",
+                "tab_you.png"
+            ], icons);
             Assert.DoesNotContain("exercises", routes);
+            Assert.Equal(
+                Color.FromArgb("#F5F7F8"),
+                Assert.IsType<Color>(shell.GetValue(Shell.TitleColorProperty)));
         }
         finally
         {

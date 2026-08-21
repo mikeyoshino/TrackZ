@@ -69,8 +69,7 @@
                         <components:ExercisePerformanceCard
                             Margin="0,0,0,12"
                             EditCommand="{Binding Source={x:Reference Page}, Path=EditCustomCommand}"
-                            Exercise="{Binding .}"
-                            ToggleCommand="{Binding Source={x:Reference Page}, Path=BindingContext.ToggleSelectionCommand}" />
+                            Exercise="{Binding .}" />
                     </DataTemplate>
                 </CollectionView.ItemTemplate>
             </CollectionView>

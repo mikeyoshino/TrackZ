@@ -365,7 +365,8 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged
                 _text,
                 _unitPreference,
                 RetryArtworkAsync,
-                (id, state) => _artworkStates[id] = state);
+                (id, state) => _artworkStates[id] = state,
+                item => ToggleSelection(item));
             if (_artworkStates.TryGetValue(exercise.Id, out var state))
                 item.RestoreArtworkState(state);
             Exercises.Add(item);

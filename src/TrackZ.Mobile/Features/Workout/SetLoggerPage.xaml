@@ -17,7 +17,7 @@
                     <Grid x:Name="SetLoggerArtwork" HeightRequest="{DynamicResource TrackZExerciseArtworkSize}" WidthRequest="{DynamicResource TrackZExerciseArtworkSize}">
                         <Image Aspect="AspectFit" IsVisible="{Binding HasArtwork}" SemanticProperties.Description="{Binding ExerciseName}" Source="{Binding ThumbnailUri}" />
                         <Border IsVisible="{Binding ShowsArtworkPlaceholder}" Style="{DynamicResource TrackZArtworkFrameStyle}">
-                            <Image Aspect="AspectFit" HeightRequest="{DynamicResource TrackZMinimumTarget}" Source="exercise_placeholder.svg" WidthRequest="{DynamicResource TrackZMinimumTarget}" />
+                            <Image Aspect="AspectFit" HeightRequest="{DynamicResource TrackZMinimumTarget}" Source="exercise_placeholder.png" WidthRequest="{DynamicResource TrackZMinimumTarget}" />
                         </Border>
                     </Grid>
                     <VerticalStackLayout Grid.Column="1" Spacing="{DynamicResource TrackZSpace4}" VerticalOptions="Center">

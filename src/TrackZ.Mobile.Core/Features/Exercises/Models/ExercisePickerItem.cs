@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Globalization;
 using System.Runtime.CompilerServices;
+using System.Windows.Input;
 using TrackZ.Contracts.Exercises;
 using TrackZ.Domain.Exercises;
 using TrackZ.Mobile.Features.Workout;
@@ -22,7 +23,8 @@ public sealed class ExercisePickerItem : INotifyPropertyChanged
         WorkoutTextSet text,
         IWeightUnitPreference? unitPreference = null,
         Func<ExercisePickerItem, Task<string?>>? retryArtwork = null,
-        Action<Guid, ExerciseArtworkState>? artworkStateChanged = null)
+        Action<Guid, ExerciseArtworkState>? artworkStateChanged = null,
+        Action<ExercisePickerItem>? toggleSelection = null)
     {
         Exercise = exercise;
         _text = text;
@@ -36,6 +38,9 @@ public sealed class ExercisePickerItem : INotifyPropertyChanged
         RetryArtworkCommand = new AsyncCommand(
             RetryArtworkAsync,
             _ => _retryArtwork is not null && Exercise.RemoteThumbnailRoute is not null);
+        ToggleSelectionCommand = new RelayCommand(
+            _ => toggleSelection?.Invoke(this),
+            _ => toggleSelection is not null);
     }
 
     public CachedExercise Exercise { get; }
@@ -52,6 +57,7 @@ public sealed class ExercisePickerItem : INotifyPropertyChanged
     public bool HasFailedArtwork => ArtworkState == ExerciseArtworkState.Failed;
     public bool IsArtworkLoading => ArtworkState == ExerciseArtworkState.Loading;
     public IAsyncCommand RetryArtworkCommand { get; }
+    public ICommand ToggleSelectionCommand { get; }
     public Guid? LibraryImageId => Exercise.LibraryImageId;
     public DateTimeOffset? LastPerformedAt => Exercise.LastPerformedAt;
     public PerformanceSetDto? LastBestSet => Exercise.LastBestSet;

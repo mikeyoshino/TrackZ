@@ -210,6 +210,10 @@ public sealed class AuthPresentationTests
         Assert.Equal(AuthTextSet.English, signIn.Form.Text);
         Assert.Equal(AuthTextSet.English.SignInWelcomeBody, signIn.WelcomeBody.Text);
         Assert.Equal(AuthTextSet.English.CreateAccountWelcomeBody, create.WelcomeBody.Text);
+        Assert.Equal("Email", signIn.EmailEntry.Placeholder);
+        Assert.Equal("Password", signIn.PasswordEntry.Placeholder);
+        Assert.Equal("Email", create.EmailEntry.Placeholder);
+        Assert.Equal("Password", create.PasswordEntry.Placeholder);
         Assert.Equal(AuthTextSet.English.EmailAccessibilityLabel, SemanticProperties.GetDescription(signIn.EmailEntry));
         Assert.Equal(AuthTextSet.English.CheckingSessionAccessibilityLabel, SemanticProperties.GetDescription(gate.StatusIndicator));
     }
@@ -227,6 +231,10 @@ public sealed class AuthPresentationTests
         Assert.Equal(AuthTextSet.Thai, signIn.Form.Text);
         Assert.Equal(AuthTextSet.Thai.SignInWelcomeBody, signIn.WelcomeBody.Text);
         Assert.Equal(AuthTextSet.Thai.CreateAccountWelcomeBody, create.WelcomeBody.Text);
+        Assert.Equal(AuthTextSet.Thai.EmailLabel, signIn.EmailEntry.Placeholder);
+        Assert.Equal(AuthTextSet.Thai.PasswordLabel, signIn.PasswordEntry.Placeholder);
+        Assert.Equal(AuthTextSet.Thai.EmailLabel, create.EmailEntry.Placeholder);
+        Assert.Equal(AuthTextSet.Thai.PasswordLabel, create.PasswordEntry.Placeholder);
         Assert.Equal(AuthTextSet.Thai.PasswordAccessibilityLabel, SemanticProperties.GetDescription(create.PasswordEntry));
         Assert.Equal(AuthTextSet.Thai.CheckingSessionAccessibilityLabel, SemanticProperties.GetDescription(gate.StatusIndicator));
     }
