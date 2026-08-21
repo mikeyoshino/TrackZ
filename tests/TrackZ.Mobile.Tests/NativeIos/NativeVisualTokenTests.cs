@@ -49,6 +49,11 @@ public sealed class NativeVisualTokenTests
         var primaryPadding = Assert.IsType<Thickness>(SetterValue<Button>(app, "TrackZPrimaryButtonStyle", "Padding"));
         Assert.Equal(16, primaryPadding.Left);
         Assert.Equal(12, primaryPadding.Top);
+        var stickyPadding = Assert.IsType<Thickness>(SetterValue<Border>(app, "TrackZStickyActionContainerStyle", "Padding"));
+        Assert.Equal(18, stickyPadding.Left);
+        Assert.Equal(18, stickyPadding.Right);
+        Assert.Equal(12, stickyPadding.Top);
+        Assert.Equal(12, stickyPadding.Bottom);
     }
 
     [Fact]
@@ -92,14 +97,11 @@ public sealed class NativeVisualTokenTests
             "TrackZStateView.xaml", "ExerciseListSkeleton.xaml", "ExercisePerformanceCard.xaml",
             "ActiveWorkoutExerciseRow.xaml", "RepsStepper.xaml", "WeightStepper.xaml", "SyncStatusPill.xaml"
         };
-        var allowedSpacing = new HashSet<double> { 4, 8, 12, 16, 24, 32 };
 
         foreach (var component in components)
         {
             var document = XDocument.Load(Path.Combine(componentDirectory, component));
-            foreach (var attribute in document.Descendants().Attributes().Where(attribute => attribute.Name.LocalName is "Spacing" or "Padding"))
-                foreach (var value in ResolveThicknessParts(app, attribute.Value))
-                    Assert.Contains(value, allowedSpacing);
+            AssertNativeSpacing(app, document);
 
             foreach (var button in document.Descendants().Where(element => element.Name.LocalName == "Button"))
             {
@@ -193,7 +195,6 @@ public sealed class NativeVisualTokenTests
         var solution = FindSolutionDirectory();
         var componentDirectory = Path.Combine(solution, "src", "TrackZ.Mobile", "Components");
         var semanticStyles = XDocument.Load(Path.Combine(solution, "src", "TrackZ.Mobile", "Resources", "Styles", "TrackZControls.xaml"));
-        var allowedSpacing = new HashSet<double> { 0, 4, 8, 12, 16, 24, 32 };
         var componentFiles = new[]
         {
             "TrackZStateView.xaml", "ExerciseListSkeleton.xaml", "ExercisePerformanceCard.xaml",
@@ -201,11 +202,7 @@ public sealed class NativeVisualTokenTests
         };
 
         foreach (var document in componentFiles.Select(component => XDocument.Load(Path.Combine(componentDirectory, component))).Append(semanticStyles))
-        {
-            foreach (var attribute in document.Descendants().Attributes().Where(attribute => attribute.Name.LocalName is "Spacing" or "Padding"))
-                foreach (var value in ResolveThicknessParts(app, attribute.Value))
-                    Assert.Contains(value, allowedSpacing);
-        }
+            AssertNativeSpacing(app, document);
 
         var primary = Assert.IsType<Color>(Resources(app)["TrackZPrimary"]);
         foreach (var component in componentFiles)
@@ -221,6 +218,17 @@ public sealed class NativeVisualTokenTests
                     Assert.NotEqual(primary, SetterValue<Label>(app, style, "TextColor"));
             }
         }
+    }
+
+    [Theory]
+    [InlineData("<Root ColumnSpacing=\"3\" />")]
+    [InlineData("<Root Padding=\"3\" />")]
+    [InlineData("<Root Spacing=\"0\" />")]
+    public void Native_spacing_audit_rejects_off_scale_and_zero_mutations(string xaml)
+    {
+        using var app = CreateApp();
+
+        Assert.ThrowsAny<Xunit.Sdk.XunitException>(() => AssertNativeSpacing(app, XDocument.Parse(xaml)));
     }
 
     private static void AssertStyle<T>(MauiApp app, string key, params (string Property, object Expected)[] expectedSetters)
@@ -287,6 +295,40 @@ public sealed class NativeVisualTokenTests
         var dark = type.GetProperty("Dark")?.GetValue(value);
         Assert.Equal(expected, Assert.IsType<Color>(light));
         Assert.Equal(expected, Assert.IsType<Color>(dark));
+    }
+
+    private static void AssertNativeSpacing(MauiApp app, XDocument document)
+    {
+        var allowed = new HashSet<double> { 4, 8, 12, 16, 24, 32 };
+        foreach (var (property, value, stickyActionContainer) in SpacingValues(document))
+        {
+            var parts = ResolveThicknessParts(app, value).ToArray();
+            if (stickyActionContainer && property == "Padding")
+            {
+                Assert.Equal([18d, 12d], parts);
+                continue;
+            }
+
+            Assert.All(parts, part => Assert.Contains(part, allowed));
+        }
+    }
+
+    private static IEnumerable<(string Property, string Value, bool StickyActionContainer)> SpacingValues(XDocument document)
+    {
+        foreach (var element in document.Root?.DescendantsAndSelf() ?? [])
+        {
+            var stickyActionContainer = element.Name.LocalName == "Style" &&
+                element.Attributes().Any(attribute => attribute.Name.LocalName == "Key" && attribute.Value == "TrackZStickyActionContainerStyle");
+            foreach (var attribute in element.Attributes().Where(attribute => attribute.Name.LocalName is "Spacing" or "RowSpacing" or "ColumnSpacing" or "Padding"))
+                yield return (attribute.Name.LocalName, attribute.Value, stickyActionContainer);
+
+            if (element.Name.LocalName != "Setter") continue;
+            var property = element.Attribute("Property")?.Value;
+            if (property is not ("Spacing" or "RowSpacing" or "ColumnSpacing" or "Padding")) continue;
+            var value = element.Attribute("Value")?.Value;
+            if (value is not null)
+                yield return (property, value, element.Parent?.Attributes().Any(attribute => attribute.Name.LocalName == "Key" && attribute.Value == "TrackZStickyActionContainerStyle") == true);
+        }
     }
 
     private static IEnumerable<double> ResolveThicknessParts(MauiApp app, string value)

@@ -104,3 +104,30 @@ exit 0
 ```
 
 Fixes: primary and sticky-action padding is `16,12`; semantic style and audited component spacing/padding axes are statically constrained to the native scale (with zero only as an omitted axis). `TrackZExerciseCardHeight` is `112`, which exactly accommodates 88-point artwork plus shared 12-point list-row padding above and below. Skeleton and both loaded exercise card components use `TrackZListRowStyle`, the same 88-point column/artwork resource, and the same 112-point minimum outer geometry. Typography tests now require explicit `Bold` for page/navigation/section and explicit `None` for body/metadata/error. The gate also rejects local shape overrides on outer shared cards and direct lime label copy across every audited component, except the explicit performance-number role.
+
+## Fix Round 3/5 — spacing audit and safe-area exception
+
+RED command:
+
+```text
+dotnet test tests/TrackZ.Mobile.Tests/TrackZ.Mobile.Tests.csproj --no-restore --filter "FullyQualifiedName~NativeVisualTokenTests|FullyQualifiedName~AccessibilitySemanticsTests|FullyQualifiedName~NativePresentationCompositionTests|FullyQualifiedName~ExercisePickerViewModelTests" --verbosity minimal -m:1
+Failed! - Failed: 5, Passed: 72, Skipped: 0, Total: 77
+```
+
+The semantic-style audit found the literal zero axis in `TrackZFieldContainerStyle`; the sticky merged-resource assertion also proved its incorrect 16-point horizontal padding. The three mutation rows intentionally fail for `ColumnSpacing=3`, root `Padding=3`, and `Spacing=0`.
+
+GREEN command:
+
+```text
+dotnet test tests/TrackZ.Mobile.Tests/TrackZ.Mobile.Tests.csproj --no-restore --filter "FullyQualifiedName~NativeVisualTokenTests|FullyQualifiedName~AccessibilitySemanticsTests|FullyQualifiedName~NativePresentationCompositionTests|FullyQualifiedName~ExercisePickerViewModelTests" --verbosity minimal -m:1
+Passed! - Failed: 0, Passed: 77, Skipped: 0, Total: 77
+```
+
+iOS XAML compile:
+
+```text
+dotnet msbuild src/TrackZ.Mobile/TrackZ.Mobile.csproj -t:Compile -p:TargetFramework=net10.0-ios -p:BuildProjectReferences=false -m:1 -verbosity:minimal
+exit 0
+```
+
+Fixes: a single audit helper now inspects every XAML root and descendant, direct `Spacing`/`RowSpacing`/`ColumnSpacing`/`Padding` attributes, and semantic style setter values. It rejects zero and off-scale axes everywhere except the named `TrackZStickyActionContainerStyle` page-edge exception. That style is explicitly `18,12` and merged-resource-tested; ordinary primary button padding remains `16,12`. `TrackZFieldContainerStyle` uses the uniform `TrackZSpace12` resource instead of a literal zero vertical axis. Existing 88+12+12=112 geometry, disabled resources, typography attributes, and lime-role gates remain green.
