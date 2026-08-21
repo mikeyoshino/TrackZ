@@ -8,6 +8,8 @@ public sealed class ExerciseCatalogPublicationService(
     ObjectStorageExerciseCatalogAssetDeployment deployment,
     TimeProvider timeProvider)
 {
+    private const long PublicationLockKey = 0x545241434B5A0006L;
+
     public async Task PublishAsync(
         string catalogPath,
         Guid reviewerId,
@@ -23,6 +25,9 @@ public sealed class ExerciseCatalogPublicationService(
         var manifestIds = manifest.Select(item => item.Id).ToArray();
 
         await using var transaction = await database.Database.BeginTransactionAsync(cancellationToken);
+        await database.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT pg_advisory_xact_lock({PublicationLockKey})",
+            cancellationToken);
         var definitions = await database.Exercises
             .Where(definition => manifestIds.Contains(definition.Id))
             .OrderBy(definition => definition.Id)

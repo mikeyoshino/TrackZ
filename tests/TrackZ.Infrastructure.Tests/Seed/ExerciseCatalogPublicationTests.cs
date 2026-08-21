@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
 using TrackZ.Application.Common.Interfaces;
 using TrackZ.Domain.Exercises;
@@ -35,6 +36,87 @@ public sealed class ExerciseCatalogPublicationTests(ExerciseCatalogPublicationFi
             Assert.Equal(scenario.Now, image.ReviewedAt);
             Assert.Equal(scenario.Now, image.PublishedAt);
         });
+    }
+
+    [Fact]
+    public async Task Concurrent_conflicting_publications_serialize_and_only_the_winner_commits()
+    {
+        var scenario = await fixture.PrepareAsync();
+        var barrier = new ConcurrentPublicationBarrier();
+        var firstTime = barrier.CreateTimeProvider(scenario.Now.AddMinutes(1));
+        var secondTime = barrier.CreateTimeProvider(scenario.Now.AddMinutes(2));
+        await using var firstContext = fixture.Database.CreateDbContext();
+        await using var secondContext = fixture.Database.CreateDbContext();
+        var first = new ExerciseCatalogPublicationService(firstContext, scenario.Deployment, firstTime);
+        var second = new ExerciseCatalogPublicationService(secondContext, scenario.Deployment, secondTime);
+
+        var monitor = ReleaseBarrierWhenSerializedAsync(barrier, fixture.Database.ConnectionString);
+        var attempts = await Task.WhenAll(
+            CapturePublicationAsync(first, firstTime, ReviewerId, RightsReference),
+            CapturePublicationAsync(second, secondTime, OtherReviewerId, "other-reviewed-rights"));
+        await monitor;
+
+        var winner = Assert.Single(attempts, attempt => attempt.Error is null);
+        var loser = Assert.Single(attempts, attempt => attempt.Error is not null);
+        var conflict = Assert.IsType<InvalidOperationException>(loser.Error);
+        Assert.Equal(
+            "Exercise catalog publication requires either 48 exact Draft rows or 48 matching Published rows.",
+            conflict.Message);
+        Assert.Single(new[] { firstTime, secondTime }, time => time.WasRead);
+        await using var verificationContext = fixture.Database.CreateDbContext();
+        var images = await verificationContext.ExerciseImages.AsNoTracking()
+            .OrderBy(image => image.ExerciseDefinitionId)
+            .ToArrayAsync();
+        Assert.Equal(48, images.Length);
+        Assert.All(images, image =>
+        {
+            Assert.Equal(ExerciseImageReviewState.Published, image.ReviewState);
+            Assert.Equal(winner.ReviewerId, image.ReviewedByUserId);
+            Assert.Equal(winner.RightsReference, image.RightsReference);
+            Assert.True(image.AnatomyApproved && image.MovementApproved && image.RightsApproved);
+            Assert.True(image.IsReadyForUse);
+            Assert.Equal(winner.TimeProvider.GetConfiguredUtcNow(), image.ReviewedAt);
+            Assert.Equal(winner.TimeProvider.GetConfiguredUtcNow(), image.PublishedAt);
+        });
+        Assert.Equal(192, scenario.Storage.GetCount);
+        Assert.Equal(0, scenario.Storage.PutCountAfterReset);
+        Assert.Equal(0, scenario.Storage.DeleteCountAfterReset);
+    }
+
+    [Fact]
+    public async Task Concurrent_matching_publications_are_idempotent_without_timestamp_overwrite()
+    {
+        var scenario = await fixture.PrepareAsync();
+        var barrier = new ConcurrentPublicationBarrier();
+        var firstTime = barrier.CreateTimeProvider(scenario.Now.AddMinutes(1));
+        var secondTime = barrier.CreateTimeProvider(scenario.Now.AddDays(1));
+        await using var firstContext = fixture.Database.CreateDbContext();
+        await using var secondContext = fixture.Database.CreateDbContext();
+        var first = new ExerciseCatalogPublicationService(firstContext, scenario.Deployment, firstTime);
+        var second = new ExerciseCatalogPublicationService(secondContext, scenario.Deployment, secondTime);
+
+        var monitor = ReleaseBarrierWhenSerializedAsync(barrier, fixture.Database.ConnectionString);
+        var attempts = await Task.WhenAll(
+            CapturePublicationAsync(first, firstTime, ReviewerId, RightsReference),
+            CapturePublicationAsync(second, secondTime, ReviewerId, RightsReference));
+        await monitor;
+
+        Assert.All(attempts, attempt => Assert.Null(attempt.Error));
+        var winnerTime = Assert.Single(new[] { firstTime, secondTime }, time => time.WasRead);
+        await using var verificationContext = fixture.Database.CreateDbContext();
+        var images = await verificationContext.ExerciseImages.AsNoTracking().ToArrayAsync();
+        Assert.Equal(48, images.Length);
+        Assert.All(images, image =>
+        {
+            Assert.Equal(ExerciseImageReviewState.Published, image.ReviewState);
+            Assert.Equal(ReviewerId, image.ReviewedByUserId);
+            Assert.Equal(RightsReference, image.RightsReference);
+            Assert.Equal(winnerTime.GetConfiguredUtcNow(), image.ReviewedAt);
+            Assert.Equal(winnerTime.GetConfiguredUtcNow(), image.PublishedAt);
+        });
+        Assert.Equal(192, scenario.Storage.GetCount);
+        Assert.Equal(0, scenario.Storage.PutCountAfterReset);
+        Assert.Equal(0, scenario.Storage.DeleteCountAfterReset);
     }
 
     [Fact]
@@ -314,6 +396,56 @@ public sealed class ExerciseCatalogPublicationTests(ExerciseCatalogPublicationFi
         {
             await DropFailureTriggerAsync(scenario.Database);
         }
+
+        await using var retryContext = fixture.Database.CreateDbContext();
+        await new ExerciseCatalogPublicationService(retryContext, scenario.Deployment, scenario.Time)
+            .PublishAsync(CatalogPath, ReviewerId, RightsReference);
+        Assert.All(
+            await retryContext.ExerciseImages.AsNoTracking().ToArrayAsync(),
+            image => Assert.Equal(ExerciseImageReviewState.Published, image.ReviewState));
+    }
+
+    [Fact]
+    public async Task Cancellation_releases_publication_lock_and_rolls_back_for_a_clean_retry()
+    {
+        var scenario = await fixture.PrepareAsync();
+        await InstallSlowPublicationTriggerAsync(scenario.Database);
+        try
+        {
+            await using (var cancelledContext = fixture.Database.CreateDbContext())
+            using (var cancellation = new CancellationTokenSource())
+            {
+                var publication = new ExerciseCatalogPublicationService(
+                    cancelledContext,
+                    scenario.Deployment,
+                    scenario.Time);
+                var attempt = publication.PublishAsync(
+                    CatalogPath,
+                    ReviewerId,
+                    RightsReference,
+                    cancellation.Token);
+                await WaitForGrantedAdvisoryLockAsync(fixture.Database.ConnectionString);
+                cancellation.Cancel();
+
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => attempt);
+            }
+        }
+        finally
+        {
+            await DropSlowPublicationTriggerAsync(scenario.Database);
+        }
+
+        await using var retryContext = fixture.Database.CreateDbContext();
+        await new ExerciseCatalogPublicationService(retryContext, scenario.Deployment, scenario.Time)
+            .PublishAsync(CatalogPath, ReviewerId, RightsReference);
+        var images = await retryContext.ExerciseImages.AsNoTracking().ToArrayAsync();
+        Assert.Equal(48, images.Length);
+        Assert.All(images, image =>
+        {
+            Assert.Equal(ExerciseImageReviewState.Published, image.ReviewState);
+            Assert.Equal(ReviewerId, image.ReviewedByUserId);
+            Assert.Equal(RightsReference, image.RightsReference);
+        });
     }
 
     private static async Task AssertAllDraftAsync(AppDbContext database)
@@ -335,6 +467,53 @@ public sealed class ExerciseCatalogPublicationTests(ExerciseCatalogPublicationFi
         Assert.False(image.MovementApproved);
         Assert.False(image.RightsApproved);
         Assert.False(image.IsReadyForUse);
+    }
+
+    private static async Task<PublicationAttempt> CapturePublicationAsync(
+        ExerciseCatalogPublicationService publication,
+        CoordinatedTimeProvider timeProvider,
+        Guid reviewerId,
+        string rightsReference)
+    {
+        try
+        {
+            await publication.PublishAsync(CatalogPath, reviewerId, rightsReference);
+            return new PublicationAttempt(
+                reviewerId,
+                rightsReference,
+                timeProvider,
+                null);
+        }
+        catch (Exception error)
+        {
+            return new PublicationAttempt(
+                reviewerId,
+                rightsReference,
+                timeProvider,
+                error);
+        }
+    }
+
+    private static async Task ReleaseBarrierWhenSerializedAsync(
+        ConcurrentPublicationBarrier barrier,
+        string connectionString)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+        await using var monitor = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>()
+            .UseNpgsql(connectionString)
+            .Options);
+        while (!barrier.IsReleased)
+        {
+            var waitingLocks = await monitor.Database
+                .SqlQueryRaw<int>("SELECT COUNT(*)::integer AS \"Value\" FROM pg_locks WHERE locktype = 'advisory' AND NOT granted")
+                .SingleAsync(timeout.Token);
+            if (waitingLocks > 0)
+            {
+                barrier.ReleaseSerializedWinner();
+                return;
+            }
+            await Task.Delay(TimeSpan.FromMilliseconds(10), timeout.Token);
+        }
     }
 
     private static async Task InstallFailureTriggerAsync(AppDbContext database)
@@ -378,6 +557,51 @@ public sealed class ExerciseCatalogPublicationTests(ExerciseCatalogPublicationFi
             "DROP TABLE IF EXISTS catalog_publication_trigger_counter");
     }
 
+    private static async Task InstallSlowPublicationTriggerAsync(AppDbContext database)
+    {
+        await DropSlowPublicationTriggerAsync(database);
+        await database.Database.ExecuteSqlRawAsync("""
+            CREATE FUNCTION slow_catalog_publication_update() RETURNS trigger AS $$
+            BEGIN
+                PERFORM pg_sleep(60);
+                RETURN NEW;
+            END;
+            $$ LANGUAGE plpgsql
+            """);
+        await database.Database.ExecuteSqlRawAsync("""
+            CREATE TRIGGER slow_catalog_publication_update
+            BEFORE UPDATE OF "ReviewState" ON exercise_images
+            FOR EACH ROW
+            WHEN (NEW."ReviewState" = 3 AND OLD."ReviewState" IS DISTINCT FROM NEW."ReviewState")
+            EXECUTE FUNCTION slow_catalog_publication_update()
+            """);
+    }
+
+    private static async Task DropSlowPublicationTriggerAsync(AppDbContext database)
+    {
+        database.ChangeTracker.Clear();
+        await database.Database.ExecuteSqlRawAsync(
+            "DROP TRIGGER IF EXISTS slow_catalog_publication_update ON exercise_images");
+        await database.Database.ExecuteSqlRawAsync(
+            "DROP FUNCTION IF EXISTS slow_catalog_publication_update()");
+    }
+
+    private static async Task WaitForGrantedAdvisoryLockAsync(string connectionString)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+        await using var monitor = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>()
+            .UseNpgsql(connectionString)
+            .Options);
+        while (true)
+        {
+            var grantedLocks = await monitor.Database
+                .SqlQueryRaw<int>("SELECT COUNT(*)::integer AS \"Value\" FROM pg_locks WHERE locktype = 'advisory' AND granted")
+                .SingleAsync(timeout.Token);
+            if (grantedLocks > 0) return;
+            await Task.Delay(TimeSpan.FromMilliseconds(10), timeout.Token);
+        }
+    }
+
     private static string CatalogPath => ExerciseCatalogPublicationFixture.CatalogPath;
 }
 
@@ -411,6 +635,10 @@ public sealed class ExerciseCatalogPublicationFixture : IAsyncLifetime
             "DROP FUNCTION IF EXISTS fail_catalog_publication_on_24th_update()");
         await database.Database.ExecuteSqlRawAsync(
             "DROP TABLE IF EXISTS catalog_publication_trigger_counter");
+        await database.Database.ExecuteSqlRawAsync(
+            "DROP TRIGGER IF EXISTS slow_catalog_publication_update ON exercise_images");
+        await database.Database.ExecuteSqlRawAsync(
+            "DROP FUNCTION IF EXISTS slow_catalog_publication_update()");
         await database.Database.ExecuteSqlRawAsync(
             "TRUNCATE TABLE exercise_images, exercise_definitions CASCADE");
 
@@ -460,26 +688,75 @@ internal sealed class MutableTimeProvider(DateTimeOffset utcNow) : TimeProvider
     public void Advance(TimeSpan duration) => _utcNow = _utcNow.Add(duration);
 }
 
+internal sealed class ConcurrentPublicationBarrier
+{
+    private readonly ManualResetEventSlim _release = new(initialState: false);
+    private int _arrivals;
+
+    public bool IsReleased => _release.IsSet;
+
+    public CoordinatedTimeProvider CreateTimeProvider(DateTimeOffset utcNow) => new(this, utcNow);
+
+    public void ArriveAndWait()
+    {
+        if (Interlocked.Increment(ref _arrivals) == 2) _release.Set();
+        if (!_release.Wait(TimeSpan.FromMinutes(2)))
+            throw new TimeoutException("Concurrent publication preflights did not reach a deterministic release condition.");
+    }
+
+    public void ReleaseSerializedWinner() => _release.Set();
+}
+
+internal sealed class CoordinatedTimeProvider(
+    ConcurrentPublicationBarrier barrier,
+    DateTimeOffset utcNow) : TimeProvider
+{
+    private readonly DateTimeOffset _utcNow = utcNow.ToUniversalTime();
+    private int _wasRead;
+
+    public bool WasRead => Volatile.Read(ref _wasRead) == 1;
+
+    public DateTimeOffset GetConfiguredUtcNow() => _utcNow;
+
+    public override DateTimeOffset GetUtcNow()
+    {
+        Interlocked.Exchange(ref _wasRead, 1);
+        barrier.ArriveAndWait();
+        return _utcNow;
+    }
+}
+
+internal sealed record PublicationAttempt(
+    Guid ReviewerId,
+    string RightsReference,
+    CoordinatedTimeProvider TimeProvider,
+    Exception? Error);
+
 internal sealed class InspectableObjectStorage : IObjectStorage
 {
     private readonly Dictionary<string, StoredObject> _objects = new(StringComparer.Ordinal);
+    private readonly ConcurrentQueue<string> _readKeys = new();
+    private readonly ConcurrentQueue<string> _readPrefixes = new();
+    private int _getCount;
+    private int _putCount;
+    private int _deleteCount;
     private int _putCountAtReset;
     private int _deleteCountAtReset;
 
-    public int GetCount { get; private set; }
-    public int PutCount { get; private set; }
-    public int DeleteCount { get; private set; }
+    public int GetCount => Volatile.Read(ref _getCount);
+    public int PutCount => Volatile.Read(ref _putCount);
+    public int DeleteCount => Volatile.Read(ref _deleteCount);
     public int PutCountAfterReset => PutCount - _putCountAtReset;
     public int DeleteCountAfterReset => DeleteCount - _deleteCountAtReset;
-    public List<string> ReadKeys { get; } = [];
-    public List<string> ReadPrefixes { get; } = [];
+    public IEnumerable<string> ReadKeys => _readKeys;
+    public IEnumerable<string> ReadPrefixes => _readPrefixes;
 
     public Task<ObjectStorageObject?> GetAsync(string ownerPrefix, string key, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        GetCount++;
-        ReadKeys.Add(key);
-        ReadPrefixes.Add(ownerPrefix);
+        Interlocked.Increment(ref _getCount);
+        _readKeys.Enqueue(key);
+        _readPrefixes.Enqueue(ownerPrefix);
         return Task.FromResult(_objects.TryGetValue(key, out var value)
             ? new ObjectStorageObject(
                 value.Bytes.LongLength,
@@ -495,7 +772,7 @@ internal sealed class InspectableObjectStorage : IObjectStorage
         string contentType,
         CancellationToken cancellationToken)
     {
-        PutCount++;
+        Interlocked.Increment(ref _putCount);
         await using var output = new MemoryStream();
         await content.CopyToAsync(output, cancellationToken);
         _objects[key] = new StoredObject(output.ToArray(), contentType);
@@ -503,18 +780,18 @@ internal sealed class InspectableObjectStorage : IObjectStorage
 
     public Task DeleteAsync(string ownerPrefix, string key, CancellationToken cancellationToken)
     {
-        DeleteCount++;
+        Interlocked.Increment(ref _deleteCount);
         _objects.Remove(key);
         return Task.CompletedTask;
     }
 
     public void ResetCounters()
     {
-        GetCount = 0;
+        Interlocked.Exchange(ref _getCount, 0);
         _putCountAtReset = PutCount;
         _deleteCountAtReset = DeleteCount;
-        ReadKeys.Clear();
-        ReadPrefixes.Clear();
+        _readKeys.Clear();
+        _readPrefixes.Clear();
     }
 
     public void Remove(string key) => _objects.Remove(key);

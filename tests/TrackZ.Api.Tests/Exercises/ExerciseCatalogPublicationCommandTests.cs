@@ -71,7 +71,11 @@ public sealed class ExerciseCatalogPublicationCommandTests
             .AddSingleton<IHostEnvironment>(new TestHostEnvironment(environmentName))
             .BuildServiceProvider();
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => RequiredCommand().ExecuteAsync(services));
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => RequiredCommand().ExecuteAsync(services));
+
+        Assert.Equal(
+            "Exercise catalog publication is allowed only in the exact Development environment.",
+            error.Message);
     }
 
     public static TheoryData<string[]> InvalidArguments => new()

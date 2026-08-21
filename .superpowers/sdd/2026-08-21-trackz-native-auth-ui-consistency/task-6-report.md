@@ -154,3 +154,79 @@ An earlier build at the first GREEN boundary also succeeded with 0 warnings and 
 - After completion, a targeted `ps` audit found no Task 6 `dotnet test`, `vstest`, or `testhost` process (only the audit shell/`rg`).
 - `docker ps` after completion showed only the pre-existing compose services `native-ios-experience-postgres-1` and `native-ios-experience-minio-1`, both healthy and running for about seven hours before this task run. They were preserved. Task-created Testcontainers were gone.
 - Concern: the focused infrastructure command takes approximately 12 minutes because every hostile case deliberately regenerates and verifies all exact renditions. This is expected security work, not a hang. No implementation concern remains.
+
+## Fix Round 1/5 — deterministic concurrent publication serialization
+
+### Important finding and root cause
+
+Independent review identified that the publication transaction used PostgreSQL's default isolation, read unversioned Draft entities, and issued unconditional EF updates. Two different commands could therefore pass the same 48-row lifecycle preflight and both commit; the later transaction silently overwrote the first reviewer, rights, and timestamps.
+
+The deterministic real-PostgreSQL reproducer uses two separate `AppDbContext` instances and a shared post-preflight `TimeProvider` barrier. Before serialization, both commands reached the barrier only after observing all 48 Draft rows. Both were then released together. This was the intended RED:
+
+```text
+dotnet test tests/TrackZ.Infrastructure.Tests/TrackZ.Infrastructure.Tests.csproj --no-restore --filter "FullyQualifiedName~ExerciseCatalogPublicationTests.Concurrent_" --verbosity minimal -m:1
+Failed: 2, Passed: 0, Skipped: 0, Total: 2, Duration: 57s
+```
+
+The conflicting test showed both different reviewer/rights commands succeeded. The matching test showed both distinct `TimeProvider` instances were consumed, proving the second command performed an overwrite rather than an idempotent Published reread.
+
+### Serialization design and GREEN
+
+`ExerciseCatalogPublicationService` now acquires one fixed PostgreSQL transaction-scoped advisory lock immediately after `BeginTransactionAsync` and before loading any definitions/images or running lifecycle preflight. This follows existing repository advisory-lock practice. Object generation and `VerifyExactAsync` intentionally remain before the database transaction/lock, so two commands can safely perform the 192 total exact private reads concurrently without holding a database lock.
+
+The concurrency test remains condition-driven after the fix: the first winner reaches the post-preflight barrier; the second is observed as an ungranted advisory waiter through real `pg_locks`; only then is the winner released. After its commit, the loser acquires the lock and reloads current Published rows. Exact conflicting reviewer/rights metadata produces the service's lifecycle conflict, while exact matching metadata returns idempotently without reading the loser's publication time or overwriting timestamps.
+
+```text
+dotnet test tests/TrackZ.Infrastructure.Tests/TrackZ.Infrastructure.Tests.csproj --no-restore --filter "FullyQualifiedName~ExerciseCatalogPublicationTests.Concurrent_" --verbosity minimal -m:1
+Passed: 2, Failed: 0, Skipped: 0, Total: 2, Duration: 59s
+```
+
+The final rerun with an exact loser conflict-message assertion also passed 2/2 in 59 seconds. Both cases assert 48 consistent Published rows, exact winner metadata/timestamps, readiness/approvals, 192 concurrent object reads, and zero post-reset puts/deletes.
+
+### Cancellation, rollback, and idempotency
+
+The advisory lock is transaction-scoped, so disposal, rollback, and cancellation release it. Tests make this observable rather than inferred:
+
+- the update-24 PostgreSQL trigger failure rolls all 48 rows back, disposes the failed context, then a fresh publication context acquires the lock and publishes all 48;
+- cancellation is issued only after `pg_locks` observes the advisory lock granted, the cancelled transaction is disposed, and a fresh publication context then acquires the lock and publishes all 48;
+- matching concurrent commands both return successfully, but only the winner consumes its distinct UTC instant and the loser preserves those exact timestamps;
+- conflicting concurrent commands produce exactly one successful winner and one lifecycle-conflict loser, with no partial or mixed rows.
+
+```text
+dotnet test tests/TrackZ.Infrastructure.Tests/TrackZ.Infrastructure.Tests.csproj --no-restore --filter "FullyQualifiedName~ExerciseCatalogPublicationTests.Cancellation_releases_publication_lock|FullyQualifiedName~ExerciseCatalogPublicationTests.Trigger_failure_on_24th_publish_update" --verbosity minimal -m:1
+Passed: 2, Failed: 0, Skipped: 0, Total: 2, Duration: 1m33s
+```
+
+### Exact Development gate test sensitivity
+
+The environment theory now asserts the exact gate error text. A mutation run temporarily removed the ordinal exact-name clause while retaining `IsDevelopment()`. Lowercase and uppercase variants then reached missing `AppDbContext` resolution, and the strengthened assertion caught both false positives:
+
+```text
+dotnet test tests/TrackZ.Api.Tests/TrackZ.Api.Tests.csproj --no-restore --filter "FullyQualifiedName~ExerciseCatalogPublicationCommandTests.Publication_command_rejects_every_non_exact_development_environment" --verbosity minimal -m:1
+Failed: 2, Passed: 3, Skipped: 0, Total: 5
+```
+
+After restoring the exact ordinal gate, the same command passed 5/5. The full command/parser regression passed:
+
+```text
+dotnet test tests/TrackZ.Api.Tests/TrackZ.Api.Tests.csproj --no-restore --filter "FullyQualifiedName~ExerciseCatalogPublicationCommandTests|FullyQualifiedName~ExerciseCatalogDeploymentCommandTests" --verbosity minimal -m:1
+Passed: 23, Failed: 0, Skipped: 0, Total: 23
+```
+
+### Affected regression suite and build
+
+The affected real-PostgreSQL matrix deliberately avoided duplicating Task 7's ledgered real-MinIO publication end-to-end setup. It included concurrent conflict/matching publication, cancellation/rollback retries, exact object/no-write and mismatch checks, Published idempotency/conflicts, and deployment remaining Draft:
+
+```text
+dotnet test tests/TrackZ.Infrastructure.Tests/TrackZ.Infrastructure.Tests.csproj --no-restore --filter "FullyQualifiedName~ExerciseCatalogPublicationTests.Concurrent_|FullyQualifiedName~ExerciseCatalogPublicationTests.Trigger_failure_on_24th|FullyQualifiedName~ExerciseCatalogPublicationTests.Cancellation_releases|FullyQualifiedName~ExerciseCatalogPublicationTests.Verification_reads_exact|FullyQualifiedName~ExerciseCatalogPublicationTests.Publication_fails_closed_when_one_object|FullyQualifiedName~ExerciseCatalogPublicationTests.Publication_fails_closed_for_one_byte|FullyQualifiedName~ExerciseCatalogPublicationTests.Published_rerun_rejects|FullyQualifiedName~ExerciseCatalogPublicationTests.Exact_published_rerun|FullyQualifiedName~ExerciseCatalogDeploymentTests" --verbosity minimal -m:1
+Passed: 13, Failed: 0, Skipped: 0, Total: 13, Duration: 7m59s
+```
+
+```text
+dotnet build src/TrackZ.Api/TrackZ.Api.csproj --no-restore --verbosity minimal -m:1
+Build succeeded. 0 Warning(s), 0 Error(s). Duration: 0.59s
+```
+
+`rg` reconfirmed that publication remains reachable only through its explicit command and scoped DI registration; no migration, startup, seeding, deployment, or hosted-service invocation was added. No migration or schema change was required.
+
+Final Fix Round 1 process audit found no task-owned `dotnet test`, `vstest`, or `testhost` PID; only the audit shell/`rg` appeared. `docker ps` showed only the pre-existing healthy compose services `native-ios-experience-postgres-1` and `native-ios-experience-minio-1`, still at their seven-hour uptime. Task-created PostgreSQL Testcontainers were disposed, and the pre-existing services were preserved. `git diff --check` passed. Concern remains limited to the expected CPU/runtime cost of exact rendition regeneration; there is no open serialization or lifecycle concern.
