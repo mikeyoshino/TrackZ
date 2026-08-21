@@ -29,6 +29,9 @@ public sealed class GamificationViewModelTests
         Assert.Contains("pending", sut.SyncAccessibilityText, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(750, sut.TotalXp);
         Assert.Equal(3, sut.Level);
+        Assert.Equal(0d, sut.LevelProgress);
+        Assert.True(sut.IsProgressRevealPending);
+        Assert.False(sut.IsProgressRevealConfirmed);
         Assert.Equal(0, source.RefreshCount);
     }
 

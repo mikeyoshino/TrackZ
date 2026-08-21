@@ -3,9 +3,9 @@
     <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="*,Auto" RowSpacing="{DynamicResource TrackZSpace8}">
         <Label Style="{DynamicResource TrackZNavigationTitleStyle}" Text="{Binding ExerciseName, Source={x:Reference Root}}" />
         <Label Grid.Column="1" Style="{DynamicResource TrackZPerformanceMetadataStyle}" Text="{Binding PersonalRecordText, Source={x:Reference Root}}" />
-        <Grid Grid.Row="1" Grid.ColumnSpan="2" HeightRequest="20">
-            <BoxView HeightRequest="2" Color="{DynamicResource TrackZBorder}" VerticalOptions="Center" />
-            <Ellipse Fill="{DynamicResource TrackZPrimary}" HeightRequest="10" HorizontalOptions="End" WidthRequest="10" />
+        <Grid Grid.Row="1" Grid.ColumnSpan="2" HeightRequest="{DynamicResource TrackZSpace24}">
+            <BoxView HeightRequest="{DynamicResource TrackZSpace4}" Color="{DynamicResource TrackZBorder}" VerticalOptions="Center" />
+            <Ellipse Fill="{DynamicResource TrackZPrimary}" HeightRequest="{DynamicResource TrackZSpace12}" HorizontalOptions="End" WidthRequest="{DynamicResource TrackZSpace12}" />
         </Grid>
     </Grid>
 </ContentView>

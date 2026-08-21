@@ -1,6 +1,7 @@
 using TrackZ.Domain.Exercises;
 using TrackZ.Mobile.Features.Gamification;
 using TrackZ.Mobile.Features.Workout;
+using System.Xml.Linq;
 
 namespace TrackZ.Mobile.Tests.Acceptance;
 
@@ -20,11 +21,28 @@ public sealed class NativeIosExperienceAcceptanceTests
 
         foreach (var relativePath in rootDestinations)
         {
-            var xaml = File.ReadAllText(Path.Combine(mobileDirectory, relativePath));
-            Assert.Contains("TrackZPageTitleStyle", xaml, StringComparison.Ordinal);
-            Assert.Contains("TrackZPage", xaml, StringComparison.Ordinal);
-            Assert.Contains("SafeAreaEdges=\"All\"", xaml, StringComparison.Ordinal);
+            var document = XDocument.Load(Path.Combine(mobileDirectory, relativePath));
+            Assert.Contains(document.Descendants(), element =>
+                element.Name.LocalName == "Label" && ResourceKey(element.Attribute("Style")?.Value) == "TrackZPageTitleStyle");
+            Assert.Contains(document.Root!.DescendantsAndSelf().Attributes("Padding"), attribute =>
+                ResourceKey(attribute.Value) is "TrackZPageHorizontalPadding" or "TrackZPageContentPadding" or "TrackZPageBottomContentPadding");
+            Assert.Equal("All", document.Root!.Attribute("SafeAreaEdges")?.Value);
         }
+    }
+
+    [Fact]
+    public void Root_contract_does_not_accept_a_TrackZPage_substring_as_page_margin_evidence()
+    {
+        var document = XDocument.Parse("""
+            <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui" SafeAreaEdges="All">
+              <Grid Padding="{DynamicResource TrackZPageBogus}">
+                <Label Style="{DynamicResource TrackZPageTitleStyle}" />
+              </Grid>
+            </ContentPage>
+            """);
+
+        Assert.DoesNotContain(document.Root!.DescendantsAndSelf().Attributes("Padding"), attribute =>
+            ResourceKey(attribute.Value) is "TrackZPageHorizontalPadding" or "TrackZPageContentPadding" or "TrackZPageBottomContentPadding");
     }
 
     [Fact]
@@ -52,5 +70,12 @@ public sealed class NativeIosExperienceAcceptanceTests
         }
 
         throw new DirectoryNotFoundException("TrackZ.slnx was not found from the test output directory.");
+    }
+
+    private static string? ResourceKey(string? value)
+    {
+        const string marker = "Resource ";
+        var start = value?.IndexOf(marker, StringComparison.Ordinal) ?? -1;
+        return start >= 0 && value!.EndsWith('}') ? value[(start + marker.Length)..^1] : null;
     }
 }

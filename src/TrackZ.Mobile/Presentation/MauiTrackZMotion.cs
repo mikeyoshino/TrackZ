@@ -14,32 +14,42 @@ public sealed class MauiTrackZMotion(IReduceMotionPreference reduceMotion) : ITr
         target.CancelAnimations();
         target.Opacity = 0;
         target.Scale = 1;
-        if (reduceMotion.IsEnabled)
+        SetFeedbackVisibility(target, isVisible: false);
+        try
         {
-            target.Opacity = 1;
-            if (target.Handler is null)
-                target.Opacity = 0;
-            else
+            SetFeedbackVisibility(target, isVisible: true);
+            if (reduceMotion.IsEnabled)
+            {
+                target.Opacity = 1;
+                if (target.Handler is null)
+                    return;
                 await target.FadeToAsync(0, 180, Easing.Linear);
-            cancellationToken.ThrowIfCancellationRequested();
-            return;
-        }
+                cancellationToken.ThrowIfCancellationRequested();
+                return;
+            }
 
-        target.Opacity = 1;
-        if (outcome == SetSavedOutcome.PersonalRecord)
-        {
-            target.Scale = 0.94;
-            await Task.WhenAll(
-                target.ScaleToAsync(1.04, 180, Easing.CubicOut),
-                target.FadeToAsync(1, 140, Easing.Linear));
-            await target.ScaleToAsync(1, 180, Easing.CubicInOut);
+            target.Opacity = 1;
+            if (outcome == SetSavedOutcome.PersonalRecord)
+            {
+                target.Scale = 0.94;
+                await Task.WhenAll(
+                    target.ScaleToAsync(1.04, 180, Easing.CubicOut),
+                    target.FadeToAsync(1, 140, Easing.Linear));
+                await target.ScaleToAsync(1, 180, Easing.CubicInOut);
+            }
+            else
+            {
+                await target.FadeToAsync(1, 160, Easing.Linear);
+            }
+            await target.FadeToAsync(0, 360, Easing.CubicIn);
+            cancellationToken.ThrowIfCancellationRequested();
         }
-        else
+        finally
         {
-            await target.FadeToAsync(1, 160, Easing.Linear);
+            target.Opacity = 0;
+            target.Scale = 1;
+            SetFeedbackVisibility(target, isVisible: false);
         }
-        await target.FadeToAsync(0, 360, Easing.CubicIn);
-        cancellationToken.ThrowIfCancellationRequested();
     }
 
     public async Task PlayWorkoutSummaryAsync(
@@ -61,5 +71,11 @@ public sealed class MauiTrackZMotion(IReduceMotionPreference reduceMotion) : ITr
     {
         ArgumentNullException.ThrowIfNull(target);
         MainThread.BeginInvokeOnMainThread(target.CancelAnimations);
+    }
+
+    internal static void SetFeedbackVisibility(VisualElement target, bool isVisible)
+    {
+        target.InputTransparent = !isVisible;
+        AutomationProperties.SetExcludedWithChildren(target, !isVisible);
     }
 }

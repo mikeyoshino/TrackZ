@@ -16,8 +16,8 @@
                 <Grid ColumnDefinitions="88,*,Auto" ColumnSpacing="{DynamicResource TrackZSpace12}">
                     <Grid HeightRequest="{DynamicResource TrackZExerciseArtworkSize}" WidthRequest="{DynamicResource TrackZExerciseArtworkSize}">
                         <Image Aspect="AspectFit" IsVisible="{Binding HasArtwork}" SemanticProperties.Description="{Binding ExerciseName}" Source="{Binding ThumbnailUri}" />
-                        <Border BackgroundColor="{DynamicResource TrackZSurfaceRaised}" IsVisible="{Binding ShowsArtworkPlaceholder}" StrokeThickness="0" StrokeShape="RoundRectangle 14">
-                            <Image Aspect="AspectFit" HeightRequest="46" Source="exercise_placeholder.svg" WidthRequest="46" />
+                        <Border IsVisible="{Binding ShowsArtworkPlaceholder}" Style="{DynamicResource TrackZArtworkFrameStyle}">
+                            <Image Aspect="AspectFit" HeightRequest="{DynamicResource TrackZMinimumTarget}" Source="exercise_placeholder.svg" WidthRequest="{DynamicResource TrackZMinimumTarget}" />
                         </Border>
                     </Grid>
                     <VerticalStackLayout Grid.Column="1" Spacing="{DynamicResource TrackZSpace4}" VerticalOptions="Center">
@@ -48,7 +48,7 @@
                     </VerticalStackLayout>
                 </Border>
 
-                <Border x:Name="SavedPulse" Opacity="0" Style="{DynamicResource TrackZCardStyle}" Stroke="{DynamicResource TrackZPrimary}">
+                <Border x:Name="SavedPulse" AutomationProperties.ExcludedWithChildren="True" InputTransparent="True" Opacity="0" Style="{DynamicResource TrackZCardStyle}" Stroke="{DynamicResource TrackZPrimary}">
                     <VerticalStackLayout Spacing="{DynamicResource TrackZSpace4}">
                         <Label x:Name="SavedPrimary" HorizontalTextAlignment="Center" Style="{DynamicResource TrackZPerformanceNumberStyle}" />
                         <Label x:Name="SavedSecondary" HorizontalTextAlignment="Center" Style="{DynamicResource TrackZSecondaryStyle}" />

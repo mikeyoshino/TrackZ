@@ -35,7 +35,7 @@ public sealed class ProgressDashboardViewModel : GamificationViewModelBase
         _boundary.SessionReset += OnSessionReset;
     }
 
-    public ObservableCollection<EarnedBadgeDto> Badges { get; } = [];
+    public ObservableCollection<EarnedBadgePresentation> Badges { get; } = [];
     public ObservableCollection<ExerciseProgressItem> Exercises { get; } = [];
     public int TotalXp { get => _totalXp; private set => Set(ref _totalXp, value); }
     public int Level { get => _level; private set => Set(ref _level, value); }
@@ -100,7 +100,7 @@ public sealed class ProgressDashboardViewModel : GamificationViewModelBase
         OnPropertyChanged(nameof(WeeklyProgress));
         OnPropertyChanged(nameof(WeeklyProgressText));
         Badges.Clear();
-        foreach (var badge in snapshot.Profile.Badges) Badges.Add(badge);
+        foreach (var badge in snapshot.Profile.Badges) Badges.Add(EarnedBadgePresentation.From(badge, System.Globalization.CultureInfo.CurrentUICulture));
         foreach (var existing in Exercises) existing.Deactivate();
         Exercises.Clear();
         foreach (var exercise in snapshot.Summary.PersonalRecords)

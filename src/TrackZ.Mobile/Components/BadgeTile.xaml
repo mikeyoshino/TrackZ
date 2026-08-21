@@ -3,16 +3,20 @@
     x:Class="TrackZ.Mobile.Components.BadgeTile"
     xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
-    xmlns:gamification="clr-namespace:TrackZ.Contracts.Gamification;assembly=TrackZ.Contracts"
-    x:DataType="gamification:EarnedBadgeDto">
-    <Border Style="{DynamicResource TrackZCardStyle}">
+    xmlns:gamification="clr-namespace:TrackZ.Mobile.Features.Gamification;assembly=TrackZ.Mobile.Core"
+    x:DataType="gamification:EarnedBadgePresentation">
+    <Border SemanticProperties.Description="{Binding Description}" Style="{DynamicResource TrackZCardStyle}">
         <Grid ColumnDefinitions="44,*" ColumnSpacing="{DynamicResource TrackZSpace12}">
-            <Border HeightRequest="44" WidthRequest="44" BackgroundColor="{DynamicResource TrackZSurfaceRaised}" Stroke="{DynamicResource TrackZPrimary}" StrokeShape="RoundRectangle 22">
-                <Label HorizontalTextAlignment="Center" Style="{DynamicResource TrackZNavigationTitleStyle}" Text="★" TextColor="{DynamicResource TrackZPrimary}" VerticalTextAlignment="Center" />
+            <Border HeightRequest="44" WidthRequest="44" BackgroundColor="{DynamicResource TrackZSurfaceRaised}" Stroke="{DynamicResource TrackZPrimary}">
+                <Border.StrokeShape>
+                    <Ellipse />
+                </Border.StrokeShape>
+                <Label HorizontalTextAlignment="Center" Style="{DynamicResource TrackZNavigationTitleStyle}" Text="{Binding IconGlyph}" TextColor="{DynamicResource TrackZPrimary}" VerticalTextAlignment="Center" />
             </Border>
             <VerticalStackLayout Grid.Column="1" Spacing="{DynamicResource TrackZSpace4}" VerticalOptions="Center">
-                <Label Style="{DynamicResource TrackZNavigationTitleStyle}" Text="{Binding NameResourceKey}" />
-                <Label Style="{DynamicResource TrackZPerformanceMetadataStyle}" Text="{Binding EarnedAt, StringFormat='Earned {0:d}'}" />
+                <Label Style="{DynamicResource TrackZNavigationTitleStyle}" Text="{Binding Name}" />
+                <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Description}" />
+                <Label Style="{DynamicResource TrackZPerformanceMetadataStyle}" Text="{Binding EarnedText}" />
             </VerticalStackLayout>
         </Grid>
     </Border>

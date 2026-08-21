@@ -5,6 +5,7 @@ using TrackZ.Domain.Exercises;
 using TrackZ.Mobile.Features.Exercises;
 using TrackZ.Mobile.Features.Workout;
 using TrackZ.Mobile.Identity;
+using System.Globalization;
 
 namespace TrackZ.Mobile.Tests.Gamification;
 
@@ -48,6 +49,9 @@ public sealed class ProgressDashboardViewModelTests
         Assert.Equal(11, sut.Reveal.PreviousLevel);
         Assert.Equal(12, sut.Reveal.CurrentLevel);
         Assert.Equal(["consistent-4"], sut.Reveal.NewlyEarnedBadgeKeys);
+        Assert.Equal(0.6d, sut.LevelProgress, 3);
+        Assert.True(sut.IsProgressRevealConfirmed);
+        Assert.False(sut.IsProgressRevealPending);
     }
     [Fact]
     public void Progress_reveal_never_invents_negative_xp_and_preserves_authoritative_badges()
@@ -72,6 +76,31 @@ public sealed class ProgressDashboardViewModelTests
         Assert.DoesNotContain("daily", GamificationResources.English.StreakAccessibilityText, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("week", GamificationResources.English.StreakAccessibilityText, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("สัปดาห์", GamificationResources.Thai.StreakAccessibilityText, StringComparison.Ordinal);
+        Assert.Equal("Personal records", GamificationResources.English.PersonalRecords);
+        Assert.Equal("สถิติส่วนตัว", GamificationResources.Thai.PersonalRecords);
+    }
+
+    [Fact]
+    public void Badge_presentation_localizes_contract_keys_and_maps_the_real_icon_key()
+    {
+        var dto = new EarnedBadgeDto(
+            "streak-4", "Badge_Streak4_Name", "Badge_Streak4_Description", "badge-streak-4",
+            DateTimeOffset.Parse("2026-08-20T06:00:00Z"));
+
+        var english = EarnedBadgePresentation.From(dto, CultureInfo.GetCultureInfo("en-US"));
+        var thai = EarnedBadgePresentation.From(dto, CultureInfo.GetCultureInfo("th-TH"));
+
+        Assert.Equal("4-week streak", english.Name);
+        Assert.Equal("Train in four consecutive weeks.", english.Description);
+        Assert.Equal("4", english.IconGlyph);
+        Assert.Contains("ได้รับ", thai.EarnedText, StringComparison.Ordinal);
+        Assert.NotEqual(dto.NameResourceKey, english.Name);
+        Assert.NotEqual("★", english.IconGlyph);
+
+        var missingDescription = EarnedBadgePresentation.From(
+            dto with { DescriptionResourceKey = "Badge_Unknown_Description" },
+            CultureInfo.GetCultureInfo("en-US"));
+        Assert.Equal(string.Empty, missingDescription.Description);
     }
 
     private static ProgressSnapshot Snapshot(int level, int xp, int streak) => new(

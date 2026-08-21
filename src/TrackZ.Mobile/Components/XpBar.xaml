@@ -6,8 +6,22 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml">
     <VerticalStackLayout Spacing="{DynamicResource TrackZSpace8}">
         <Grid ColumnDefinitions="*,Auto">
-            <Label Style="{DynamicResource TrackZPerformanceNumberStyle}" Text="{Binding Level, Source={x:Reference Root}, StringFormat='LEVEL {0}'}" />
-            <Label Grid.Column="1" Style="{DynamicResource TrackZPerformanceMetadataStyle}" Text="{Binding TotalXp, Source={x:Reference Root}, StringFormat='{0:N0} XP'}" />
+            <Label Style="{DynamicResource TrackZPerformanceNumberStyle}">
+                <Label.Text>
+                    <MultiBinding StringFormat="{}{0} {1}">
+                        <Binding Path="LevelLabel" Source="{x:Reference Root}" />
+                        <Binding Path="Level" Source="{x:Reference Root}" />
+                    </MultiBinding>
+                </Label.Text>
+            </Label>
+            <Label Grid.Column="1" Style="{DynamicResource TrackZPerformanceMetadataStyle}">
+                <Label.Text>
+                    <MultiBinding StringFormat="{}{0:N0} {1}">
+                        <Binding Path="TotalXp" Source="{x:Reference Root}" />
+                        <Binding Path="XpLabel" Source="{x:Reference Root}" />
+                    </MultiBinding>
+                </Label.Text>
+            </Label>
         </Grid>
         <ProgressBar Progress="{Binding Progress, Source={x:Reference Root}}" ProgressColor="{DynamicResource TrackZPrimary}" />
     </VerticalStackLayout>

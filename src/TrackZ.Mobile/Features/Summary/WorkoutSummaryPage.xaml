@@ -12,20 +12,21 @@
     <ScrollView>
         <VerticalStackLayout Padding="{DynamicResource TrackZPageContentPadding}" Spacing="{DynamicResource TrackZSpace16}">
             <Label Style="{DynamicResource TrackZNavigationTitleStyle}" Text="{Binding Text.SummaryTitle}" />
-            <Border x:Name="SummaryReveal" Style="{DynamicResource TrackZCardStyle}">
+            <Border x:Name="SummaryReveal" IsVisible="{Binding HasProgressReveal}" Style="{DynamicResource TrackZCardStyle}">
                 <VerticalStackLayout Spacing="{DynamicResource TrackZSpace8}">
-                    <Label Style="{DynamicResource TrackZPerformanceNumberStyle}" Text="{Binding ProgressRevealStatus}" />
+                    <Label x:Name="ConfirmedRevealStatus" IsVisible="{Binding IsProgressRevealConfirmed}" Style="{DynamicResource TrackZPerformanceNumberStyle}" Text="{Binding ProgressRevealStatus}" />
+                    <Label x:Name="PendingRevealStatus" IsVisible="{Binding IsProgressRevealPending}" Style="{DynamicResource TrackZPerformanceMetadataStyle}" Text="{Binding ProgressRevealStatus}" />
                     <Label Style="{DynamicResource TrackZNavigationTitleStyle}" Text="{Binding XpEarnedText}" />
                     <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding LevelAdvancedText}" />
                 </VerticalStackLayout>
             </Border>
             <Border Style="{DynamicResource TrackZCardStyle}">
-                <components:XpBar Level="{Binding Level}" TotalXp="{Binding TotalXp}" Progress="0" />
+                <components:XpBar Level="{Binding Level}" LevelLabel="{Binding Text.Level}" TotalXp="{Binding TotalXp}" XpLabel="{Binding Text.Xp}" Progress="{Binding LevelProgress}" />
             </Border>
             <Grid ColumnDefinitions="*,*,*" ColumnSpacing="{DynamicResource TrackZSpace8}">
                 <Border Style="{DynamicResource TrackZCardStyle}">
                     <VerticalStackLayout Spacing="{DynamicResource TrackZSpace4}">
-                        <Label Style="{DynamicResource TrackZSectionTitleStyle}" Text="{Binding TotalVolumeKg, StringFormat='{0:0.###} kg'}" />
+                        <Label Style="{DynamicResource TrackZSectionTitleStyle}" Text="{Binding TotalVolumeText}" />
                         <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Text.TotalVolume}" />
                     </VerticalStackLayout>
                 </Border>

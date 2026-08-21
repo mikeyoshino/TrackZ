@@ -73,6 +73,7 @@ public sealed record GamificationTextSet(
     string CurrentStreak,
     string BestStreak,
     string Badges,
+    string PersonalRecords,
     string Save,
     string Kilograms,
     string Pounds,
@@ -93,7 +94,7 @@ public static class GamificationResources
     public static GamificationTextSet English { get; } = new(
         "Workout summary", "Progress", "Profile", "You", "Progress pending server confirmation",
         "Progress confirmed", "Total volume", "Sets", "Reps", "Level", "XP", "Weekly goal",
-        "Current streak", "Best streak", "Badges", "Save", "kg", "lb",
+        "Current streak", "Best streak", "Badges", "Personal records", "Save", "kg", "lb",
         "Could not load progress", "Could not save weekly goal",
         "Weekly consistency streak", "Workout complete", "+{0} XP", "Level {0}",
         "Badge unlocked: {0}", "Progress pending", "Haptics", "Reduce Motion", "Sign out");
@@ -101,7 +102,7 @@ public static class GamificationResources
     public static GamificationTextSet Thai { get; } = new(
         "สรุปการออกกำลังกาย", "ความก้าวหน้า", "โปรไฟล์", "คุณ", "ความก้าวหน้ารอยืนยันจากเซิร์ฟเวอร์",
         "ยืนยันความก้าวหน้าแล้ว", "ปริมาณรวม", "เซ็ต", "ครั้ง", "เลเวล", "XP", "เป้าหมายรายสัปดาห์",
-        "สตรีคปัจจุบัน", "สตรีคสูงสุด", "เหรียญรางวัล", "บันทึก", "กก.", "ปอนด์",
+        "สตรีคปัจจุบัน", "สตรีคสูงสุด", "เหรียญรางวัล", "สถิติส่วนตัว", "บันทึก", "กก.", "ปอนด์",
         "โหลดความก้าวหน้าไม่สำเร็จ", "บันทึกเป้าหมายไม่สำเร็จ",
         "สตรีคความสม่ำเสมอรายสัปดาห์", "ออกกำลังกายเสร็จแล้ว", "+{0} XP", "เลเวล {0}",
         "ปลดล็อกเหรียญ: {0}", "รอยืนยันความก้าวหน้า", "การสั่นตอบสนอง", "ลดการเคลื่อนไหว", "ออกจากระบบ");
@@ -148,9 +149,11 @@ public sealed class WorkoutSummaryViewModel(
     private int _totalReps;
     private int _totalXp;
     private int _level = 1;
+    private int _currentLevelRequiredXp;
+    private int? _nextLevelRequiredXp;
     private ProgressReveal? _reveal;
 
-    public decimal TotalVolumeKg { get => _totalVolumeKg; private set => Set(ref _totalVolumeKg, value); }
+    public decimal TotalVolumeKg { get => _totalVolumeKg; private set { if (Set(ref _totalVolumeKg, value)) OnPropertyChanged(nameof(TotalVolumeText)); } }
     public int CompletedSets { get => _completedSets; private set => Set(ref _completedSets, value); }
     public int TotalReps { get => _totalReps; private set => Set(ref _totalReps, value); }
     public int TotalXp { get => _totalXp; private set => Set(ref _totalXp, value); }
@@ -164,11 +167,23 @@ public sealed class WorkoutSummaryViewModel(
             OnPropertyChanged(nameof(XpEarnedText));
             OnPropertyChanged(nameof(LevelAdvancedText));
             OnPropertyChanged(nameof(ProgressRevealStatus));
+            OnPropertyChanged(nameof(IsProgressRevealConfirmed));
+            OnPropertyChanged(nameof(IsProgressRevealPending));
+            OnPropertyChanged(nameof(HasProgressReveal));
         }
     }
+    public int CurrentLevelRequiredXp { get => _currentLevelRequiredXp; private set => Set(ref _currentLevelRequiredXp, value); }
+    public int? NextLevelRequiredXp { get => _nextLevelRequiredXp; private set => Set(ref _nextLevelRequiredXp, value); }
+    public double LevelProgress => NextLevelRequiredXp is not { } next || next <= CurrentLevelRequiredXp
+        ? 1d
+        : Math.Clamp((double)(TotalXp - CurrentLevelRequiredXp) / (next - CurrentLevelRequiredXp), 0d, 1d);
     public string XpEarnedText => string.Format(Text.XpEarnedFormat, Reveal?.XpDelta ?? 0);
     public string LevelAdvancedText => string.Format(Text.LevelAdvancedFormat, Reveal?.CurrentLevel ?? Level);
     public string ProgressRevealStatus => Reveal?.IsProvisional == true ? Text.ProgressPending : Text.WorkoutComplete;
+    public bool IsProgressRevealConfirmed => Reveal is { IsProvisional: false };
+    public bool IsProgressRevealPending => Reveal is { IsProvisional: true };
+    public bool HasProgressReveal => Reveal is not null;
+    public string TotalVolumeText => $"{TotalVolumeKg:0.###} {Text.Kilograms}";
 
     public async Task LoadAsync(Guid workoutId, CancellationToken cancellationToken = default)
     {
@@ -216,6 +231,9 @@ public sealed class WorkoutSummaryViewModel(
     {
         TotalXp = snapshot.Profile.TotalXp;
         Level = snapshot.Profile.Level;
+        CurrentLevelRequiredXp = snapshot.Profile.CurrentLevelRequiredXp;
+        NextLevelRequiredXp = snapshot.Profile.NextLevelRequiredXp;
+        OnPropertyChanged(nameof(LevelProgress));
     }
 
     private static ProgressReveal CreateReveal(
@@ -339,7 +357,7 @@ public sealed class ProfileViewModel : GamificationViewModelBase
         SaveWeeklyGoalCommand = new AsyncCommand(_ => SaveWeeklyGoalAsync(), _ => !IsBusy && WeeklyGoal is >= 1 and <= 7 && _connectivity.IsOnline);
     }
 
-    public ObservableCollection<EarnedBadgeDto> Badges { get; } = [];
+    public ObservableCollection<EarnedBadgePresentation> Badges { get; } = [];
     public AsyncCommand SaveWeeklyGoalCommand { get; }
     public int TotalXp { get => _totalXp; private set => Set(ref _totalXp, value); }
     public int Level { get => _level; private set => Set(ref _level, value); }
@@ -391,6 +409,6 @@ public sealed class ProfileViewModel : GamificationViewModelBase
         CurrentStreakWeeks = profile.CurrentStreakWeeks;
         BestStreakWeeks = profile.BestStreakWeeks;
         Badges.Clear();
-        foreach (var badge in profile.Badges) Badges.Add(badge);
+        foreach (var badge in profile.Badges) Badges.Add(EarnedBadgePresentation.From(badge, CultureInfo.CurrentUICulture));
     }
 }

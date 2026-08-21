@@ -18,8 +18,22 @@
                     <VerticalStackLayout Spacing="{DynamicResource TrackZSpace12}">
                         <Label Style="{DynamicResource TrackZSectionTitleStyle}" Text="{Binding Source={x:Reference Page}, Path=WorkoutText.Weight}" />
                         <Grid ColumnDefinitions="*,*" ColumnSpacing="{DynamicResource TrackZSpace8}">
-                            <Button Clicked="OnKilogramsClicked" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="{Binding Source={x:Reference Page}, Path=WorkoutText.Kilograms}" />
-                            <Button Grid.Column="1" Clicked="OnPoundsClicked" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="{Binding Source={x:Reference Page}, Path=WorkoutText.Pounds}" />
+                            <Button x:Name="KilogramsButton" Clicked="OnKilogramsClicked" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="{Binding Source={x:Reference Page}, Path=WorkoutText.Kilograms}">
+                                <Button.Triggers>
+                                    <DataTrigger TargetType="Button" Binding="{Binding Source={x:Reference Page}, Path=IsKilogramsSelected}" Value="True">
+                                        <Setter Property="BackgroundColor" Value="{DynamicResource TrackZPrimary}" />
+                                        <Setter Property="TextColor" Value="{DynamicResource TrackZPrimaryContrast}" />
+                                    </DataTrigger>
+                                </Button.Triggers>
+                            </Button>
+                            <Button x:Name="PoundsButton" Grid.Column="1" Clicked="OnPoundsClicked" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="{Binding Source={x:Reference Page}, Path=WorkoutText.Pounds}">
+                                <Button.Triggers>
+                                    <DataTrigger TargetType="Button" Binding="{Binding Source={x:Reference Page}, Path=IsPoundsSelected}" Value="True">
+                                        <Setter Property="BackgroundColor" Value="{DynamicResource TrackZPrimary}" />
+                                        <Setter Property="TextColor" Value="{DynamicResource TrackZPrimaryContrast}" />
+                                    </DataTrigger>
+                                </Button.Triggers>
+                            </Button>
                         </Grid>
                     </VerticalStackLayout>
                 </Border>
@@ -29,19 +43,19 @@
                             <Label Style="{DynamicResource TrackZNavigationTitleStyle}" Text="{Binding Text.WeeklyGoal}" />
                             <Label Style="{DynamicResource TrackZPerformanceMetadataStyle}" Text="{Binding WeeklyCompletedWorkouts, StringFormat='{0}'}" />
                         </VerticalStackLayout>
-                        <Stepper Grid.Column="1" Minimum="1" Maximum="7" Value="{Binding WeeklyGoal}" />
+                        <Stepper Grid.Column="1" Minimum="1" Maximum="7" Style="{DynamicResource TrackZStepperStyle}" Value="{Binding WeeklyGoal}" />
                     </Grid>
                 </Border>
                 <Border Style="{DynamicResource TrackZListRowStyle}">
                     <Grid ColumnDefinitions="*,Auto">
                         <Label Style="{DynamicResource TrackZBodyStyle}" Text="{Binding Text.Haptics}" />
-                        <Switch x:Name="HapticsSwitch" Grid.Column="1" Toggled="OnHapticsToggled" />
+                        <Switch x:Name="HapticsSwitch" Grid.Column="1" Style="{DynamicResource TrackZSwitchStyle}" Toggled="OnHapticsToggled" />
                     </Grid>
                 </Border>
                 <Border Style="{DynamicResource TrackZListRowStyle}">
                     <Grid ColumnDefinitions="*,Auto">
                         <Label Style="{DynamicResource TrackZBodyStyle}" Text="{Binding Text.ReduceMotion}" />
-                        <Switch x:Name="ReduceMotionSwitch" Grid.Column="1" Toggled="OnReduceMotionToggled" />
+                        <Switch x:Name="ReduceMotionSwitch" Grid.Column="1" Style="{DynamicResource TrackZSwitchStyle}" Toggled="OnReduceMotionToggled" />
                     </Grid>
                 </Border>
                 <Label SemanticProperties.Description="{Binding SyncAccessibilityText}" Style="{DynamicResource TrackZPerformanceMetadataStyle}" Text="{Binding SyncAccessibilityText}" />

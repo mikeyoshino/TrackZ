@@ -1,5 +1,6 @@
 using Microsoft.Maui.Controls;
 using TrackZ.Mobile.Features.Workout;
+using TrackZ.Mobile.Presentation;
 
 namespace TrackZ.Mobile.Tests.Workout;
 
@@ -35,6 +36,20 @@ public sealed class ReduceMotionTests
         Assert.Equal(0, pulse.Opacity);
         Assert.Equal(1, pulse.Scale);
         Assert.False(pulse.AnimationIsRunning("FadeTo"));
+    }
+
+    [Fact]
+    public void Saved_feedback_is_accessible_only_while_it_is_visible()
+    {
+        var pulse = new BoxView();
+
+        MauiTrackZMotion.SetFeedbackVisibility(pulse, isVisible: true);
+        Assert.False(pulse.InputTransparent);
+        Assert.False((bool)pulse.GetValue(AutomationProperties.ExcludedWithChildrenProperty));
+
+        MauiTrackZMotion.SetFeedbackVisibility(pulse, isVisible: false);
+        Assert.True(pulse.InputTransparent);
+        Assert.True((bool)pulse.GetValue(AutomationProperties.ExcludedWithChildrenProperty));
     }
 
     private sealed class FixedReduceMotionPreference(bool isEnabled) : IReduceMotionPreference

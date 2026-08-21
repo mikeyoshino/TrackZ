@@ -6,7 +6,7 @@
              BackgroundColor="{DynamicResource TrackZBackground}">
     <Grid Padding="0,24,0,0" RowDefinitions="Auto,*,Auto" BackgroundColor="{DynamicResource TrackZBackground}">
         <VerticalStackLayout Padding="{DynamicResource TrackZPageHorizontalPadding}" Spacing="{DynamicResource TrackZSpace12}">
-            <Label Style="{DynamicResource TrackZPageTitleStyle}" Text="{Binding Text.CreateAccountTitle}" />
+            <Label Style="{DynamicResource TrackZNavigationTitleStyle}" Text="{Binding Text.CreateAccountTitle}" />
             <Label x:Name="WelcomeBodyLabel" Style="{DynamicResource TrackZBodyStyle}" Text="{Binding Text.CreateAccountWelcomeBody}" />
         </VerticalStackLayout>
         <VerticalStackLayout Grid.Row="1" Padding="{DynamicResource TrackZPageHorizontalPadding}" Spacing="{DynamicResource TrackZSpace12}" VerticalOptions="Center">

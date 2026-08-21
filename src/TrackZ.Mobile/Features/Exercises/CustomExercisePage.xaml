@@ -17,23 +17,23 @@
         <ScrollView Grid.Row="1">
             <VerticalStackLayout Padding="{DynamicResource TrackZPageHorizontalPadding}" Spacing="{DynamicResource TrackZSpace16}">
                 <Entry Placeholder="Exercise name" Style="{DynamicResource TrackZFieldStyle}" Text="{Binding Name, Mode=TwoWay}" />
-                <Picker Title="Body part" ItemsSource="{Binding BodyParts}" SelectedItem="{Binding BodyPart, Mode=TwoWay}" />
-                <Picker Title="Tracking mode" ItemsSource="{Binding TrackingModes}" SelectedItem="{Binding TrackingMode, Mode=TwoWay}" />
-                <Image Aspect="AspectFit" HeightRequest="220" Source="{Binding PreviewImagePath}" />
+                <Picker Style="{DynamicResource TrackZPickerStyle}" Title="Body part" ItemsSource="{Binding BodyParts}" SelectedItem="{Binding BodyPart, Mode=TwoWay}" />
+                <Picker Style="{DynamicResource TrackZPickerStyle}" Title="Tracking mode" ItemsSource="{Binding TrackingModes}" SelectedItem="{Binding TrackingMode, Mode=TwoWay}" />
+                <Image Aspect="AspectFit" HeightRequest="{DynamicResource TrackZExerciseCardHeight}" Source="{Binding PreviewImagePath}" />
                 <Button Clicked="OnChooseImageClicked" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="Choose JPEG, PNG, or WebP" />
                 <Label Style="{DynamicResource TrackZSectionTitleStyle}" Text="Published library images" />
                 <CollectionView
-                    HeightRequest="128"
+                    HeightRequest="{DynamicResource TrackZExerciseCardHeight}"
                     ItemsSource="{Binding LibraryImages}"
                     SelectedItem="{Binding SelectedLibraryImage, Mode=TwoWay}"
                     SelectionMode="Single">
                     <CollectionView.ItemsLayout>
-                        <LinearItemsLayout Orientation="Horizontal" ItemSpacing="8" />
+                        <LinearItemsLayout Orientation="Horizontal" ItemSpacing="{DynamicResource TrackZSpace8}" />
                     </CollectionView.ItemsLayout>
                     <CollectionView.ItemTemplate>
                         <DataTemplate x:DataType="data:CachedLibraryImage">
-                            <VerticalStackLayout WidthRequest="104" Spacing="{DynamicResource TrackZSpace4}">
-                                <Image Aspect="AspectFill" HeightRequest="88" Source="{Binding ThumbnailUri}" />
+                            <VerticalStackLayout WidthRequest="{DynamicResource TrackZExerciseCardHeight}" Spacing="{DynamicResource TrackZSpace4}">
+                                <Image Aspect="AspectFill" HeightRequest="{DynamicResource TrackZExerciseArtworkSize}" Source="{Binding ThumbnailUri}" />
                                 <Label LineBreakMode="TailTruncation" Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Name}" />
                             </VerticalStackLayout>
                         </DataTemplate>

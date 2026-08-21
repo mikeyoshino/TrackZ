@@ -71,12 +71,36 @@
         <Setter Property="PlaceholderColor" Value="{StaticResource TrackZTextSecondary}" />
         <Setter Property="BackgroundColor" Value="Transparent" />
     </Style>
+    <Style x:Key="TrackZPickerStyle" TargetType="Picker">
+        <Setter Property="MinimumHeightRequest" Value="{StaticResource TrackZFieldHeight}" />
+        <Setter Property="MinimumWidthRequest" Value="{StaticResource TrackZMinimumTarget}" />
+        <Setter Property="FontSize" Value="15" />
+        <Setter Property="TextColor" Value="{StaticResource TrackZTextPrimary}" />
+        <Setter Property="TitleColor" Value="{StaticResource TrackZTextSecondary}" />
+        <Setter Property="BackgroundColor" Value="{StaticResource TrackZSurface}" />
+    </Style>
+    <Style x:Key="TrackZStepperStyle" TargetType="Stepper">
+        <Setter Property="MinimumHeightRequest" Value="{StaticResource TrackZMinimumTarget}" />
+        <Setter Property="MinimumWidthRequest" Value="{StaticResource TrackZMinimumTarget}" />
+        <Setter Property="BackgroundColor" Value="{StaticResource TrackZSurfaceRaised}" />
+    </Style>
+    <Style x:Key="TrackZSwitchStyle" TargetType="Switch">
+        <Setter Property="MinimumHeightRequest" Value="{StaticResource TrackZMinimumTarget}" />
+        <Setter Property="MinimumWidthRequest" Value="{StaticResource TrackZMinimumTarget}" />
+        <Setter Property="OnColor" Value="{StaticResource TrackZPrimary}" />
+        <Setter Property="ThumbColor" Value="{StaticResource TrackZPrimaryContrast}" />
+    </Style>
     <Style x:Key="TrackZCardStyle" TargetType="Border">
         <Setter Property="Padding" Value="{StaticResource TrackZSpace16}" />
         <Setter Property="BackgroundColor" Value="{StaticResource TrackZSurface}" />
         <Setter Property="Stroke" Value="{StaticResource TrackZHairline}" />
         <Setter Property="StrokeThickness" Value="1" />
         <Setter Property="StrokeShape" Value="RoundRectangle 16" />
+    </Style>
+    <Style x:Key="TrackZArtworkFrameStyle" TargetType="Border">
+        <Setter Property="BackgroundColor" Value="{StaticResource TrackZSurfaceRaised}" />
+        <Setter Property="StrokeThickness" Value="0" />
+        <Setter Property="StrokeShape" Value="RoundRectangle 14" />
     </Style>
     <Style x:Key="TrackZListRowStyle" TargetType="Border">
         <Setter Property="Padding" Value="{StaticResource TrackZSpace12}" />

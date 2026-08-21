@@ -63,6 +63,8 @@
         <Border
             x:Name="RewardOverlay"
             Grid.RowSpan="3"
+            AutomationProperties.ExcludedWithChildren="True"
+            InputTransparent="True"
             Margin="{DynamicResource TrackZPageMargin}"
             Opacity="0"
             HorizontalOptions="Center"
