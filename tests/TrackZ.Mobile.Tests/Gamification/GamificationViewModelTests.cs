@@ -55,6 +55,34 @@ public sealed class GamificationViewModelTests
     }
 
     [Fact]
+    public async Task Summary_follows_the_shared_weight_unit_without_rewriting_canonical_volume()
+    {
+        var preference = new MutableWeightPreference(WeightDisplayUnit.Pounds);
+        var sut = new WorkoutSummaryViewModel(
+            new StubWorkoutSummarySource(new CompletedWorkoutSummary(WorkoutId, 100m, 2, 18)),
+            new StubSnapshotSource(Snapshot()),
+            new StubConnectivity(false),
+            GamificationResources.English,
+            preference);
+
+        await sut.LoadAsync(WorkoutId);
+
+        Assert.Equal(100m, sut.TotalVolumeKg);
+        Assert.Equal("220.46 lb", sut.TotalVolumeText);
+        var changed = new List<string?>();
+        sut.PropertyChanged += (_, args) => changed.Add(args.PropertyName);
+        sut.Activate();
+        preference.Set(WeightDisplayUnit.Kilograms);
+        Assert.Equal("100 kg", sut.TotalVolumeText);
+        Assert.Contains(nameof(WorkoutSummaryViewModel.TotalVolumeText), changed);
+
+        sut.Deactivate();
+        changed.Clear();
+        preference.Set(WeightDisplayUnit.Pounds);
+        Assert.Empty(changed);
+    }
+
+    [Fact]
     public async Task Profile_updates_weekly_goal_with_valid_range_and_refreshes_confirmed_snapshot()
     {
         var source = new StubSnapshotSource(Snapshot());

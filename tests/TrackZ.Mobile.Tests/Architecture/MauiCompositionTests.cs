@@ -602,6 +602,7 @@ public sealed class MauiCompositionTests
 
             Assert.IsType<SetLoggerViewModel>(firstPage.BindingContext);
             Assert.IsType<SetLoggerViewModel>(secondPage.BindingContext);
+            Assert.Equal("Track sets", firstPage.Title);
             Assert.NotSame(firstPage, secondPage);
             Assert.NotSame(firstPage.BindingContext, secondPage.BindingContext);
             var firstLogger = Assert.IsType<SetLoggerViewModel>(firstPage.BindingContext);

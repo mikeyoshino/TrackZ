@@ -134,6 +134,24 @@ public sealed class WorkoutHistoryViewModelTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task History_formats_pounds_with_the_same_two_decimal_precision_as_training()
+    {
+        _ = await CompletedWorkoutAsync(TrackingMode.Weighted, 70.125m, null, 10);
+        var preference = new WeightUnitPreference(new DictionaryPreferenceStore());
+        preference.Set(WeightDisplayUnit.Pounds);
+        var viewModel = ViewModel(
+            WorkoutResources.English,
+            new RecordingConfirmation(),
+            unitPreference: preference);
+
+        await viewModel.LoadAsync();
+
+        var set = Assert.Single(Assert.Single(Assert.Single(viewModel.Workouts).Exercises).Sets);
+        Assert.Equal(70.125m, set.WeightKg);
+        Assert.Equal("154.60 lb × 10", set.MeasurementText);
+    }
+
+    [Fact]
     public async Task Missing_cached_exercise_uses_localized_fallback_instead_of_identifier()
     {
         var completed = await CompletedWorkoutAsync(TrackingMode.Bodyweight, null, null, 12);

@@ -344,6 +344,27 @@ public sealed class AppWideVisualConsistencyTests
     }
 
     [Fact]
+    public void Profile_is_the_only_weight_unit_selector()
+    {
+        var profile = XDocument.Load(Path.Combine(MobileDirectory(), "Features/Profile/ProfilePage.xaml"));
+        var profileUnitButtons = profile.Descendants()
+            .Where(element => element.Name.LocalName == "Button")
+            .Where(element => element.Attribute("Text")?.Value is
+                "{Binding Source={x:Reference Page}, Path=WorkoutText.Kilograms}" or
+                "{Binding Source={x:Reference Page}, Path=WorkoutText.Pounds}")
+            .ToArray();
+        Assert.Equal(2, profileUnitButtons.Length);
+
+        var setEntry = XDocument.Load(Path.Combine(MobileDirectory(), "Features/Workout/SetEntrySheetPage.xaml"));
+        var duplicateUnitButtons = setEntry.Descendants()
+            .Where(element => element.Name.LocalName == "Button")
+            .Where(element => element.Attribute("Command")?.Value is
+                "{Binding UseKilogramsCommand}" or "{Binding UsePoundsCommand}")
+            .ToArray();
+        Assert.Empty(duplicateUnitButtons);
+    }
+
+    [Fact]
     public void Summary_uses_authoritative_xp_progress_and_distinct_confirmation_roles()
     {
         var page = XDocument.Load(Path.Combine(MobileDirectory(), "Features/Summary/WorkoutSummaryPage.xaml"));

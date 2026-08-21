@@ -138,12 +138,13 @@ public abstract class GamificationViewModelBase : INotifyPropertyChanged
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
 }
 
-public sealed class WorkoutSummaryViewModel(
-    ICompletedWorkoutSummarySource workouts,
-    IProgressSnapshotSource snapshots,
-    IConnectivityService connectivity,
-    GamificationTextSet text) : GamificationViewModelBase(text)
+public sealed class WorkoutSummaryViewModel : GamificationViewModelBase
 {
+    private const decimal PoundsPerKilogram = 2.204622621848775807m;
+    private readonly ICompletedWorkoutSummarySource _workouts;
+    private readonly IProgressSnapshotSource _snapshots;
+    private readonly IConnectivityService _connectivity;
+    private readonly IWeightUnitPreference? _weightUnit;
     private decimal _totalVolumeKg;
     private int _completedSets;
     private int _totalReps;
@@ -153,6 +154,20 @@ public sealed class WorkoutSummaryViewModel(
     private int? _nextLevelRequiredXp;
     private bool _hasAuthoritativeProgressData;
     private ProgressReveal? _reveal;
+    private bool _unitSubscribed;
+
+    public WorkoutSummaryViewModel(
+        ICompletedWorkoutSummarySource workouts,
+        IProgressSnapshotSource snapshots,
+        IConnectivityService connectivity,
+        GamificationTextSet text,
+        IWeightUnitPreference? weightUnit = null) : base(text)
+    {
+        _workouts = workouts;
+        _snapshots = snapshots;
+        _connectivity = connectivity;
+        _weightUnit = weightUnit;
+    }
 
     public decimal TotalVolumeKg { get => _totalVolumeKg; private set { if (Set(ref _totalVolumeKg, value)) OnPropertyChanged(nameof(TotalVolumeText)); } }
     public int CompletedSets { get => _completedSets; private set => Set(ref _completedSets, value); }
@@ -195,7 +210,24 @@ public sealed class WorkoutSummaryViewModel(
     public bool IsProgressRevealConfirmed => Reveal is { IsProvisional: false };
     public bool IsProgressRevealPending => Reveal is { IsProvisional: true };
     public bool HasProgressReveal => Reveal is not null;
-    public string TotalVolumeText => $"{TotalVolumeKg:0.###} {Text.Kilograms}";
+    public string TotalVolumeText => _weightUnit?.Current == WeightDisplayUnit.Pounds
+        ? $"{decimal.Round(TotalVolumeKg * PoundsPerKilogram, 2, MidpointRounding.AwayFromZero):0.00} {Text.Pounds}"
+        : $"{TotalVolumeKg:0.###} {Text.Kilograms}";
+
+    public void Activate()
+    {
+        if (_weightUnit is null || _unitSubscribed) return;
+        _weightUnit.Changed += OnWeightUnitChanged;
+        _unitSubscribed = true;
+        OnPropertyChanged(nameof(TotalVolumeText));
+    }
+
+    public void Deactivate()
+    {
+        if (_weightUnit is null || !_unitSubscribed) return;
+        _weightUnit.Changed -= OnWeightUnitChanged;
+        _unitSubscribed = false;
+    }
 
     public async Task LoadAsync(Guid workoutId, CancellationToken cancellationToken = default)
     {
@@ -204,18 +236,18 @@ public sealed class WorkoutSummaryViewModel(
         ErrorMessage = null;
         try
         {
-            if (await workouts.GetAsync(workoutId, cancellationToken) is { } local)
+            if (await _workouts.GetAsync(workoutId, cancellationToken) is { } local)
             {
                 TotalVolumeKg = local.TotalVolumeKg;
                 CompletedSets = local.CompletedSets;
                 TotalReps = local.TotalReps;
             }
-            var snapshot = await snapshots.GetCachedAsync(cancellationToken);
+            var snapshot = await _snapshots.GetCachedAsync(cancellationToken);
             if (snapshot is not null) Apply(snapshot);
             IsProgressProvisional = true;
-            if (connectivity.IsOnline)
+            if (_connectivity.IsOnline)
             {
-                var refreshed = await snapshots.RefreshAsync(cancellationToken);
+                var refreshed = await _snapshots.RefreshAsync(cancellationToken);
                 Reveal = CreateReveal(snapshot, refreshed, snapshot is null);
                 Apply(refreshed);
                 IsProgressProvisional = false;
@@ -248,6 +280,9 @@ public sealed class WorkoutSummaryViewModel(
         HasAuthoritativeProgressData = true;
         OnPropertyChanged(nameof(LevelProgress));
     }
+
+    private void OnWeightUnitChanged(object? sender, EventArgs eventArgs) =>
+        OnPropertyChanged(nameof(TotalVolumeText));
 
     private static ProgressReveal CreateReveal(
         ProgressSnapshot? baseline,

@@ -17,7 +17,7 @@
   <data name="SaveFailed" xml:space="preserve"><value>Could not save this set on your device</value></data>
   <data name="LoadFailed" xml:space="preserve"><value>Could not load workout details</value></data>
   <data name="WorkoutTitle" xml:space="preserve"><value>Today's workout</value></data>
-  <data name="SetLoggerTitle" xml:space="preserve"><value>Set logger</value></data>
+  <data name="SetLoggerTitle" xml:space="preserve"><value>Track sets</value></data>
   <data name="Last" xml:space="preserve"><value>LAST</value></data>
   <data name="Today" xml:space="preserve"><value>TODAY</value></data>
   <data name="MatchLast" xml:space="preserve"><value>MATCH LAST</value></data>

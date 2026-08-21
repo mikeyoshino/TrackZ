@@ -22,11 +22,6 @@
             <VerticalStackLayout Padding="{DynamicResource TrackZPageHorizontalPadding}" Spacing="{DynamicResource TrackZSpace16}">
                 <Button Command="{Binding MatchLastCommand}" SemanticProperties.Description="{Binding Text.MatchLast}" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="{Binding Text.MatchLast}" />
 
-                <Grid ColumnDefinitions="*,*" ColumnSpacing="{DynamicResource TrackZSpace8}" IsVisible="{Binding UsesWeight}">
-                    <Button Command="{Binding UseKilogramsCommand}" IsEnabled="{Binding IsPounds}" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="{Binding Text.Kilograms}" />
-                    <Button Grid.Column="1" Command="{Binding UsePoundsCommand}" IsEnabled="{Binding IsKilograms}" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="{Binding Text.Pounds}" />
-                </Grid>
-
                 <components:WeightStepper
                     Caption="{Binding WeightCaption}"
                     DecrementCommand="{Binding DecrementWeightCommand}"

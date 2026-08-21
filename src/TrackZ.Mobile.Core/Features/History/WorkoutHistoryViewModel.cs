@@ -115,8 +115,8 @@ public sealed class HistorySetItem : INotifyPropertyChanged
         : _text.Pounds;
     public string MeasurementText => TrackingMode switch
     {
-        TrackingMode.Weighted => $"{DisplayWeight:0.###} {WeightUnitLabel} × {Reps}",
-        TrackingMode.Assisted => $"{DisplayWeight:0.###} {WeightUnitLabel} · {Reps} {_text.Reps}",
+        TrackingMode.Weighted => $"{FormattedDisplayWeight} {WeightUnitLabel} × {Reps}",
+        TrackingMode.Assisted => $"{FormattedDisplayWeight} {WeightUnitLabel} · {Reps} {_text.Reps}",
         TrackingMode.Bodyweight => $"{Reps} {_text.Reps}",
         _ => string.Empty
     };
@@ -155,6 +155,9 @@ public sealed class HistorySetItem : INotifyPropertyChanged
 
     private WeightDisplayUnit DisplayUnit =>
         _unitPreference?.Current ?? WeightDisplayUnit.Kilograms;
+
+    private string FormattedDisplayWeight => DisplayWeight?.ToString(
+        DisplayUnit == WeightDisplayUnit.Pounds ? "0.00" : "0.###") ?? "—";
 
     private bool Set<T>(ref T field, T value, [CallerMemberName] string? name = null)
     {

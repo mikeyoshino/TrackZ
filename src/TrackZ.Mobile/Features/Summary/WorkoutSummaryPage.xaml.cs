@@ -32,10 +32,17 @@ public partial class WorkoutSummaryPage : ContentPage, IQueryAttributable
         }
     }
 
+    protected override void OnAppearing()
+    {
+        base.OnAppearing();
+        _viewModel.Activate();
+    }
+
     protected override void OnDisappearing()
     {
         _lifetime?.Cancel();
         _motion.Cancel(SummaryReveal);
+        _viewModel.Deactivate();
         base.OnDisappearing();
     }
 }
