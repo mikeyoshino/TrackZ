@@ -4,7 +4,7 @@
     xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml">
     <VerticalStackLayout Spacing="{DynamicResource TrackZSpace12}">
-        <Border HeightRequest="{DynamicResource TrackZExerciseCardHeight}" Style="{DynamicResource TrackZCardStyle}">
+        <Border MinimumHeightRequest="{DynamicResource TrackZExerciseCardHeight}" Style="{DynamicResource TrackZListRowStyle}">
             <Grid ColumnDefinitions="88,*" ColumnSpacing="{DynamicResource TrackZSpace12}">
                 <BoxView HeightRequest="{DynamicResource TrackZExerciseArtworkSize}" Style="{DynamicResource TrackZSkeletonStyle}" WidthRequest="{DynamicResource TrackZExerciseArtworkSize}" />
                 <VerticalStackLayout Grid.Column="1" Spacing="{DynamicResource TrackZSpace8}" VerticalOptions="Center">
@@ -14,7 +14,7 @@
                 </VerticalStackLayout>
             </Grid>
         </Border>
-        <Border HeightRequest="{DynamicResource TrackZExerciseCardHeight}" Style="{DynamicResource TrackZCardStyle}">
+        <Border MinimumHeightRequest="{DynamicResource TrackZExerciseCardHeight}" Style="{DynamicResource TrackZListRowStyle}">
             <Grid ColumnDefinitions="88,*" ColumnSpacing="{DynamicResource TrackZSpace12}">
                 <BoxView HeightRequest="{DynamicResource TrackZExerciseArtworkSize}" Style="{DynamicResource TrackZSkeletonStyle}" WidthRequest="{DynamicResource TrackZExerciseArtworkSize}" />
                 <VerticalStackLayout Grid.Column="1" Spacing="{DynamicResource TrackZSpace8}" VerticalOptions="Center">
@@ -24,7 +24,7 @@
                 </VerticalStackLayout>
             </Grid>
         </Border>
-        <Border HeightRequest="{DynamicResource TrackZExerciseCardHeight}" Style="{DynamicResource TrackZCardStyle}">
+        <Border MinimumHeightRequest="{DynamicResource TrackZExerciseCardHeight}" Style="{DynamicResource TrackZListRowStyle}">
             <Grid ColumnDefinitions="88,*" ColumnSpacing="{DynamicResource TrackZSpace12}">
                 <BoxView HeightRequest="{DynamicResource TrackZExerciseArtworkSize}" Style="{DynamicResource TrackZSkeletonStyle}" WidthRequest="{DynamicResource TrackZExerciseArtworkSize}" />
                 <VerticalStackLayout Grid.Column="1" Spacing="{DynamicResource TrackZSpace8}" VerticalOptions="Center">

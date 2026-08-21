@@ -20,14 +20,17 @@
     </Style>
     <Style x:Key="TrackZBodyStyle" TargetType="Label">
         <Setter Property="FontSize" Value="15" />
+        <Setter Property="FontAttributes" Value="None" />
         <Setter Property="TextColor" Value="{StaticResource TrackZTextPrimary}" />
     </Style>
     <Style x:Key="TrackZSecondaryStyle" TargetType="Label">
         <Setter Property="FontSize" Value="13" />
+        <Setter Property="FontAttributes" Value="None" />
         <Setter Property="TextColor" Value="{StaticResource TrackZTextSecondary}" />
     </Style>
     <Style x:Key="TrackZFieldErrorStyle" TargetType="Label">
         <Setter Property="FontSize" Value="12" />
+        <Setter Property="FontAttributes" Value="None" />
         <Setter Property="TextColor" Value="{StaticResource TrackZDanger}" />
         <Setter Property="LineBreakMode" Value="WordWrap" />
     </Style>
@@ -38,7 +41,7 @@
     </Style>
     <Style x:Key="TrackZPerformanceMetadataStyle" TargetType="Label">
         <Setter Property="FontSize" Value="13" />
-        <Setter Property="FontAttributes" Value="Bold" />
+        <Setter Property="FontAttributes" Value="None" />
         <Setter Property="TextColor" Value="{StaticResource TrackZTextSecondary}" />
     </Style>
 </ResourceDictionary>

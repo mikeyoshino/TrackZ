@@ -13,7 +13,7 @@
     <x:Double x:Key="TrackZPrimaryActionHeight">52</x:Double>
     <x:Double x:Key="TrackZMinimumTarget">44</x:Double>
     <x:Double x:Key="TrackZFieldHeight">50</x:Double>
-    <x:Double x:Key="TrackZExerciseCardHeight">104</x:Double>
+    <x:Double x:Key="TrackZExerciseCardHeight">112</x:Double>
     <x:Double x:Key="TrackZExerciseArtworkColumnWidth">88</x:Double>
     <x:Double x:Key="TrackZExerciseArtworkSize">88</x:Double>
     <x:Double x:Key="TrackZArtworkRadius">14</x:Double>
@@ -21,7 +21,7 @@
     <Style x:Key="TrackZPrimaryButtonStyle" TargetType="Button">
         <Setter Property="MinimumHeightRequest" Value="{StaticResource TrackZPrimaryActionHeight}" />
         <Setter Property="MinimumWidthRequest" Value="{StaticResource TrackZMinimumTarget}" />
-        <Setter Property="Padding" Value="18,12" />
+        <Setter Property="Padding" Value="16,12" />
         <Setter Property="CornerRadius" Value="15" />
         <Setter Property="FontSize" Value="17" />
         <Setter Property="FontAttributes" Value="Bold" />
@@ -90,7 +90,7 @@
         <Setter Property="StrokeShape" Value="RoundRectangle 16" />
     </Style>
     <Style x:Key="TrackZStickyActionContainerStyle" TargetType="Border">
-        <Setter Property="Padding" Value="18,12" />
+        <Setter Property="Padding" Value="16,12" />
         <Setter Property="BackgroundColor" Value="{StaticResource TrackZBackground}" />
         <Setter Property="Stroke" Value="{StaticResource TrackZHairline}" />
         <Setter Property="StrokeThickness" Value="1" />

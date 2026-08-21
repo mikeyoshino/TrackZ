@@ -77,3 +77,30 @@ exit 0
 ```
 
 Fixes: all audited component `Spacing`/`Padding` values now resolve to the 4/8/12/16/24/32 scale; the status pill uses `12,4`. Performance cards, active rows, and skeletons share the exact `88` artwork size and an `88` XAML artwork column. Both themes of implicit Button, Entry, and SearchBar disabled states use semantic `TrackZDisabledText` and `TrackZDisabledSurface`; no legacy gray binding remains in those states. The mutation-sensitive test gate resolves merged style setters and state bindings, validates typography, 44-point button targets, card radii, spacing axes, artwork resource usage, and lime role restrictions. `TrackZSelectionChipStyle` now also carries a 44-point minimum target.
+
+## Fix Round 2/5 — remaining partial findings
+
+RED command:
+
+```text
+dotnet test tests/TrackZ.Mobile.Tests/TrackZ.Mobile.Tests.csproj --no-restore --filter "FullyQualifiedName~NativeVisualTokenTests|FullyQualifiedName~AccessibilitySemanticsTests|FullyQualifiedName~NativePresentationCompositionTests|FullyQualifiedName~ExercisePickerViewModelTests" --verbosity minimal -m:1
+Failed! - Failed: 3, Passed: 71, Skipped: 0, Total: 74
+```
+
+The failures proved the primary button's off-scale `18,12` padding, missing explicit `None` attributes for body/metadata/error typography, and the stale 104-point exercise row height.
+
+GREEN command:
+
+```text
+dotnet test tests/TrackZ.Mobile.Tests/TrackZ.Mobile.Tests.csproj --no-restore --filter "FullyQualifiedName~NativeVisualTokenTests|FullyQualifiedName~AccessibilitySemanticsTests|FullyQualifiedName~NativePresentationCompositionTests|FullyQualifiedName~ExercisePickerViewModelTests" --verbosity minimal -m:1
+Passed! - Failed: 0, Passed: 74, Skipped: 0, Total: 74
+```
+
+iOS XAML compile:
+
+```text
+dotnet msbuild src/TrackZ.Mobile/TrackZ.Mobile.csproj -t:Compile -p:TargetFramework=net10.0-ios -p:BuildProjectReferences=false -m:1 -verbosity:minimal
+exit 0
+```
+
+Fixes: primary and sticky-action padding is `16,12`; semantic style and audited component spacing/padding axes are statically constrained to the native scale (with zero only as an omitted axis). `TrackZExerciseCardHeight` is `112`, which exactly accommodates 88-point artwork plus shared 12-point list-row padding above and below. Skeleton and both loaded exercise card components use `TrackZListRowStyle`, the same 88-point column/artwork resource, and the same 112-point minimum outer geometry. Typography tests now require explicit `Bold` for page/navigation/section and explicit `None` for body/metadata/error. The gate also rejects local shape overrides on outer shared cards and direct lime label copy across every audited component, except the explicit performance-number role.

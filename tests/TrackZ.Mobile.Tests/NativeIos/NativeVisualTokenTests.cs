@@ -45,6 +45,10 @@ public sealed class NativeVisualTokenTests
         AssertStyle<Entry>(app, "TrackZFieldStyle", ("MinimumHeightRequest", 50d));
         AssertStyle<Border>(app, "TrackZCardStyle", ("StrokeShape", "RoundRectangle 16"));
         AssertStyle<Border>(app, "TrackZListRowStyle", ("StrokeShape", "RoundRectangle 16"));
+
+        var primaryPadding = Assert.IsType<Thickness>(SetterValue<Button>(app, "TrackZPrimaryButtonStyle", "Padding"));
+        Assert.Equal(16, primaryPadding.Left);
+        Assert.Equal(12, primaryPadding.Top);
     }
 
     [Fact]
@@ -55,9 +59,10 @@ public sealed class NativeVisualTokenTests
         AssertStyle<Label>(app, "TrackZPageTitleStyle", ("FontSize", 32d), ("FontAttributes", FontAttributes.Bold));
         AssertStyle<Label>(app, "TrackZNavigationTitleStyle", ("FontSize", 17d), ("FontAttributes", FontAttributes.Bold));
         AssertStyle<Label>(app, "TrackZSectionTitleStyle", ("FontSize", 20d), ("FontAttributes", FontAttributes.Bold));
-        AssertStyle<Label>(app, "TrackZBodyStyle", ("FontSize", 15d));
-        AssertStyle<Label>(app, "TrackZSecondaryStyle", ("FontSize", 13d));
-        AssertStyle<Label>(app, "TrackZFieldErrorStyle", ("FontSize", 12d));
+        AssertStyle<Label>(app, "TrackZBodyStyle", ("FontSize", 15d), ("FontAttributes", FontAttributes.None));
+        AssertStyle<Label>(app, "TrackZSecondaryStyle", ("FontSize", 13d), ("FontAttributes", FontAttributes.None));
+        AssertStyle<Label>(app, "TrackZFieldErrorStyle", ("FontSize", 12d), ("FontAttributes", FontAttributes.None));
+        AssertStyle<Label>(app, "TrackZPerformanceMetadataStyle", ("FontSize", 13d), ("FontAttributes", FontAttributes.None));
 
         var primary = Assert.IsType<Color>(Resources(app)["TrackZPrimary"]);
         Assert.Equal(primary, SetterValue<Label>(app, "TrackZPerformanceNumberStyle", "TextColor"));
@@ -107,11 +112,31 @@ public sealed class NativeVisualTokenTests
 
         Assert.Equal(88d, Assert.IsType<double>(Resources(app)["TrackZExerciseArtworkSize"]));
         Assert.Equal(88d, Assert.IsType<double>(Resources(app)["TrackZExerciseArtworkColumnWidth"]));
+        Assert.Equal(112d, Assert.IsType<double>(Resources(app)["TrackZExerciseCardHeight"]));
+        var rowPadding = AsThickness(SetterValue<Border>(app, "TrackZListRowStyle", "Padding"));
+        Assert.Equal(12, rowPadding.Top);
+        Assert.Equal(12, rowPadding.Bottom);
+        Assert.True(88 + rowPadding.Top + rowPadding.Bottom <= 112);
         foreach (var component in new[] { "ExercisePerformanceCard.xaml", "ActiveWorkoutExerciseRow.xaml", "ExerciseListSkeleton.xaml" })
         {
             var xaml = File.ReadAllText(Path.Combine(componentDirectory, component));
             Assert.Contains("ColumnDefinitions=\"88", xaml, StringComparison.Ordinal);
             Assert.Contains("TrackZExerciseArtworkSize", xaml, StringComparison.Ordinal);
+        }
+
+        var skeleton = XDocument.Load(Path.Combine(componentDirectory, "ExerciseListSkeleton.xaml"));
+        var loadedCards = new[] { "ExercisePerformanceCard.xaml", "ActiveWorkoutExerciseRow.xaml" }
+            .Select(component => XDocument.Load(Path.Combine(componentDirectory, component)));
+        Assert.Equal(3, skeleton.Descendants().Count(element => element.Name.LocalName == "Border" && element.Attribute("Style")?.Value.Contains("TrackZListRowStyle", StringComparison.Ordinal) == true));
+        foreach (var loaded in loadedCards)
+            Assert.Equal(1, loaded.Descendants().Count(element => element.Name.LocalName == "Border" && element.Attribute("Style")?.Value.Contains("TrackZListRowStyle", StringComparison.Ordinal) == true));
+        foreach (var card in skeleton.Descendants().Where(element => element.Name.LocalName == "Border").Concat(loadedCards.SelectMany(document => document.Descendants().Where(element => element.Name.LocalName == "Border"))))
+        {
+            var style = card.Attribute("Style")?.Value;
+            if (style is null || !style.Contains("TrackZListRowStyle", StringComparison.Ordinal)) continue;
+            Assert.Equal("{DynamicResource TrackZExerciseCardHeight}", card.Attribute("MinimumHeightRequest")?.Value);
+            Assert.Null(card.Attribute("StrokeShape"));
+            Assert.Null(card.Attribute("CornerRadius"));
         }
 
         var statusPadding = Assert.IsType<Thickness>(SetterValue<Border>(app, "TrackZStatusPillStyle", "Padding"));
@@ -161,6 +186,43 @@ public sealed class NativeVisualTokenTests
         Assert.DoesNotContain("TextColor=\"{DynamicResource TrackZPrimary}\"", cards, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Audited_components_and_semantic_styles_use_only_the_native_spacing_scale_and_no_direct_lime_body_copy()
+    {
+        using var app = CreateApp();
+        var solution = FindSolutionDirectory();
+        var componentDirectory = Path.Combine(solution, "src", "TrackZ.Mobile", "Components");
+        var semanticStyles = XDocument.Load(Path.Combine(solution, "src", "TrackZ.Mobile", "Resources", "Styles", "TrackZControls.xaml"));
+        var allowedSpacing = new HashSet<double> { 0, 4, 8, 12, 16, 24, 32 };
+        var componentFiles = new[]
+        {
+            "TrackZStateView.xaml", "ExerciseListSkeleton.xaml", "ExercisePerformanceCard.xaml",
+            "ActiveWorkoutExerciseRow.xaml", "RepsStepper.xaml", "WeightStepper.xaml", "SyncStatusPill.xaml"
+        };
+
+        foreach (var document in componentFiles.Select(component => XDocument.Load(Path.Combine(componentDirectory, component))).Append(semanticStyles))
+        {
+            foreach (var attribute in document.Descendants().Attributes().Where(attribute => attribute.Name.LocalName is "Spacing" or "Padding"))
+                foreach (var value in ResolveThicknessParts(app, attribute.Value))
+                    Assert.Contains(value, allowedSpacing);
+        }
+
+        var primary = Assert.IsType<Color>(Resources(app)["TrackZPrimary"]);
+        foreach (var component in componentFiles)
+        {
+            var document = XDocument.Load(Path.Combine(componentDirectory, component));
+            foreach (var label in document.Descendants().Where(element => element.Name.LocalName == "Label"))
+            {
+                var style = ResourceKey(label.Attribute("Style")?.Value);
+                if (style is "TrackZPerformanceNumberStyle") continue;
+                var directColor = ResourceKey(label.Attribute("TextColor")?.Value);
+                Assert.NotEqual("TrackZPrimary", directColor);
+                if (style is not null)
+                    Assert.NotEqual(primary, SetterValue<Label>(app, style, "TextColor"));
+            }
+        }
+    }
+
     private static void AssertStyle<T>(MauiApp app, string key, params (string Property, object Expected)[] expectedSetters)
         where T : BindableObject
     {
@@ -193,6 +255,13 @@ public sealed class NativeVisualTokenTests
         return setter.Value;
     }
 
+    private static Thickness AsThickness(object? value) => value switch
+    {
+        Thickness thickness => thickness,
+        double uniform => new Thickness(uniform),
+        _ => throw new Xunit.Sdk.XunitException($"Expected a Thickness or uniform spacing value, but got {value?.GetType().Name ?? "null"}.")
+    };
+
     private static void AssertDisabledState(MauiApp app, Type targetType, params (string Property, Color Expected)[] expected)
     {
         var style = Assert.Single(
@@ -222,7 +291,7 @@ public sealed class NativeVisualTokenTests
 
     private static IEnumerable<double> ResolveThicknessParts(MauiApp app, string value)
     {
-        if (value.StartsWith("{DynamicResource ", StringComparison.Ordinal))
+        if (value.StartsWith("{DynamicResource ", StringComparison.Ordinal) || value.StartsWith("{StaticResource ", StringComparison.Ordinal))
         {
             var key = ResourceKey(value);
             yield return Assert.IsType<double>(Resources(app)[key!]);
@@ -234,9 +303,12 @@ public sealed class NativeVisualTokenTests
     }
 
     private static string? ResourceKey(string? value) =>
-        value is not null && value.StartsWith("{DynamicResource ", StringComparison.Ordinal) && value.EndsWith('}')
-            ? value["{DynamicResource ".Length..^1]
-            : null;
+        value is null || !value.EndsWith('}') ? null : value switch
+        {
+            var dynamicResource when dynamicResource.StartsWith("{DynamicResource ", StringComparison.Ordinal) => dynamicResource["{DynamicResource ".Length..^1],
+            var staticResource when staticResource.StartsWith("{StaticResource ", StringComparison.Ordinal) => staticResource["{StaticResource ".Length..^1],
+            _ => null
+        };
 
     private static IEnumerable<ResourceDictionary> AllResources(ResourceDictionary resources)
     {
