@@ -87,7 +87,10 @@ public sealed record GamificationTextSet(
     string ProgressPending,
     string Haptics,
     string ReduceMotion,
-    string SignOut);
+    string SignOut,
+    string Last,
+    string Best,
+    string Assistance);
 
 public static class GamificationResources
 {
@@ -97,7 +100,8 @@ public static class GamificationResources
         "Current streak", "Best streak", "Badges", "Personal records", "Save", "kg", "lb",
         "Could not load progress", "Could not save weekly goal",
         "Weekly consistency streak", "Workout complete", "+{0} XP", "Level {0}",
-        "Badge unlocked: {0}", "Progress pending", "Haptics", "Reduce Motion", "Sign out");
+        "Badge unlocked: {0}", "Progress pending", "Haptics", "Reduce Motion", "Sign out",
+        "Last", "Best", "assistance");
 
     public static GamificationTextSet Thai { get; } = new(
         "สรุปการออกกำลังกาย", "ความก้าวหน้า", "โปรไฟล์", "คุณ", "ความก้าวหน้ารอยืนยันจากเซิร์ฟเวอร์",
@@ -105,7 +109,8 @@ public static class GamificationResources
         "สตรีคปัจจุบัน", "สตรีคสูงสุด", "เหรียญรางวัล", "สถิติส่วนตัว", "บันทึก", "กก.", "ปอนด์",
         "โหลดความก้าวหน้าไม่สำเร็จ", "บันทึกเป้าหมายไม่สำเร็จ",
         "สตรีคความสม่ำเสมอรายสัปดาห์", "ออกกำลังกายเสร็จแล้ว", "+{0} XP", "เลเวล {0}",
-        "ปลดล็อกเหรียญ: {0}", "รอยืนยันความก้าวหน้า", "การสั่นตอบสนอง", "ลดการเคลื่อนไหว", "ออกจากระบบ");
+        "ปลดล็อกเหรียญ: {0}", "รอยืนยันความก้าวหน้า", "การสั่นตอบสนอง", "ลดการเคลื่อนไหว", "ออกจากระบบ",
+        "ล่าสุด", "สูงสุด", "น้ำหนักช่วย");
 
     public static GamificationTextSet Current =>
         CultureInfo.CurrentUICulture.TwoLetterISOLanguageName == "th" ? Thai : English;

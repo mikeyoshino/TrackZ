@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using TrackZ.Domain.Exercises;
 using TrackZ.Mobile.Features.Exercises;
+using TrackZ.Mobile.Features.Gamification;
 using TrackZ.Mobile.Features.Workout;
 using TrackZ.Mobile.Identity;
 
@@ -21,9 +22,22 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
     private readonly ITrainDashboardSource _source;
     private readonly IAccountSessionBoundary _boundary;
     private readonly IConnectivityService? _connectivity;
+    private readonly IProgressSnapshotSource? _progress;
+    private readonly IWeightUnitPreference _weightUnits;
+    private readonly GamificationTextSet _gamificationText;
     private bool _isBusy;
+    private bool _isProgressLoading;
     private ActiveWorkoutCard? _activeWorkout;
     private RepeatWorkoutShortcut? _repeatWorkout;
+    private HomeMomentumItem? _recentMomentum;
+    private bool _hasAuthoritativeProgress;
+    private int _weeklyCompletedWorkouts;
+    private int _weeklyGoal;
+    private int _currentStreakWeeks;
+    private int _level;
+    private int _totalXp;
+    private int _currentLevelRequiredXp;
+    private int? _nextLevelRequiredXp;
     private string? _errorText;
 
     public TrainTodayViewModel(
@@ -31,11 +45,27 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
         IAccountSessionBoundary boundary,
         WorkoutTextSet text,
         IConnectivityService? connectivity = null)
+        : this(source, boundary, text, null, connectivity, new FixedWeightUnitPreference(), GamificationResources.Current)
+    {
+    }
+
+    public TrainTodayViewModel(
+        ITrainDashboardSource source,
+        IAccountSessionBoundary boundary,
+        WorkoutTextSet text,
+        IProgressSnapshotSource? progress,
+        IConnectivityService? connectivity,
+        IWeightUnitPreference weightUnits,
+        GamificationTextSet gamificationText)
     {
         _source = source;
         _boundary = boundary;
         _connectivity = connectivity;
+        _progress = progress;
+        _weightUnits = weightUnits;
+        _gamificationText = gamificationText;
         Text = text;
+        _boundary.SessionReset += OnSessionReset;
     }
 
     public WorkoutTextSet Text { get; }
@@ -43,6 +73,39 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
     public bool HasRecentWorkouts => RecentWorkouts.Count > 0;
     public bool HasActiveWorkout => ActiveWorkout is not null;
     public bool IsOffline => _connectivity is { IsOnline: false };
+    public bool HasAuthoritativeProgress
+    {
+        get => _hasAuthoritativeProgress;
+        private set
+        {
+            if (Set(ref _hasAuthoritativeProgress, value))
+                OnPropertyChanged(nameof(LevelProgress));
+        }
+    }
+    public int WeeklyCompletedWorkouts { get => _weeklyCompletedWorkouts; private set => Set(ref _weeklyCompletedWorkouts, value); }
+    public int WeeklyGoal { get => _weeklyGoal; private set => Set(ref _weeklyGoal, value); }
+    public int CurrentStreakWeeks { get => _currentStreakWeeks; private set => Set(ref _currentStreakWeeks, value); }
+    public int Level { get => _level; private set => Set(ref _level, value); }
+    public int TotalXp { get => _totalXp; private set => Set(ref _totalXp, value); }
+    public double LevelProgress => !HasAuthoritativeProgress
+        ? 0d
+        : _nextLevelRequiredXp is not { } next || next <= _currentLevelRequiredXp
+            ? 1d
+            : Math.Clamp((double)(TotalXp - _currentLevelRequiredXp) / (next - _currentLevelRequiredXp), 0d, 1d);
+    public HomeMomentumItem? RecentMomentum
+    {
+        get => _recentMomentum;
+        private set
+        {
+            if (ReferenceEquals(_recentMomentum, value)) return;
+            _recentMomentum?.Dispose();
+            _recentMomentum = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(HasRecentMomentum));
+        }
+    }
+    public bool HasRecentMomentum => RecentMomentum is not null;
+    public bool IsProgressLoading { get => _isProgressLoading; private set => Set(ref _isProgressLoading, value); }
     public string SavedSetCountText => string.Format(
         Text.SavedSetCountFormat,
         ActiveWorkout?.LoggedSetCount ?? 0);
@@ -84,8 +147,11 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
     {
         if (IsBusy) return;
         var generation = _boundary.Capture();
-        IsBusy = true;
-        ErrorText = null;
+        if (!_boundary.TryStartSessionPhase(generation, () =>
+        {
+            IsBusy = true;
+            ErrorText = null;
+        }, cancellationToken)) return;
         try
         {
             using var lease = _boundary.CreateCancellationLease(generation, cancellationToken);
@@ -109,18 +175,126 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
                 OnPropertyChanged(nameof(IsOffline));
                 return Task.CompletedTask;
             }, lease.Token);
+
+            if (_progress is not null)
+                await LoadProgressAsync(generation, lease.Token);
         }
         catch (OperationCanceledException) when (_boundary.IsCancellationRequested(generation))
         {
         }
         catch (Exception exception) when (exception is IOException or InvalidOperationException)
         {
-            if (!_boundary.IsCancellationRequested(generation)) ErrorText = Text.LoadFailed;
+            await _boundary.TryCommitAsync(generation, _ =>
+            {
+                ErrorText = Text.LoadFailed;
+                return Task.CompletedTask;
+            }, CancellationToken.None);
         }
         finally
         {
-            IsBusy = false;
+            try
+            {
+                await _boundary.TryCommitAsync(generation, _ =>
+                {
+                    IsBusy = false;
+                    IsProgressLoading = false;
+                    return Task.CompletedTask;
+                }, CancellationToken.None);
+            }
+            catch (OperationCanceledException)
+            {
+            }
         }
+    }
+
+    private async Task LoadProgressAsync(AccountSessionGeneration generation, CancellationToken cancellationToken)
+    {
+        await _boundary.TryCommitAsync(generation, _ =>
+        {
+            IsProgressLoading = true;
+            return Task.CompletedTask;
+        }, cancellationToken);
+
+        try
+        {
+            var cached = await _progress!.GetCachedAsync(cancellationToken);
+            if (cached is not null)
+            {
+                await _boundary.TryCommitAsync(generation, _ =>
+                {
+                    ApplyProgress(cached);
+                    return Task.CompletedTask;
+                }, cancellationToken);
+            }
+
+            if (_connectivity is not { IsOnline: true }) return;
+
+            try
+            {
+                var refreshed = await _progress.RefreshAsync(cancellationToken);
+                await _boundary.TryCommitAsync(generation, _ =>
+                {
+                    ApplyProgress(refreshed);
+                    return Task.CompletedTask;
+                }, cancellationToken);
+            }
+            catch (OperationCanceledException) when (_boundary.IsCancellationRequested(generation))
+            {
+            }
+            catch (Exception)
+            {
+                // Cached progress, when present, remains authoritative and visible.
+            }
+        }
+        catch (OperationCanceledException) when (_boundary.IsCancellationRequested(generation))
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            // Local training remains usable when progress is unavailable.
+        }
+    }
+
+    private void ApplyProgress(ProgressSnapshot snapshot)
+    {
+        var profile = snapshot.Profile;
+        WeeklyCompletedWorkouts = profile.WeeklyCompletedWorkouts;
+        WeeklyGoal = profile.WeeklyGoal;
+        CurrentStreakWeeks = profile.CurrentStreakWeeks;
+        Level = profile.Level;
+        TotalXp = profile.TotalXp;
+        _currentLevelRequiredXp = profile.CurrentLevelRequiredXp;
+        _nextLevelRequiredXp = profile.NextLevelRequiredXp;
+        HasAuthoritativeProgress = true;
+        OnPropertyChanged(nameof(LevelProgress));
+
+        var recent = snapshot.Summary.PersonalRecords
+            .OrderByDescending(item => item.LastPerformedAt)
+            .ThenByDescending(item => item.ExerciseId)
+            .FirstOrDefault();
+        RecentMomentum = recent is null ? null : new HomeMomentumItem(recent, _weightUnits, _gamificationText);
+    }
+
+    private void OnSessionReset(object? sender, EventArgs eventArgs)
+    {
+        ActiveWorkout = null;
+        RepeatWorkout = null;
+        RecentWorkouts.Clear();
+        OnPropertyChanged(nameof(HasRecentWorkouts));
+        HasAuthoritativeProgress = false;
+        WeeklyCompletedWorkouts = 0;
+        WeeklyGoal = 0;
+        CurrentStreakWeeks = 0;
+        Level = 0;
+        TotalXp = 0;
+        _currentLevelRequiredXp = 0;
+        _nextLevelRequiredXp = null;
+        OnPropertyChanged(nameof(LevelProgress));
+        RecentMomentum = null;
+        ErrorText = null;
+        IsBusy = false;
+        IsProgressLoading = false;
     }
 
     private string FormatBodyParts(IReadOnlyList<BodyPart> bodyParts) =>
@@ -147,4 +321,11 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
 
     private void OnPropertyChanged([CallerMemberName] string? name = null) =>
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+
+    private sealed class FixedWeightUnitPreference : IWeightUnitPreference
+    {
+        public WeightDisplayUnit Current => WeightDisplayUnit.Kilograms;
+        public event EventHandler? Changed { add { } remove { } }
+        public void Set(WeightDisplayUnit unit) { }
+    }
 }
