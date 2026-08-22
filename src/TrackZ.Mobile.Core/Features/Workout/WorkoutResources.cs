@@ -128,6 +128,7 @@ public sealed record WorkoutTextSet(
     string RepeatWorkoutAccessibilityFormat,
     string HomeLoadFailed,
     string HomeRepeatFailed,
+    string HomeOpenWorkoutFailed,
     string HomeContextFormat);
 
 public static class WorkoutResources
@@ -195,6 +196,7 @@ public static class WorkoutResources
             Value("RecentMomentum", culture), Value("LastBestFormat", culture),
             Value("HomeExerciseProgressFormat", culture), Value("RepeatWorkoutAccessibilityFormat", culture),
             Value("HomeLoadFailed", culture), Value("HomeRepeatFailed", culture),
+            Value("HomeOpenWorkoutFailed", culture),
             Value("HomeContextFormat", culture));
     }
 

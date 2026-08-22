@@ -204,6 +204,7 @@
                     x:Name="HomeRetryButton"
                     Command="{Binding RetryCommand}"
                     HorizontalOptions="Start"
+                    IsVisible="{Binding HasLoadRetry}"
                     SemanticProperties.Description="{Binding Text.TryAgain}"
                     Style="{DynamicResource TrackZSecondaryButtonStyle}"
                     Text="{Binding Text.TryAgain}" />

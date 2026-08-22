@@ -128,5 +128,6 @@
   <data name="RepeatWorkoutAccessibilityFormat" xml:space="preserve"><value>Train again: {0}, {1} exercises, {2} sets</value></data>
   <data name="HomeLoadFailed" xml:space="preserve"><value>Could not load Home</value></data>
   <data name="HomeRepeatFailed" xml:space="preserve"><value>Could not repeat that workout. Try again.</value></data>
+  <data name="HomeOpenWorkoutFailed" xml:space="preserve"><value>Workout saved. Could not open it. Tap Continue.</value></data>
   <data name="HomeContextFormat" xml:space="preserve"><value>Today · Week {0}</value></data>
 </root>

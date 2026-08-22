@@ -28,10 +28,12 @@ public sealed class MomentumHomePresentationTests
         Assert.Equal("Continue workout", english.ContinueWorkout);
         Assert.Equal("Try again", english.TryAgain);
         Assert.Equal("Could not repeat that workout. Try again.", english.HomeRepeatFailed);
+        Assert.Equal("Workout saved. Could not open it. Tap Continue.", english.HomeOpenWorkoutFailed);
         Assert.Equal("เริ่มออกกำลังกาย", thai.StartWorkout);
         Assert.Equal("ออกกำลังกายต่อ", thai.ContinueWorkout);
         Assert.Equal("ลองอีกครั้ง", thai.TryAgain);
         Assert.Equal("เริ่มการฝึกแบบเดิมไม่สำเร็จ ลองอีกครั้ง", thai.HomeRepeatFailed);
+        Assert.Equal("บันทึกการฝึกแล้ว แต่เปิดไม่สำเร็จ แตะออกกำลังกายต่อ", thai.HomeOpenWorkoutFailed);
 
         var englishHome = HomeCopy(english);
         var thaiHome = HomeCopy(thai);
@@ -158,12 +160,35 @@ public sealed class MomentumHomePresentationTests
         var retry = Assert.IsType<Button>(context.Page.FindByName("HomeRetryButton"));
 
         Assert.True(context.ViewModel.HasError);
+        Assert.True(context.ViewModel.HasLoadRetry);
         Assert.True(retry.IsVisible);
         Assert.True(retry.MinimumHeightRequest >= 44);
         Assert.Same(context.ViewModel.RetryCommand, retry.Command);
         Assert.Equal(context.ViewModel.Text.TryAgain, retry.Text);
         Assert.Equal(context.ViewModel.Text.TryAgain, SemanticProperties.GetDescription(retry));
         Assert.Same(context.Application.Resources["TrackZSecondaryButtonStyle"], retry.Style);
+        Assert.Single(
+            Descendants(context.Page).OfType<Button>(),
+            button => ReferenceEquals(button.Style, context.Application.Resources["TrackZPrimaryButtonStyle"]));
+    }
+
+    [Fact]
+    public async Task Repeat_failure_hides_load_retry_and_keeps_train_again_as_the_retry_action()
+    {
+        await using var context = await TestHome.CreateAsync(
+            new TrainDashboardSnapshot(null, InvalidRepeat()),
+            cachedProgress: null);
+        var retry = Assert.IsType<Button>(context.Page.FindByName("HomeRetryButton"));
+        var trainAgain = Assert.IsType<Border>(context.Page.FindByName("TrainAgainCard"));
+
+        await context.ViewModel.TrainAgainCommand.ExecuteAsync();
+
+        Assert.Equal("Could not repeat that workout. Try again.", context.ViewModel.ErrorText);
+        Assert.False(context.ViewModel.HasLoadRetry);
+        Assert.False(retry.IsVisible);
+        Assert.False(context.ViewModel.RetryCommand.CanExecute(null));
+        Assert.True(trainAgain.IsVisible);
+        Assert.True(context.ViewModel.TrainAgainCommand.CanExecute(null));
         Assert.Single(
             Descendants(context.Page).OfType<Button>(),
             button => ReferenceEquals(button.Style, context.Application.Resources["TrackZPrimaryButtonStyle"]));
@@ -188,6 +213,7 @@ public sealed class MomentumHomePresentationTests
         text.RepeatWorkoutAccessibilityFormat,
         text.HomeLoadFailed,
         text.HomeRepeatFailed,
+        text.HomeOpenWorkoutFailed,
         text.HomeContextFormat
     ];
 
@@ -209,6 +235,12 @@ public sealed class MomentumHomePresentationTests
         [new WorkoutExerciseSelection(
             Guid.Parse("33333333-3333-3333-3333-333333333333"),
             TrackingMode.Weighted)]);
+
+    private static RepeatWorkoutShortcut InvalidRepeat() =>
+        Repeat() with
+        {
+            Selections = [new WorkoutExerciseSelection(Guid.Empty, TrackingMode.Weighted)]
+        };
 
     private static ProgressSnapshot Progress() => new(
         new ProgressSummaryDto(
@@ -289,21 +321,28 @@ public sealed class MomentumHomePresentationTests
             try
             {
                 var weightPreference = new MutableWeightPreference();
+                var boundary = new AccountSessionBoundary();
+                var database = new TrackZLocalDatabase(Path.Combine(root, "workouts.db"));
                 var viewModel = new TrainTodayViewModel(
                     source,
-                    new AccountSessionBoundary(),
+                    boundary,
                     WorkoutResources.English,
                     new CachedProgressSource(cachedProgress),
                     new OfflineConnectivity(),
                     weightPreference,
                     GamificationResources.English,
+                    activeWorkouts: new ActiveWorkoutCoordinator(
+                        new LocalWorkoutRepository(database),
+                        boundary,
+                        new FixedClock(At(12))),
+                    navigator: new NoOpTrainNavigator(),
                     clock: new FixedClock(At(12)),
                     localTimeZone: TimeZoneInfo.Utc);
                 var app = MauiProgram.CreateMauiApp(services =>
                 {
                     services.AddSingleton(new ExerciseCache(Path.Combine(root, "exercises.db")));
                     services.AddSingleton(new ExerciseHistoryCache(Path.Combine(root, "history.db")));
-                    services.AddSingleton(new TrackZLocalDatabase(Path.Combine(root, "workouts.db")));
+                    services.AddSingleton(database);
                     services.AddSingleton(new ProgressSnapshotCache(Path.Combine(root, "progress.json")));
                     services.AddSingleton<IExerciseThumbnailCache, NullThumbnailCache>();
                     services.AddSingleton<IConnectivityService, OfflineConnectivity>();
@@ -346,6 +385,15 @@ public sealed class MomentumHomePresentationTests
     {
         public Task<TrainDashboardSnapshot> LoadAsync(CancellationToken cancellationToken = default) =>
             Task.FromException<TrainDashboardSnapshot>(new IOException("Dashboard unavailable."));
+    }
+
+    private sealed class NoOpTrainNavigator : ITrainNavigator
+    {
+        public Task OpenWorkoutPickerAsync(CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+
+        public Task OpenActiveWorkoutAsync(CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
     }
 
     private sealed class CachedProgressSource(ProgressSnapshot? cached) : IProgressSnapshotSource

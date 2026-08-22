@@ -65,7 +65,12 @@ No `ExercisePickerViewModel`, thumbnail parallelism, collection, Home, API, Dock
 
 ## Service/process audit
 
-No API, Docker Compose, container, or iOS Simulator was started. A process audit after testing found no TrackZ API, Docker Compose/container, or Simulator process. Existing unrelated development/editor processes were left untouched.
+No API, Docker Compose, container, or iOS Simulator device was started by Task 0. The original
+claim that there was no Simulator process was too broad: final verification identified a
+pre-existing `Simulator.app` UI process (PID 3075, started August 21) while service status reported
+no booted simulator device. Task 0 did not start, stop, or modify that UI process. No TrackZ API,
+Docker Compose, or TrackZ container process was found; unrelated development/editor processes were
+left untouched.
 
 ## Commit
 

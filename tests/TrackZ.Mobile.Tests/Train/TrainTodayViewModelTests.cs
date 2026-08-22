@@ -235,6 +235,7 @@ public sealed class TrainTodayViewModelTests
         await viewModel.LoadAsync();
 
         Assert.True(viewModel.HasError);
+        Assert.True(viewModel.HasLoadRetry);
         Assert.Equal("Could not load Home", viewModel.ErrorText);
         Assert.False(viewModel.CanMutate);
         Assert.True(viewModel.RetryCommand.CanExecute(null));
@@ -242,6 +243,7 @@ public sealed class TrainTodayViewModelTests
         await viewModel.RetryCommand.ExecuteAsync();
 
         Assert.False(viewModel.HasError);
+        Assert.False(viewModel.HasLoadRetry);
         Assert.Null(viewModel.ErrorText);
         Assert.True(viewModel.ShowTrainAgain);
         Assert.True(viewModel.CanMutate);

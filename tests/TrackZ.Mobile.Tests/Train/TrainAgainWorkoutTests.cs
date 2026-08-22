@@ -138,9 +138,120 @@ public sealed class TrainAgainWorkoutTests : IDisposable
         Assert.Equal(0, navigator.OpenActiveWorkoutCount);
         Assert.Equal("Could not repeat that workout. Try again.", viewModel.ErrorText);
         Assert.NotEqual(WorkoutResources.English.HomeLoadFailed, viewModel.ErrorText);
+        Assert.False(viewModel.HasLoadRetry);
+        Assert.False(viewModel.RetryCommand.CanExecute(null));
         Assert.True(viewModel.ShowTrainAgain);
         Assert.True(viewModel.CanMutate);
         Assert.True(viewModel.TrainAgainCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task Train_again_retry_clears_the_prior_error_before_persistence_and_creates_one_workout()
+    {
+        var exerciseId = Guid.Parse("40000000-0000-0000-0000-000000000001");
+        var source = new MutableTrainDashboardSource(new(
+            null,
+            new(Guid.NewGuid(), [BodyPart.Chest], DateTimeOffset.UtcNow, 1, 0, null,
+                [new WorkoutExerciseSelection(exerciseId, TrackingMode.Weighted)])));
+        var boundary = new AccountSessionBoundary();
+        var database = new TrackZLocalDatabase(DatabasePath);
+        var repository = new FailFirstThenGateRetryRepository(new LocalWorkoutRepository(database));
+        var navigator = new RecordingTrainNavigator();
+        var viewModel = new TrainTodayViewModel(
+            source,
+            boundary,
+            WorkoutResources.English,
+            progress: null,
+            connectivity: null,
+            weightUnits: new FixedWeightUnitPreference(),
+            gamificationText: GamificationResources.English,
+            activeWorkouts: new ActiveWorkoutCoordinator(repository, boundary, new FixedClock()),
+            navigator: navigator);
+        await viewModel.LoadAsync();
+
+        await viewModel.TrainAgainCommand.ExecuteAsync();
+
+        Assert.Equal("Could not repeat that workout. Try again.", viewModel.ErrorText);
+        Assert.False(viewModel.HasLoadRetry);
+        Assert.Null(await new LocalWorkoutRepository(database).GetActiveAsync());
+        Assert.Empty(await new OutboxRepository(database).PendingAsync());
+        Assert.Equal(0, navigator.OpenActiveWorkoutCount);
+
+        var retry = viewModel.TrainAgainCommand.ExecuteAsync();
+        await repository.RetrySaveEntered.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        try
+        {
+            Assert.Null(viewModel.ErrorText);
+            Assert.False(viewModel.HasError);
+        }
+        finally
+        {
+            repository.ReleaseRetry();
+        }
+        await retry;
+
+        var active = Assert.IsType<LocalWorkout>(
+            await new LocalWorkoutRepository(database).GetActiveAsync());
+        Assert.Equal(exerciseId, Assert.Single(active.Exercises).ExerciseDefinitionId);
+        Assert.Single(
+            await new OutboxRepository(database).PendingAsync(),
+            operation => operation.Type == OutboxOperationType.StartWorkout
+                && operation.EntityId == active.Id);
+        Assert.Null(viewModel.ErrorText);
+        Assert.Equal(1, navigator.OpenActiveWorkoutCount);
+    }
+
+    [Fact]
+    public async Task Saved_repeat_with_navigation_failure_keeps_durable_active_state_and_continue_recovers()
+    {
+        var exerciseId = Guid.Parse("50000000-0000-0000-0000-000000000001");
+        var source = new MutableTrainDashboardSource(new(
+            null,
+            new(Guid.NewGuid(), [BodyPart.Back], DateTimeOffset.UtcNow, 1, 0, null,
+                [new WorkoutExerciseSelection(exerciseId, TrackingMode.Assisted)])));
+        var boundary = new AccountSessionBoundary();
+        var database = new TrackZLocalDatabase(DatabasePath);
+        var repository = new LocalWorkoutRepository(database);
+        var navigator = new ThrowOnceTrainNavigator();
+        var viewModel = new TrainTodayViewModel(
+            source,
+            boundary,
+            WorkoutResources.English,
+            progress: null,
+            connectivity: null,
+            weightUnits: new FixedWeightUnitPreference(),
+            gamificationText: GamificationResources.English,
+            activeWorkouts: new ActiveWorkoutCoordinator(repository, boundary, new FixedClock()),
+            navigator: navigator);
+        await viewModel.LoadAsync();
+
+        await viewModel.TrainAgainCommand.ExecuteAsync();
+
+        var active = Assert.IsType<LocalWorkout>(await repository.GetActiveAsync());
+        Assert.Equal(active.Id, viewModel.ActiveWorkout?.WorkoutId);
+        Assert.Equal("Workout saved. Could not open it. Tap Continue.", viewModel.ErrorText);
+        Assert.Equal(WorkoutResources.English.HomeOpenWorkoutFailed, viewModel.ErrorText);
+        Assert.NotEqual(WorkoutResources.English.HomeRepeatFailed, viewModel.ErrorText);
+        Assert.True(viewModel.ShowContinueHero);
+        Assert.False(viewModel.ShowTrainAgain);
+        Assert.True(viewModel.CanMutate);
+        Assert.Equal("Continue workout", viewModel.HeroActionText);
+        Assert.False(viewModel.HasLoadRetry);
+        Assert.False(viewModel.RetryCommand.CanExecute(null));
+        Assert.Equal(1, navigator.OpenActiveWorkoutAttempts);
+        Assert.Equal(0, navigator.SuccessfulOpenActiveWorkoutCount);
+        Assert.Single(
+            await new OutboxRepository(database).PendingAsync(),
+            operation => operation.Type == OutboxOperationType.StartWorkout
+                && operation.EntityId == active.Id);
+
+        await viewModel.HeroActionCommand.ExecuteAsync();
+
+        Assert.Equal(2, navigator.OpenActiveWorkoutAttempts);
+        Assert.Equal(1, navigator.SuccessfulOpenActiveWorkoutCount);
+        Assert.Null(viewModel.ErrorText);
+        Assert.Equal(active.Id, (await repository.GetActiveAsync())?.Id);
+        Assert.Single(await new OutboxRepository(database).PendingAsync());
     }
 
     [Fact]
@@ -260,6 +371,26 @@ public sealed class TrainAgainWorkoutTests : IDisposable
         }
     }
 
+    private sealed class ThrowOnceTrainNavigator : ITrainNavigator
+    {
+        public int OpenActiveWorkoutAttempts { get; private set; }
+        public int SuccessfulOpenActiveWorkoutCount { get; private set; }
+
+        public Task OpenWorkoutPickerAsync(CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+
+        public Task OpenActiveWorkoutAsync(CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            OpenActiveWorkoutAttempts++;
+            if (OpenActiveWorkoutAttempts == 1)
+                throw new IOException("Navigation host rejected the committed route.");
+
+            SuccessfulOpenActiveWorkoutCount++;
+            return Task.CompletedTask;
+        }
+    }
+
     private sealed class FixedClock : IClock
     {
         public DateTimeOffset UtcNow => new(2026, 8, 22, 8, 0, 0, TimeSpan.Zero);
@@ -312,5 +443,52 @@ public sealed class TrainAgainWorkoutTests : IDisposable
             inner.ClearPrivateDataAsync(cancellationToken);
 
         public void Release() => _release.TrySetResult();
+    }
+
+    private sealed class FailFirstThenGateRetryRepository(ILocalWorkoutRepository inner)
+        : ILocalWorkoutRepository
+    {
+        private readonly TaskCompletionSource _retryRelease =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _saveAttempts;
+
+        public TaskCompletionSource RetrySaveEntered { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public async Task SaveWorkoutAndEnqueueAsync(
+            LocalWorkout workout,
+            OutboxOperation operation,
+            CancellationToken cancellationToken = default)
+        {
+            if (Interlocked.Increment(ref _saveAttempts) == 1)
+                throw new IOException("First repeat persistence failed.");
+
+            RetrySaveEntered.TrySetResult();
+            await _retryRelease.Task.WaitAsync(cancellationToken);
+            await inner.SaveWorkoutAndEnqueueAsync(workout, operation, cancellationToken);
+        }
+
+        public Task<LocalWorkout?> GetActiveAsync(CancellationToken cancellationToken = default) =>
+            inner.GetActiveAsync(cancellationToken);
+
+        public Task<bool> IsExerciseHistorySessionInvalidatedAsync(
+            Guid workoutId,
+            Guid exerciseDefinitionId,
+            CancellationToken cancellationToken = default) =>
+            inner.IsExerciseHistorySessionInvalidatedAsync(workoutId, exerciseDefinitionId, cancellationToken);
+
+        public Task<OutboxOperation?> GetOperationAsync(
+            Guid operationId,
+            CancellationToken cancellationToken = default) =>
+            inner.GetOperationAsync(operationId, cancellationToken);
+
+        public Task<DateTimeOffset?> GetLatestOperationCreatedAtAsync(
+            CancellationToken cancellationToken = default) =>
+            inner.GetLatestOperationCreatedAtAsync(cancellationToken);
+
+        public Task ClearPrivateDataAsync(CancellationToken cancellationToken = default) =>
+            inner.ClearPrivateDataAsync(cancellationToken);
+
+        public void ReleaseRetry() => _retryRelease.TrySetResult();
     }
 }

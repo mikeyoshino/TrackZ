@@ -38,6 +38,7 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
     private int _currentLevelRequiredXp;
     private int? _nextLevelRequiredXp;
     private string? _errorText;
+    private bool _hasLoadRetry;
 
     public TrainTodayViewModel(
         ITrainDashboardSource source,
@@ -74,7 +75,7 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
         Text = text;
         HeroActionCommand = new AsyncCommand(_ => ExecuteHeroActionAsync(), _ => CanMutate);
         TrainAgainCommand = new AsyncCommand(_ => ExecuteTrainAgainAsync(), _ => CanMutate && ShowTrainAgain);
-        RetryCommand = new AsyncCommand(_ => LoadAsync(), _ => HasError && !IsBusy);
+        RetryCommand = new AsyncCommand(_ => LoadAsync(), _ => HasLoadRetry && !IsBusy);
         _boundary.SessionReset += OnSessionReset;
         if (_connectivity is not null) _connectivity.ConnectivityChanged += OnConnectivityChanged;
     }
@@ -254,6 +255,14 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
         }
     }
     public bool HasError => !string.IsNullOrWhiteSpace(ErrorText);
+    public bool HasLoadRetry
+    {
+        get => _hasLoadRetry;
+        private set
+        {
+            if (Set(ref _hasLoadRetry, value)) RetryCommand.RaiseCanExecuteChanged();
+        }
+    }
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -271,6 +280,7 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(ShowTrainAgain));
             OnPropertyChanged(nameof(CanMutate));
             RefreshCommandState();
+            HasLoadRetry = false;
             ErrorText = null;
         }, cancellationToken)) return;
         try
@@ -306,6 +316,7 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
             await _boundary.TryCommitAsync(generation, _ =>
             {
                 ErrorText = Text.HomeLoadFailed;
+                HasLoadRetry = true;
                 return Task.CompletedTask;
             }, CancellationToken.None);
         }
@@ -419,6 +430,7 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
         _nextLevelRequiredXp = null;
         OnPropertyChanged(nameof(LevelProgress));
         RecentMomentum = null;
+        HasLoadRetry = false;
         ErrorText = null;
         IsBusy = false;
         IsProgressLoading = false;
@@ -436,8 +448,7 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
 
         if (ActiveWorkout is not null)
         {
-            await NavigateAsync(generation, static (navigator, token) =>
-                navigator.OpenActiveWorkoutAsync(token));
+            await OpenActiveWorkoutWithRecoveryAsync(generation);
             return;
         }
 
@@ -452,20 +463,61 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
         if (!CanMutate || repeat is null || ActiveWorkout is not null
             || _activeWorkouts is null || _boundary.IsCancellationRequested(generation)) return;
 
+        HasLoadRetry = false;
+        ErrorText = null;
         SetCommandMutation(true);
         try
         {
             using var lease = _boundary.CreateCancellationLease(generation);
-            var created = await _activeWorkouts.StartAsync(repeat.Selections, cancellationToken: lease.Token);
-            var committed = await _boundary.TryCommitAsync(generation, _ =>
+            try
             {
-                ActiveWorkout = ToActiveCard(created, repeat.BodyParts);
-                return Task.CompletedTask;
-            }, lease.Token);
-            if (!committed) return;
+                var created = await _activeWorkouts.StartAsync(repeat.Selections, cancellationToken: lease.Token);
+                var committed = await _boundary.TryCommitAsync(generation, _ =>
+                {
+                    ActiveWorkout = ToActiveCard(created, repeat.BodyParts);
+                    HasLoadRetry = false;
+                    ErrorText = null;
+                    return Task.CompletedTask;
+                }, lease.Token);
+                if (!committed) return;
+            }
+            catch (OperationCanceledException) when (_boundary.IsCancellationRequested(generation))
+            {
+                return;
+            }
+            catch (Exception)
+            {
+                await _boundary.TryCommitAsync(generation, _ =>
+                {
+                    HasLoadRetry = false;
+                    ErrorText = Text.HomeRepeatFailed;
+                    return Task.CompletedTask;
+                }, CancellationToken.None);
+                return;
+            }
 
+            await OpenActiveWorkoutWithRecoveryAsync(generation, lease.Token);
+        }
+        finally
+        {
+            SetCommandMutation(false);
+        }
+    }
+
+    private async Task OpenActiveWorkoutWithRecoveryAsync(
+        AccountSessionGeneration generation,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
             await NavigateAsync(generation, static (navigator, token) =>
-                navigator.OpenActiveWorkoutAsync(token), lease.Token);
+                navigator.OpenActiveWorkoutAsync(token), cancellationToken);
+            await _boundary.TryCommitAsync(generation, _ =>
+            {
+                HasLoadRetry = false;
+                ErrorText = null;
+                return Task.CompletedTask;
+            }, cancellationToken);
         }
         catch (OperationCanceledException) when (_boundary.IsCancellationRequested(generation))
         {
@@ -474,13 +526,10 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
         {
             await _boundary.TryCommitAsync(generation, _ =>
             {
-                ErrorText = Text.HomeRepeatFailed;
+                HasLoadRetry = false;
+                ErrorText = Text.HomeOpenWorkoutFailed;
                 return Task.CompletedTask;
             }, CancellationToken.None);
-        }
-        finally
-        {
-            SetCommandMutation(false);
         }
     }
 

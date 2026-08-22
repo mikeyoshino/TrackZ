@@ -128,5 +128,6 @@
   <data name="RepeatWorkoutAccessibilityFormat" xml:space="preserve"><value>ฝึกแบบเดิมอีกครั้ง: {0}, {1} ท่า, {2} เซ็ต</value></data>
   <data name="HomeLoadFailed" xml:space="preserve"><value>โหลดหน้าหลักไม่สำเร็จ</value></data>
   <data name="HomeRepeatFailed" xml:space="preserve"><value>เริ่มการฝึกแบบเดิมไม่สำเร็จ ลองอีกครั้ง</value></data>
+  <data name="HomeOpenWorkoutFailed" xml:space="preserve"><value>บันทึกการฝึกแล้ว แต่เปิดไม่สำเร็จ แตะออกกำลังกายต่อ</value></data>
   <data name="HomeContextFormat" xml:space="preserve"><value>วันนี้ · สัปดาห์ที่ {0}</value></data>
 </root>
