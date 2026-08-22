@@ -1,23 +1,28 @@
 using TrackZ.Domain.Exercises;
+using TrackZ.Mobile.Data.Models;
 
 namespace TrackZ.Mobile.Features.Train;
 
 public sealed record ActiveWorkoutCard(
     Guid WorkoutId,
     DateTimeOffset StartedAt,
+    IReadOnlyList<BodyPart> BodyParts,
     int ExerciseCount,
+    int LoggedExerciseCount,
     int LoggedSetCount);
 
-public sealed record RecentWorkoutShortcut(
-    Guid WorkoutId,
+public sealed record RepeatWorkoutShortcut(
+    Guid SourceWorkoutId,
     IReadOnlyList<BodyPart> BodyParts,
     DateTimeOffset CompletedAt,
     int ExerciseCount,
-    string? ThumbnailPath);
+    int LoggedSetCount,
+    string? ThumbnailPath,
+    IReadOnlyList<WorkoutExerciseSelection> Selections);
 
 public sealed record TrainDashboardSnapshot(
     ActiveWorkoutCard? Active,
-    IReadOnlyList<RecentWorkoutShortcut> Recent);
+    RepeatWorkoutShortcut? Repeat);
 
 public interface ITrainDashboardSource
 {

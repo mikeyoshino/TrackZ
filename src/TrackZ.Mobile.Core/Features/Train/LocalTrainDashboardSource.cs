@@ -1,5 +1,8 @@
 using TrackZ.Mobile.Data;
+using TrackZ.Mobile.Data.Models;
 using TrackZ.Mobile.Features.Exercises.Data;
+using TrackZ.Mobile.Features.Exercises.Models;
+using TrackZ.Domain.Exercises;
 
 namespace TrackZ.Mobile.Features.Train;
 
@@ -15,43 +18,63 @@ public sealed class LocalTrainDashboardSource(
         var definitions = (await exercises.GetAllAsync(cancellationToken))
             .ToDictionary(item => item.Id);
 
+        var liveActive = active?.Exercises
+            .Where(item => item.DeletedAt is null)
+            .OrderBy(item => item.Order)
+            .ToArray() ?? [];
         var activeCard = active is null
             ? null
             : new ActiveWorkoutCard(
                 active.Id,
                 active.StartedAt,
-                active.Exercises.Count(item => item.DeletedAt is null),
-                active.Exercises
-                    .Where(item => item.DeletedAt is null)
-                    .Sum(item => item.Sets.Count(set => set.DeletedAt is null)));
+                ResolveBodyParts(liveActive, definitions),
+                liveActive.Length,
+                liveActive.Count(item => item.Sets.Any(set => set.DeletedAt is null)),
+                liveActive.Sum(item => item.Sets.Count(set => set.DeletedAt is null)));
 
-        var recent = history
-            .Where(item => item.DeletedAt is null && item.CompletedAt is not null)
-            .OrderByDescending(item => item.CompletedAt)
-            .ThenByDescending(item => item.Id)
-            .Take(3)
-            .Select(workout =>
-            {
-                var liveExercises = workout.Exercises
-                    .Where(item => item.DeletedAt is null)
-                    .OrderBy(item => item.Order)
-                    .ToArray();
-                var matched = liveExercises
-                    .Select(item => definitions.GetValueOrDefault(item.ExerciseDefinitionId))
-                    .Where(item => item is not null)
-                    .ToArray();
-                return new RecentWorkoutShortcut(
-                    workout.Id,
-                    matched.Select(item => item!.BodyPart).Distinct().ToArray(),
-                    workout.CompletedAt!.Value,
-                    liveExercises.Length,
-                    matched.Select(item => item!.ThumbnailUri)
-                        .FirstOrDefault(IsLocalThumbnail));
-            })
-            .ToArray();
+        RepeatWorkoutShortcut? repeat = null;
+        foreach (var workout in history
+                     .Where(item => item.DeletedAt is null && item.CompletedAt is not null)
+                     .OrderByDescending(item => item.CompletedAt)
+                     .ThenByDescending(item => item.Id))
+        {
+            var liveExercises = workout.Exercises
+                .Where(item => item.DeletedAt is null)
+                .OrderBy(item => item.Order)
+                .ToArray();
+            var resolved = liveExercises
+                .Select(item => (WorkoutExercise: item, Definition: definitions.GetValueOrDefault(item.ExerciseDefinitionId)))
+                .ToArray();
+            if (resolved.Any(item => item.Definition is null ||
+                                     item.Definition.TrackingMode != item.WorkoutExercise.TrackingMode)) continue;
 
-        return new TrainDashboardSnapshot(activeCard, recent);
+            repeat = new RepeatWorkoutShortcut(
+                workout.Id,
+                resolved.Select(item => item.Definition!.BodyPart).Distinct().ToArray(),
+                workout.CompletedAt!.Value,
+                liveExercises.Length,
+                liveExercises.Sum(item => item.Sets.Count(set => set.DeletedAt is null)),
+                resolved.Length == 0 || !IsLocalThumbnail(resolved[0].Definition!.ThumbnailUri)
+                    ? null
+                    : resolved[0].Definition!.ThumbnailUri,
+                resolved.Select(item => new WorkoutExerciseSelection(
+                    item.WorkoutExercise.ExerciseDefinitionId,
+                    item.WorkoutExercise.TrackingMode)).ToArray());
+            break;
+        }
+
+        return new TrainDashboardSnapshot(activeCard, repeat);
     }
+
+    private static IReadOnlyList<BodyPart> ResolveBodyParts(
+        IReadOnlyList<LocalWorkoutExercise> exercises,
+        IReadOnlyDictionary<Guid, CachedExercise> definitions) =>
+        exercises
+            .Select(item => definitions.GetValueOrDefault(item.ExerciseDefinitionId))
+            .Where(item => item is not null)
+            .Select(item => item!.BodyPart)
+            .Distinct()
+            .ToArray();
 
     private static bool IsLocalThumbnail(string? path)
     {

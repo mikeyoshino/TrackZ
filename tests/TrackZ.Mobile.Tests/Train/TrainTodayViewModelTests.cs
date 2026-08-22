@@ -1,5 +1,6 @@
 using System.Globalization;
 using TrackZ.Domain.Exercises;
+using TrackZ.Mobile.Data.Models;
 using TrackZ.Mobile.Features.Train;
 using TrackZ.Mobile.Features.Workout;
 using TrackZ.Mobile.Identity;
@@ -9,15 +10,17 @@ namespace TrackZ.Mobile.Tests.Train;
 public sealed class TrainTodayViewModelTests
 {
     [Fact]
-    public async Task Today_loads_active_workout_and_newest_completed_shortcuts()
+    public async Task Today_loads_active_workout_and_exact_repeat_shortcut()
     {
         var activeId = Guid.NewGuid();
+        var repeatId = Guid.NewGuid();
         var source = new RecordingTrainDashboardSource(new(
-            new(activeId, At(9), 2, 4),
-            [
-                new(Guid.NewGuid(), [BodyPart.Shoulders, BodyPart.Back], At(8), 6, "/cache/shoulder.png"),
-                new(Guid.NewGuid(), [BodyPart.Legs], At(7), 5, "/cache/leg.png")
-            ]));
+            new(activeId, At(9), [BodyPart.Chest], 2, 1, 4),
+            new(repeatId, [BodyPart.Shoulders, BodyPart.Back], At(8), 6, 18,
+                "/cache/shoulder.png", [
+                    new WorkoutExerciseSelection(Guid.NewGuid(), TrackingMode.Weighted),
+                    new WorkoutExerciseSelection(Guid.NewGuid(), TrackingMode.Assisted)
+                ])));
         var viewModel = new TrainTodayViewModel(
             source,
             new AccountSessionBoundary(),
@@ -27,7 +30,8 @@ public sealed class TrainTodayViewModelTests
 
         Assert.Equal(activeId, viewModel.ActiveWorkout?.WorkoutId);
         Assert.Equal(4, viewModel.ActiveWorkout?.LoggedSetCount);
-        Assert.Equal(2, viewModel.RecentWorkouts.Count);
+        Assert.Equal(repeatId, viewModel.RepeatWorkout?.SourceWorkoutId);
+        Assert.Single(viewModel.RecentWorkouts);
         Assert.Equal("Shoulders + Back", viewModel.RecentWorkouts[0].Title);
         Assert.Equal(1, source.LoadCount);
     }
@@ -45,7 +49,8 @@ public sealed class TrainTodayViewModelTests
             CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo(cultureName);
             var source = new RecordingTrainDashboardSource(new(
                 null,
-                [new(Guid.NewGuid(), [BodyPart.Shoulders, BodyPart.Back], At(8), 2, null)]));
+                new(Guid.NewGuid(), [BodyPart.Shoulders, BodyPart.Back], At(8), 2, 1, null,
+                    [new WorkoutExerciseSelection(Guid.NewGuid(), TrackingMode.Weighted)])));
             var viewModel = new TrainTodayViewModel(
                 source,
                 new AccountSessionBoundary(),
@@ -72,8 +77,8 @@ public sealed class TrainTodayViewModelTests
 
         await boundary.ResetAsync(_ => Task.CompletedTask);
         source.Release.TrySetResult(new TrainDashboardSnapshot(
-            new(Guid.NewGuid(), At(9), 1, 1),
-            []));
+            new(Guid.NewGuid(), At(9), [BodyPart.Chest], 1, 1, 1),
+            null));
         await load;
 
         Assert.Null(viewModel.ActiveWorkout);

@@ -10,64 +10,129 @@ namespace TrackZ.Mobile.Tests.Train;
 
 public sealed class LocalTrainDashboardSourceTests
 {
+    private static readonly Guid WeightedId = Guid.Parse("10000000-0000-0000-0000-000000000001");
+    private static readonly Guid AssistedId = Guid.Parse("10000000-0000-0000-0000-000000000002");
+    private static readonly Guid BodyweightId = Guid.Parse("10000000-0000-0000-0000-000000000003");
+    private static readonly Guid MissingId = Guid.Parse("10000000-0000-0000-0000-000000000004");
+
     [Fact]
-    public async Task Source_counts_only_live_rows_and_returns_three_newest_completed_workouts()
+    public async Task Source_returns_exact_active_progress_and_newest_repeatable_selection_order()
     {
-        var root = Path.Combine(Path.GetTempPath(), $"trackz-train-source-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(root);
-        try
-        {
-            var shoulderId = Guid.NewGuid();
-            var backId = Guid.NewGuid();
-            var cache = new ExerciseCache(Path.Combine(root, "exercises.db"));
-            await cache.ReplaceAllAsync([
-                Exercise(shoulderId, "Press", BodyPart.Shoulders, "https://api.trackz.test/media/shoulder"),
-                Exercise(backId, "Row", BodyPart.Back, "/api/v1/media/exercise-images/back/thumbnail")
-            ], At(10));
-            await cache.SetServerThumbnailAsync(backId, "/cache/back.png");
+        await using var fixture = await CreateSourceWithMixedModes();
 
-            var active = Workout(LocalWorkoutStatus.Active, At(9), null, [
-                ExerciseRow(shoulderId, 0, [Set(0), Set(1, deleted: true)]),
-                ExerciseRow(backId, 1, [Set(0)], deleted: true)
-            ]);
-            var newest = Workout(LocalWorkoutStatus.Completed, At(6), At(9), [
-                ExerciseRow(shoulderId, 0, [Set(0)]),
-                ExerciseRow(backId, 1, [Set(0)])
-            ]);
-            var history = new[]
-            {
-                Workout(LocalWorkoutStatus.Completed, At(5), At(7), []),
-                Workout(LocalWorkoutStatus.Completed, At(4), At(6), []),
-                Workout(LocalWorkoutStatus.Completed, At(3), At(5), []),
-                newest
-            };
-            var source = new LocalTrainDashboardSource(
-                new StubWorkoutRepository(active, history),
-                cache);
+        var snapshot = await fixture.Source.LoadAsync();
+        var active = Assert.IsType<ActiveWorkoutCard>(snapshot.Active);
 
-            var snapshot = await source.LoadAsync();
+        Assert.Equal([BodyPart.Chest, BodyPart.Back], active.BodyParts);
+        Assert.Equal(3, active.ExerciseCount);
+        Assert.Equal(2, active.LoggedExerciseCount);
+        Assert.Equal(4, active.LoggedSetCount);
+        Assert.Equal([WeightedId, AssistedId, BodyweightId],
+            snapshot.Repeat!.Selections.Select(x => x.ExerciseDefinitionId));
+        Assert.Equal([TrackingMode.Weighted, TrackingMode.Assisted, TrackingMode.Bodyweight],
+            snapshot.Repeat.Selections.Select(x => x.TrackingMode));
+        Assert.Equal(5, snapshot.Repeat.LoggedSetCount);
+    }
 
-            Assert.Equal(1, snapshot.Active?.ExerciseCount);
-            Assert.Equal(1, snapshot.Active?.LoggedSetCount);
-            Assert.Equal(3, snapshot.Recent.Count);
-            var first = snapshot.Recent[0];
-            Assert.Equal(newest.Id, first.WorkoutId);
-            Assert.Equal([BodyPart.Shoulders, BodyPart.Back], first.BodyParts);
-            Assert.Equal("/cache/back.png", first.ThumbnailPath);
-        }
-        finally
-        {
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
-            Directory.Delete(root, recursive: true);
-        }
+    [Fact]
+    public async Task Source_refuses_partial_repeat_when_any_live_definition_is_missing_or_mode_changed()
+    {
+        await using var missing = await CreateSourceWithMissingDefinition();
+        await using var changedMode = await CreateSourceWithChangedDefinitionMode();
+
+        Assert.Null((await missing.Source.LoadAsync()).Repeat);
+        Assert.Null((await changedMode.Source.LoadAsync()).Repeat);
+    }
+
+    [Fact]
+    public async Task Source_skips_a_newer_inexact_workout_and_returns_the_next_exact_repeat()
+    {
+        await using var fixture = await CreateSourceWithNewerInexactAndOlderExactWorkouts();
+
+        var snapshot = await fixture.Source.LoadAsync();
+
+        Assert.Equal(fixture.OlderExactWorkoutId, snapshot.Repeat!.SourceWorkoutId);
+        Assert.Equal([WeightedId, AssistedId],
+            snapshot.Repeat.Selections.Select(x => x.ExerciseDefinitionId));
+    }
+
+    private static async Task<SourceFixture> CreateSourceWithMixedModes()
+    {
+        var fixture = await SourceFixture.CreateAsync([
+            Exercise(WeightedId, "Weighted Press", BodyPart.Chest, TrackingMode.Weighted, "/cache/weighted.png"),
+            Exercise(AssistedId, "Assisted Row", BodyPart.Back, TrackingMode.Assisted, "/cache/assisted.png"),
+            Exercise(BodyweightId, "Bodyweight Push-up", BodyPart.Chest, TrackingMode.Bodyweight, "/cache/bodyweight.png")
+        ]);
+        var active = Workout(LocalWorkoutStatus.Active, At(9), null, [
+            ExerciseRow(WeightedId, TrackingMode.Weighted, 0, [Set(0), Set(1), Set(2, deleted: true)]),
+            ExerciseRow(AssistedId, TrackingMode.Assisted, 1, [Set(0), Set(1)]),
+            ExerciseRow(BodyweightId, TrackingMode.Bodyweight, 2, [Set(0, deleted: true)]),
+            ExerciseRow(MissingId, TrackingMode.Weighted, 3, [Set(0)], deleted: true)
+        ]);
+        var completed = Workout(LocalWorkoutStatus.Completed, At(6), At(8), [
+            ExerciseRow(BodyweightId, TrackingMode.Bodyweight, 2, [Set(0), Set(1)]),
+            ExerciseRow(WeightedId, TrackingMode.Weighted, 0, [Set(0), Set(1)]),
+            ExerciseRow(AssistedId, TrackingMode.Assisted, 1, [Set(0)])
+        ]);
+        fixture.Source = new LocalTrainDashboardSource(
+            new StubWorkoutRepository(active, [completed]), fixture.Cache);
+        return fixture;
+    }
+
+    private static async Task<SourceFixture> CreateSourceWithMissingDefinition()
+    {
+        var fixture = await SourceFixture.CreateAsync([
+            Exercise(WeightedId, "Weighted Press", BodyPart.Chest, TrackingMode.Weighted, null)
+        ]);
+        var completed = Workout(LocalWorkoutStatus.Completed, At(6), At(8), [
+            ExerciseRow(WeightedId, TrackingMode.Weighted, 0, [Set(0)]),
+            ExerciseRow(MissingId, TrackingMode.Bodyweight, 1, [Set(0)])
+        ]);
+        fixture.Source = new LocalTrainDashboardSource(
+            new StubWorkoutRepository(null, [completed]), fixture.Cache);
+        return fixture;
+    }
+
+    private static async Task<SourceFixture> CreateSourceWithChangedDefinitionMode()
+    {
+        var fixture = await SourceFixture.CreateAsync([
+            Exercise(WeightedId, "Weighted Press", BodyPart.Chest, TrackingMode.Assisted, null)
+        ]);
+        var completed = Workout(LocalWorkoutStatus.Completed, At(6), At(8), [
+            ExerciseRow(WeightedId, TrackingMode.Weighted, 0, [Set(0)])
+        ]);
+        fixture.Source = new LocalTrainDashboardSource(
+            new StubWorkoutRepository(null, [completed]), fixture.Cache);
+        return fixture;
+    }
+
+    private static async Task<SourceFixture> CreateSourceWithNewerInexactAndOlderExactWorkouts()
+    {
+        var fixture = await SourceFixture.CreateAsync([
+            Exercise(WeightedId, "Weighted Press", BodyPart.Chest, TrackingMode.Weighted, null),
+            Exercise(AssistedId, "Assisted Row", BodyPart.Back, TrackingMode.Assisted, null)
+        ]);
+        var olderExact = Workout(LocalWorkoutStatus.Completed, At(5), At(7), [
+            ExerciseRow(WeightedId, TrackingMode.Weighted, 0, [Set(0)]),
+            ExerciseRow(AssistedId, TrackingMode.Assisted, 1, [Set(0)])
+        ]);
+        var newerInexact = Workout(LocalWorkoutStatus.Completed, At(6), At(8), [
+            ExerciseRow(WeightedId, TrackingMode.Weighted, 0, [Set(0)]),
+            ExerciseRow(MissingId, TrackingMode.Bodyweight, 1, [Set(0)])
+        ]);
+        fixture.OlderExactWorkoutId = olderExact.Id;
+        fixture.Source = new LocalTrainDashboardSource(
+            new StubWorkoutRepository(null, [olderExact, newerInexact]), fixture.Cache);
+        return fixture;
     }
 
     private static ExerciseSummaryDto Exercise(
         Guid id,
         string name,
         BodyPart bodyPart,
+        TrackingMode trackingMode,
         string? thumbnail) =>
-        new(id, name, bodyPart, TrackingMode.Weighted, thumbnail, null, null, null, false);
+        new(id, name, bodyPart, trackingMode, thumbnail, null, null, null, false);
 
     private static LocalWorkout Workout(
         LocalWorkoutStatus status,
@@ -78,10 +143,11 @@ public sealed class LocalTrainDashboardSourceTests
 
     private static LocalWorkoutExercise ExerciseRow(
         Guid definitionId,
+        TrackingMode trackingMode,
         int order,
         IReadOnlyList<LocalSet> sets,
         bool deleted = false) =>
-        new(Guid.NewGuid(), Guid.NewGuid(), definitionId, TrackingMode.Weighted, order,
+        new(Guid.NewGuid(), Guid.NewGuid(), definitionId, trackingMode, order,
             deleted ? At(9) : null, 1, 0, sets);
 
     private static LocalSet Set(int order, bool deleted = false) =>
@@ -90,6 +156,37 @@ public sealed class LocalTrainDashboardSourceTests
 
     private static DateTimeOffset At(int hour) =>
         new(2026, 8, 20, hour, 0, 0, TimeSpan.Zero);
+
+    private sealed class SourceFixture : IAsyncDisposable
+    {
+        private readonly string _root;
+
+        private SourceFixture(string root, ExerciseCache cache)
+        {
+            _root = root;
+            Cache = cache;
+        }
+
+        public ExerciseCache Cache { get; }
+        public LocalTrainDashboardSource Source { get; set; } = null!;
+        public Guid OlderExactWorkoutId { get; set; }
+
+        public static async Task<SourceFixture> CreateAsync(IReadOnlyList<ExerciseSummaryDto> definitions)
+        {
+            var root = Path.Combine(Path.GetTempPath(), $"trackz-train-source-{Guid.NewGuid():N}");
+            Directory.CreateDirectory(root);
+            var cache = new ExerciseCache(Path.Combine(root, "exercises.db"));
+            await cache.ReplaceAllAsync(definitions, At(10));
+            return new SourceFixture(root, cache);
+        }
+
+        public ValueTask DisposeAsync()
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            Directory.Delete(_root, recursive: true);
+            return ValueTask.CompletedTask;
+        }
+    }
 
     private sealed class StubWorkoutRepository(
         LocalWorkout? active,

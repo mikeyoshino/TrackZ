@@ -23,6 +23,7 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
     private readonly IConnectivityService? _connectivity;
     private bool _isBusy;
     private ActiveWorkoutCard? _activeWorkout;
+    private RepeatWorkoutShortcut? _repeatWorkout;
     private string? _errorText;
 
     public TrainTodayViewModel(
@@ -59,6 +60,12 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
         }
     }
 
+    public RepeatWorkoutShortcut? RepeatWorkout
+    {
+        get => _repeatWorkout;
+        private set => Set(ref _repeatWorkout, value);
+    }
+
     public bool IsBusy
     {
         get => _isBusy;
@@ -86,11 +93,12 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
             _ = await _boundary.TryCommitAsync(generation, _ =>
             {
                 ActiveWorkout = snapshot.Active;
+                RepeatWorkout = snapshot.Repeat;
                 RecentWorkouts.Clear();
-                foreach (var item in snapshot.Recent.Take(3))
+                if (snapshot.Repeat is { } item)
                 {
                     RecentWorkouts.Add(new RecentWorkoutItem(
-                        item.WorkoutId,
+                        item.SourceWorkoutId,
                         FormatBodyParts(item.BodyParts),
                         item.CompletedAt,
                         item.ExerciseCount,
