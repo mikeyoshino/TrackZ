@@ -16,16 +16,27 @@ using TrackZ.Mobile.Presentation;
 using TrackZ.Mobile.Features.Train;
 using TrackZ.Mobile.Networking;
 using TrackZ.Mobile.Features.Auth;
+using TrackZ.Mobile.Features.Localization;
+using TrackZ.Mobile.Localization;
 
 namespace TrackZ.Mobile;
 
 public static class MauiProgram
 {
-	public static MauiApp CreateMauiApp(Action<IServiceCollection>? configureTestServices = null)
+	public static MauiApp CreateMauiApp(
+		Action<IServiceCollection>? configureTestServices = null,
+		IAppLanguageStore? appLanguageStore = null)
 	{
+#if IOS || ANDROID
+		appLanguageStore ??= new MauiAppLanguageStore(Preferences.Default);
+#else
+		appLanguageStore ??= new PortableAppLanguageStore();
+#endif
+		AppLanguageCulture.Apply(appLanguageStore.Read());
 		var builder = MauiApp.CreateBuilder();
 		builder
 			.UseMauiApp<App>();
+		builder.Services.AddSingleton<IAppLanguageStore>(appLanguageStore);
 		builder.Services.AddSingleton<App>();
 		builder.Services.AddSingleton<IApplication>(services => services.GetRequiredService<App>());
 
@@ -213,6 +224,14 @@ public static class MauiProgram
 
 		return builder.Build();
 	}
+}
+
+internal sealed class PortableAppLanguageStore : IAppLanguageStore
+{
+	private AppLanguage _language = AppLanguage.Thai;
+
+	public AppLanguage Read() => _language;
+	public void Write(AppLanguage language) => _language = language;
 }
 
 public sealed class MauiAuthEntryPoint(IServiceProvider services) : IAuthEntryPoint

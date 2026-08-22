@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Maui.Dispatching;
+using System.Globalization;
 using System.Text;
 using TrackZ.Contracts.Exercises;
 using TrackZ.Contracts.Gamification;
@@ -15,6 +16,7 @@ using TrackZ.Mobile.Features.Exercises.Data;
 using TrackZ.Mobile.Features.Exercises.Services;
 using TrackZ.Mobile.Features.History;
 using TrackZ.Mobile.Features.Gamification;
+using TrackZ.Mobile.Features.Localization;
 using TrackZ.Mobile.Features.Train;
 using TrackZ.Mobile.Features.Workout;
 using TrackZ.Mobile.Sync;
@@ -593,7 +595,7 @@ public sealed class MauiCompositionTests
             services.RemoveAll<ISetSavedFeedback>();
             services.AddSingleton<ISetSavedFeedback>(services =>
                 services.GetRequiredService<MauiSetSavedFeedback>());
-        });
+        }, new FixedLanguageStore(AppLanguage.English));
 
         try
         {
@@ -903,8 +905,9 @@ public sealed class MauiCompositionTests
         Assert.True(noHistory.IsVisible);
         Assert.False(addButton.IsVisible);
         Assert.True(saveButton.IsVisible);
-        Assert.Equal("Save set 1", saveButton.Text);
-        Assert.Equal("Save set 1", SemanticProperties.GetDescription(saveButton));
+        var saveSetOne = string.Format(CultureInfo.CurrentCulture, logger.Text.SaveSetNumberFormat, 1);
+        Assert.Equal(saveSetOne, saveButton.Text);
+        Assert.Equal(saveSetOne, SemanticProperties.GetDescription(saveButton));
         Assert.True(weightInput.IsVisible);
         Assert.True(repsInput.IsVisible);
         Assert.False(weightInput.IsFocused);
@@ -921,7 +924,9 @@ public sealed class MauiCompositionTests
 
         Assert.Same(scroll, cancelledReveal.Scroll);
         Assert.Same(editor, cancelledReveal.Editor);
-        Assert.Equal("Set 1", cancelledReveal.Announcement);
+        Assert.Equal(
+            string.Format(CultureInfo.CurrentCulture, logger.Text.NextSetFormat, 1),
+            cancelledReveal.Announcement);
 
         logger.CancelDraftSetCommand.Execute(null);
         var cancelRestore = await transition.NextRestoredTargetAsync();
@@ -956,7 +961,9 @@ public sealed class MauiCompositionTests
         Assert.False(editor.IsVisible);
         Assert.True(today.IsVisible);
         Assert.False(noHistory.IsVisible);
-        Assert.Equal("Save set 2", saveButton.Text);
+        Assert.Equal(
+            string.Format(CultureInfo.CurrentCulture, logger.Text.SaveSetNumberFormat, 2),
+            saveButton.Text);
 
         logger.BeginSetCommand.Execute(null);
         var deactivatedReveal = await transition.NextAttemptAsync();
@@ -1512,6 +1519,12 @@ public sealed class MauiCompositionTests
         private readonly Dictionary<string, string> _values = [];
         public string? Get(string key) => _values.GetValueOrDefault(key);
         public void Set(string key, string value) => _values[key] = value;
+    }
+
+    private sealed class FixedLanguageStore(AppLanguage language) : IAppLanguageStore
+    {
+        public AppLanguage Read() => language;
+        public void Write(AppLanguage value) => language = value;
     }
 
     private sealed class HeadlessDispatcherProvider : IDispatcherProvider
