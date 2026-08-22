@@ -168,7 +168,7 @@ public static class MauiProgram
 		builder.Services.AddTransient<ExerciseProgressViewModel>();
 		builder.Services.AddTransient<ProgressDashboardViewModel>();
 		builder.Services.AddTransient<ProfileViewModel>();
-		builder.Services.AddTransient(services => new TrainTodayViewModel(
+		builder.Services.AddSingleton(services => new TrainTodayViewModel(
 			services.GetRequiredService<ITrainDashboardSource>(),
 			services.GetRequiredService<IAccountSessionBoundary>(),
 			services.GetRequiredService<WorkoutTextSet>(),

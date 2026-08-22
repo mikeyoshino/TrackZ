@@ -3,6 +3,8 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Maui.Dispatching;
 using System.Text;
 using TrackZ.Contracts.Exercises;
+using TrackZ.Contracts.Gamification;
+using TrackZ.Contracts.Progress;
 using TrackZ.Contracts.Sync;
 using TrackZ.Domain.Exercises;
 using TrackZ.Mobile.Components;
@@ -12,6 +14,8 @@ using TrackZ.Mobile.Features.Exercises;
 using TrackZ.Mobile.Features.Exercises.Data;
 using TrackZ.Mobile.Features.Exercises.Services;
 using TrackZ.Mobile.Features.History;
+using TrackZ.Mobile.Features.Gamification;
+using TrackZ.Mobile.Features.Train;
 using TrackZ.Mobile.Features.Workout;
 using TrackZ.Mobile.Sync;
 using TrackZ.Mobile.Identity;
@@ -677,6 +681,87 @@ public sealed class MauiCompositionTests
         }
     }
 
+    [Fact]
+    public async Task Momentum_home_provider_keeps_one_page_and_view_model_while_loading_local_and_cached_state()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"trackz-momentum-composition-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        var originalDispatcherProvider = DispatcherProvider.Current;
+        DispatcherProvider.SetCurrent(new HeadlessDispatcherProvider());
+        var boundary = new CountingSessionBoundary();
+        var connectivity = new CountingConnectivity(isOnline: false);
+        var units = new CountingWeightPreference();
+        var dashboard = new FixedTrainDashboardSource(new TrainDashboardSnapshot(
+            new ActiveWorkoutCard(Guid.NewGuid(), DateTimeOffset.UtcNow, [BodyPart.Back], 2, 1, 3),
+            null));
+        var progress = new CachedProgressSource(CreateMomentumProgress());
+        var app = MauiProgram.CreateMauiApp(services =>
+        {
+            ConfigureAuthenticatedServices(services);
+            services.RemoveAll<IAccountSessionBoundary>();
+            services.AddSingleton<IAccountSessionBoundary>(boundary);
+            services.RemoveAll<IConnectivityService>();
+            services.AddSingleton<IConnectivityService>(connectivity);
+            services.RemoveAll<IWeightUnitPreference>();
+            services.AddSingleton<IWeightUnitPreference>(units);
+            services.RemoveAll<IProgressSnapshotSource>();
+            services.AddSingleton<IProgressSnapshotSource>(progress);
+            services.RemoveAll<ITrainDashboardSource>();
+            services.AddSingleton<ITrainDashboardSource>(dashboard);
+            services.AddSingleton(new ExerciseHistoryCache(Path.Combine(root, "history.db")));
+            services.AddSingleton(new ExerciseCache(Path.Combine(root, "exercises.db")));
+            services.AddSingleton(new TrackZLocalDatabase(Path.Combine(root, "workouts.db")));
+            services.AddSingleton(new ProgressSnapshotCache(Path.Combine(root, "progress.json")));
+            services.AddSingleton<IUiDispatcher>(new InlineUiDispatcher());
+            services.AddSingleton<IExerciseThumbnailCache>(new HeadlessThumbnailCache());
+            services.AddSingleton<IWorkoutPreferenceStore>(new HeadlessPreferences());
+        });
+
+        try
+        {
+            var firstPage = app.Services.GetRequiredService<TrainPage>();
+            var secondPage = app.Services.GetRequiredService<TrainPage>();
+            var viewModel = Assert.IsType<TrainTodayViewModel>(firstPage.BindingContext);
+            var boundarySubscriptions = boundary.SessionResetSubscriptions;
+            var connectivitySubscriptions = connectivity.Subscriptions;
+
+            InvokePageLifecycle(firstPage, "OnAppearing");
+            await WaitUntilAsync(() => Task.FromResult(dashboard.LoadCount == 1));
+            InvokePageLifecycle(firstPage, "OnDisappearing");
+            var unitSubscriptions = units.Subscriptions;
+            InvokePageLifecycle(firstPage, "OnAppearing");
+            await WaitUntilAsync(() => Task.FromResult(dashboard.LoadCount == 2));
+            InvokePageLifecycle(firstPage, "OnDisappearing");
+            InvokePageLifecycle(firstPage, "OnAppearing");
+            await WaitUntilAsync(() => Task.FromResult(dashboard.LoadCount == 3));
+            InvokePageLifecycle(firstPage, "OnDisappearing");
+
+            Assert.Same(firstPage, secondPage);
+            Assert.Same(viewModel, secondPage.BindingContext);
+            Assert.Same(viewModel, app.Services.GetRequiredService<TrainTodayViewModel>());
+            Assert.Same(boundary, app.Services.GetRequiredService<IAccountSessionBoundary>());
+            Assert.Same(connectivity, app.Services.GetRequiredService<IConnectivityService>());
+            Assert.Same(units, app.Services.GetRequiredService<IWeightUnitPreference>());
+            Assert.Equal(1, boundarySubscriptions);
+            Assert.Equal(connectivitySubscriptions, connectivity.Subscriptions);
+            Assert.Equal(1, unitSubscriptions);
+            Assert.Equal(unitSubscriptions, units.Subscriptions);
+            Assert.Equal(3, dashboard.LoadCount);
+            Assert.Equal(3, progress.CachedReadCount);
+            Assert.True(viewModel.ShowContinueHero);
+            Assert.Equal(3, viewModel.ActiveWorkout!.LoggedSetCount);
+            Assert.True(viewModel.HasAuthoritativeProgress);
+            Assert.Equal(8, viewModel.Level);
+        }
+        finally
+        {
+            app.Dispose();
+            DispatcherProvider.SetCurrent(originalDispatcherProvider);
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     private static async Task AssertPulseStartIsAtomicWithResetAsync(IServiceProvider services)
     {
         var boundary = services.GetRequiredService<IAccountSessionBoundary>();
@@ -702,6 +787,21 @@ public sealed class MauiCompositionTests
         await reset.WaitAsync(TimeSpan.FromSeconds(2));
         Assert.Equal(0, pulse.StartCount);
         page.Deactivate();
+    }
+
+    private static void InvokePageLifecycle(Page page, string methodName)
+    {
+        for (var type = page.GetType(); type is not null; type = type.BaseType)
+        {
+            var method = type.GetMethod(
+                methodName,
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.DeclaredOnly);
+            if (method is null) continue;
+            method.Invoke(page, null);
+            return;
+        }
+
+        throw new MissingMethodException(page.GetType().FullName, methodName);
     }
 
     private static async Task AssertInlineSetEditorTransitionAsync(
@@ -852,6 +952,11 @@ public sealed class MauiCompositionTests
         services.AddSingleton<IMobileTokenStorage, AuthenticatedTokenStorage>();
         services.RemoveAll<IMobilePrivateDataCleaner>();
         services.AddSingleton<IMobilePrivateDataCleaner, NoopPrivateDataCleaner>();
+        services.RemoveAll<ITrainDashboardSource>();
+        services.AddSingleton<ITrainDashboardSource>(new FixedTrainDashboardSource(
+            new TrainDashboardSnapshot(null, null)));
+        services.RemoveAll<IProgressSnapshotSource>();
+        services.AddSingleton<IProgressSnapshotSource>(new CachedProgressSource(CreateMomentumProgress()));
     }
 
     [System.Runtime.CompilerServices.MethodImpl(
@@ -1014,6 +1119,118 @@ public sealed class MauiCompositionTests
     {
         public bool IsOnline => false;
         public event EventHandler? ConnectivityChanged { add { } remove { } }
+    }
+
+    private static ProgressSnapshot CreateMomentumProgress() => new(
+        new ProgressSummaryDto(
+            1000m,
+            500m,
+            3,
+            1,
+            [new ExerciseProgressSummaryDto(
+                Guid.Parse("11111111-1111-1111-1111-111111111111"),
+                "Composed Press",
+                TrackingMode.Weighted,
+                DateTimeOffset.UtcNow,
+                70m,
+                null,
+                8,
+                72.5m,
+                null,
+                6)]),
+        new GamificationProfileDto(640, 8, 600, 800, 4, 3, 4, 4, [], []),
+        DateTimeOffset.UtcNow);
+
+    private sealed class FixedTrainDashboardSource(TrainDashboardSnapshot snapshot) : ITrainDashboardSource
+    {
+        public int LoadCount { get; private set; }
+
+        public Task<TrainDashboardSnapshot> LoadAsync(CancellationToken cancellationToken = default)
+        {
+            LoadCount++;
+            return Task.FromResult(snapshot);
+        }
+    }
+
+    private sealed class CachedProgressSource(ProgressSnapshot cached) : IProgressSnapshotSource
+    {
+        public int CachedReadCount { get; private set; }
+
+        public Task<ProgressSnapshot?> GetCachedAsync(CancellationToken cancellationToken = default)
+        {
+            CachedReadCount++;
+            return Task.FromResult<ProgressSnapshot?>(cached);
+        }
+
+        public Task<ProgressSnapshot> RefreshAsync(CancellationToken cancellationToken = default) =>
+            Task.FromException<ProgressSnapshot>(new InvalidOperationException("The composition host is offline."));
+
+        public Task<ProgressSnapshot> UpdateWeeklyGoalAsync(int weeklyGoal, CancellationToken cancellationToken = default) =>
+            Task.FromResult(cached);
+    }
+
+    private sealed class CountingConnectivity(bool isOnline) : IConnectivityService
+    {
+        private EventHandler? _changed;
+        public int Subscriptions { get; private set; }
+        public bool IsOnline { get; } = isOnline;
+        public event EventHandler? ConnectivityChanged
+        {
+            add { Subscriptions++; _changed += value; }
+            remove { Subscriptions--; _changed -= value; }
+        }
+    }
+
+    private sealed class CountingWeightPreference : IWeightUnitPreference
+    {
+        private EventHandler? _changed;
+        public int Subscriptions { get; private set; }
+        public WeightDisplayUnit Current { get; private set; } = WeightDisplayUnit.Kilograms;
+        public event EventHandler? Changed
+        {
+            add { Subscriptions++; _changed += value; }
+            remove { Subscriptions--; _changed -= value; }
+        }
+
+        public void Set(WeightDisplayUnit unit)
+        {
+            if (Current == unit) return;
+            Current = unit;
+            _changed?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    private sealed class CountingSessionBoundary : IAccountSessionBoundary
+    {
+        private readonly AccountSessionBoundary _inner = new();
+        private EventHandler? _sessionReset;
+        public int SessionResetSubscriptions { get; private set; }
+
+        public event EventHandler? SessionReset
+        {
+            add { SessionResetSubscriptions++; _sessionReset += value; _inner.SessionReset += value; }
+            remove { SessionResetSubscriptions--; _sessionReset -= value; _inner.SessionReset -= value; }
+        }
+
+        public AccountSessionGeneration Capture() => _inner.Capture();
+        public bool IsCancellationRequested(AccountSessionGeneration generation) => _inner.IsCancellationRequested(generation);
+        public AccountSessionCancellationLease CreateCancellationLease(
+            AccountSessionGeneration generation,
+            CancellationToken cancellationToken = default) => _inner.CreateCancellationLease(generation, cancellationToken);
+        public bool TryStartSessionPhase(
+            AccountSessionGeneration generation,
+            Action phase,
+            CancellationToken cancellationToken = default) => _inner.TryStartSessionPhase(generation, phase, cancellationToken);
+        public Task<bool> TryCommitAsync(
+            AccountSessionGeneration generation,
+            Func<CancellationToken, Task> mutation,
+            CancellationToken cancellationToken = default) => _inner.TryCommitAsync(generation, mutation, cancellationToken);
+        public Task ResetAsync(Func<CancellationToken, Task> reset, CancellationToken cancellationToken = default) =>
+            _inner.ResetAsync(reset, cancellationToken);
+        public Task<bool> TryResetAsync(
+            AccountSessionGeneration generation,
+            Func<CancellationToken, Task> reset,
+            CancellationToken cancellationToken = default) => _inner.TryResetAsync(generation, reset, cancellationToken);
     }
 
     private sealed class AuthenticatedTokenStorage : IMobileTokenStorage

@@ -28,6 +28,28 @@ public sealed class AccessibilitySemanticsTests
         }
     }
 
+    [Fact]
+    public void Momentum_home_uses_localized_semantic_bindings_and_shared_44_point_targets()
+    {
+        var mobileDirectory = Path.Combine(FindSolutionDirectory(), "src", "TrackZ.Mobile");
+        var xaml = File.ReadAllText(Path.Combine(mobileDirectory, "Features", "Train", "TrainPage.xaml"));
+        var controls = File.ReadAllText(Path.Combine(mobileDirectory, "Resources", "Styles", "TrackZControls.xaml"));
+
+        Assert.Contains("x:Name=\"HeroActionButton\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("SemanticProperties.Description=\"{Binding HeroActionText}\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("SemanticProperties.Description=\"{Binding RepeatWorkoutAccessibilityText}\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("SemanticProperties.Description=\"{Binding RecentMomentumText}\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"TrainAgainCard\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"RecentMomentumCard\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("TrackZPrimaryButtonStyle", controls, StringComparison.Ordinal);
+        Assert.Contains("TrackZExerciseCardHeight", controls, StringComparison.Ordinal);
+        Assert.True(NativeAccessibility.MinimumActionTarget >= 44);
+
+        var thai = WorkoutResources.ForCulture(System.Globalization.CultureInfo.GetCultureInfo("th-TH"));
+        Assert.NotEqual(WorkoutResources.English.ContinueWorkout, thai.ContinueWorkout);
+        Assert.NotEqual(WorkoutResources.English.RepeatWorkoutAccessibilityFormat, thai.RepeatWorkoutAccessibilityFormat);
+    }
+
     private static string FindSolutionDirectory()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);

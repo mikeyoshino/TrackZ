@@ -59,6 +59,59 @@ public sealed class NativeIosExperienceAcceptanceTests
         Assert.NotNull(typeof(ProgressReveal));
     }
 
+    [Fact]
+    public void Momentum_home_keeps_the_approved_named_hierarchy_one_primary_and_quiet_home_copy()
+    {
+        var mobileDirectory = Path.Combine(FindSolutionDirectory(), "src", "TrackZ.Mobile");
+        var document = XDocument.Load(Path.Combine(mobileDirectory, "Features/Train/TrainPage.xaml"));
+        var namedElements = document.Descendants()
+            .Select(element => new
+            {
+                Name = element.Attributes().FirstOrDefault(attribute =>
+                    attribute.Name.LocalName == "Name" && attribute.Name.NamespaceName.Contains("xaml", StringComparison.Ordinal))?.Value,
+                Element = element.Name.LocalName
+            })
+            .Where(item => item.Name is not null)
+            .ToArray();
+
+        var approvedHierarchy = new[]
+        {
+            "MomentumHomeScroll", "HomeContextLabel", "HomeHero", "HeroActionButton", "MotivationStrip",
+            "WeeklyGoalMetric", "StreakMetric", "LevelMetric", "TrainAgainCard", "RecentMomentumCard"
+        };
+        Assert.Equal(
+            approvedHierarchy,
+            namedElements.Where(item => approvedHierarchy.Contains(item.Name!)).Select(item => item.Name));
+        Assert.Single(document.Descendants(), element =>
+            element.Name.LocalName == "Button"
+            && element.Attributes().Any(attribute => attribute.Value.Contains("TrackZPrimaryButtonStyle", StringComparison.Ordinal)));
+
+        var homeCopy = HomeCopy(WorkoutResources.English).Concat(HomeCopy(WorkoutResources.ForCulture(System.Globalization.CultureInfo.GetCultureInfo("th-TH"))));
+        Assert.DoesNotContain(homeCopy, value => value.Contains("offline", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("saved on this device", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("recommend", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("แนะนำ", StringComparison.Ordinal));
+    }
+
+    private static IEnumerable<string> HomeCopy(WorkoutTextSet text) =>
+    [
+        text.ReadyWhenYouAre,
+        text.YouAreInMotion,
+        text.StartTraining,
+        text.ChooseTodaysWorkout,
+        text.ChooseWorkoutSupporting,
+        text.WorkoutInProgress,
+        text.ContinueWorkout,
+        text.ThisWeek,
+        text.WeekStreak,
+        text.TrainAgain,
+        text.RecentMomentum,
+        text.HomeExerciseProgressFormat,
+        text.RepeatWorkoutAccessibilityFormat,
+        text.HomeLoadFailed,
+        text.HomeContextFormat
+    ];
+
     private static string FindSolutionDirectory()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
