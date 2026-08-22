@@ -33,3 +33,13 @@ public interface IBodyAreaPicker
 {
     Task<BodyPart?> PickAsync(CancellationToken cancellationToken = default);
 }
+
+/// <summary>
+/// Owns application navigation initiated from Momentum Home. The Core view model never reaches
+/// into Shell directly, which keeps its state transitions testable and generation-fenced.
+/// </summary>
+public interface ITrainNavigator
+{
+    Task OpenWorkoutPickerAsync(CancellationToken cancellationToken = default);
+    Task OpenActiveWorkoutAsync(CancellationToken cancellationToken = default);
+}

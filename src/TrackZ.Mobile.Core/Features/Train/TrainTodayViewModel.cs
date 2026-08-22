@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using TrackZ.Domain.Exercises;
+using TrackZ.Mobile.Data.Models;
 using TrackZ.Mobile.Features.Exercises;
 using TrackZ.Mobile.Features.Gamification;
 using TrackZ.Mobile.Features.Workout;
@@ -25,7 +26,11 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
     private readonly IProgressSnapshotSource? _progress;
     private readonly IWeightUnitPreference _weightUnits;
     private readonly GamificationTextSet _gamificationText;
+    private readonly ActiveWorkoutCoordinator? _activeWorkouts;
+    private readonly ITrainNavigator? _navigator;
     private bool _isBusy;
+    private bool _isDashboardKnown;
+    private bool _isCommandMutation;
     private bool _isProgressLoading;
     private ActiveWorkoutCard? _activeWorkout;
     private RepeatWorkoutShortcut? _repeatWorkout;
@@ -56,7 +61,9 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
         IProgressSnapshotSource? progress,
         IConnectivityService? connectivity,
         IWeightUnitPreference weightUnits,
-        GamificationTextSet gamificationText)
+        GamificationTextSet gamificationText,
+        ActiveWorkoutCoordinator? activeWorkouts = null,
+        ITrainNavigator? navigator = null)
     {
         _source = source;
         _boundary = boundary;
@@ -64,15 +71,28 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
         _progress = progress;
         _weightUnits = weightUnits;
         _gamificationText = gamificationText;
+        _activeWorkouts = activeWorkouts;
+        _navigator = navigator;
         Text = text;
+        HeroActionCommand = new AsyncCommand(_ => ExecuteHeroActionAsync(), _ => CanMutate);
+        TrainAgainCommand = new AsyncCommand(_ => ExecuteTrainAgainAsync(), _ => CanMutate && ShowTrainAgain);
         _boundary.SessionReset += OnSessionReset;
         if (_connectivity is not null) _connectivity.ConnectivityChanged += OnConnectivityChanged;
     }
 
     public WorkoutTextSet Text { get; }
+    public AsyncCommand HeroActionCommand { get; }
+    public AsyncCommand TrainAgainCommand { get; }
     public ObservableCollection<RecentWorkoutItem> RecentWorkouts { get; } = [];
     public bool HasRecentWorkouts => RecentWorkouts.Count > 0;
     public bool HasActiveWorkout => ActiveWorkout is not null;
+    public bool ShowStartHero => _isDashboardKnown && !HasActiveWorkout;
+    public bool ShowContinueHero => _isDashboardKnown && HasActiveWorkout;
+    public bool ShowTrainAgain => _isDashboardKnown && !HasActiveWorkout && RepeatWorkout is not null;
+    public string HeroActionText => HasActiveWorkout ? Text.Continue : Text.StartWorkout;
+    public bool CanMutate => _isDashboardKnown
+        && !_isCommandMutation
+        && !_boundary.IsCancellationRequested(_boundary.Capture());
     public bool IsOffline => _connectivity is { IsOnline: false };
     public bool HasAuthoritativeProgress
     {
@@ -120,6 +140,11 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
             {
                 OnPropertyChanged(nameof(HasActiveWorkout));
                 OnPropertyChanged(nameof(SavedSetCountText));
+                OnPropertyChanged(nameof(ShowStartHero));
+                OnPropertyChanged(nameof(ShowContinueHero));
+                OnPropertyChanged(nameof(ShowTrainAgain));
+                OnPropertyChanged(nameof(HeroActionText));
+                RefreshCommandState();
             }
         }
     }
@@ -127,7 +152,12 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
     public RepeatWorkoutShortcut? RepeatWorkout
     {
         get => _repeatWorkout;
-        private set => Set(ref _repeatWorkout, value);
+        private set
+        {
+            if (!Set(ref _repeatWorkout, value)) return;
+            OnPropertyChanged(nameof(ShowTrainAgain));
+            RefreshCommandState();
+        }
     }
 
     public bool IsBusy
@@ -151,6 +181,12 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
         if (!_boundary.TryStartSessionPhase(generation, () =>
         {
             IsBusy = true;
+            _isDashboardKnown = false;
+            OnPropertyChanged(nameof(ShowStartHero));
+            OnPropertyChanged(nameof(ShowContinueHero));
+            OnPropertyChanged(nameof(ShowTrainAgain));
+            OnPropertyChanged(nameof(CanMutate));
+            RefreshCommandState();
             ErrorText = null;
         }, cancellationToken)) return;
         try
@@ -161,6 +197,12 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
             {
                 ActiveWorkout = snapshot.Active;
                 RepeatWorkout = snapshot.Repeat;
+                _isDashboardKnown = true;
+                OnPropertyChanged(nameof(ShowStartHero));
+                OnPropertyChanged(nameof(ShowContinueHero));
+                OnPropertyChanged(nameof(ShowTrainAgain));
+                OnPropertyChanged(nameof(CanMutate));
+                RefreshCommandState();
                 RecentWorkouts.Clear();
                 if (snapshot.Repeat is { } item)
                 {
@@ -287,6 +329,8 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
 
     private void OnSessionReset(object? sender, EventArgs eventArgs)
     {
+        _isDashboardKnown = false;
+        _isCommandMutation = false;
         ActiveWorkout = null;
         RepeatWorkout = null;
         RecentWorkouts.Clear();
@@ -304,6 +348,100 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
         ErrorText = null;
         IsBusy = false;
         IsProgressLoading = false;
+        OnPropertyChanged(nameof(ShowStartHero));
+        OnPropertyChanged(nameof(ShowContinueHero));
+        OnPropertyChanged(nameof(ShowTrainAgain));
+        OnPropertyChanged(nameof(CanMutate));
+        RefreshCommandState();
+    }
+
+    private async Task ExecuteHeroActionAsync()
+    {
+        var generation = _boundary.Capture();
+        if (!CanMutate || _boundary.IsCancellationRequested(generation)) return;
+
+        if (ActiveWorkout is not null)
+        {
+            await NavigateAsync(generation, static (navigator, token) =>
+                navigator.OpenActiveWorkoutAsync(token));
+            return;
+        }
+
+        await NavigateAsync(generation, static (navigator, token) =>
+            navigator.OpenWorkoutPickerAsync(token));
+    }
+
+    private async Task ExecuteTrainAgainAsync()
+    {
+        var generation = _boundary.Capture();
+        var repeat = RepeatWorkout;
+        if (!CanMutate || repeat is null || ActiveWorkout is not null
+            || _activeWorkouts is null || _boundary.IsCancellationRequested(generation)) return;
+
+        SetCommandMutation(true);
+        try
+        {
+            using var lease = _boundary.CreateCancellationLease(generation);
+            var created = await _activeWorkouts.StartAsync(repeat.Selections, cancellationToken: lease.Token);
+            var committed = await _boundary.TryCommitAsync(generation, _ =>
+            {
+                ActiveWorkout = ToActiveCard(created, repeat.BodyParts);
+                return Task.CompletedTask;
+            }, lease.Token);
+            if (!committed) return;
+
+            await NavigateAsync(generation, static (navigator, token) =>
+                navigator.OpenActiveWorkoutAsync(token), lease.Token);
+        }
+        catch (OperationCanceledException) when (_boundary.IsCancellationRequested(generation))
+        {
+        }
+        catch (Exception)
+        {
+            await _boundary.TryCommitAsync(generation, _ =>
+            {
+                ErrorText = Text.LoadFailed;
+                return Task.CompletedTask;
+            }, CancellationToken.None);
+        }
+        finally
+        {
+            SetCommandMutation(false);
+        }
+    }
+
+    private async Task NavigateAsync(
+        AccountSessionGeneration generation,
+        Func<ITrainNavigator, CancellationToken, Task> navigate,
+        CancellationToken cancellationToken = default)
+    {
+        if (_navigator is null || _boundary.IsCancellationRequested(generation)) return;
+        _ = await _boundary.TryCommitAsync(generation,
+            token => navigate(_navigator, token), cancellationToken);
+    }
+
+    private void SetCommandMutation(bool value)
+    {
+        if (_isCommandMutation == value) return;
+        _isCommandMutation = value;
+        OnPropertyChanged(nameof(CanMutate));
+        RefreshCommandState();
+    }
+
+    private static ActiveWorkoutCard ToActiveCard(
+        LocalWorkout workout,
+        IReadOnlyList<BodyPart> fallbackBodyParts) => new(
+        workout.Id,
+        workout.StartedAt,
+        fallbackBodyParts,
+        workout.Exercises.Count(item => item.DeletedAt is null),
+        0,
+        0);
+
+    private void RefreshCommandState()
+    {
+        HeroActionCommand.RaiseCanExecuteChanged();
+        TrainAgainCommand.RaiseCanExecuteChanged();
     }
 
     private void OnConnectivityChanged(object? sender, EventArgs eventArgs) =>

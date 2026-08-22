@@ -22,7 +22,7 @@
             <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
                 <Label Style="{DynamicResource TrackZSectionTitleStyle}" Text="{Binding Text.ResumeWorkout}" />
                 <Label Grid.Row="1" Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding SavedSetCountText}" />
-                <Button Grid.Column="1" Grid.RowSpan="2" Clicked="OnResumeClicked" Style="{DynamicResource TrackZQuietButtonStyle}" Text="›" />
+                <Button Grid.Column="1" Grid.RowSpan="2" Command="{Binding HeroActionCommand}" Style="{DynamicResource TrackZQuietButtonStyle}" Text="›" />
             </Grid>
           </Border>
         </Grid>
@@ -59,7 +59,7 @@
 
         <Border Grid.Row="3" Style="{DynamicResource TrackZStickyActionContainerStyle}">
             <Button
-                Clicked="OnChooseWorkoutClicked"
+                Command="{Binding HeroActionCommand}"
                 Style="{DynamicResource TrackZPrimaryButtonStyle}"
                 Text="{Binding Text.ChooseWorkout}" />
         </Border>

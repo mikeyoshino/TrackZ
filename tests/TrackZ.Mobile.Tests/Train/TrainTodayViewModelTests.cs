@@ -14,6 +14,52 @@ namespace TrackZ.Mobile.Tests.Train;
 public sealed class TrainTodayViewModelTests
 {
     [Fact]
+    public async Task Hero_opens_picker_without_active_workout_and_active_workout_when_active()
+    {
+        var noActiveNavigator = new RecordingTrainNavigator();
+        var noActive = CreateCommandViewModel(active: null, repeat: null, noActiveNavigator);
+        await noActive.LoadAsync();
+
+        Assert.True(noActive.ShowStartHero);
+        Assert.False(noActive.ShowContinueHero);
+        Assert.False(noActive.ShowTrainAgain);
+        await noActive.HeroActionCommand.ExecuteAsync();
+        Assert.Equal(["picker"], noActiveNavigator.Events);
+
+        var activeNavigator = new RecordingTrainNavigator();
+        var active = CreateCommandViewModel(ActiveCard(), RepeatShortcut(), activeNavigator);
+        await active.LoadAsync();
+
+        Assert.False(active.ShowStartHero);
+        Assert.True(active.ShowContinueHero);
+        Assert.False(active.ShowTrainAgain);
+        await active.HeroActionCommand.ExecuteAsync();
+        Assert.Equal(["active-workout"], activeNavigator.Events);
+    }
+
+    [Fact]
+    public async Task Train_again_is_available_only_after_a_ready_snapshot_commits()
+    {
+        var source = new GatedTrainDashboardSource();
+        var navigator = new RecordingTrainNavigator();
+        var viewModel = CreateCommandViewModel(source, navigator);
+
+        var load = viewModel.LoadAsync();
+        await source.Started.Task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        Assert.False(viewModel.CanMutate);
+        Assert.False(viewModel.HeroActionCommand.CanExecute(null));
+        Assert.False(viewModel.TrainAgainCommand.CanExecute(null));
+
+        source.Release.TrySetResult(new TrainDashboardSnapshot(null, RepeatShortcut()));
+        await load;
+
+        Assert.True(viewModel.CanMutate);
+        Assert.True(viewModel.ShowStartHero);
+        Assert.True(viewModel.ShowTrainAgain);
+    }
+
+    [Fact]
     public async Task Local_state_commits_before_gated_progress_refresh_and_cached_values_survive_failure()
     {
         var source = new RecordingTrainDashboardSource(new(
@@ -292,6 +338,43 @@ public sealed class TrainTodayViewModelTests
         new MutableWeightPreference(),
         GamificationResources.English);
 
+    private static TrainTodayViewModel CreateCommandViewModel(
+        ActiveWorkoutCard? active,
+        RepeatWorkoutShortcut? repeat,
+        RecordingTrainNavigator navigator) =>
+        CreateCommandViewModel(new RecordingTrainDashboardSource(new(active, repeat)), navigator);
+
+    private static TrainTodayViewModel CreateCommandViewModel(
+        ITrainDashboardSource source,
+        RecordingTrainNavigator navigator) => new(
+        source,
+        new AccountSessionBoundary(),
+        WorkoutResources.English,
+        progress: null,
+        connectivity: null,
+        weightUnits: new MutableWeightPreference(),
+        gamificationText: GamificationResources.English,
+        activeWorkouts: null,
+        navigator: navigator);
+
+    private static ActiveWorkoutCard ActiveCard() => new(
+        Guid.Parse("88888888-8888-8888-8888-888888888888"),
+        At(9),
+        [BodyPart.Back],
+        2,
+        1,
+        4);
+
+    private static RepeatWorkoutShortcut RepeatShortcut() => new(
+        Guid.Parse("99999999-9999-9999-9999-999999999999"),
+        [BodyPart.Chest],
+        At(8),
+        2,
+        3,
+        null,
+        [new WorkoutExerciseSelection(
+            Guid.Parse("aaaaaaaa-1111-1111-1111-111111111111"), TrackingMode.Weighted)]);
+
     private static ProgressSnapshot Snapshot(int goal, int done, int streak, int level, int xp) => new(
         new ProgressSummaryDto(
             1000m,
@@ -484,5 +567,22 @@ public sealed class TrainTodayViewModelTests
         public WeightDisplayUnit Current => WeightDisplayUnit.Kilograms;
         public event EventHandler? Changed { add { } remove { } }
         public void Set(WeightDisplayUnit unit) { }
+    }
+
+    private sealed class RecordingTrainNavigator : ITrainNavigator
+    {
+        public List<string> Events { get; } = [];
+
+        public Task OpenWorkoutPickerAsync(CancellationToken cancellationToken = default)
+        {
+            Events.Add("picker");
+            return Task.CompletedTask;
+        }
+
+        public Task OpenActiveWorkoutAsync(CancellationToken cancellationToken = default)
+        {
+            Events.Add("active-workout");
+            return Task.CompletedTask;
+        }
     }
 }
