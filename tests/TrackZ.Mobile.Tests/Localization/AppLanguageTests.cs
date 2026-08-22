@@ -310,6 +310,41 @@ public sealed class AppLanguageChangerTests
         }
     }
 
+    [Fact]
+    public async Task Auth_change_during_language_switch_discards_stale_root_and_installs_current_state()
+    {
+        var culture = CultureSnapshot.Capture();
+        var authentication = CreateAuthentication();
+        using var host = new RecordingUiHost
+        {
+            BeforePrepare = (_, attempt) =>
+            {
+                if (attempt == 1)
+                    authentication.RequireSignInAsync().GetAwaiter().GetResult();
+            }
+        };
+        try
+        {
+            var sut = new MauiAppLanguageChanger(
+                new MutableLanguageStore(AppLanguage.Thai),
+                host,
+                authentication);
+
+            await sut.ChangeAsync(AppLanguage.English);
+
+            Assert.Equal(
+                [AuthGateState.CheckingSession, AuthGateState.SignedOut],
+                host.PreparedSnapshots.Select(snapshot => snapshot.State));
+            Assert.True(host.Probes[0].Disposed);
+            Assert.False(host.Probes[1].Disposed);
+            Assert.Equal(1, host.InstallCount);
+        }
+        finally
+        {
+            culture.Restore();
+        }
+    }
+
     private static AuthGateCoordinator CreateAuthentication() => new(
         new MobileTokenStore(new MemoryTokenStorage()),
         new NoopIdentitySession(),
@@ -339,19 +374,25 @@ public sealed class AppLanguageChangerTests
 
         public bool FailInstall { get; init; }
         public Action? BeforeInstall { get; init; }
+        public Action<AuthGateSnapshot, int>? BeforePrepare { get; init; }
         public int InstallCount { get; private set; }
         public List<string?> RootTabRoutes { get; } = [];
+        public List<AuthGateSnapshot> PreparedSnapshots { get; } = [];
+        public List<DisposeProbe> Probes { get; } = [];
         public DisposeProbe? LastProbe { get; private set; }
         public string? CurrentRootTabRoute => "train";
 
         public LocalizedUiInstallation Prepare(AuthGateSnapshot snapshot)
         {
+            PreparedSnapshots.Add(snapshot);
             var provider = new ServiceCollection()
                 .AddScoped<DisposeProbe>()
                 .BuildServiceProvider();
             _providers.Add(provider);
             var scope = new LocalizedUiScope(provider.CreateScope());
             LastProbe = scope.Services.GetRequiredService<DisposeProbe>();
+            Probes.Add(LastProbe);
+            BeforePrepare?.Invoke(snapshot, PreparedSnapshots.Count);
             return new LocalizedUiInstallation(scope, new ContentPage());
         }
 

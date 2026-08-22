@@ -185,6 +185,44 @@ Momentum Home screenshot record (leave every combination pending until observed)
 - Offline cached and no-cache states: pending — services intentionally stopped
 - Continue destination and rapid Train again result: pending — services intentionally stopped
 
+## Thai-default live language acceptance
+
+Keep every item pending until it is observed on the simulator. Changing language must rebuild the
+native localized UI only; it must not reset account, workout, sync, cache, artwork, or unit state.
+
+1. Set the simulator device language to English, clear only the app installation/preferences, and
+   launch TrackZ. Confirm the first screen is Thai, including authentication copy and all four tab
+   labels.
+2. Sign in, create or resume an active workout, save at least one set, choose lb in **คุณ**, and
+   leave the **คุณ** tab selected.
+3. In **คุณ**, confirm the language selector appears above the kg/lb selector. Choose English and
+   verify the current tab remains **You** while visible navigation, headings, forms, actions,
+   validation, empty/error/loading states, sync/conflict copy, and accessibility labels switch
+   immediately without relaunching.
+4. Confirm the active workout ID, exercise order, saved sets, signed-in account, sync state, lb
+   preference, cached thumbnails, and API artwork remain unchanged. Exercise names returned by the
+   API and custom names entered by the user must remain byte-for-byte unchanged in both languages.
+5. Open **Create custom exercise** and verify body-part/tracking-mode options, image picker title,
+   validation, retry, and confirmation copy are English. Return without losing the draft unless an
+   explicit destructive action was chosen.
+6. Terminate and relaunch the app. Confirm English is applied before the first navigable page is
+   created, with no one-frame Thai flash, and the same account/workout/cache state remains.
+7. Switch back to Thai and repeat the checks for tabs, workout logging, History conflict actions,
+   Progress, Profile, and custom exercise. Confirm kg/lb values are converted only by the shared
+   unit preference and never by the language switch.
+8. During one language switch, expire/sign out the account from the test environment. Confirm the
+   installed root matches the latest authentication state; a stale signed-in page must never be
+   installed after sign-out.
+
+Live language screenshot record:
+
+- Fresh install · English device · Thai auth/tabs: pending — services intentionally stopped
+- Thai active workout · lb · You tab selected: pending — services intentionally stopped
+- Immediate English replacement preserving state/tab: pending — services intentionally stopped
+- English relaunch before first navigation: pending — services intentionally stopped
+- Thai reversal + Custom Exercise EN/TH comparison: pending — services intentionally stopped
+- Large Dynamic Type and VoiceOver labels in both languages: pending — services intentionally stopped
+
 ## Shutdown
 
 Stop only the processes started for this walkthrough. Keep database and object-storage volumes:
