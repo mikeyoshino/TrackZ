@@ -45,7 +45,26 @@ The first sandboxed combined invocation was aborted before tests ran because the
 
 ## Mutation targets covered
 
-- Active graph: three live exercises, two with live sets, four live sets total; it also contains a tombstoned set and a tombstoned exercise.
+- Active graph: four live exercises, including one unresolved definition with a live set; three exercises have live sets and there are five live sets total. Its body-area list remains `[Chest, Back]`, and it also contains a tombstoned set and a tombstoned exercise.
 - Exact repeat graph: weighted, assisted, and bodyweight entries are stored in order values `2, 0, 1` and become the deterministic `0, 1, 2` selection order with matching modes; it contains five live sets.
 - Inexact repeat graphs: one missing definition and one changed tracking mode each yield no repeat shortcut.
 - Fallback selection: a newer inexact completed workout is skipped in favor of the next newest exact candidate.
+
+## Review follow-up: count and tie-break sensitivity
+
+The approved reference was re-opened. Its active hero still maps to the exact live exercise/logged-exercise/logged-set facts, and the Ready-state Train again row still maps to one exact repeat candidate; no reference mapping changed.
+
+- The active fixture now has one unresolved but live exercise with one live set. It asserts `ExerciseCount == 4`, `LoggedExerciseCount == 3`, and `LoggedSetCount == 5` while the resolved body parts remain `[Chest, Back]`. A temporary unsafe active-definition filter caused the focused suite to fail with `Expected: 4; Actual: 3`; it was removed, and the suite passed again.
+- Two exact completed candidates now share the literal completion time and use IDs `20000000-0000-0000-0000-000000000001` and `20000000-0000-0000-0000-000000000002`. The test requires the larger ID. A temporary ascending ID tie-breaker failed with the expected larger ID versus the actual lower ID; the required descending tie-breaker was restored, and the suite passed again.
+
+No production logic changed in this review round; these tests protect the existing live-row count and descending-ID selection behavior.
+
+Final review-round GREEN evidence:
+
+```text
+dotnet test tests/TrackZ.Mobile.Tests/TrackZ.Mobile.Tests.csproj --no-restore --filter FullyQualifiedName~LocalTrainDashboardSourceTests --verbosity minimal -m:1
+Passed: 4, Failed: 0, Skipped: 0
+
+dotnet test tests/TrackZ.Mobile.Tests/TrackZ.Mobile.Tests.csproj --no-restore --filter "FullyQualifiedName~TrainTodayViewModelTests|FullyQualifiedName~LocalTrainDashboardSourceTests" --verbosity minimal -m:1
+Passed: 8, Failed: 0, Skipped: 0
+```

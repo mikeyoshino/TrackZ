@@ -24,9 +24,9 @@ public sealed class LocalTrainDashboardSourceTests
         var active = Assert.IsType<ActiveWorkoutCard>(snapshot.Active);
 
         Assert.Equal([BodyPart.Chest, BodyPart.Back], active.BodyParts);
-        Assert.Equal(3, active.ExerciseCount);
-        Assert.Equal(2, active.LoggedExerciseCount);
-        Assert.Equal(4, active.LoggedSetCount);
+        Assert.Equal(4, active.ExerciseCount);
+        Assert.Equal(3, active.LoggedExerciseCount);
+        Assert.Equal(5, active.LoggedSetCount);
         Assert.Equal([WeightedId, AssistedId, BodyweightId],
             snapshot.Repeat!.Selections.Select(x => x.ExerciseDefinitionId));
         Assert.Equal([TrackingMode.Weighted, TrackingMode.Assisted, TrackingMode.Bodyweight],
@@ -56,6 +56,28 @@ public sealed class LocalTrainDashboardSourceTests
             snapshot.Repeat.Selections.Select(x => x.ExerciseDefinitionId));
     }
 
+    [Fact]
+    public async Task Source_breaks_repeat_completion_ties_by_larger_workout_id()
+    {
+        var lowerWorkoutId = Guid.Parse("20000000-0000-0000-0000-000000000001");
+        var higherWorkoutId = Guid.Parse("20000000-0000-0000-0000-000000000002");
+        await using var fixture = await SourceFixture.CreateAsync([
+            Exercise(WeightedId, "Weighted Press", BodyPart.Chest, TrackingMode.Weighted, null)
+        ]);
+        var lower = Workout(LocalWorkoutStatus.Completed, At(5), At(8), [
+            ExerciseRow(WeightedId, TrackingMode.Weighted, 0, [Set(0)])
+        ], lowerWorkoutId);
+        var higher = Workout(LocalWorkoutStatus.Completed, At(6), At(8), [
+            ExerciseRow(WeightedId, TrackingMode.Weighted, 0, [Set(0)])
+        ], higherWorkoutId);
+        fixture.Source = new LocalTrainDashboardSource(
+            new StubWorkoutRepository(null, [lower, higher]), fixture.Cache);
+
+        var snapshot = await fixture.Source.LoadAsync();
+
+        Assert.Equal(higherWorkoutId, snapshot.Repeat!.SourceWorkoutId);
+    }
+
     private static async Task<SourceFixture> CreateSourceWithMixedModes()
     {
         var fixture = await SourceFixture.CreateAsync([
@@ -67,7 +89,8 @@ public sealed class LocalTrainDashboardSourceTests
             ExerciseRow(WeightedId, TrackingMode.Weighted, 0, [Set(0), Set(1), Set(2, deleted: true)]),
             ExerciseRow(AssistedId, TrackingMode.Assisted, 1, [Set(0), Set(1)]),
             ExerciseRow(BodyweightId, TrackingMode.Bodyweight, 2, [Set(0, deleted: true)]),
-            ExerciseRow(MissingId, TrackingMode.Weighted, 3, [Set(0)], deleted: true)
+            ExerciseRow(MissingId, TrackingMode.Weighted, 3, [Set(0)]),
+            ExerciseRow(WeightedId, TrackingMode.Weighted, 4, [Set(0)], deleted: true)
         ]);
         var completed = Workout(LocalWorkoutStatus.Completed, At(6), At(8), [
             ExerciseRow(BodyweightId, TrackingMode.Bodyweight, 2, [Set(0), Set(1)]),
@@ -138,8 +161,9 @@ public sealed class LocalTrainDashboardSourceTests
         LocalWorkoutStatus status,
         DateTimeOffset startedAt,
         DateTimeOffset? completedAt,
-        IReadOnlyList<LocalWorkoutExercise> exercises) =>
-        new(Guid.NewGuid(), status, startedAt, completedAt, null, 1, 0, exercises);
+        IReadOnlyList<LocalWorkoutExercise> exercises,
+        Guid? workoutId = null) =>
+        new(workoutId ?? Guid.NewGuid(), status, startedAt, completedAt, null, 1, 0, exercises);
 
     private static LocalWorkoutExercise ExerciseRow(
         Guid definitionId,
