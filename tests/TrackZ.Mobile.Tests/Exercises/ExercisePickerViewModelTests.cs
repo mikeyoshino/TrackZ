@@ -606,6 +606,45 @@ public sealed class ExercisePickerViewModelTests : IAsyncLifetime
         Assert.Equal(12, (await _cache.GetAllAsync()).Count(item => item.ThumbnailUri == "/local/image.jpg"));
     }
 
+    [Fact]
+    public async Task Inline_ui_dispatcher_serializes_actions_and_releases_gate_after_throw()
+    {
+        var dispatcher = new InlineUiDispatcher();
+        var firstEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var active = 0;
+        var maximum = 0;
+
+        var first = Task.Run(() => dispatcher.InvokeAsync(() =>
+        {
+            var current = Interlocked.Increment(ref active);
+            InterlockedExtensions.Max(ref maximum, current);
+            firstEntered.SetResult();
+            releaseFirst.Task.GetAwaiter().GetResult();
+            Interlocked.Decrement(ref active);
+        }));
+
+        await firstEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        var second = dispatcher.InvokeAsync(() =>
+        {
+            var current = Interlocked.Increment(ref active);
+            InterlockedExtensions.Max(ref maximum, current);
+            Interlocked.Decrement(ref active);
+        });
+
+        Assert.False(second.IsCompleted);
+        releaseFirst.SetResult();
+        await Task.WhenAll(first, second);
+        Assert.Equal(1, maximum);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            dispatcher.InvokeAsync(() => throw new InvalidOperationException("expected")));
+
+        var laterActionCount = 0;
+        await dispatcher.InvokeAsync(() => laterActionCount++);
+        Assert.Equal(1, laterActionCount);
+    }
+
     [Theory]
     [InlineData("//evil.example/api/v1/media/exercise-images/99999999-9999-9999-9999-999999999999/thumbnail")]
     [InlineData("/%2f%2fevil.example/x")]

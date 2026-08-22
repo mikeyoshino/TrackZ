@@ -39,10 +39,19 @@ public interface IUiDispatcher
 
 public sealed class InlineUiDispatcher : IUiDispatcher
 {
-    public Task InvokeAsync(Action action)
+    private readonly SemaphoreSlim _gate = new(1, 1);
+
+    public async Task InvokeAsync(Action action)
     {
-        action();
-        return Task.CompletedTask;
+        await _gate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            action();
+        }
+        finally
+        {
+            _gate.Release();
+        }
     }
 }
 
