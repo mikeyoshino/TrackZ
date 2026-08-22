@@ -113,6 +113,53 @@ Capture the same states on the smallest supported iPhone and an available Pro Ma
 Record device/runtime names and screenshot paths in the verification notes. Do not claim the
 walkthrough complete when the account session or published API artwork prerequisite is absent.
 
+## Momentum Home acceptance walkthrough
+
+Do not run this section until the user explicitly asks to start the test stack. At that point, run
+`./scripts/trackz-dev start` once and record the exact device/runtime and screenshot paths below.
+
+1. With no active workout, open **Train** and capture the Ready state. Confirm the localized
+   day/week context, the lime Start hero, the three truthful motivation cards when seeded profile
+   data exists, one Train again row when repeatable history exists, one Recent momentum row when
+   authoritative performance exists, and exactly one lime primary action.
+2. Tap **Start workout** and confirm it opens body-area selection without recommending a body area
+   or exercise. Return without starting, then seed or resume an active workout.
+3. Capture the Active state. Confirm the same hero button now says **Continue workout**, shows exact
+   logged-exercise/total-exercise and set counts, hides Train again, and keeps motivation and Recent
+   momentum when authoritative data exists.
+4. Tap **Continue workout** and confirm the destination is the full **Today's workout** list, not an
+   individual exercise or set editor.
+5. Finish the active workout, return to Ready, and rapidly double-tap **Train again**. Confirm one
+   new active workout, one navigation, the same ordered exercises and tracking modes, no copied
+   historical sets, and no duplicate StartWorkout operation after relaunch/re-entry.
+6. Make the newest completed workout unavailable by removing one cached exercise definition.
+   Confirm its Train again row is hidden or the next fully repeatable workout is used; no partial
+   workout may be presented as the same routine.
+7. With cached profile/performance present, stop network access without clearing app storage and
+   relaunch. Confirm cached metrics and Recent momentum remain, local Start/Continue still works,
+   and no technical offline/device-save banner appears. Repeat with no cache and confirm the
+   motivation and Recent momentum sections are hidden rather than filled with invented zeroes.
+8. In **You**, switch kg to lb and return to Train without restarting. Compare Last/Best against
+   History: kg supports three-decimal display and lb remains stable at two decimals. Switch back and
+   relaunch to verify the shared preference persists across Home.
+9. Repeat Ready and Active checks in English and Thai. Confirm header, hero, metrics, Train again,
+   exercise/set counts, Last/Best, and semantic action descriptions all change language with no
+   English Home literals remaining in Thai.
+10. Repeat Ready and Active checks at a large iOS Dynamic Type size. Text may wrap, but the hero
+    action, all metric labels, Train again row, Recent momentum row, and bottom tab bar must not
+    overlap and every action must stay reachable with a minimum 44-point target. Repeat once with
+    Reduce Motion enabled; no state change may depend on decoration or animation completion.
+
+Momentum Home screenshot record (leave pending until observed):
+
+- Ready EN kg, small iPhone: pending — services intentionally stopped
+- Active EN kg, small iPhone: pending — services intentionally stopped
+- Ready TH lb, small iPhone: pending — services intentionally stopped
+- Ready/Active, Pro Max: pending — services intentionally stopped
+- Large Dynamic Type / Reduce Motion: pending — services intentionally stopped
+- Offline cached and no-cache states: pending — services intentionally stopped
+- Continue destination and rapid Train again result: pending — services intentionally stopped
+
 ## Shutdown
 
 Stop only the processes started for this walkthrough. Keep database and object-storage volumes:
