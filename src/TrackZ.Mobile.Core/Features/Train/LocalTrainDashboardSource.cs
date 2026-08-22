@@ -42,6 +42,7 @@ public sealed class LocalTrainDashboardSource(
                 .Where(item => item.DeletedAt is null)
                 .OrderBy(item => item.Order)
                 .ToArray();
+            if (liveExercises.Length == 0) continue;
             var resolved = liveExercises
                 .Select(item => (WorkoutExercise: item, Definition: definitions.GetValueOrDefault(item.ExerciseDefinitionId)))
                 .ToArray();

@@ -195,7 +195,19 @@
                 </Border>
             </VerticalStackLayout>
 
-            <Label Style="{DynamicResource TrackZInlineErrorStyle}" Text="{Binding ErrorText}" />
+            <VerticalStackLayout
+                x:Name="HomeErrorState"
+                IsVisible="{Binding HasError}"
+                Spacing="{DynamicResource TrackZSpace8}">
+                <Label Style="{DynamicResource TrackZInlineErrorStyle}" Text="{Binding ErrorText}" />
+                <Button
+                    x:Name="HomeRetryButton"
+                    Command="{Binding RetryCommand}"
+                    HorizontalOptions="Start"
+                    SemanticProperties.Description="{Binding Text.TryAgain}"
+                    Style="{DynamicResource TrackZSecondaryButtonStyle}"
+                    Text="{Binding Text.TryAgain}" />
+            </VerticalStackLayout>
         </VerticalStackLayout>
     </ScrollView>
 </ContentPage>

@@ -2,25 +2,59 @@ using TrackZ.Mobile.Features.Exercises;
 
 namespace TrackZ.Mobile.Features.Train;
 
+internal interface ITrainNavigationHost
+{
+    Task GoToAsync(string route, CancellationToken cancellationToken);
+}
+
 /// <summary>
 /// The MAUI edge for Momentum Home navigation. Shell routes stay out of the Core view model so
 /// command tests can exercise routing decisions without a platform shell.
 /// </summary>
-public sealed class MauiTrainNavigator(IBodyAreaPicker bodyAreaPicker) : ITrainNavigator
+public sealed class MauiTrainNavigator : ITrainNavigator
 {
+    private readonly IBodyAreaPicker _bodyAreaPicker;
+    private readonly ITrainNavigationHost _host;
+
+    public MauiTrainNavigator(IBodyAreaPicker bodyAreaPicker)
+        : this(bodyAreaPicker, new MauiTrainNavigationHost())
+    {
+    }
+
+    internal MauiTrainNavigator(
+        IBodyAreaPicker bodyAreaPicker,
+        ITrainNavigationHost host)
+    {
+        _bodyAreaPicker = bodyAreaPicker;
+        _host = host;
+    }
+
     public async Task OpenWorkoutPickerAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var selected = await bodyAreaPicker.PickAsync(cancellationToken);
+        var selected = await _bodyAreaPicker.PickAsync(cancellationToken);
         if (selected is null) return;
         cancellationToken.ThrowIfCancellationRequested();
-        await Shell.Current.GoToAsync(
-            $"{nameof(ExercisePickerPage)}?bodyPart={(int)selected.Value}");
+        await _host.GoToAsync(
+            $"{nameof(ExercisePickerPage)}?bodyPart={(int)selected.Value}",
+            cancellationToken);
     }
 
-    public async Task OpenActiveWorkoutAsync(CancellationToken cancellationToken = default)
+    public Task OpenActiveWorkoutAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        await Shell.Current.GoToAsync("active-workout");
+        return _host.GoToAsync("active-workout", cancellationToken);
+    }
+
+    private sealed class MauiTrainNavigationHost : ITrainNavigationHost
+    {
+        private static Shell CurrentShell =>
+            Shell.Current ?? throw new InvalidOperationException("The application shell is unavailable.");
+
+        public async Task GoToAsync(string route, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await CurrentShell.GoToAsync(route);
+        }
     }
 }

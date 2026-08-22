@@ -109,6 +109,7 @@ public sealed class NativeIosExperienceAcceptanceTests
         text.HomeExerciseProgressFormat,
         text.RepeatWorkoutAccessibilityFormat,
         text.HomeLoadFailed,
+        text.HomeRepeatFailed,
         text.HomeContextFormat
     ];
 

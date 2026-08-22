@@ -1,7 +1,9 @@
+using TrackZ.Contracts.Exercises;
 using TrackZ.Domain.Exercises;
 using TrackZ.Mobile.Data;
 using TrackZ.Mobile.Data.Models;
 using TrackZ.Mobile.Features.Exercises;
+using TrackZ.Mobile.Features.Exercises.Data;
 using TrackZ.Mobile.Features.Gamification;
 using TrackZ.Mobile.Features.Train;
 using TrackZ.Mobile.Features.Workout;
@@ -12,8 +14,12 @@ namespace TrackZ.Mobile.Tests.Train;
 
 public sealed class TrainAgainWorkoutTests : IDisposable
 {
-    private readonly string _databasePath = Path.Combine(
-        Path.GetTempPath(), $"trackz-train-again-{Guid.NewGuid():N}.db");
+    private readonly string _root = Path.Combine(
+        Path.GetTempPath(), $"trackz-train-again-{Guid.NewGuid():N}");
+    private string DatabasePath => Path.Combine(_root, "workouts.db");
+    private string ExerciseCachePath => Path.Combine(_root, "exercises.db");
+
+    public TrainAgainWorkoutTests() => Directory.CreateDirectory(_root);
 
     [Fact]
     public async Task Train_again_recreates_exact_ordered_modes_without_sets_after_sqlite_restart()
@@ -21,29 +27,39 @@ public sealed class TrainAgainWorkoutTests : IDisposable
         var weightedId = Guid.Parse("10000000-0000-0000-0000-000000000001");
         var assistedId = Guid.Parse("10000000-0000-0000-0000-000000000002");
         var bodyweightId = Guid.Parse("10000000-0000-0000-0000-000000000003");
-        var source = new MutableTrainDashboardSource(new(
-            null,
-            new(
-                Guid.Parse("20000000-0000-0000-0000-000000000001"),
-                [BodyPart.Back],
-                new DateTimeOffset(2026, 8, 20, 8, 0, 0, TimeSpan.Zero),
-                3,
-                7,
-                null,
-                [
-                    new WorkoutExerciseSelection(weightedId, TrackingMode.Weighted),
-                    new WorkoutExerciseSelection(assistedId, TrackingMode.Assisted),
-                    new WorkoutExerciseSelection(bodyweightId, TrackingMode.Bodyweight)
-                ])));
+        var selections = new WorkoutExerciseSelection[]
+        {
+            new(weightedId, TrackingMode.Weighted),
+            new(assistedId, TrackingMode.Assisted),
+            new(bodyweightId, TrackingMode.Bodyweight)
+        };
+        var seedCache = new ExerciseCache(ExerciseCachePath);
+        await seedCache.ReplaceAllAsync([
+            Exercise(weightedId, "Bench Press", BodyPart.Chest, TrackingMode.Weighted),
+            Exercise(assistedId, "Assisted Pull-up", BodyPart.Back, TrackingMode.Assisted),
+            Exercise(bodyweightId, "Push-up", BodyPart.Chest, TrackingMode.Bodyweight)
+        ], new DateTimeOffset(2026, 8, 22, 7, 0, 0, TimeSpan.Zero));
+        var seedBoundary = new AccountSessionBoundary();
+        var seedDatabase = new TrackZLocalDatabase(DatabasePath);
+        var seedRepository = new LocalWorkoutRepository(seedDatabase);
+        var seedCoordinator = new ActiveWorkoutCoordinator(seedRepository, seedBoundary, new FixedClock());
+        var completedId = (await seedCoordinator.StartAsync(selections)).Id;
+        await seedCoordinator.SaveSetAsync(weightedId, new LocalSet(82.5m, null, 8));
+        await seedCoordinator.SaveSetAsync(assistedId, new LocalSet(null, 24m, 10));
+        await seedCoordinator.SaveSetAsync(bodyweightId, new LocalSet(null, null, 15));
+        var completedBeforeRestart = await seedCoordinator.FinishAsync();
+
+        Assert.Equal(completedId, completedBeforeRestart.Id);
+        Assert.Equal(LocalWorkoutStatus.Completed, completedBeforeRestart.Status);
+        Assert.Equal(3, completedBeforeRestart.Exercises.Sum(item => item.Sets.Count));
+
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
         var boundary = new AccountSessionBoundary();
         var navigator = new RecordingTrainNavigator();
-        var firstDatabase = new TrackZLocalDatabase(_databasePath);
-        var firstRepository = new LocalWorkoutRepository(firstDatabase);
-        await firstDatabase.InitializeAsync();
-
-        // Recreate the database/repository boundary before the command commits the repeat.
-        var restartedDatabase = new TrackZLocalDatabase(_databasePath);
+        var restartedDatabase = new TrackZLocalDatabase(DatabasePath);
         var restartedRepository = new LocalWorkoutRepository(restartedDatabase);
+        var restartedCache = new ExerciseCache(ExerciseCachePath);
+        var source = new LocalTrainDashboardSource(restartedRepository, restartedCache);
         var viewModel = new TrainTodayViewModel(
             source,
             boundary,
@@ -58,6 +74,11 @@ public sealed class TrainAgainWorkoutTests : IDisposable
                 new FixedClock()),
             navigator: navigator);
         await viewModel.LoadAsync();
+
+        Assert.Equal(completedId, viewModel.RepeatWorkout?.SourceWorkoutId);
+        Assert.Equal(
+            selections,
+            viewModel.RepeatWorkout!.Selections);
 
         await Task.WhenAll(
             viewModel.TrainAgainCommand.ExecuteAsync(),
@@ -74,8 +95,27 @@ public sealed class TrainAgainWorkoutTests : IDisposable
         Assert.Empty(active.Exercises.SelectMany(item => item.Sets));
         Assert.Single(
             await new OutboxRepository(restartedDatabase).PendingAsync(),
-            item => item.Type == OutboxOperationType.StartWorkout);
+            item => item.Type == OutboxOperationType.StartWorkout && item.EntityId == active.Id);
         Assert.Equal(1, navigator.OpenActiveWorkoutCount);
+        Assert.NotEqual(completedId, active.Id);
+
+        var originalHistory = Assert.Single(
+            await restartedRepository.GetHistoryAsync(),
+            item => item.Id == completedId);
+        Assert.Equal(LocalWorkoutStatus.Completed, originalHistory.Status);
+        Assert.Equal(completedBeforeRestart.CompletedAt, originalHistory.CompletedAt);
+        Assert.Equal(
+            [82.5m, null, null],
+            originalHistory.Exercises.OrderBy(item => item.Order)
+                .Select(item => item.Sets.Single().WeightKg));
+        Assert.Equal(
+            [null, 24m, null],
+            originalHistory.Exercises.OrderBy(item => item.Order)
+                .Select(item => item.Sets.Single().AssistedKg));
+        Assert.Equal(
+            [8, 10, 15],
+            originalHistory.Exercises.OrderBy(item => item.Order)
+                .Select(item => item.Sets.Single().Reps));
     }
 
     [Fact]
@@ -86,7 +126,7 @@ public sealed class TrainAgainWorkoutTests : IDisposable
             new(Guid.NewGuid(), [BodyPart.Chest], DateTimeOffset.UtcNow, 1, 0, null,
                 [new WorkoutExerciseSelection(Guid.Empty, TrackingMode.Weighted)])));
         var boundary = new AccountSessionBoundary();
-        var database = new TrackZLocalDatabase(_databasePath);
+        var database = new TrackZLocalDatabase(DatabasePath);
         var navigator = new RecordingTrainNavigator();
         var viewModel = CreateViewModel(source, boundary, database, navigator);
         await viewModel.LoadAsync();
@@ -96,7 +136,11 @@ public sealed class TrainAgainWorkoutTests : IDisposable
         Assert.Null(await new LocalWorkoutRepository(database).GetActiveAsync());
         Assert.Empty(await new OutboxRepository(database).PendingAsync());
         Assert.Equal(0, navigator.OpenActiveWorkoutCount);
-        Assert.NotNull(viewModel.ErrorText);
+        Assert.Equal("Could not repeat that workout. Try again.", viewModel.ErrorText);
+        Assert.NotEqual(WorkoutResources.English.HomeLoadFailed, viewModel.ErrorText);
+        Assert.True(viewModel.ShowTrainAgain);
+        Assert.True(viewModel.CanMutate);
+        Assert.True(viewModel.TrainAgainCommand.CanExecute(null));
     }
 
     [Fact]
@@ -109,7 +153,7 @@ public sealed class TrainAgainWorkoutTests : IDisposable
         var viewModel = CreateViewModel(
             source,
             new AccountSessionBoundary(),
-            new TrackZLocalDatabase(_databasePath),
+            new TrackZLocalDatabase(DatabasePath),
             new RecordingTrainNavigator());
         await viewModel.LoadAsync();
         Assert.True(viewModel.ShowTrainAgain);
@@ -129,7 +173,7 @@ public sealed class TrainAgainWorkoutTests : IDisposable
             new(Guid.NewGuid(), [BodyPart.Back], DateTimeOffset.UtcNow, 1, 0, null,
                 [new WorkoutExerciseSelection(Guid.NewGuid(), TrackingMode.Weighted)])));
         var boundary = new AccountSessionBoundary();
-        var database = new TrackZLocalDatabase(_databasePath);
+        var database = new TrackZLocalDatabase(DatabasePath);
         var gatedRepository = new GatedSaveRepository(new LocalWorkoutRepository(database));
         var navigator = new RecordingTrainNavigator();
         var viewModel = new TrainTodayViewModel(
@@ -153,12 +197,27 @@ public sealed class TrainAgainWorkoutTests : IDisposable
         Assert.Equal(0, navigator.OpenActiveWorkoutCount);
         Assert.False(viewModel.CanMutate);
         Assert.Null(viewModel.ActiveWorkout);
+
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        var restartedDatabase = new TrackZLocalDatabase(DatabasePath);
+        Assert.Null(await new LocalWorkoutRepository(restartedDatabase).GetActiveAsync());
+        Assert.DoesNotContain(
+            await new OutboxRepository(restartedDatabase).PendingAsync(),
+            item => item.Type == OutboxOperationType.StartWorkout);
     }
 
     public void Dispose()
     {
-        if (File.Exists(_databasePath)) File.Delete(_databasePath);
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        Directory.Delete(_root, recursive: true);
     }
+
+    private static ExerciseSummaryDto Exercise(
+        Guid id,
+        string name,
+        BodyPart bodyPart,
+        TrackingMode trackingMode) =>
+        new(id, name, bodyPart, trackingMode, null, null, null, null, false);
 
     private static TrainTodayViewModel CreateViewModel(
         ITrainDashboardSource source,

@@ -90,8 +90,6 @@
   <data name="TrainTodayTitle" xml:space="preserve"><value>วันนี้</value></data>
   <data name="ChooseWorkout" xml:space="preserve"><value>เลือกการฝึก</value></data>
   <data name="ResumeWorkout" xml:space="preserve"><value>ฝึกต่อ</value></data>
-  <data name="Recent" xml:space="preserve"><value>ล่าสุด</value></data>
-  <data name="NoRecentWorkouts" xml:space="preserve"><value>ยังไม่มีการฝึกล่าสุด</value></data>
   <data name="Continue" xml:space="preserve"><value>ดำเนินการต่อ</value></data>
   <data name="TrainTab" xml:space="preserve"><value>ฝึก</value></data>
   <data name="SavedSetCountFormat" xml:space="preserve"><value>บันทึกแล้ว {0} เซ็ต</value></data>
@@ -129,5 +127,6 @@
   <data name="HomeExerciseProgressFormat" xml:space="preserve"><value>บันทึกแล้ว {0} จาก {1} ท่า · {2} เซ็ต</value></data>
   <data name="RepeatWorkoutAccessibilityFormat" xml:space="preserve"><value>ฝึกแบบเดิมอีกครั้ง: {0}, {1} ท่า, {2} เซ็ต</value></data>
   <data name="HomeLoadFailed" xml:space="preserve"><value>โหลดหน้าหลักไม่สำเร็จ</value></data>
+  <data name="HomeRepeatFailed" xml:space="preserve"><value>เริ่มการฝึกแบบเดิมไม่สำเร็จ ลองอีกครั้ง</value></data>
   <data name="HomeContextFormat" xml:space="preserve"><value>วันนี้ · สัปดาห์ที่ {0}</value></data>
 </root>

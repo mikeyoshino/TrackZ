@@ -27,9 +27,11 @@ public sealed class MomentumHomePresentationTests
         Assert.Equal("Start workout", english.StartWorkout);
         Assert.Equal("Continue workout", english.ContinueWorkout);
         Assert.Equal("Try again", english.TryAgain);
+        Assert.Equal("Could not repeat that workout. Try again.", english.HomeRepeatFailed);
         Assert.Equal("เริ่มออกกำลังกาย", thai.StartWorkout);
         Assert.Equal("ออกกำลังกายต่อ", thai.ContinueWorkout);
         Assert.Equal("ลองอีกครั้ง", thai.TryAgain);
+        Assert.Equal("เริ่มการฝึกแบบเดิมไม่สำเร็จ ลองอีกครั้ง", thai.HomeRepeatFailed);
 
         var englishHome = HomeCopy(english);
         var thaiHome = HomeCopy(thai);
@@ -147,6 +149,26 @@ public sealed class MomentumHomePresentationTests
         Assert.Same(card, context.Page.FindByName("RecentMomentumCard"));
     }
 
+    [Fact]
+    public async Task Local_failure_shows_one_non_primary_native_retry_action_with_localized_semantics()
+    {
+        await using var context = await TestHome.CreateAsync(
+            new ThrowingDashboardSource(),
+            cachedProgress: null);
+        var retry = Assert.IsType<Button>(context.Page.FindByName("HomeRetryButton"));
+
+        Assert.True(context.ViewModel.HasError);
+        Assert.True(retry.IsVisible);
+        Assert.True(retry.MinimumHeightRequest >= 44);
+        Assert.Same(context.ViewModel.RetryCommand, retry.Command);
+        Assert.Equal(context.ViewModel.Text.TryAgain, retry.Text);
+        Assert.Equal(context.ViewModel.Text.TryAgain, SemanticProperties.GetDescription(retry));
+        Assert.Same(context.Application.Resources["TrackZSecondaryButtonStyle"], retry.Style);
+        Assert.Single(
+            Descendants(context.Page).OfType<Button>(),
+            button => ReferenceEquals(button.Style, context.Application.Resources["TrackZPrimaryButtonStyle"]));
+    }
+
     private static string[] HomeCopy(WorkoutTextSet text) =>
     [
         text.ReadyWhenYouAre,
@@ -165,6 +187,7 @@ public sealed class MomentumHomePresentationTests
         text.HomeExerciseProgressFormat,
         text.RepeatWorkoutAccessibilityFormat,
         text.HomeLoadFailed,
+        text.HomeRepeatFailed,
         text.HomeContextFormat
     ];
 
@@ -317,6 +340,12 @@ public sealed class MomentumHomePresentationTests
 
         public Task<TrainDashboardSnapshot> LoadAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(_snapshots.Count > 1 ? _snapshots.Dequeue() : _snapshots.Peek());
+    }
+
+    private sealed class ThrowingDashboardSource : ITrainDashboardSource
+    {
+        public Task<TrainDashboardSnapshot> LoadAsync(CancellationToken cancellationToken = default) =>
+            Task.FromException<TrainDashboardSnapshot>(new IOException("Dashboard unavailable."));
     }
 
     private sealed class CachedProgressSource(ProgressSnapshot? cached) : IProgressSnapshotSource

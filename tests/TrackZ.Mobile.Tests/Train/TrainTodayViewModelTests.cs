@@ -2,7 +2,9 @@ using System.Globalization;
 using TrackZ.Contracts.Gamification;
 using TrackZ.Contracts.Progress;
 using TrackZ.Domain.Exercises;
+using TrackZ.Mobile.Data;
 using TrackZ.Mobile.Features.Exercises;
+using TrackZ.Mobile.Features.Exercises.Data;
 using TrackZ.Mobile.Features.Gamification;
 using TrackZ.Mobile.Data.Models;
 using TrackZ.Mobile.Features.Train;
@@ -193,6 +195,80 @@ public sealed class TrainTodayViewModelTests
     }
 
     [Fact]
+    public async Task Real_local_sqlite_failure_is_contained_and_disables_dashboard_mutation()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"trackz-home-load-failure-{Guid.NewGuid():N}");
+        var invalidDatabasePath = Path.Combine(root, "workouts.db");
+        Directory.CreateDirectory(invalidDatabasePath);
+        try
+        {
+            var source = new LocalTrainDashboardSource(
+                new LocalWorkoutRepository(new TrackZLocalDatabase(invalidDatabasePath)),
+                new ExerciseCache(Path.Combine(root, "exercises.db")));
+            var viewModel = new TrainTodayViewModel(
+                source,
+                new AccountSessionBoundary(),
+                WorkoutResources.English);
+
+            var failure = await Record.ExceptionAsync(() => viewModel.LoadAsync());
+
+            Assert.Null(failure);
+            Assert.Equal("Could not load Home", viewModel.ErrorText);
+            Assert.False(viewModel.CanMutate);
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Failed_dashboard_exposes_retry_and_successful_retry_clears_error()
+    {
+        var source = new FailOnceTrainDashboardSource(new TrainDashboardSnapshot(null, RepeatShortcut()));
+        var viewModel = new TrainTodayViewModel(
+            source,
+            new AccountSessionBoundary(),
+            WorkoutResources.English);
+
+        await viewModel.LoadAsync();
+
+        Assert.True(viewModel.HasError);
+        Assert.Equal("Could not load Home", viewModel.ErrorText);
+        Assert.False(viewModel.CanMutate);
+        Assert.True(viewModel.RetryCommand.CanExecute(null));
+
+        await viewModel.RetryCommand.ExecuteAsync();
+
+        Assert.False(viewModel.HasError);
+        Assert.Null(viewModel.ErrorText);
+        Assert.True(viewModel.ShowTrainAgain);
+        Assert.True(viewModel.CanMutate);
+        Assert.Equal(2, source.LoadCount);
+    }
+
+    [Fact]
+    public async Task Caller_cancellation_during_local_dashboard_read_is_propagated_without_an_error_state()
+    {
+        var source = new CancellableTrainDashboardSource();
+        var viewModel = new TrainTodayViewModel(
+            source,
+            new AccountSessionBoundary(),
+            WorkoutResources.English);
+        using var cancellation = new CancellationTokenSource();
+
+        var load = viewModel.LoadAsync(cancellation.Token);
+        await source.Started.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        await cancellation.CancelAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => load);
+        Assert.False(viewModel.HasError);
+        Assert.Null(viewModel.ErrorText);
+        Assert.False(viewModel.CanMutate);
+    }
+
+    [Fact]
     public async Task Caller_cancellation_during_progress_read_is_propagated()
     {
         var progress = new GatedCancellableProgressSource();
@@ -275,15 +351,14 @@ public sealed class TrainTodayViewModelTests
         Assert.Equal(activeId, viewModel.ActiveWorkout?.WorkoutId);
         Assert.Equal(4, viewModel.ActiveWorkout?.LoggedSetCount);
         Assert.Equal(repeatId, viewModel.RepeatWorkout?.SourceWorkoutId);
-        Assert.Single(viewModel.RecentWorkouts);
-        Assert.Equal("Shoulders + Back", viewModel.RecentWorkouts[0].Title);
+        Assert.Equal("Shoulders + Back", viewModel.RepeatWorkoutTitle);
         Assert.Equal(1, source.LoadCount);
     }
 
     [Theory]
     [InlineData("en-US", "Shoulders + Back")]
     [InlineData("th-TH", "ไหล่ + หลัง")]
-    public async Task Recent_title_uses_current_localized_body_part_names(
+    public async Task Repeat_title_uses_current_localized_body_part_names(
         string cultureName,
         string expected)
     {
@@ -302,7 +377,7 @@ public sealed class TrainTodayViewModelTests
 
             await viewModel.LoadAsync();
 
-            Assert.Equal(expected, Assert.Single(viewModel.RecentWorkouts).Title);
+            Assert.Equal(expected, viewModel.RepeatWorkoutTitle);
         }
         finally
         {
@@ -514,6 +589,57 @@ public sealed class TrainTodayViewModelTests
         Assert.Equal("Today · Week 35", viewModel.HomeContextText);
     }
 
+    [Theory]
+    [InlineData("en-US", "th-TH", "วันจันทร์ · 2 ท่า · บันทึกแล้ว 3 เซ็ต")]
+    [InlineData("th-TH", "en-US", "Monday · 2 exercises · 3 sets logged")]
+    public async Task Repeat_completion_weekday_uses_device_timezone_and_current_ui_culture(
+        string currentCultureName,
+        string currentUiCultureName,
+        string expected)
+    {
+        var previousCulture = CultureInfo.CurrentCulture;
+        var previousUiCulture = CultureInfo.CurrentUICulture;
+        try
+        {
+            var currentCulture = CultureInfo.GetCultureInfo(currentCultureName);
+            var uiCulture = CultureInfo.GetCultureInfo(currentUiCultureName);
+            CultureInfo.CurrentCulture = currentCulture;
+            CultureInfo.CurrentUICulture = uiCulture;
+            var bangkok = TimeZoneInfo.CreateCustomTimeZone(
+                "Asia/Bangkok",
+                TimeSpan.FromHours(7),
+                "Asia/Bangkok",
+                "Asia/Bangkok");
+            var sundayUtcMondayLocal = new DateTimeOffset(2026, 8, 23, 17, 30, 0, TimeSpan.Zero);
+            var repeat = RepeatShortcut() with
+            {
+                CompletedAt = sundayUtcMondayLocal,
+                ExerciseCount = 2,
+                LoggedSetCount = 3
+            };
+            var viewModel = new TrainTodayViewModel(
+                new RecordingTrainDashboardSource(new(null, repeat)),
+                new AccountSessionBoundary(),
+                WorkoutResources.ForCulture(uiCulture),
+                progress: null,
+                connectivity: null,
+                weightUnits: new MutableWeightPreference(),
+                gamificationText: uiCulture.TwoLetterISOLanguageName == "th"
+                    ? GamificationResources.Thai
+                    : GamificationResources.English,
+                localTimeZone: bangkok);
+
+            await viewModel.LoadAsync();
+
+            Assert.Equal(expected, viewModel.RepeatWorkoutMetaText);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previousCulture;
+            CultureInfo.CurrentUICulture = previousUiCulture;
+        }
+    }
+
     [Fact]
     public async Task Presentation_properties_notify_when_loaded_and_when_the_account_resets()
     {
@@ -567,7 +693,7 @@ public sealed class TrainTodayViewModelTests
         await load;
 
         Assert.Null(viewModel.ActiveWorkout);
-        Assert.Empty(viewModel.RecentWorkouts);
+        Assert.Null(viewModel.RepeatWorkout);
     }
 
     private static DateTimeOffset At(int hour) =>
@@ -670,6 +796,34 @@ public sealed class TrainTodayViewModelTests
     {
         public Task<TrainDashboardSnapshot> LoadAsync(CancellationToken cancellationToken = default) =>
             Task.FromException<TrainDashboardSnapshot>(new IOException("Dashboard unavailable."));
+    }
+
+    private sealed class FailOnceTrainDashboardSource(TrainDashboardSnapshot success)
+        : ITrainDashboardSource
+    {
+        public int LoadCount { get; private set; }
+
+        public Task<TrainDashboardSnapshot> LoadAsync(CancellationToken cancellationToken = default)
+        {
+            LoadCount++;
+            return LoadCount == 1
+                ? Task.FromException<TrainDashboardSnapshot>(new IOException("Dashboard unavailable."))
+                : Task.FromResult(success);
+        }
+    }
+
+    private sealed class CancellableTrainDashboardSource : ITrainDashboardSource
+    {
+        public TaskCompletionSource Started { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public async Task<TrainDashboardSnapshot> LoadAsync(
+            CancellationToken cancellationToken = default)
+        {
+            Started.TrySetResult();
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            return new TrainDashboardSnapshot(null, null);
+        }
     }
 
     private sealed class GatedTrainDashboardSource : ITrainDashboardSource

@@ -1,4 +1,3 @@
-using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Globalization;
 using System.Runtime.CompilerServices;
@@ -10,14 +9,6 @@ using TrackZ.Mobile.Features.Workout;
 using TrackZ.Mobile.Identity;
 
 namespace TrackZ.Mobile.Features.Train;
-
-public sealed record RecentWorkoutItem(
-    Guid WorkoutId,
-    string Title,
-    DateTimeOffset CompletedAt,
-    int ExerciseCount,
-    string? ThumbnailPath,
-    string ExerciseCountText);
 
 public sealed class TrainTodayViewModel : INotifyPropertyChanged
 {
@@ -83,6 +74,7 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
         Text = text;
         HeroActionCommand = new AsyncCommand(_ => ExecuteHeroActionAsync(), _ => CanMutate);
         TrainAgainCommand = new AsyncCommand(_ => ExecuteTrainAgainAsync(), _ => CanMutate && ShowTrainAgain);
+        RetryCommand = new AsyncCommand(_ => LoadAsync(), _ => HasError && !IsBusy);
         _boundary.SessionReset += OnSessionReset;
         if (_connectivity is not null) _connectivity.ConnectivityChanged += OnConnectivityChanged;
     }
@@ -90,8 +82,7 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
     public WorkoutTextSet Text { get; }
     public AsyncCommand HeroActionCommand { get; }
     public AsyncCommand TrainAgainCommand { get; }
-    public ObservableCollection<RecentWorkoutItem> RecentWorkouts { get; } = [];
-    public bool HasRecentWorkouts => RecentWorkouts.Count > 0;
+    public AsyncCommand RetryCommand { get; }
     public bool HasActiveWorkout => ActiveWorkout is not null;
     public bool ShowStartHero => _isDashboardKnown && !HasActiveWorkout;
     public bool ShowContinueHero => _isDashboardKnown && HasActiveWorkout;
@@ -126,7 +117,8 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
     public string RepeatWorkoutMetaText => RepeatWorkout is { } repeat
         ? string.Join(
             " · ",
-            repeat.CompletedAt.ToString("dddd", CultureInfo.CurrentCulture),
+            TimeZoneInfo.ConvertTime(repeat.CompletedAt, _localTimeZone)
+                .ToString("dddd", CultureInfo.CurrentUICulture),
             string.Format(CultureInfo.CurrentCulture, Text.ExerciseCountFormat, repeat.ExerciseCount),
             string.Format(CultureInfo.CurrentCulture, Text.SetsLoggedFormat, repeat.LoggedSetCount))
         : string.Empty;
@@ -245,14 +237,23 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
     public bool IsBusy
     {
         get => _isBusy;
-        private set => Set(ref _isBusy, value);
+        private set
+        {
+            if (Set(ref _isBusy, value)) RetryCommand.RaiseCanExecuteChanged();
+        }
     }
 
     public string? ErrorText
     {
         get => _errorText;
-        private set => Set(ref _errorText, value);
+        private set
+        {
+            if (!Set(ref _errorText, value)) return;
+            OnPropertyChanged(nameof(HasError));
+            RetryCommand.RaiseCanExecuteChanged();
+        }
     }
+    public bool HasError => !string.IsNullOrWhiteSpace(ErrorText);
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -286,18 +287,6 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
                 OnPropertyChanged(nameof(ShowTrainAgain));
                 OnPropertyChanged(nameof(CanMutate));
                 RefreshCommandState();
-                RecentWorkouts.Clear();
-                if (snapshot.Repeat is { } item)
-                {
-                    RecentWorkouts.Add(new RecentWorkoutItem(
-                        item.SourceWorkoutId,
-                        FormatBodyParts(item.BodyParts),
-                        item.CompletedAt,
-                        item.ExerciseCount,
-                        item.ThumbnailPath,
-                        string.Format(Text.ExerciseCountFormat, item.ExerciseCount)));
-                }
-                OnPropertyChanged(nameof(HasRecentWorkouts));
                 OnPropertyChanged(nameof(IsOffline));
                 return Task.CompletedTask;
             }, lease.Token);
@@ -305,10 +294,14 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
             if (_progress is not null)
                 await LoadProgressAsync(generation, lease.Token);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (OperationCanceledException) when (_boundary.IsCancellationRequested(generation))
         {
         }
-        catch (Exception exception) when (exception is IOException or InvalidOperationException)
+        catch (Exception)
         {
             await _boundary.TryCommitAsync(generation, _ =>
             {
@@ -416,8 +409,6 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
         _isCommandMutation = false;
         ActiveWorkout = null;
         RepeatWorkout = null;
-        RecentWorkouts.Clear();
-        OnPropertyChanged(nameof(HasRecentWorkouts));
         HasAuthoritativeProgress = false;
         WeeklyCompletedWorkouts = 0;
         WeeklyGoal = 0;
@@ -483,7 +474,7 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
         {
             await _boundary.TryCommitAsync(generation, _ =>
             {
-                ErrorText = Text.HomeLoadFailed;
+                ErrorText = Text.HomeRepeatFailed;
                 return Task.CompletedTask;
             }, CancellationToken.None);
         }

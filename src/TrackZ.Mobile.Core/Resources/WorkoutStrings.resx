@@ -90,8 +90,6 @@
   <data name="TrainTodayTitle" xml:space="preserve"><value>Today</value></data>
   <data name="ChooseWorkout" xml:space="preserve"><value>Choose workout</value></data>
   <data name="ResumeWorkout" xml:space="preserve"><value>Resume workout</value></data>
-  <data name="Recent" xml:space="preserve"><value>Recent</value></data>
-  <data name="NoRecentWorkouts" xml:space="preserve"><value>No recent workouts</value></data>
   <data name="Continue" xml:space="preserve"><value>Continue</value></data>
   <data name="TrainTab" xml:space="preserve"><value>Train</value></data>
   <data name="SavedSetCountFormat" xml:space="preserve"><value>{0} sets saved</value></data>
@@ -129,5 +127,6 @@
   <data name="HomeExerciseProgressFormat" xml:space="preserve"><value>{0} of {1} exercises logged · {2} sets</value></data>
   <data name="RepeatWorkoutAccessibilityFormat" xml:space="preserve"><value>Train again: {0}, {1} exercises, {2} sets</value></data>
   <data name="HomeLoadFailed" xml:space="preserve"><value>Could not load Home</value></data>
+  <data name="HomeRepeatFailed" xml:space="preserve"><value>Could not repeat that workout. Try again.</value></data>
   <data name="HomeContextFormat" xml:space="preserve"><value>Today · Week {0}</value></data>
 </root>

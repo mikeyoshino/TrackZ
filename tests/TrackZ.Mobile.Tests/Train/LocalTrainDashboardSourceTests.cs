@@ -78,6 +78,44 @@ public sealed class LocalTrainDashboardSourceTests
         Assert.Equal(higherWorkoutId, snapshot.Repeat!.SourceWorkoutId);
     }
 
+    [Fact]
+    public async Task Source_skips_newest_completed_workout_with_only_tombstoned_exercises()
+    {
+        await using var fixture = await SourceFixture.CreateAsync([
+            Exercise(WeightedId, "Weighted Press", BodyPart.Chest, TrackingMode.Weighted, null)
+        ]);
+        var olderValid = Workout(LocalWorkoutStatus.Completed, At(5), At(7), [
+            ExerciseRow(WeightedId, TrackingMode.Weighted, 0, [Set(0)])
+        ]);
+        var newestEmpty = Workout(LocalWorkoutStatus.Completed, At(6), At(8), [
+            ExerciseRow(WeightedId, TrackingMode.Weighted, 0, [Set(0)], deleted: true)
+        ]);
+        fixture.Source = new LocalTrainDashboardSource(
+            new StubWorkoutRepository(null, [olderValid, newestEmpty]), fixture.Cache);
+
+        var snapshot = await fixture.Source.LoadAsync();
+
+        Assert.Equal(olderValid.Id, snapshot.Repeat?.SourceWorkoutId);
+        Assert.Single(snapshot.Repeat!.Selections);
+    }
+
+    [Fact]
+    public async Task Source_returns_no_repeat_when_every_completed_workout_has_zero_live_exercises()
+    {
+        await using var fixture = await SourceFixture.CreateAsync([
+            Exercise(WeightedId, "Weighted Press", BodyPart.Chest, TrackingMode.Weighted, null)
+        ]);
+        var empty = Workout(LocalWorkoutStatus.Completed, At(6), At(8), [
+            ExerciseRow(WeightedId, TrackingMode.Weighted, 0, [Set(0)], deleted: true)
+        ]);
+        fixture.Source = new LocalTrainDashboardSource(
+            new StubWorkoutRepository(null, [empty]), fixture.Cache);
+
+        var snapshot = await fixture.Source.LoadAsync();
+
+        Assert.Null(snapshot.Repeat);
+    }
+
     private static async Task<SourceFixture> CreateSourceWithMixedModes()
     {
         var fixture = await SourceFixture.CreateAsync([
