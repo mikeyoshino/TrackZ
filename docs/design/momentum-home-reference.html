@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TrackZ Momentum Home — Approved UI Reference</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --background: #070a0b;
+      --surface: #151a1d;
+      --surface-raised: #22292d;
+      --hairline: #2c3438;
+      --text: #f5f6f6;
+      --secondary: #969ea5;
+      --primary: #c2ff31;
+      --primary-contrast: #081006;
+      --space-4: 4px;
+      --space-8: 8px;
+      --space-12: 12px;
+      --space-16: 16px;
+      --target: 44px;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #101416; color: var(--text); }
+    button { font: inherit; }
+
+    .reference-shell {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: minmax(360px, 420px) minmax(300px, 520px);
+      gap: 40px;
+      justify-content: center;
+      align-items: start;
+      padding: 32px;
+    }
+
+    .toolbar, .notes {
+      border: 1px solid var(--hairline);
+      border-radius: 20px;
+      background: rgba(255,255,255,.025);
+      padding: 18px;
+    }
+
+    .toolbar { margin-bottom: 16px; }
+    .toolbar h1 { margin: 0 0 6px; font-size: 22px; }
+    .toolbar p, .notes p { color: var(--secondary); line-height: 1.5; margin: 6px 0; }
+    .controls { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+
+    .control {
+      min-height: var(--target);
+      border-radius: 14px;
+      border: 1px solid #475157;
+      background: var(--surface);
+      color: var(--text);
+      padding: 0 14px;
+      cursor: pointer;
+    }
+
+    .control[aria-pressed="true"] {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: var(--primary-contrast);
+      font-weight: 750;
+    }
+
+    .phone {
+      width: 390px;
+      min-height: 780px;
+      margin: auto;
+      border: 1px solid #3a4247;
+      border-radius: 44px;
+      background: var(--background);
+      box-shadow: 0 28px 70px rgba(0,0,0,.48);
+      overflow: hidden;
+      display: grid;
+      grid-template-rows: 1fr auto;
+    }
+
+    .content { padding: 30px var(--space-16) 18px; overflow: hidden; }
+    .context {
+      color: var(--secondary);
+      font-size: 11px;
+      letter-spacing: 1.4px;
+      text-transform: uppercase;
+    }
+
+    .headline { margin: 7px 0 19px; font-size: 28px; line-height: 1.08; letter-spacing: -.4px; }
+
+    .hero {
+      min-height: 170px;
+      border-radius: 24px;
+      padding: 20px;
+      background: linear-gradient(145deg, #c9ff3c, #acf222);
+      color: var(--primary-contrast);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    .hero.active {
+      background: linear-gradient(145deg, #1b2124, #111517);
+      color: var(--text);
+      border: 1px solid #30383c;
+    }
+
+    .eyebrow {
+      color: #394720;
+      font-size: 11px;
+      letter-spacing: 1.35px;
+      text-transform: uppercase;
+    }
+
+    .hero.active .eyebrow { color: var(--secondary); }
+    .hero-title { display: block; margin-top: 5px; font-size: 21px; line-height: 1.15; }
+    .hero-copy { display: block; margin-top: 7px; color: #34421e; font-size: 12px; }
+    .hero.active .hero-copy { color: var(--secondary); }
+
+    .workout-progress {
+      display: none;
+      height: 6px;
+      border-radius: 8px;
+      background: #343a3d;
+      overflow: hidden;
+      margin-top: 11px;
+    }
+    .hero.active .workout-progress { display: block; }
+    .workout-progress span { display: block; width: 60%; height: 100%; background: var(--primary); }
+
+    .primary-action {
+      width: 100%;
+      min-height: 52px;
+      margin-top: 15px;
+      border: 0;
+      border-radius: 15px;
+      background: var(--primary-contrast);
+      color: var(--primary);
+      font-size: 16px;
+      font-weight: 800;
+    }
+    .hero.active .primary-action { background: var(--primary); color: var(--primary-contrast); }
+
+    .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-8); margin: 14px 0 18px; }
+    .metric {
+      min-height: 74px;
+      border: 1px solid var(--hairline);
+      border-radius: 16px;
+      background: var(--surface);
+      padding: 11px 6px;
+      text-align: center;
+    }
+    .metric-value { display: block; color: var(--primary); font-size: 18px; font-weight: 800; }
+    .metric-label { display: block; margin-top: 3px; color: var(--secondary); font-size: 9px; letter-spacing: .5px; }
+    .xp-track { height: 4px; margin: 7px 4px 0; border-radius: 8px; background: #30363a; overflow: hidden; }
+    .xp-track span { display: block; width: 64%; height: 100%; background: var(--primary); }
+
+    .section-title { margin: 17px 2px 9px; font-size: 15px; font-weight: 760; }
+    .row {
+      min-height: 76px;
+      display: grid;
+      grid-template-columns: 52px 1fr auto;
+      align-items: center;
+      gap: var(--space-12);
+      border: 1px solid var(--hairline);
+      border-radius: 17px;
+      background: var(--surface);
+      padding: var(--space-12);
+    }
+    .artwork {
+      width: 52px;
+      height: 52px;
+      border-radius: 15px;
+      background: var(--surface-raised);
+      display: grid;
+      place-items: center;
+      color: var(--primary);
+      font-weight: 800;
+    }
+    .row strong { display: block; font-size: 14px; }
+    .row small { display: block; margin-top: 4px; color: var(--secondary); font-size: 11px; line-height: 1.3; }
+    .chevron { color: var(--secondary); font-size: 22px; }
+
+    .tabbar {
+      margin: 0 14px 14px;
+      min-height: 72px;
+      border: 1px solid #30363a;
+      border-radius: 25px;
+      background: #15181a;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      align-items: center;
+      text-align: center;
+      color: var(--secondary);
+      font-size: 10px;
+    }
+    .tabbar span { line-height: 1.45; }
+    .tabbar .selected { color: var(--primary); }
+    .tab-icon { display: block; font-size: 18px; }
+
+    .notes h2 { margin-top: 0; }
+    .rule {
+      display: grid;
+      grid-template-columns: 30px 1fr;
+      gap: 10px;
+      margin: 14px 0;
+      padding-bottom: 14px;
+      border-bottom: 1px solid var(--hairline);
+    }
+    .rule:last-child { border-bottom: 0; padding-bottom: 0; }
+    .rule-number {
+      width: 28px;
+      height: 28px;
+      border-radius: 9px;
+      display: grid;
+      place-items: center;
+      background: var(--primary);
+      color: var(--primary-contrast);
+      font-weight: 800;
+    }
+    .rule strong { display: block; margin-bottom: 3px; }
+    .rule p { margin: 0; font-size: 13px; }
+
+    @media (max-width: 880px) {
+      .reference-shell { grid-template-columns: 1fr; padding: 18px; }
+      .phone { width: min(390px, 100%); }
+    }
+  </style>
+</head>
+<body>
+  <main class="reference-shell">
+    <section>
+      <div class="toolbar">
+        <h1>Momentum Home reference</h1>
+        <p>Approved layout reference for implementation and review. Switch state, unit, and language to inspect the contract.</p>
+        <div class="controls" aria-label="Reference controls">
+          <button class="control" id="readyControl" aria-pressed="true" type="button">Ready</button>
+          <button class="control" id="activeControl" aria-pressed="false" type="button">Active workout</button>
+          <button class="control" id="kgControl" aria-pressed="true" type="button">kg</button>
+          <button class="control" id="lbControl" aria-pressed="false" type="button">lb</button>
+          <button class="control" id="enControl" aria-pressed="true" type="button">EN</button>
+          <button class="control" id="thControl" aria-pressed="false" type="button">TH</button>
+        </div>
+      </div>
+
+      <article class="phone" aria-label="TrackZ Momentum Home mobile reference">
+        <div class="content">
+          <div class="context" id="context">Today · Week 34</div>
+          <h2 class="headline" id="headline">Ready when you are.</h2>
+
+          <section class="hero" id="hero">
+            <div>
+              <div class="eyebrow" id="heroEyebrow">Start training</div>
+              <strong class="hero-title" id="heroTitle">Choose today’s workout</strong>
+              <small class="hero-copy" id="heroCopy">You choose the body area and exercises</small>
+              <div class="workout-progress"><span></span></div>
+            </div>
+            <button class="primary-action" id="heroAction" type="button">Start workout</button>
+          </section>
+
+          <section class="metrics" aria-label="Motivation summary">
+            <div class="metric"><span class="metric-value">3/4</span><span class="metric-label" id="weekLabel">THIS WEEK</span></div>
+            <div class="metric"><span class="metric-value">4</span><span class="metric-label" id="streakLabel">WEEK STREAK</span></div>
+            <div class="metric"><span class="metric-value">8</span><span class="metric-label" id="levelLabel">LEVEL · 640 XP</span><div class="xp-track"><span></span></div></div>
+          </section>
+
+          <section id="repeatSection">
+            <h3 class="section-title" id="repeatTitle">Train again</h3>
+            <div class="row">
+              <div class="artwork" aria-hidden="true">↻</div>
+              <div><strong id="repeatWorkout">Chest + Arms</strong><small id="repeatMeta">Tuesday · 6 exercises · 18 sets</small></div>
+              <div class="chevron" aria-hidden="true">›</div>
+            </div>
+          </section>
+
+          <section>
+            <h3 class="section-title" id="momentumTitle">Recent momentum</h3>
+            <div class="row">
+              <div class="artwork" aria-hidden="true">BP</div>
+              <div><strong>Bench Press</strong><small id="performance">Last 70.125 kg × 8 · Best 72.5 kg × 6</small></div>
+              <div class="chevron" aria-hidden="true">›</div>
+            </div>
+          </section>
+        </div>
+
+        <nav class="tabbar" aria-label="Main navigation">
+          <span class="selected"><b class="tab-icon">▥</b><i id="trainTab">Train</i></span>
+          <span><b class="tab-icon">◴</b><i id="historyTab">History</i></span>
+          <span><b class="tab-icon">▥</b><i id="progressTab">Progress</i></span>
+          <span><b class="tab-icon">♙</b><i id="youTab">You</i></span>
+        </nav>
+      </article>
+    </section>
+
+    <aside class="notes">
+      <h2>Implementation contract</h2>
+      <p>This file is a visual reference, not production HTML. The shipped page remains native MAUI XAML.</p>
+      <div class="rule"><span class="rule-number">1</span><div><strong>One primary action</strong><p>The same button changes between Start and Continue. Never render two lime actions.</p></div></div>
+      <div class="rule"><span class="rule-number">2</span><div><strong>Action-first hierarchy</strong><p>Header → hero → motivation → Train again → Recent momentum. Do not collapse Home to Resume only.</p></div></div>
+      <div class="rule"><span class="rule-number">3</span><div><strong>Truthful metrics</strong><p>Weekly goal, streak, Level/XP, Last, and Best come from authoritative cached or refreshed progress.</p></div></div>
+      <div class="rule"><span class="rule-number">4</span><div><strong>User-controlled training</strong><p>Continue opens Today’s workout. Train again repeats known history. No prescribed exercise.</p></div></div>
+      <div class="rule"><span class="rule-number">5</span><div><strong>Native system</strong><p>Use TrackZ semantic colors, 4-point spacing, shared typography, at least 44-point targets, Dynamic Type, Reduce Motion, and EN/TH resources.</p></div></div>
+      <div class="rule"><span class="rule-number">6</span><div><strong>State visibility</strong><p>Train again is hidden while active. Motivation and momentum are hidden when no authoritative snapshot exists.</p></div></div>
+    </aside>
+  </main>
+
+  <script>
+    const state = { active: false, pounds: false, thai: false };
+    const copy = {
+      en: {
+        context: "Today · Week 34", ready: "Ready when you are.", active: "You’re in motion.",
+        startEyebrow: "Start training", activeEyebrow: "Workout in progress",
+        startTitle: "Choose today’s workout", activeTitle: "Chest + Arms",
+        startCopy: "You choose the body area and exercises", activeCopy: "3 of 5 exercises logged · 8 sets",
+        startAction: "Start workout", activeAction: "Continue workout", week: "THIS WEEK",
+        streak: "WEEK STREAK", level: "LEVEL · 640 XP", repeat: "Train again",
+        repeatWorkout: "Chest + Arms", repeatMeta: "Tuesday · 6 exercises · 18 sets",
+        momentum: "Recent momentum", train: "Train", history: "History", progress: "Progress", you: "You"
+      },
+      th: {
+        context: "วันนี้ · สัปดาห์ที่ 34", ready: "พร้อมเมื่อไหร่ เริ่มได้เลย", active: "กำลังไปได้ดี",
+        startEyebrow: "เริ่มฝึก", activeEyebrow: "กำลังออกกำลังกาย",
+        startTitle: "เลือกการฝึกวันนี้", activeTitle: "อก + แขน",
+        startCopy: "คุณเลือกส่วนร่างกายและท่าออกกำลังกายเอง", activeCopy: "บันทึกแล้ว 3 จาก 5 ท่า · 8 เซ็ต",
+        startAction: "เริ่มออกกำลังกาย", activeAction: "ออกกำลังกายต่อ", week: "สัปดาห์นี้",
+        streak: "ต่อเนื่องรายสัปดาห์", level: "เลเวล 8 · 640 XP", repeat: "ฝึกแบบเดิมอีกครั้ง",
+        repeatWorkout: "อก + แขน", repeatMeta: "วันอังคาร · 6 ท่า · 18 เซ็ต",
+        momentum: "ความก้าวหน้าล่าสุด", train: "ฝึก", history: "ประวัติ", progress: "ความก้าวหน้า", you: "คุณ"
+      }
+    };
+
+    function press(selected, other) {
+      selected.setAttribute("aria-pressed", "true");
+      other.setAttribute("aria-pressed", "false");
+    }
+
+    function render() {
+      const c = copy[state.thai ? "th" : "en"];
+      hero.classList.toggle("active", state.active);
+      context.textContent = c.context;
+      headline.textContent = state.active ? c.active : c.ready;
+      heroEyebrow.textContent = state.active ? c.activeEyebrow : c.startEyebrow;
+      heroTitle.textContent = state.active ? c.activeTitle : c.startTitle;
+      heroCopy.textContent = state.active ? c.activeCopy : c.startCopy;
+      heroAction.textContent = state.active ? c.activeAction : c.startAction;
+      weekLabel.textContent = c.week;
+      streakLabel.textContent = c.streak;
+      levelLabel.textContent = c.level;
+      repeatTitle.textContent = c.repeat;
+      repeatWorkout.textContent = c.repeatWorkout;
+      repeatMeta.textContent = c.repeatMeta;
+      momentumTitle.textContent = c.momentum;
+      trainTab.textContent = c.train;
+      historyTab.textContent = c.history;
+      progressTab.textContent = c.progress;
+      youTab.textContent = c.you;
+      repeatSection.hidden = state.active;
+      performance.textContent = state.pounds
+        ? (state.thai ? "ล่าสุด 154.60 ปอนด์ × 8 · สูงสุด 159.84 ปอนด์ × 6" : "Last 154.60 lb × 8 · Best 159.84 lb × 6")
+        : (state.thai ? "ล่าสุด 70.125 กก. × 8 · สูงสุด 72.5 กก. × 6" : "Last 70.125 kg × 8 · Best 72.5 kg × 6");
+      document.documentElement.lang = state.thai ? "th" : "en";
+    }
+
+    readyControl.addEventListener("click", () => { state.active = false; press(readyControl, activeControl); render(); });
+    activeControl.addEventListener("click", () => { state.active = true; press(activeControl, readyControl); render(); });
+    kgControl.addEventListener("click", () => { state.pounds = false; press(kgControl, lbControl); render(); });
+    lbControl.addEventListener("click", () => { state.pounds = true; press(lbControl, kgControl); render(); });
+    enControl.addEventListener("click", () => { state.thai = false; press(enControl, thControl); render(); });
+    thControl.addEventListener("click", () => { state.thai = true; press(thControl, enControl); render(); });
+    render();
+  </script>
+</body>
+</html>

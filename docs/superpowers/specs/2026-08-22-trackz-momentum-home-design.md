@@ -1,13 +1,15 @@
 # TrackZ Momentum Home Design
 
 Date: 2026-08-22  
-Status: Ready for user review
+Status: Approved
 
 ## Purpose
 
 Replace the current Train landing page, which is primarily an active-workout resume card and a recent-workout list, with a native iOS-oriented Momentum Home. The new Home must help experienced lifters begin or continue training quickly while showing enough weekly progress to motivate them. It must not prescribe a workout or imply that TrackZ is a coaching application.
 
 The approved visual direction is **Momentum Home**: one state-aware primary action, a quiet motivation strip, one user-controlled repeat shortcut, and one exact recent-performance card.
+
+The persistent visual source of truth is `docs/design/momentum-home-reference.html`. It is standalone and interactive: reviewers can switch ready/active state, kg/lb, and English/Thai without the temporary Virtual Companion URL. Production remains native MAUI XAML; the HTML is a comparison reference, not an implementation runtime.
 
 ## Product Principles
 
