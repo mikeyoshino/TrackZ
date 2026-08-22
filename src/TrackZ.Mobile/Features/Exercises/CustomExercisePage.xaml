@@ -9,12 +9,8 @@
     BackgroundColor="{DynamicResource TrackZBackground}"
     SafeAreaEdges="All"
     Title="Custom exercise">
-    <Grid Padding="0,16,0,0" RowDefinitions="Auto,*,Auto" RowSpacing="{DynamicResource TrackZSpace16}">
-        <Grid Padding="{DynamicResource TrackZPageHorizontalPadding}">
-            <Label Style="{DynamicResource TrackZNavigationTitleStyle}" Text="Custom exercise" />
-        </Grid>
-
-        <ScrollView Grid.Row="1">
+    <Grid Padding="0,12,0,0" RowDefinitions="*,Auto" RowSpacing="{DynamicResource TrackZSpace12}">
+        <ScrollView>
             <VerticalStackLayout Padding="{DynamicResource TrackZPageHorizontalPadding}" Spacing="{DynamicResource TrackZSpace16}">
                 <Entry Placeholder="Exercise name" Style="{DynamicResource TrackZFieldStyle}" Text="{Binding Name, Mode=TwoWay}" />
                 <Picker Style="{DynamicResource TrackZPickerStyle}" Title="Body part" ItemsSource="{Binding BodyParts}" SelectedItem="{Binding BodyPart, Mode=TwoWay}" />
@@ -45,7 +41,7 @@
             </VerticalStackLayout>
         </ScrollView>
 
-        <Border Grid.Row="2" Style="{DynamicResource TrackZStickyActionContainerStyle}">
+        <Border Grid.Row="1" Margin="0,0,0,12" Style="{DynamicResource TrackZStickyActionContainerStyle}">
             <Button Clicked="OnSaveClicked" Style="{DynamicResource TrackZPrimaryButtonStyle}" Text="Save exercise" />
         </Border>
     </Grid>

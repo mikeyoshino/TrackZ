@@ -72,6 +72,27 @@ public sealed class ExercisePickerInteractionTests : IDisposable
     }
 
     [Fact]
+    public void Body_part_filter_text_stays_vertically_centered_inside_the_touch_target()
+    {
+        var page = _app.Services.GetRequiredService<ExercisePickerPage>();
+        var filters = Descendants(page)
+            .OfType<CollectionView>()
+            .Single(view => view.ItemsSource is IEnumerable<BodyPartFilterOption>);
+        var option = Assert.IsAssignableFrom<IEnumerable<BodyPartFilterOption>>(filters.ItemsSource).First();
+        var chip = Assert.IsType<Border>(filters.ItemTemplate.CreateContent());
+        chip.BindingContext = option;
+        var label = Assert.IsType<Label>(chip.Content);
+
+        Assert.Equal(LayoutOptions.Center, label.VerticalOptions);
+        Assert.Equal(TextAlignment.Center, label.VerticalTextAlignment);
+
+        Assert.True(VisualStateManager.GoToState(chip, "Selected"));
+
+        Assert.Equal(LayoutOptions.Center, label.VerticalOptions);
+        Assert.Equal(TextAlignment.Center, label.VerticalTextAlignment);
+    }
+
+    [Fact]
     public async Task App_owned_filter_tap_updates_results_and_selected_emphasis_including_all()
     {
         var chestId = Guid.Parse("11111111-1111-1111-1111-111111111111");

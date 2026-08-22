@@ -22,8 +22,18 @@ public sealed class NativeIosExperienceAcceptanceTests
         foreach (var relativePath in rootDestinations)
         {
             var document = XDocument.Load(Path.Combine(mobileDirectory, relativePath));
-            Assert.Contains(document.Descendants(), element =>
-                element.Name.LocalName == "Label" && ResourceKey(element.Attribute("Style")?.Value) == "TrackZPageTitleStyle");
+            if (relativePath == "Features/Exercises/ExercisePickerPage.xaml")
+            {
+                var nativeTitle = document.Root!.Attribute("Title")?.Value;
+                Assert.Equal("{Binding Text.ChooseExercises}", nativeTitle);
+                Assert.DoesNotContain(document.Descendants(), element =>
+                    element.Name.LocalName == "Label" && element.Attribute("Text")?.Value == nativeTitle);
+            }
+            else
+            {
+                Assert.Contains(document.Descendants(), element =>
+                    element.Name.LocalName == "Label" && ResourceKey(element.Attribute("Style")?.Value) == "TrackZPageTitleStyle");
+            }
             Assert.Contains(document.Root!.DescendantsAndSelf().Attributes("Padding"), attribute =>
                 ResourceKey(attribute.Value) is "TrackZPageHorizontalPadding" or "TrackZPageContentPadding" or "TrackZPageBottomContentPadding");
             Assert.Equal("All", document.Root!.Attribute("SafeAreaEdges")?.Value);

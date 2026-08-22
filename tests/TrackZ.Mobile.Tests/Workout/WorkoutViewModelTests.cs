@@ -5,6 +5,7 @@ using TrackZ.Mobile.Data;
 using TrackZ.Mobile.Data.Models;
 using TrackZ.Mobile.Features.Exercises;
 using TrackZ.Mobile.Features.Exercises.Data;
+using TrackZ.Mobile.Features.Shared;
 using TrackZ.Mobile.Features.Workout;
 using TrackZ.Mobile.Identity;
 
@@ -34,8 +35,29 @@ public sealed class WorkoutViewModelTests
         await viewModel.RestoreAsync();
 
         Assert.Equal([2, 0], viewModel.Exercises.Select(item => item.LoggedSetCount));
+        Assert.Equal("2 exercises · 2 sets logged", viewModel.WorkoutContextText);
         Assert.All(viewModel.Exercises, item =>
             Assert.DoesNotContain(" of ", item.AccessibilitySummary, StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task Restored_active_workout_revalidates_a_stale_local_artwork_path_against_the_remote_route()
+    {
+        const string route = "/api/v1/media/exercise-images/99999999-9999-9999-9999-999999999999/thumbnail";
+        const string staleThumbnail = "/deleted-cache/press.png";
+        const string refreshedThumbnail = "/bounded-cache/press-refreshed.png";
+        await using var fixture = await Fixture.CreateAsync(thumbnailRoute: route);
+        await fixture.Cache.SetServerThumbnailAsync(fixture.FirstId, staleThumbnail);
+        await fixture.Coordinator.StartAsync([
+            new WorkoutExerciseSelection(fixture.FirstId, TrackingMode.Weighted)
+        ]);
+        var thumbnails = new RecordingThumbnailCache(refreshedThumbnail);
+        var viewModel = fixture.CreateViewModel(thumbnailCache: thumbnails);
+
+        await viewModel.RestoreAsync();
+
+        Assert.Equal([route], thumbnails.RequestedRoutes);
+        Assert.Equal(refreshedThumbnail, viewModel.Exercises.Single().ThumbnailUri);
     }
 
     [Fact]
@@ -85,6 +107,63 @@ public sealed class WorkoutViewModelTests
     }
 
     [Fact]
+    public async Task Restored_active_workout_materializes_and_persists_missing_api_artwork()
+    {
+        const string route = "/api/v1/media/exercise-images/99999999-9999-9999-9999-999999999999/thumbnail";
+        const string localThumbnail = "/bounded-cache/press.png";
+        await using var fixture = await Fixture.CreateAsync(thumbnailRoute: route);
+        await fixture.Coordinator.StartAsync([
+            new WorkoutExerciseSelection(fixture.FirstId, TrackingMode.Weighted)
+        ]);
+        var thumbnails = new RecordingThumbnailCache(localThumbnail);
+        var viewModel = fixture.CreateViewModel(thumbnailCache: thumbnails);
+
+        await viewModel.RestoreAsync();
+
+        Assert.Equal([route], thumbnails.RequestedRoutes);
+        Assert.Equal(localThumbnail, viewModel.Exercises.Single().ThumbnailUri);
+        Assert.Equal(localThumbnail, (await fixture.Cache.GetAllAsync())
+            .Single(item => item.Id == fixture.FirstId).ThumbnailUri);
+    }
+
+    [Fact]
+    public async Task Newly_selected_workout_exercise_materializes_missing_api_artwork()
+    {
+        const string route = "/api/v1/media/exercise-images/99999999-9999-9999-9999-999999999999/thumbnail";
+        const string localThumbnail = "/bounded-cache/press.png";
+        await using var fixture = await Fixture.CreateAsync(thumbnailRoute: route);
+        var thumbnails = new RecordingThumbnailCache(localThumbnail);
+        var viewModel = fixture.CreateViewModel(thumbnailCache: thumbnails);
+
+        await viewModel.AddExercisesAsync([fixture.FirstId]);
+
+        Assert.Equal([route], thumbnails.RequestedRoutes);
+        Assert.Equal(localThumbnail, viewModel.Exercises.Single().ThumbnailUri);
+    }
+
+    [Fact]
+    public async Task Successful_restore_clears_a_stale_mutation_error_before_presenting_the_queue()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var viewModel = fixture.CreateViewModel();
+        await viewModel.AddExercisesAsync([fixture.FirstId]);
+        await fixture.Coordinator.StartAsync([
+            new WorkoutExerciseSelection(fixture.SecondId, TrackingMode.Bodyweight)
+        ]);
+
+        await viewModel.StartWorkoutCommand.ExecuteAsync();
+        Assert.Equal(WorkoutResources.English.SaveFailed, viewModel.ErrorMessage);
+        Assert.Equal(TrackZNoticeSeverity.Error, viewModel.NoticeSeverity);
+        Assert.Equal(WorkoutResources.English.SaveFailed, viewModel.NoticeMessage);
+
+        await viewModel.RestoreAsync();
+
+        Assert.Null(viewModel.ErrorMessage);
+        Assert.False(viewModel.HasNotice);
+        Assert.Equal(fixture.SecondId, Assert.Single(viewModel.Exercises).ExerciseDefinitionId);
+    }
+
+    [Fact]
     public async Task Finish_notifies_navigation_only_after_the_completed_workout_is_durable()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -102,6 +181,72 @@ public sealed class WorkoutViewModelTests
         Assert.Equal(started.Id, notified);
         Assert.Equal(started.Id, viewModel.CompletedWorkoutId);
         Assert.Null(await fixture.Coordinator.RestoreActiveAsync());
+    }
+
+    [Fact]
+    public async Task Finish_with_an_unlogged_exercise_keeps_the_workout_active_and_presents_a_warning()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.Coordinator.StartAsync([
+            new WorkoutExerciseSelection(fixture.FirstId, TrackingMode.Weighted),
+            new WorkoutExerciseSelection(fixture.SecondId, TrackingMode.Bodyweight)
+        ]);
+        await fixture.Coordinator.SaveSetAsync(fixture.FirstId, new LocalSet(50, null, 8));
+        var viewModel = fixture.CreateViewModel();
+        await viewModel.RestoreAsync();
+
+        await viewModel.FinishWorkoutCommand.ExecuteAsync();
+
+        Assert.True(viewModel.HasStarted);
+        Assert.Null(viewModel.CompletedWorkoutId);
+        Assert.Null(viewModel.ErrorMessage);
+        Assert.Equal(TrackZNoticeSeverity.Warning, viewModel.NoticeSeverity);
+        Assert.Equal(
+            "Log at least 1 set for every exercise before finishing · 1 remaining",
+            viewModel.NoticeMessage);
+        Assert.NotNull(await fixture.Coordinator.RestoreActiveAsync());
+    }
+
+    [Fact]
+    public async Task Warning_can_be_dismissed_and_is_presented_again_if_finish_is_retried()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.Coordinator.StartAsync([
+            new WorkoutExerciseSelection(fixture.FirstId, TrackingMode.Weighted)
+        ]);
+        var viewModel = fixture.CreateViewModel();
+        await viewModel.RestoreAsync();
+        await viewModel.FinishWorkoutCommand.ExecuteAsync();
+
+        viewModel.DismissNoticeCommand.Execute(null);
+
+        Assert.False(viewModel.HasNotice);
+        Assert.Null(viewModel.NoticeMessage);
+
+        await viewModel.FinishWorkoutCommand.ExecuteAsync();
+
+        Assert.True(viewModel.HasNotice);
+        Assert.Equal(TrackZNoticeSeverity.Warning, viewModel.NoticeSeverity);
+    }
+
+    [Fact]
+    public void Finish_warning_copy_is_localized_in_English_and_Thai()
+    {
+        var english = WorkoutResources.English.FinishNeedsSetsFormat;
+        var thai = WorkoutResources.ForCulture(
+            System.Globalization.CultureInfo.GetCultureInfo("th-TH")).FinishNeedsSetsFormat;
+
+        Assert.Equal(
+            "Log at least 1 set for every exercise before finishing · {0} remaining",
+            english);
+        Assert.Equal(
+            "บันทึกอย่างน้อย 1 เซ็ตให้ครบทุกท่าก่อนจบการฝึก · เหลือ {0} ท่า",
+            thai);
+        Assert.Equal("Dismiss", WorkoutResources.English.DismissNotice);
+        Assert.Equal(
+            "ปิดข้อความ",
+            WorkoutResources.ForCulture(
+                System.Globalization.CultureInfo.GetCultureInfo("th-TH")).DismissNotice);
     }
 
     private sealed class Fixture : IAsyncDisposable
@@ -129,11 +274,14 @@ public sealed class WorkoutViewModelTests
         }
 
         public ActiveWorkoutCoordinator Coordinator { get; }
+        public ExerciseCache Cache => _cache;
         public Guid FirstId { get; }
         public Guid SecondId { get; }
         public Guid ThirdId { get; }
 
-        public static async Task<Fixture> CreateAsync(decimal? lastWeightKg = null)
+        public static async Task<Fixture> CreateAsync(
+            decimal? lastWeightKg = null,
+            string? thumbnailRoute = null)
         {
             var root = Path.Combine(Path.GetTempPath(), $"trackz-workout-vm-{Guid.NewGuid():N}");
             Directory.CreateDirectory(root);
@@ -142,7 +290,7 @@ public sealed class WorkoutViewModelTests
             var third = Guid.NewGuid();
             var cache = new ExerciseCache(Path.Combine(root, "exercises.db"));
             await cache.ReplaceAllAsync([
-                Summary(first, "Press", TrackingMode.Weighted, lastWeightKg),
+                Summary(first, "Press", TrackingMode.Weighted, lastWeightKg, thumbnailRoute),
                 Summary(second, "Pull-up", TrackingMode.Bodyweight),
                 Summary(third, "Assisted Dip", TrackingMode.Assisted)
             ], DateTimeOffset.UtcNow);
@@ -159,8 +307,12 @@ public sealed class WorkoutViewModelTests
                 third);
         }
 
-        public WorkoutViewModel CreateViewModel(IWeightUnitPreference? unitPreference = null) =>
-            new(Coordinator, _cache, _boundary, WorkoutResources.English, unitPreference: unitPreference);
+        public WorkoutViewModel CreateViewModel(
+            IWeightUnitPreference? unitPreference = null,
+            IExerciseThumbnailCache? thumbnailCache = null) =>
+            new(Coordinator, _cache, _boundary, WorkoutResources.English,
+                unitPreference: unitPreference,
+                thumbnailCache: thumbnailCache);
 
         public ValueTask DisposeAsync()
         {
@@ -173,13 +325,14 @@ public sealed class WorkoutViewModelTests
             Guid id,
             string name,
             TrackingMode mode,
-            decimal? lastWeightKg = null) =>
+            decimal? lastWeightKg = null,
+            string? thumbnailRoute = null) =>
             new(
                 id,
                 name,
                 BodyPart.Chest,
                 mode,
-                null,
+                thumbnailRoute,
                 null,
                 lastWeightKg is null ? null : new PerformanceSetDto(lastWeightKg, null, 8),
                 null,
@@ -189,6 +342,19 @@ public sealed class WorkoutViewModelTests
         {
             private long _ticks = DateTimeOffset.UtcNow.UtcTicks;
             public DateTimeOffset UtcNow => new(Interlocked.Increment(ref _ticks), TimeSpan.Zero);
+        }
+    }
+
+    private sealed class RecordingThumbnailCache(string localThumbnail) : IExerciseThumbnailCache
+    {
+        public List<string?> RequestedRoutes { get; } = [];
+
+        public Task<string?> CacheAsync(
+            string? thumbnailUri,
+            CancellationToken cancellationToken = default)
+        {
+            RequestedRoutes.Add(thumbnailUri);
+            return Task.FromResult<string?>(localThumbnail);
         }
     }
 }

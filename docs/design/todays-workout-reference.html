@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>TrackZ · Today's workout reference</title>
+  <style>
+    :root{color-scheme:dark;--bg:#070a0b;--surface:#14191d;--raised:#20272c;--line:#2b3339;--muted:#9098a4;--text:#f5f7f8;--lime:#baff2d;--warning:#ffc95c;--warning-surface:#31321f}
+    *{box-sizing:border-box}body{margin:0;background:#222831;color:var(--text);font:15px -apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif}
+    .phone{width:390px;min-height:844px;margin:24px auto;padding:20px 18px 106px;background:var(--bg);border-radius:44px}
+    h1{margin:16px 0 6px;text-align:center;font-size:20px}.context{margin:0 0 24px;text-align:center;color:var(--muted)}
+    .queue{display:grid;gap:12px}.card{height:112px;padding:12px;display:grid;grid-template-columns:88px 1fr auto;gap:12px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:16px}.art{width:88px;height:88px;border-radius:14px;background:var(--raised);object-fit:cover}.name{font-size:17px;font-weight:700}.mode,.performance,.chevron{color:var(--muted)}.mode{margin-top:4px}.performance{margin-top:4px;font-size:13px}.chevron{font-size:28px}
+    .notice{margin:12px 0 0;padding:12px;display:grid;grid-template-columns:28px 1fr 44px;gap:12px;align-items:center;background:var(--warning-surface);border:1px solid var(--warning);border-radius:12px}.notice-icon{color:var(--warning);font-size:17px;font-weight:700;text-align:center}.notice-dismiss{height:44px;border:0;background:transparent;color:var(--muted);font-size:20px}
+    .actions{margin-top:12px;padding:12px 18px;display:grid;grid-template-columns:1fr 1fr;gap:12px;border:1px solid var(--line);border-radius:16px}.actions button{height:52px;border:0;border-radius:15px;color:var(--text);background:var(--raised);font-size:17px;font-weight:700}.actions .primary{color:#091000;background:var(--lime)}
+    .navbar{height:72px;margin-top:12px;border:1px solid var(--line);border-radius:36px;background:#121619}
+  </style>
+</head>
+<body>
+  <main class="phone" data-page-margin="18" data-card-gap="12" data-card-height="112" data-actions-navbar-gap="12">
+    <h1>Today's workout</h1>
+    <p class="context">4 exercises · 3 sets logged</p>
+    <section class="queue">
+      <article class="card"><img class="art" src="../../assets/exercises/images/assisted-pull-up.png" alt="Assisted Pull-Up movement artwork"><div><div class="name">Assisted Pull-Up</div><div class="mode">Assistance</div><div class="performance">LAST — · 2 sets logged</div></div><span class="chevron">›</span></article>
+      <article class="card"><img class="art" src="../../assets/exercises/images/barbell-row.png" alt="Barbell Row movement artwork"><div><div class="name">Barbell Row</div><div class="mode">Weight</div><div class="performance">LAST — · 1 set logged</div></div><span class="chevron">›</span></article>
+      <article class="card"><img class="art" src="../../assets/exercises/images/cable-fly.png" alt="Cable Fly movement artwork"><div><div class="name">Cable Fly</div><div class="mode">Weight</div><div class="performance">LAST — · 0 sets logged</div></div><span class="chevron">›</span></article>
+      <article class="card"><img class="art" src="../../assets/exercises/images/close-grip-bench-press.png" alt="Close-Grip Bench Press movement artwork"><div><div class="name">Close-Grip Bench Press</div><div class="mode">Weight</div><div class="performance">LAST — · 0 sets logged</div></div><span class="chevron">›</span></article>
+    </section>
+    <aside class="notice" data-notice-severity="warning" data-supported-severities="information warning error success" role="status"><span class="notice-icon" aria-hidden="true">!</span><span>Log at least 1 set for every exercise before finishing · 2 remaining</span><button class="notice-dismiss" aria-label="Dismiss">×</button></aside>
+    <section class="actions"><button>Add exercise</button><button class="primary">Finish workout</button></section>
+    <nav class="navbar" aria-label="Primary navigation"></nav>
+  </main>
+</body>
+</html>

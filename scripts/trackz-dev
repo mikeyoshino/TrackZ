@@ -1,0 +1,281 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root=$(cd "$(dirname "$0")/.." && pwd -P)
+state_dir=${TRACKZ_DEV_STATE_DIR:-"$repo_root/.trackz-dev"}
+api_project=${TRACKZ_API_PROJECT:-"$repo_root/src/TrackZ.Api/TrackZ.Api.csproj"}
+api_dll=${TRACKZ_API_DLL:-"$repo_root/src/TrackZ.Api/bin/Debug/net10.0/TrackZ.Api.dll"}
+mobile_project=${TRACKZ_MOBILE_PROJECT:-"$repo_root/src/TrackZ.Mobile/TrackZ.Mobile.csproj"}
+app_bundle=${TRACKZ_APP_BUNDLE:-"$repo_root/src/TrackZ.Mobile/bin/Debug/net10.0-ios/iossimulator-arm64/TrackZ.Mobile.app"}
+simulator_name=${TRACKZ_SIMULATOR_NAME:-"iPhone 17e"}
+api_origin=${TRACKZ_API_ORIGIN:-"http://127.0.0.1:5080"}
+media_origin=${TRACKZ_MEDIA_ORIGIN:-"http://127.0.0.1:5080"}
+bundle_id=com.trackz.app
+
+log() { printf '[trackz-dev] %s\n' "$*"; }
+
+process_is_api() {
+  local pid=${1:-}
+  [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+  kill -0 "$pid" 2>/dev/null || return 1
+  ps -p "$pid" -o command= 2>/dev/null | grep -Fq 'TrackZ.Api.dll'
+}
+
+api_is_reachable() {
+  curl --silent --show-error --output /dev/null \
+    "$api_origin/api/v1/exercises?pageSize=1" 2>/dev/null
+}
+
+wait_for_docker() {
+  local attempt
+  for attempt in $(seq 1 60); do
+    if docker info >/dev/null 2>&1; then return 0; fi
+    sleep 1
+  done
+  log 'Docker Desktop did not become ready.' >&2
+  return 1
+}
+
+start_docker() {
+  if docker desktop status >/dev/null 2>&1; then
+    if [[ ! -f "$state_dir/docker-owned" ]]; then
+      printf '0\n' > "$state_dir/docker-owned"
+    fi
+    log 'Docker Desktop is already running.'
+    return
+  fi
+  log 'Starting Docker Desktop...'
+  docker desktop start
+  printf '1\n' > "$state_dir/docker-owned"
+  wait_for_docker
+}
+
+start_api() {
+  local pid=''
+  if [[ -f "$state_dir/api.pid" ]]; then pid=$(cat "$state_dir/api.pid"); fi
+  if process_is_api "$pid"; then
+    log "API is already running (PID $pid)."
+    return
+  fi
+
+  rm -f "$state_dir/api.pid"
+  if api_is_reachable; then
+    log "A pre-existing API is already reachable at $api_origin; preserving it."
+    return
+  fi
+  log 'Building API...'
+  dotnet build "$api_project" --no-restore -m:1 --verbosity minimal
+  if [[ ! -f "$api_dll" ]]; then
+    log "API output was not found: $api_dll" >&2
+    return 1
+  fi
+  log 'Starting API...'
+  (
+    cd "$(dirname "$api_dll")"
+    exec env ASPNETCORE_ENVIRONMENT=Development \
+      dotnet "$(basename "$api_dll")" --urls "$api_origin"
+  ) >> "$state_dir/api.log" 2>&1 &
+  pid=$!
+  printf '%s\n' "$pid" > "$state_dir/api.pid"
+
+  local attempt
+  for attempt in $(seq 1 60); do
+    if api_is_reachable; then
+      log "API is ready at $api_origin (PID $pid)."
+      return
+    fi
+    if ! process_is_api "$pid"; then
+      log "API stopped during startup. See $state_dir/api.log" >&2
+      return 1
+    fi
+    sleep 1
+  done
+  log "API did not become ready. See $state_dir/api.log" >&2
+  return 1
+}
+
+booted_simulator_udid() {
+  xcrun simctl list devices booted \
+    | sed -nE 's/.*\(([0-9A-Fa-f-]{36})\) \(Booted\).*/\1/p' \
+    | head -n 1
+}
+
+simulator_udid() {
+  local udid
+  udid=${TRACKZ_SIMULATOR_UDID:-}
+  if [[ -z "$udid" && -f "$state_dir/simulator.udid" ]]; then
+    udid=$(head -n 1 "$state_dir/simulator.udid")
+  fi
+  if [[ "$udid" =~ ^[0-9A-Fa-f-]{36}$ ]] \
+    && xcrun simctl list devices available | grep -Fq "($udid)"; then
+    if ! xcrun simctl list devices booted | grep -Fq "($udid)"; then
+      xcrun simctl boot "$udid" >&2
+      xcrun simctl bootstatus "$udid" -b >&2
+    fi
+    printf '%s\n' "$udid"
+    return
+  fi
+
+  udid=$(booted_simulator_udid)
+  if [[ -n "$udid" ]]; then
+    printf '%s\n' "$udid"
+    return
+  fi
+
+  local line
+  line=$(xcrun simctl list devices available \
+    | grep -F "    $simulator_name (" \
+    | head -n 1 || true)
+  udid=$(printf '%s\n' "$line" \
+    | sed -nE 's/.*\(([0-9A-Fa-f-]{36})\) \((Shutdown|Booted)\).*/\1/p')
+  if [[ -z "$udid" ]]; then
+    log "No available simulator named '$simulator_name' was found." >&2
+    return 1
+  fi
+  xcrun simctl boot "$udid" >&2
+  xcrun simctl bootstatus "$udid" -b >&2
+  printf '%s\n' "$udid"
+}
+
+start_app() {
+  local udid
+  udid=$(simulator_udid)
+  printf '%s\n' "$udid" > "$state_dir/simulator.udid"
+  log 'Building iOS simulator app...'
+  dotnet build "$mobile_project" -f net10.0-ios -r iossimulator-arm64 \
+    --no-restore -m:1 --verbosity minimal
+  if [[ ! -d "$app_bundle" ]]; then
+    log "App bundle was not found: $app_bundle" >&2
+    return 1
+  fi
+  xcrun simctl install "$udid" "$app_bundle"
+  SIMCTL_CHILD_TRACKZ_API_ORIGIN="$api_origin" \
+  SIMCTL_CHILD_TRACKZ_MEDIA_ORIGIN="$media_origin" \
+    xcrun simctl launch "$udid" "$bundle_id"
+  open -a Simulator
+  log "TrackZ is running on $simulator_name ($udid)."
+}
+
+start_all() {
+  mkdir -p "$state_dir"
+  : > "$state_dir/api.log"
+  start_docker
+  (cd "$repo_root" && docker compose up -d postgres minio minio-bootstrap)
+  start_api
+  start_app
+}
+
+stop_api() {
+  local pid=''
+  if [[ -f "$state_dir/api.pid" ]]; then pid=$(cat "$state_dir/api.pid"); fi
+  if ! process_is_api "$pid"; then
+    rm -f "$state_dir/api.pid"
+    log 'API is already stopped.'
+    return
+  fi
+
+  log "Stopping API (PID $pid)..."
+  kill "$pid"
+  local attempt
+  for attempt in $(seq 1 10); do
+    if ! kill -0 "$pid" 2>/dev/null; then break; fi
+    sleep 1
+  done
+  if kill -0 "$pid" 2>/dev/null; then
+    kill -KILL "$pid"
+  fi
+  rm -f "$state_dir/api.pid"
+}
+
+stop_app() {
+  local udid=''
+  if [[ -f "$state_dir/simulator.udid" ]]; then udid=$(cat "$state_dir/simulator.udid"); fi
+  if [[ -z "$udid" ]]; then
+    udid=$(booted_simulator_udid 2>/dev/null || true)
+  fi
+  if [[ -z "$udid" ]]; then
+    log 'TrackZ simulator is already stopped.'
+    return
+  fi
+
+  xcrun simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
+  xcrun simctl shutdown "$udid" >/dev/null 2>&1 || true
+  log "Stopped TrackZ and simulator $udid."
+}
+
+stop_docker() {
+  local force=${1:-0}
+  if ! docker desktop status >/dev/null 2>&1; then
+    log 'Docker Desktop is already stopped.'
+    return
+  fi
+  (cd "$repo_root" && docker compose stop postgres minio minio-bootstrap)
+  local owned=0
+  if [[ -f "$state_dir/docker-owned" ]]; then owned=$(cat "$state_dir/docker-owned"); fi
+  if [[ "$force" == 1 || "$owned" == 1 ]]; then
+    docker desktop stop
+    log 'Stopped Docker Desktop.'
+  else
+    log 'Stopped TrackZ containers; preserved pre-existing Docker Desktop.'
+  fi
+  rm -f "$state_dir/docker-owned"
+}
+
+stop_all() {
+  local force=0
+  if [[ ${1:-} == '--all' ]]; then force=1; fi
+  mkdir -p "$state_dir"
+  stop_app
+  stop_api
+  stop_docker "$force"
+}
+
+show_status() {
+  local pid=''
+  local udid=''
+  if docker desktop status >/dev/null 2>&1; then
+    printf 'Docker Desktop: running\n'
+    local services
+    services=$(cd "$repo_root" && docker compose ps --status running --services 2>/dev/null || true)
+    if [[ -n "$services" ]]; then
+      printf 'TrackZ containers: %s\n' "$(printf '%s' "$services" | paste -sd ',' -)"
+    else
+      printf 'TrackZ containers: stopped\n'
+    fi
+  else
+    printf 'Docker Desktop: stopped\n'
+    printf 'TrackZ containers: stopped\n'
+  fi
+
+  if [[ -f "$state_dir/api.pid" ]]; then pid=$(cat "$state_dir/api.pid"); fi
+  if process_is_api "$pid"; then
+    printf 'TrackZ API: running (PID %s, %s)\n' "$pid" "$api_origin"
+  elif api_is_reachable; then
+    printf 'TrackZ API: reachable (pre-existing)\n'
+  else
+    printf 'TrackZ API: stopped\n'
+  fi
+
+  udid=$(booted_simulator_udid 2>/dev/null || true)
+  if [[ -n "$udid" ]]; then
+    printf 'iOS Simulator: running (%s)\n' "$udid"
+  else
+    printf 'iOS Simulator: stopped\n'
+  fi
+}
+
+restart_all() {
+  stop_all
+  start_all
+}
+
+case ${1:-} in
+  start) start_all ;;
+  stop) stop_all "${2:-}" ;;
+  restart) restart_all ;;
+  status) show_status ;;
+  *)
+    printf 'Usage: %s {start|stop|restart|status}\n' "$0" >&2
+    exit 2
+    ;;
+esac

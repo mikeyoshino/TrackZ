@@ -64,7 +64,7 @@
             </VerticalStackLayout>
         </ScrollView>
 
-        <Border Grid.Row="1" Style="{DynamicResource TrackZStickyActionContainerStyle}">
+        <Border Grid.Row="1" Margin="0,0,0,12" Style="{DynamicResource TrackZStickyActionContainerStyle}">
             <Button Command="{Binding SaveWeeklyGoalCommand}" Style="{DynamicResource TrackZPrimaryButtonStyle}" Text="{Binding Text.Save}" />
         </Border>
     </Grid>

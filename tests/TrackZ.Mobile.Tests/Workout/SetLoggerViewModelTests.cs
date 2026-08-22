@@ -109,6 +109,43 @@ public sealed class SetLoggerViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task Compact_sections_expose_today_and_a_collapsed_previous_workout_disclosure()
+    {
+        var fixture = await CreateFixtureAsync(TrackingMode.Weighted);
+        var sut = fixture.CreateLogger(Previous(
+            TrackingMode.Weighted,
+            Set(0, 70m, null, 10),
+            Set(1, 70m, null, 8)));
+        await sut.LoadAsync(ExerciseId, "Bench Press");
+
+        Assert.True(sut.HasLastSets);
+        Assert.False(sut.HasTodaySets);
+        Assert.False(sut.IsLastWorkoutExpanded);
+        Assert.Equal("Last workout · 2 sets", sut.LastWorkoutHeaderText);
+
+        sut.ToggleLastWorkoutCommand.Execute(null);
+        Assert.True(sut.IsLastWorkoutExpanded);
+
+        sut.BeginSetCommand.Execute(null);
+        sut.WeightKg = 72.5m;
+        sut.Reps = 8;
+        await sut.SaveDraftSetCommand.ExecuteAsync();
+
+        Assert.True(sut.HasTodaySets);
+        Assert.False(sut.IsLastWorkoutExpanded);
+    }
+
+    [Fact]
+    public void Track_sets_section_copy_is_localized_in_English_and_Thai()
+    {
+        var english = WorkoutResources.ForCulture(CultureInfo.GetCultureInfo("en-US"));
+        var thai = WorkoutResources.ForCulture(CultureInfo.GetCultureInfo("th-TH"));
+
+        Assert.Equal("Last workout · {0} sets", english.LastWorkoutSetsFormat);
+        Assert.Equal("ครั้งก่อน · {0} เซ็ต", thai.LastWorkoutSetsFormat);
+    }
+
+    [Fact]
     public void Action_first_copy_is_localized_in_English_and_Thai()
     {
         var english = WorkoutResources.ForCulture(CultureInfo.GetCultureInfo("en-US"));
@@ -372,6 +409,60 @@ public sealed class SetLoggerViewModelTests : IDisposable
         await sut.CompleteSetCommand.ExecuteAsync();
         var saved = Assert.Single(Assert.Single((await fixture.Repository.GetActiveAsync())!.Exercises).Sets);
         Assert.Equal(100m, saved.WeightKg);
+    }
+
+    [Fact]
+    public async Task Weight_input_is_blank_for_a_new_draft_and_plus_publishes_visible_kilogram_text()
+    {
+        var fixture = await CreateFixtureAsync(TrackingMode.Weighted);
+        var sut = fixture.CreateLogger(null);
+        await sut.LoadAsync(ExerciseId, "Bench Press");
+        sut.BeginSetCommand.Execute(null);
+
+        Assert.Equal(string.Empty, sut.WeightInputText);
+
+        sut.IncrementWeightCommand.Execute(null);
+
+        Assert.Equal(0.5m, sut.WeightKg);
+        Assert.Equal("0.5", sut.WeightInputText);
+    }
+
+    [Fact]
+    public async Task Weight_input_accepts_direct_typing_and_reformats_from_canonical_kg_when_unit_changes()
+    {
+        var fixture = await CreateFixtureAsync(TrackingMode.Weighted);
+        var preference = new WeightUnitPreference(new MemoryWorkoutPreferenceStore());
+        var sut = fixture.CreateLogger(null, unitPreference: preference);
+        await sut.LoadAsync(ExerciseId, "Bench Press");
+        sut.BeginSetCommand.Execute(null);
+
+        sut.WeightInputText = "70.125";
+        Assert.Equal(70.125m, sut.WeightKg);
+
+        sut.UsePoundsCommand.Execute(null);
+        Assert.Equal("154.60", sut.WeightInputText);
+
+        sut.WeightInputText = "176.37";
+        Assert.Equal(80m, sut.WeightKg);
+        Assert.Equal("176.37", sut.WeightInputText);
+    }
+
+    [Fact]
+    public async Task Invalid_weight_input_clears_the_measurement_and_notifies_validation_immediately()
+    {
+        var fixture = await CreateFixtureAsync(TrackingMode.Weighted);
+        var sut = fixture.CreateLogger(null);
+        await sut.LoadAsync(ExerciseId, "Bench Press");
+        sut.BeginSetCommand.Execute(null);
+        var changed = new List<string?>();
+        sut.PropertyChanged += (_, eventArgs) => changed.Add(eventArgs.PropertyName);
+
+        sut.WeightInputText = "not-a-number";
+
+        Assert.Null(sut.WeightKg);
+        Assert.False(sut.SaveDraftSetCommand.CanExecute(null));
+        Assert.Equal(WorkoutResources.English.InvalidWeightedSet, sut.ValidationMessage);
+        Assert.Contains(nameof(sut.ValidationMessage), changed);
     }
 
     [Fact]
@@ -807,6 +898,7 @@ public sealed class SetLoggerViewModelTests : IDisposable
 
         Assert.Equal([12, 9], sut.LastSets.Select(item => item.Reps));
         Assert.Equal(WorkoutSyncState.Offline, sut.SyncState);
+        Assert.False(sut.ShowsSyncStatus);
         Assert.Null(sut.ErrorMessage);
     }
 

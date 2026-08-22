@@ -56,7 +56,7 @@
             </VerticalStackLayout>
         </ScrollView>
 
-        <Border Grid.Row="1" Style="{DynamicResource TrackZStickyActionContainerStyle}">
+        <Border Grid.Row="1" Margin="0,0,0,12" Style="{DynamicResource TrackZStickyActionContainerStyle}">
             <Grid ColumnDefinitions="*,*" ColumnSpacing="{DynamicResource TrackZSpace12}">
                 <Button Command="{Binding UndoCommand}" CommandParameter="{Binding Workout}" Style="{DynamicResource TrackZQuietButtonStyle}" Text="{Binding Text.Undo}" />
                 <Button Grid.Column="1" Command="{Binding DeleteWorkoutCommand}" CommandParameter="{Binding Workout}" Style="{DynamicResource TrackZDestructiveButtonStyle}" Text="{Binding Text.Delete}" />

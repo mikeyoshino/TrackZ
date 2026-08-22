@@ -34,8 +34,8 @@ public sealed class AppWideVisualConsistencyTests
             ["Features/Auth/CreateAccountPage.xaml"] = ["0=TrackZPageHorizontalPadding", "1=TrackZPageHorizontalPadding"],
             ["Features/Train/TrainPage.xaml"] = ["$=TrackZPageContentPadding"],
             ["Features/Train/BodyAreaSheetPage.xaml"] = ["0=TrackZPageHorizontalPadding", "1=TrackZPageHorizontalPadding"],
-            ["Features/Exercises/ExercisePickerPage.xaml"] = ["0=TrackZPageHorizontalPadding", "1=TrackZPageHorizontalPadding", "2=TrackZPageHorizontalPadding", "3=TrackZPageHorizontalPadding", "4=TrackZPageHorizontalPadding"],
-            ["Features/Exercises/CustomExercisePage.xaml"] = ["0=TrackZPageHorizontalPadding", "1.0=TrackZPageHorizontalPadding"],
+            ["Features/Exercises/ExercisePickerPage.xaml"] = ["0=TrackZPageHorizontalPadding", "1=TrackZPageHorizontalPadding", "2=TrackZPageHorizontalPadding"],
+            ["Features/Exercises/CustomExercisePage.xaml"] = ["0.0=TrackZPageHorizontalPadding"],
             ["Features/Workout/WorkoutPage.xaml"] = ["0=TrackZPageHorizontalPadding", "1=TrackZPageHorizontalPadding"],
             ["Features/Workout/SetLoggerPage.xaml"] = ["0.0=TrackZPageBottomContentPadding"],
             ["Features/Workout/SetEntrySheetPage.xaml"] = ["0=TrackZPageHorizontalPadding", "1.0=TrackZPageHorizontalPadding"],
@@ -114,7 +114,6 @@ public sealed class AppWideVisualConsistencyTests
         "Features/Exercises/ExercisePickerPage.xaml",
         "Features/Exercises/CustomExercisePage.xaml",
         "Features/Workout/WorkoutPage.xaml",
-        "Features/Workout/SetLoggerPage.xaml",
         "Features/Workout/SetEntrySheetPage.xaml",
         "Features/History/WorkoutHistoryDetailPage.xaml",
         "Features/History/HistorySetEditorSheetPage.xaml",
@@ -574,7 +573,10 @@ public sealed class AppWideVisualConsistencyTests
         foreach (var error in AuditArtworkGridGeometry(relativePath, document))
             yield return error;
 
-        if (!string.Equals(relativePath, "Features/Auth/AuthGatePage.xaml", StringComparison.Ordinal))
+        var usesVisibleNativeNavigationTitle = root.Attribute("Title") is not null &&
+            !string.Equals(root.Attribute("Shell.NavBarIsVisible")?.Value, "False", StringComparison.Ordinal);
+        if (!string.Equals(relativePath, "Features/Auth/AuthGatePage.xaml", StringComparison.Ordinal)
+            && !usesVisibleNativeNavigationTitle)
         {
             var expectedTitleStyle = RootTitlePages.Contains(relativePath, StringComparer.Ordinal)
                 ? "TrackZPageTitleStyle"

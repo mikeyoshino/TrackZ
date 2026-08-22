@@ -67,6 +67,8 @@
   <data name="RepSingular" xml:space="preserve"><value>ครั้ง</value></data>
   <data name="RepPlural" xml:space="preserve"><value>ครั้ง</value></data>
   <data name="FinishWorkout" xml:space="preserve"><value>จบการฝึก</value></data>
+  <data name="FinishNeedsSetsFormat" xml:space="preserve"><value>บันทึกอย่างน้อย 1 เซ็ตให้ครบทุกท่าก่อนจบการฝึก · เหลือ {0} ท่า</value></data>
+  <data name="DismissNotice" xml:space="preserve"><value>ปิดข้อความ</value></data>
   <data name="HistoryTitle" xml:space="preserve"><value>ประวัติการฝึก</value></data>
   <data name="HistoryTab" xml:space="preserve"><value>ประวัติ</value></data>
   <data name="NoHistory" xml:space="preserve"><value>ยังไม่มีการฝึกที่เสร็จแล้ว</value></data>
@@ -130,4 +132,5 @@
   <data name="HomeRepeatFailed" xml:space="preserve"><value>เริ่มการฝึกแบบเดิมไม่สำเร็จ ลองอีกครั้ง</value></data>
   <data name="HomeOpenWorkoutFailed" xml:space="preserve"><value>บันทึกการฝึกแล้ว แต่เปิดไม่สำเร็จ แตะออกกำลังกายต่อ</value></data>
   <data name="HomeContextFormat" xml:space="preserve"><value>วันนี้ · สัปดาห์ที่ {0}</value></data>
+  <data name="LastWorkoutSetsFormat" xml:space="preserve"><value>ครั้งก่อน · {0} เซ็ต</value></data>
 </root>

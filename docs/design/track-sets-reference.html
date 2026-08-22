@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>TrackZ · Track sets reference</title>
+  <style>
+    :root{color-scheme:dark;--bg:#070a0b;--card:#14191d;--line:#2b3339;--muted:#9098a4;--lime:#baff2d;--text:#f5f7f8}
+    *{box-sizing:border-box}body{margin:0;background:#20252d;color:var(--text);font:16px -apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif}
+    main{width:390px;min-height:844px;margin:24px auto;padding:24px 20px 104px;background:var(--bg);border-radius:44px}
+    h1{margin:8px 0 28px;text-align:center;font-size:20px}.exercise{display:grid;grid-template-columns:72px 1fr;gap:12px;align-items:center}.art{height:72px;border-radius:18px;background:#20272c;display:grid;place-items:center}.muted{color:var(--muted)}
+    .editor{margin-top:20px;padding:16px;border:1px solid var(--lime);border-radius:20px;background:var(--card)}.editor h2{margin:0 0 16px;font-size:20px}.controls{display:grid;grid-template-columns:1fr 1fr;gap:12px}.control{padding:12px;border-radius:16px;background:#0d1114}.step{display:grid;grid-template-columns:44px 1fr 44px;gap:4px;align-items:center;margin-top:8px}.step button{height:44px;border:0;border-radius:12px;background:#252c31;color:white;font-size:22px}.entry{height:50px;padding:0 8px;display:grid;grid-template-columns:1fr auto;align-items:center;border:1px solid var(--line);border-radius:15px}.value-input{min-width:0;border:0;outline:0;background:transparent;color:var(--text);font:700 16px -apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif;text-align:center}.unit{color:var(--muted);font-size:13px}.save{width:100%;height:52px;margin-top:16px;border:0;border-radius:16px;background:var(--lime);font-size:18px;font-weight:800}.section{margin-top:20px}.eyebrow{letter-spacing:.12em;color:var(--muted);font-size:13px}.row{display:flex;justify-content:space-between;margin-top:8px;padding:12px 14px;border:1px solid var(--line);border-radius:14px;background:var(--card)}details{margin-top:20px}summary{min-height:44px;display:flex;align-items:center;color:var(--muted)}
+  </style>
+</head>
+<body>
+  <main data-unit="kg" data-last-workout="collapsed">
+    <h1>Track sets</h1>
+    <section class="exercise"><div class="art">🏋️</div><div><strong>Assisted Pull-Up</strong><div class="muted">Back · Assistance</div><div class="muted">Last: 15 kg × 8</div></div></section>
+    <section class="editor"><h2>Set 3</h2><div class="controls"><div class="control"><span class="muted">Assistance</span><div class="step"><button aria-label="Decrease assistance">−</button><label class="entry"><input class="value-input" inputmode="decimal" value="15" aria-label="Assistance"><span class="unit">kg</span></label><button aria-label="Increase assistance">+</button></div></div><div class="control"><span class="muted">Reps</span><div class="step"><button aria-label="Decrease reps">−</button><label class="entry"><input class="value-input" inputmode="numeric" value="8" aria-label="Reps"></label><button aria-label="Increase reps">+</button></div></div></div><button class="save">Save set 3</button></section>
+    <section class="section"><div class="eyebrow">TODAY</div><div class="row"><span>#1</span><strong>15 kg × 8</strong></div><div class="row"><span>#2</span><strong>15 kg × 8</strong></div></section>
+    <details data-last-workout="expanded"><summary>Last workout · 2 sets</summary><div class="row"><span>#1</span><span>15 kg × 8</span></div><div class="row"><span>#2</span><span>15 kg × 8</span></div></details>
+    <span hidden data-unit="lb">33.07 lb × 8</span>
+  </main>
+</body>
+</html>

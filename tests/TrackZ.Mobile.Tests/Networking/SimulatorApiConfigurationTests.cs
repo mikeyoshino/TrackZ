@@ -10,13 +10,13 @@ public sealed class SimulatorApiConfigurationTests
         var values = new Dictionary<string, string?>
         {
             ["TRACKZ_API_ORIGIN"] = "http://127.0.0.1:5080",
-            ["TRACKZ_MEDIA_ORIGIN"] = "http://127.0.0.1:9000"
+            ["TRACKZ_MEDIA_ORIGIN"] = "http://127.0.0.1:5080"
         };
 
         var origins = MobileEndpointOrigins.Resolve(key => values.GetValueOrDefault(key));
 
         Assert.Equal(new Uri("http://127.0.0.1:5080/"), origins.ApiOrigin);
-        Assert.Equal(new Uri("http://127.0.0.1:9000/"), origins.MediaOrigin);
+        Assert.Equal(new Uri("http://127.0.0.1:5080/"), origins.MediaOrigin);
     }
 
     [Theory]

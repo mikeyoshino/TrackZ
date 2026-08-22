@@ -144,9 +144,12 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
     private string _previousBestText = string.Empty;
     private string _allTimePrText = string.Empty;
     private bool _hasDraftSet;
+    private bool _isLastWorkoutExpanded;
     private decimal? _draftBaselineWeightKg;
     private decimal? _draftBaselineAssistedKg;
     private int _draftBaselineReps;
+    private string _weightInputText = string.Empty;
+    private bool _isApplyingWeightInput;
 
     public SetLoggerViewModel(
         ActiveWorkoutCoordinator coordinator,
@@ -178,6 +181,7 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         BeginSetCommand = new RelayCommand(_ => BeginSet(), _ => CanBeginSet);
         CancelDraftSetCommand = new RelayCommand(_ => CancelDraftSet(), _ => CanCancelDraftSet);
         SaveDraftSetCommand = new AsyncCommand(_ => CompleteSetAsync(), _ => CanSaveDraftSet);
+        ToggleLastWorkoutCommand = new RelayCommand(_ => IsLastWorkoutExpanded = !IsLastWorkoutExpanded, _ => HasLastSets);
         IncrementWeightCommand = new RelayCommand(_ => DisplayWeight += WeightStep, _ => !_disposed && UsesWeight && !IsBusy);
         DecrementWeightCommand = new RelayCommand(_ => DisplayWeight = Math.Max(0m, DisplayWeight - WeightStep), _ => !_disposed && UsesWeight && !IsBusy);
         IncrementRepsCommand = new RelayCommand(_ => Reps = Math.Min(999, Reps + 1), _ => !_disposed && !IsBusy);
@@ -198,6 +202,7 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
     public ICommand BeginSetCommand { get; }
     public ICommand CancelDraftSetCommand { get; }
     public AsyncCommand SaveDraftSetCommand { get; }
+    public ICommand ToggleLastWorkoutCommand { get; }
     public ICommand IncrementWeightCommand { get; }
     public ICommand DecrementWeightCommand { get; }
     public ICommand IncrementRepsCommand { get; }
@@ -291,6 +296,7 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         {
             if (!Set(ref _weightKg, value)) return;
             OnPropertyChanged(nameof(DisplayWeight));
+            if (!_isApplyingWeightInput) RefreshWeightInputText();
             MeasurementChanged();
         }
     }
@@ -302,6 +308,7 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         {
             if (!Set(ref _assistedKg, value)) return;
             OnPropertyChanged(nameof(DisplayWeight));
+            if (!_isApplyingWeightInput) RefreshWeightInputText();
             MeasurementChanged();
         }
     }
@@ -326,6 +333,41 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         }
     }
 
+    public string WeightInputText
+    {
+        get => _weightInputText;
+        set
+        {
+            var input = value ?? string.Empty;
+            if (!Set(ref _weightInputText, input)) return;
+            var previousKilograms = TrackingMode == TrackingMode.Assisted ? AssistedKg : WeightKg;
+            _isApplyingWeightInput = true;
+            try
+            {
+                if (string.IsNullOrWhiteSpace(input))
+                {
+                    if (TrackingMode == TrackingMode.Assisted) AssistedKg = null;
+                    else WeightKg = null;
+                }
+                else if (TryParseWeightInput(input, out var displayWeight))
+                {
+                    DisplayWeight = displayWeight;
+                }
+                else
+                {
+                    if (TrackingMode == TrackingMode.Assisted) AssistedKg = null;
+                    else WeightKg = null;
+                }
+            }
+            finally
+            {
+                _isApplyingWeightInput = false;
+                var currentKilograms = TrackingMode == TrackingMode.Assisted ? AssistedKg : WeightKg;
+                if (currentKilograms == previousKilograms) MeasurementChanged();
+            }
+        }
+    }
+
     public string WeightUnitLabel => DisplayUnit == WeightDisplayUnit.Kilograms ? _text.Kilograms : _text.Pounds;
 
     public WeightDisplayUnit DisplayUnit
@@ -337,6 +379,7 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
             if (!Set(ref _displayUnit, value)) return;
             _unitPreference?.Set(value);
             OnPropertyChanged(nameof(DisplayWeight));
+            RefreshWeightInputText();
             OnPropertyChanged(nameof(WeightUnitLabel));
             OnPropertyChanged(nameof(WeightStep));
             OnPropertyChanged(nameof(IsKilograms));
@@ -394,6 +437,17 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         }
     }
     public bool HasNoDraftSet => !HasDraftSet;
+    public bool HasTodaySets => TodaySets.Count > 0;
+    public bool HasLastSets => LastSets.Count > 0;
+    public bool IsLastWorkoutExpanded
+    {
+        get => _isLastWorkoutExpanded;
+        private set => Set(ref _isLastWorkoutExpanded, value);
+    }
+    public string LastWorkoutHeaderText => string.Format(
+        CultureInfo.CurrentCulture,
+        _text.LastWorkoutSetsFormat,
+        LastSets.Count);
     public bool ShowsNoSetHistory => LastSets.Count == 0 && TodaySets.Count == 0;
     public bool ShowsSetComparison => !HasDraftSet && !ShowsNoSetHistory;
     public bool CanBeginSet => !_disposed && !IsBusy && _exerciseId != Guid.Empty && !HasDraftSet;
@@ -440,7 +494,7 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         WorkoutSyncState.PermanentFailure => _text.PermanentFailure,
         _ => _text.Synced
     };
-    public bool ShowsSyncStatus => SyncState != WorkoutSyncState.Synced;
+    public bool ShowsSyncStatus => SyncState is not (WorkoutSyncState.Synced or WorkoutSyncState.Offline);
     public bool HasPreviousBest => LastSets.Count > 0 || _cachedExercise?.LastBestSet is not null;
     public bool HasAllTimePr => _cachedExercise?.AllTimeBest is not null;
 
@@ -657,6 +711,7 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
             if (_disposed || _boundary.IsCancellationRequested(generation)) return;
             var presentation = CreateSavedPresentation(saved);
             TodaySets.Add(Row(saved, TrackingMode));
+            IsLastWorkoutExpanded = false;
             HasDraftSet = false;
             OnPropertyChanged(nameof(CanMatchLast));
             PublishSetPresentationState();
@@ -733,6 +788,22 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         WeightKg = _draftBaselineWeightKg;
         AssistedKg = _draftBaselineAssistedKg;
         Reps = _draftBaselineReps;
+        RefreshWeightInputText();
+    }
+
+    private bool TryParseWeightInput(string input, out decimal value) =>
+        decimal.TryParse(input, NumberStyles.Number, CultureInfo.CurrentCulture, out value)
+        || decimal.TryParse(input, NumberStyles.Number, CultureInfo.InvariantCulture, out value);
+
+    private void RefreshWeightInputText()
+    {
+        var kilograms = TrackingMode == TrackingMode.Assisted ? AssistedKg : WeightKg;
+        var formatted = kilograms is null
+            ? string.Empty
+            : DisplayWeight.ToString(
+                DisplayUnit == WeightDisplayUnit.Kilograms ? "0.###" : "0.00",
+                CultureInfo.CurrentCulture);
+        Set(ref _weightInputText, formatted, nameof(WeightInputText));
     }
 
     private SetSavedPresentation CreateSavedPresentation(LocalSet saved)
@@ -1071,6 +1142,10 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(NextSetText));
         OnPropertyChanged(nameof(DraftSetNumber));
         OnPropertyChanged(nameof(SaveDraftSetText));
+        OnPropertyChanged(nameof(HasTodaySets));
+        OnPropertyChanged(nameof(HasLastSets));
+        OnPropertyChanged(nameof(LastWorkoutHeaderText));
+        (ToggleLastWorkoutCommand as RelayCommand)?.RaiseCanExecuteChanged();
     }
 
     private SetDisplayRow? Best(IEnumerable<SetDisplayRow> rows) => TrackingMode switch
@@ -1155,6 +1230,7 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         AllTimePrText = string.Empty;
         LastSets.Clear();
         TodaySets.Clear();
+        IsLastWorkoutExpanded = false;
         HasDraftSet = false;
         PublishSetPresentationState();
         WeightKg = null;

@@ -11,7 +11,6 @@
     Title="{Binding Text.SummaryTitle}">
     <ScrollView>
         <VerticalStackLayout Padding="{DynamicResource TrackZPageContentPadding}" Spacing="{DynamicResource TrackZSpace16}">
-            <Label Style="{DynamicResource TrackZNavigationTitleStyle}" Text="{Binding Text.SummaryTitle}" />
             <Border x:Name="SummaryReveal" IsVisible="{Binding HasProgressReveal}" Style="{DynamicResource TrackZCardStyle}">
                 <VerticalStackLayout Spacing="{DynamicResource TrackZSpace8}">
                     <Label x:Name="ConfirmedRevealStatus" IsVisible="{Binding IsProgressRevealConfirmed}" Style="{DynamicResource TrackZPerformanceNumberStyle}" Text="{Binding ProgressRevealStatus}" />

@@ -19,12 +19,31 @@ The simulator uses these development origins:
 
 ```text
 TRACKZ_API_ORIGIN=http://127.0.0.1:5080
-TRACKZ_MEDIA_ORIGIN=http://127.0.0.1:9000
+TRACKZ_MEDIA_ORIGIN=http://127.0.0.1:5080
 ```
 
 The bearer token is sent only to the API origin. Artwork metadata comes from the API, then the app
 requests a short-lived signed API media URL and downloads it with the separate credential-free
 client into the bounded local cache.
+
+## One-command development lifecycle
+
+From the repository root, use the idempotent development command for the normal simulator loop:
+
+```bash
+./scripts/trackz-dev start
+./scripts/trackz-dev status
+./scripts/trackz-dev restart
+./scripts/trackz-dev stop
+```
+
+`start` reuses an existing Docker Desktop or TrackZ API, starts only missing dependencies, builds
+and installs the simulator app, and launches it with the API and signed-media origins above. `stop`
+stops only resources owned by TrackZ and preserves volumes. Docker Desktop is stopped only when the
+script originally started it; use `./scripts/trackz-dev stop --all` to stop Docker Desktop even when
+it was already open.
+
+The remaining commands below document the equivalent manual steps and are useful for diagnosis.
 
 ## Start the local dependencies
 
@@ -67,7 +86,7 @@ When launching with `simctl`, pass the origins as child-process variables:
 
 ```bash
 SIMCTL_CHILD_TRACKZ_API_ORIGIN=http://127.0.0.1:5080 \
-SIMCTL_CHILD_TRACKZ_MEDIA_ORIGIN=http://127.0.0.1:9000 \
+SIMCTL_CHILD_TRACKZ_MEDIA_ORIGIN=http://127.0.0.1:5080 \
 xcrun simctl launch booted com.trackz.app
 ```
 

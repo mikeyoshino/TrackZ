@@ -12,3 +12,4 @@ TestResults/
 *.userprefs
 *.log
 artifacts/
+.trackz-dev/

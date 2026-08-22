@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
@@ -8,6 +9,7 @@ using TrackZ.Mobile.Features.Exercises;
 using TrackZ.Mobile.Features.Exercises.Data;
 using TrackZ.Mobile.Features.Exercises.Models;
 using TrackZ.Mobile.Features.History;
+using TrackZ.Mobile.Features.Shared;
 using TrackZ.Mobile.Identity;
 
 namespace TrackZ.Mobile.Features.Workout;
@@ -36,10 +38,13 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged
     private readonly WorkoutTextSet _text;
     private readonly IHistoryConfirmation? _confirmation;
     private readonly IWeightUnitPreference? _unitPreference;
+    private readonly IExerciseThumbnailCache? _thumbnailCache;
     private IReadOnlyDictionary<Guid, CachedExercise> _catalog = new Dictionary<Guid, CachedExercise>();
     private bool _isBusy;
     private bool _hasStarted;
     private string? _errorMessage;
+    private string? _noticeMessage;
+    private TrackZNoticeSeverity _noticeSeverity = TrackZNoticeSeverity.Information;
 
     public WorkoutViewModel(
         ActiveWorkoutCoordinator coordinator,
@@ -47,7 +52,8 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged
         IAccountSessionBoundary boundary,
         WorkoutTextSet text,
         IHistoryConfirmation? confirmation = null,
-        IWeightUnitPreference? unitPreference = null)
+        IWeightUnitPreference? unitPreference = null,
+        IExerciseThumbnailCache? thumbnailCache = null)
     {
         _coordinator = coordinator;
         _cache = cache;
@@ -55,12 +61,14 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged
         _text = text;
         _confirmation = confirmation;
         _unitPreference = unitPreference;
+        _thumbnailCache = thumbnailCache;
         RemoveExerciseCommand = new AsyncCommand(RemoveExerciseAsync,
             item => !IsBusy && Id(item) != Guid.Empty && (!_hasStarted || Exercises.Count > 1));
         MoveUpCommand = new AsyncCommand(item => MoveAsync(item, -1), item => CanMove(item, -1));
         MoveDownCommand = new AsyncCommand(item => MoveAsync(item, 1), item => CanMove(item, 1));
         StartWorkoutCommand = new AsyncCommand(_ => StartAsync(), _ => Exercises.Count != 0 && !_hasStarted && !IsBusy);
         FinishWorkoutCommand = new AsyncCommand(_ => FinishAsync(), _ => _hasStarted && !IsBusy);
+        DismissNoticeCommand = new RelayCommand(_ => ClearNotice());
         _boundary.SessionReset += OnSessionReset;
         if (_unitPreference is not null) _unitPreference.Changed += OnWeightUnitChanged;
     }
@@ -71,8 +79,13 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged
     public AsyncCommand MoveDownCommand { get; }
     public AsyncCommand StartWorkoutCommand { get; }
     public AsyncCommand FinishWorkoutCommand { get; }
+    public ICommand DismissNoticeCommand { get; }
     public WorkoutTextSet Text => _text;
     public Guid? CompletedWorkoutId { get; private set; }
+    public string WorkoutContextText => string.Join(
+        " · ",
+        string.Format(_text.ExerciseCountFormat, Exercises.Count),
+        string.Format(_text.SetsLoggedFormat, Exercises.Sum(exercise => exercise.LoggedSetCount)));
 
     public bool IsBusy
     {
@@ -102,6 +115,24 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged
         private set => Set(ref _errorMessage, value);
     }
 
+    public string? NoticeMessage
+    {
+        get => _noticeMessage;
+        private set
+        {
+            if (!Set(ref _noticeMessage, value)) return;
+            OnPropertyChanged(nameof(HasNotice));
+        }
+    }
+
+    public TrackZNoticeSeverity NoticeSeverity
+    {
+        get => _noticeSeverity;
+        private set => Set(ref _noticeSeverity, value);
+    }
+
+    public bool HasNotice => !string.IsNullOrWhiteSpace(NoticeMessage);
+
     public event PropertyChangedEventHandler? PropertyChanged;
     public event EventHandler<Guid>? WorkoutFinished;
 
@@ -110,6 +141,10 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged
         var active = await _coordinator.RestoreActiveAsync(cancellationToken);
         if (active is null) return;
         _catalog = (await _cache.GetAllAsync(cancellationToken)).ToDictionary(item => item.Id);
+        await MaterializeArtworkAsync(
+            active.Exercises.Where(item => item.DeletedAt is null)
+                .Select(item => item.ExerciseDefinitionId),
+            cancellationToken);
         Exercises.Clear();
         foreach (var exercise in active.Exercises.Where(item => item.DeletedAt is null).OrderBy(item => item.Order))
         {
@@ -122,6 +157,8 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged
                 exercise.Sets.Count(set => set.DeletedAt is null)));
         }
         HasStarted = true;
+        ErrorMessage = null;
+        ClearNotice();
     }
 
     public async Task AddExercisesAsync(
@@ -132,6 +169,7 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged
         var requested = exerciseIds.Where(id => id != Guid.Empty).Distinct().ToArray();
         var existing = Exercises.Select(item => item.ExerciseDefinitionId).ToHashSet();
         _catalog = (await _cache.GetAllAsync(cancellationToken)).ToDictionary(item => item.Id);
+        await MaterializeArtworkAsync(requested, cancellationToken);
         foreach (var id in requested)
         {
             if (existing.Contains(id)) continue;
@@ -156,12 +194,60 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged
         RaiseCommands();
     }
 
+    private async Task MaterializeArtworkAsync(
+        IEnumerable<Guid> exerciseIds,
+        CancellationToken cancellationToken)
+    {
+        if (_thumbnailCache is null) return;
+        var candidates = exerciseIds
+            .Distinct()
+            .Select(id => _catalog.GetValueOrDefault(id))
+            .Where(item => item is not null
+                && !string.IsNullOrWhiteSpace(item.RemoteThumbnailRoute))
+            .Cast<CachedExercise>()
+            .ToArray();
+        if (candidates.Length == 0) return;
+
+        var downloaded = new ConcurrentDictionary<Guid, string>();
+        await Parallel.ForEachAsync(
+            candidates,
+            new ParallelOptions
+            {
+                CancellationToken = cancellationToken,
+                MaxDegreeOfParallelism = 4
+            },
+            async (exercise, token) =>
+            {
+                try
+                {
+                    var local = await _thumbnailCache.CacheAsync(exercise.RemoteThumbnailRoute, token);
+                    if (!string.IsNullOrWhiteSpace(local))
+                        downloaded[exercise.Id] = local;
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch
+                {
+                    // Artwork is optional; the row keeps its neutral placeholder and can retry later.
+                }
+            });
+        foreach (var exercise in candidates)
+        {
+            if (downloaded.TryGetValue(exercise.Id, out var local))
+                await _cache.SetServerThumbnailAsync(exercise.Id, local, cancellationToken);
+        }
+        _catalog = (await _cache.GetAllAsync(cancellationToken)).ToDictionary(item => item.Id);
+    }
+
     private async Task StartAsync()
     {
         if (Exercises.Count == 0 || HasStarted) return;
         var generation = _boundary.Capture();
         IsBusy = true;
         ErrorMessage = null;
+        ClearNotice();
         try
         {
             var started = await _coordinator.StartAsync(Exercises.Select(item =>
@@ -186,7 +272,7 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged
         }
         catch (Exception) when (!_boundary.IsCancellationRequested(generation))
         {
-            ErrorMessage = _text.SaveFailed;
+            SetErrorNotice(_text.SaveFailed);
         }
         finally
         {
@@ -197,9 +283,18 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged
     private async Task FinishAsync()
     {
         if (!HasStarted) return;
+        var unloggedExerciseCount = Exercises.Count(exercise => exercise.LoggedSetCount == 0);
+        if (unloggedExerciseCount != 0)
+        {
+            ErrorMessage = null;
+            NoticeSeverity = TrackZNoticeSeverity.Warning;
+            NoticeMessage = string.Format(_text.FinishNeedsSetsFormat, unloggedExerciseCount);
+            return;
+        }
         var generation = _boundary.Capture();
         IsBusy = true;
         ErrorMessage = null;
+        ClearNotice();
         try
         {
             var completed = await _coordinator.FinishAsync(cancellationToken: default);
@@ -217,7 +312,7 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged
         }
         catch (Exception) when (!_boundary.IsCancellationRequested(generation))
         {
-            ErrorMessage = _text.SaveFailed;
+            SetErrorNotice(_text.SaveFailed);
         }
         finally
         {
@@ -334,9 +429,19 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged
         Exercises.Clear();
         HasStarted = false;
         ErrorMessage = null;
+        ClearNotice();
         CompletedWorkoutId = null;
         RaiseCommands();
     }
+
+    private void SetErrorNotice(string message)
+    {
+        ErrorMessage = message;
+        NoticeSeverity = TrackZNoticeSeverity.Error;
+        NoticeMessage = message;
+    }
+
+    private void ClearNotice() => NoticeMessage = null;
 
     private void RaiseCommands()
     {
@@ -346,6 +451,7 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged
         MoveUpCommand.RaiseCanExecuteChanged();
         MoveDownCommand.RaiseCanExecuteChanged();
         OnPropertyChanged(nameof(IsDraft));
+        OnPropertyChanged(nameof(WorkoutContextText));
     }
 
     private bool Set<T>(ref T field, T value, [CallerMemberName] string? name = null)

@@ -875,38 +875,49 @@ public sealed class MauiCompositionTests
         var scroll = page.FindByName<ScrollView>("SetLoggerScroll");
         var content = Assert.IsType<VerticalStackLayout>(scroll.Content);
         var editor = page.FindByName<Border>("InlineSetEditor");
-        var comparison = Assert.IsType<Border>(page.FindByName("SetComparisonCard"));
+        var exercise = page.FindByName<Grid>("ExerciseSummary");
+        var today = page.FindByName<VerticalStackLayout>("TodaySetsSection");
+        var previous = page.FindByName<VerticalStackLayout>("LastWorkoutSection");
         var noHistory = Assert.IsType<Label>(page.FindByName("NoSetHistoryLabel"));
         var previousBest = Assert.IsType<Label>(page.FindByName("PreviousBestLabel"));
-        var allTimePr = Assert.IsType<Label>(page.FindByName("AllTimePrLabel"));
         var sync = Assert.IsType<SyncStatusPill>(page.FindByName("SetLoggerSyncStatus"));
         var addButton = page.FindByName<Button>("AddSetButton");
         var saveButton = page.FindByName<Button>("SaveDraftSetButton");
-        var weightStepper = page.FindByName<WeightStepper>("DraftWeightStepper");
-        var repsStepper = page.FindByName<RepsStepper>("DraftRepsStepper");
-        Assert.Same(editor, content.Children[0]);
-        Assert.True(content.Children.IndexOf(editor) < content.Children.IndexOf(comparison));
+        var weightInput = page.FindByName<Entry>("DraftWeightInput");
+        var repsInput = page.FindByName<Entry>("DraftRepsInput");
+        Assert.True(content.Children.IndexOf(exercise) < content.Children.IndexOf(editor));
+        Assert.True(content.Children.IndexOf(editor) < content.Children.IndexOf(today));
+        Assert.True(content.Children.IndexOf(today) < content.Children.IndexOf(previous));
         Assert.True(noHistory.IsVisible);
         Assert.Equal(logger.Text.NoPreviousSetsYet, noHistory.Text);
-        Assert.False(comparison.IsVisible);
+        Assert.False(today.IsVisible);
+        Assert.False(previous.IsVisible);
         Assert.False(previousBest.IsVisible);
-        Assert.False(allTimePr.IsVisible);
-        Assert.True(sync.IsVisible);
+        Assert.False(sync.IsVisible);
 
         logger.BeginSetCommand.Execute(null);
         var cancelledReveal = await transition.NextAttemptAsync();
 
         Assert.True(editor.IsVisible);
-        Assert.False(comparison.IsVisible);
+        Assert.False(today.IsVisible);
         Assert.True(noHistory.IsVisible);
         Assert.False(addButton.IsVisible);
         Assert.True(saveButton.IsVisible);
         Assert.Equal("Save set 1", saveButton.Text);
         Assert.Equal("Save set 1", SemanticProperties.GetDescription(saveButton));
-        Assert.True(weightStepper.IsVisible);
-        Assert.True(repsStepper.IsVisible);
-        Assert.False(weightStepper.Input.IsFocused);
-        Assert.False(repsStepper.Input.IsFocused);
+        Assert.True(weightInput.IsVisible);
+        Assert.True(repsInput.IsVisible);
+        Assert.False(weightInput.IsFocused);
+        Assert.False(repsInput.IsFocused);
+
+        var incrementWeight = page.GetVisualTreeDescendants()
+            .OfType<Button>()
+            .Single(button => ReferenceEquals(button.Command, logger.IncrementWeightCommand));
+        incrementWeight.Command.Execute(incrementWeight.CommandParameter);
+
+        Assert.Equal(0.5m, logger.DisplayWeight);
+        Assert.Equal("0.5", logger.WeightInputText);
+        Assert.Equal("0.5", weightInput.Text);
 
         Assert.Same(scroll, cancelledReveal.Scroll);
         Assert.Same(editor, cancelledReveal.Editor);
@@ -943,7 +954,7 @@ public sealed class MauiCompositionTests
         Assert.True(logger.CanBeginSet);
         Assert.Same(addButton, saveRestore);
         Assert.False(editor.IsVisible);
-        Assert.True(comparison.IsVisible);
+        Assert.True(today.IsVisible);
         Assert.False(noHistory.IsVisible);
         Assert.Equal("Save set 2", saveButton.Text);
 

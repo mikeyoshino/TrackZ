@@ -11,11 +11,10 @@
     SafeAreaEdges="All"
     Shell.NavBarHasShadow="False"
     Title="{Binding Text.WorkoutTitle}">
-    <Grid Padding="0,16,0,0" RowDefinitions="Auto,*,Auto" RowSpacing="{DynamicResource TrackZSpace16}">
+    <Grid Padding="0,16,0,0" RowDefinitions="Auto,*,Auto,Auto" RowSpacing="{DynamicResource TrackZSpace12}">
         <Grid Padding="{DynamicResource TrackZPageHorizontalPadding}" ColumnDefinitions="*,Auto">
             <VerticalStackLayout Spacing="{DynamicResource TrackZSpace4}">
-                <Label Style="{DynamicResource TrackZNavigationTitleStyle}" Text="{Binding Text.WorkoutTitle}" />
-                <Label Style="{DynamicResource TrackZInlineErrorStyle}" Text="{Binding ErrorMessage}" />
+                <Label x:Name="WorkoutContext" Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding WorkoutContextText}" />
             </VerticalStackLayout>
             <ActivityIndicator Grid.Column="1" IsRunning="{Binding IsBusy}" IsVisible="{Binding IsBusy}" />
         </Grid>
@@ -42,7 +41,16 @@
           </CollectionView>
         </Grid>
 
-        <Border Grid.Row="2" Style="{DynamicResource TrackZStickyActionContainerStyle}">
+        <components:TrackZNoticeBanner
+            x:Name="WorkoutNotice"
+            Grid.Row="2"
+            DismissCommand="{Binding DismissNoticeCommand}"
+            DismissText="{Binding Text.DismissNotice}"
+            Margin="18,0"
+            Severity="{Binding NoticeSeverity}"
+            Text="{Binding NoticeMessage}" />
+
+        <Border x:Name="WorkoutActions" Grid.Row="3" Margin="0,0,0,12" Style="{DynamicResource TrackZStickyActionContainerStyle}">
             <Grid ColumnDefinitions="*,*" ColumnSpacing="{DynamicResource TrackZSpace12}">
                 <Button Clicked="OnAddExerciseClicked" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="{Binding Text.AddExercise}" />
                 <Button
