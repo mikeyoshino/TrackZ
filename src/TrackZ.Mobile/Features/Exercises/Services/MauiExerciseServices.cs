@@ -27,12 +27,15 @@ public sealed class MauiUiDispatcher : IUiDispatcher
 
 public sealed class MauiLocalExerciseImagePicker : ILocalExerciseImagePicker
 {
-    public async Task<LocalExerciseImageSelection?> PickAsync(CancellationToken cancellationToken = default)
+    public async Task<LocalExerciseImageSelection?> PickAsync(
+        string pickerTitle,
+        CancellationToken cancellationToken = default)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(pickerTitle);
         cancellationToken.ThrowIfCancellationRequested();
         var selected = await FilePicker.Default.PickAsync(new PickOptions
         {
-            PickerTitle = "Choose an exercise image",
+            PickerTitle = pickerTitle,
             FileTypes = FilePickerFileType.Images
         });
         if (selected is null) return null;

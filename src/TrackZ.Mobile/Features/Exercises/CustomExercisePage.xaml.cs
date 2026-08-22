@@ -1,4 +1,6 @@
 using TrackZ.Mobile.Features.Exercises.Services;
+using TrackZ.Mobile.Features.Localization;
+using System.Globalization;
 
 namespace TrackZ.Mobile.Features.Exercises;
 
@@ -6,6 +8,7 @@ public partial class CustomExercisePage : ContentPage, IQueryAttributable
 {
     private readonly CustomExerciseViewModel _viewModel;
     private readonly LocalExerciseImageSelectionCoordinator _imageSelection;
+    private readonly MobileTextSet _text;
 
     public CustomExercisePage(
         CustomExerciseViewModel viewModel,
@@ -13,6 +16,7 @@ public partial class CustomExercisePage : ContentPage, IQueryAttributable
     {
         InitializeComponent();
         BindingContext = _viewModel = viewModel;
+        _text = viewModel.Text;
         _imageSelection = imageSelection;
     }
 
@@ -33,12 +37,17 @@ public partial class CustomExercisePage : ContentPage, IQueryAttributable
         try
         {
             await _imageSelection.PickAndSelectAsync(
+                _text.ChooseExerciseImage,
                 Path.Combine(FileSystem.AppDataDirectory, "exercise-images"),
                 _viewModel.SelectLocalImage);
         }
+        catch (UnsupportedExerciseImageException)
+        {
+            await DisplayAlertAsync(_text.ImageNotImported, _text.UnsupportedExerciseImage, _text.Okay);
+        }
         catch (Exception exception) when (exception is InvalidDataException or IOException or UnauthorizedAccessException)
         {
-            await DisplayAlertAsync("Image not imported", exception.Message, "OK");
+            await DisplayAlertAsync(_text.ImageNotImported, _text.ImageNotImported, _text.Okay);
         }
     }
 
@@ -50,9 +59,9 @@ public partial class CustomExercisePage : ContentPage, IQueryAttributable
             return;
         }
         var message = _viewModel.ValidationErrors.Count == 0
-            ? $"Could not save the exercise ({_viewModel.LastErrorCode})."
+            ? string.Format(CultureInfo.CurrentUICulture, _text.ExerciseSaveFailedFormat, _viewModel.LastErrorCode)
             : string.Join(Environment.NewLine, _viewModel.ValidationErrors.Values.SelectMany(messages => messages));
-        await DisplayAlertAsync("Exercise not saved", message, "OK");
+        await DisplayAlertAsync(_text.ExerciseNotSaved, message, _text.Okay);
     }
 
     private async Task LoadForEditAsync(Guid exerciseId)

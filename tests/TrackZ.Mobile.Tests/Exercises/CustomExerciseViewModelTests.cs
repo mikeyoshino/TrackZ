@@ -10,6 +10,8 @@ using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using TrackZ.Mobile.Identity;
 using TrackZ.Mobile.Sync;
+using TrackZ.Mobile.Features.Localization;
+using System.Globalization;
 
 namespace TrackZ.Mobile.Tests.Exercises;
 
@@ -30,6 +32,48 @@ public sealed class CustomExerciseViewModelTests : IAsyncLifetime
         if (File.Exists(_databasePath)) File.Delete(_databasePath);
         if (File.Exists(_imagePath)) File.Delete(_imagePath);
         return Task.CompletedTask;
+    }
+
+    [Theory]
+    [InlineData("th-TH", "สร้างท่าเอง", "หน้าอก", "ใช้น้ำหนัก")]
+    [InlineData("en-US", "Custom exercise", "Chest", "Weight")]
+    public void Custom_exercise_copy_and_enum_options_follow_ui_culture(
+        string cultureName,
+        string title,
+        string chest,
+        string weighted)
+    {
+        using var service = Service(
+            new MutableConnectivity(false),
+            new RecordingCustomApi(),
+            new RecordingMediaApi());
+        var text = MobileResources.ForCulture(CultureInfo.GetCultureInfo(cultureName));
+        using var sut = new CustomExerciseViewModel(service, text: text);
+
+        Assert.Equal(title, text.CustomExerciseTitle);
+        Assert.Equal(chest, sut.BodyPartOptions.Single(option => option.Value == BodyPart.Chest).Label);
+        Assert.Equal(weighted, sut.TrackingModeOptions.Single(option => option.Value == TrackingMode.Weighted).Label);
+    }
+
+    [Fact]
+    public async Task Thai_validation_copy_does_not_fall_back_to_English_literals()
+    {
+        using var service = Service(
+            new MutableConnectivity(false),
+            new RecordingCustomApi(),
+            new RecordingMediaApi());
+        using var sut = new CustomExerciseViewModel(
+            service,
+            text: MobileResources.ForCulture(CultureInfo.GetCultureInfo("th-TH")));
+
+        Assert.False(await sut.SaveAsync());
+
+        Assert.Contains("ชื่อท่า", Assert.Single(sut.ValidationErrors["name"]));
+        Assert.Contains("ส่วนร่างกาย", Assert.Single(sut.ValidationErrors["bodyPart"]));
+        Assert.Contains("รูปแบบการบันทึก", Assert.Single(sut.ValidationErrors["trackingMode"]));
+        Assert.DoesNotContain(
+            sut.ValidationErrors.Values.SelectMany(value => value),
+            message => message.Contains("Choose", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]

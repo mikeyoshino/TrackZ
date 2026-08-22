@@ -7,10 +7,14 @@ using TrackZ.Mobile.Features.Exercises.Models;
 using TrackZ.Mobile.Features.Exercises.Services;
 using TrackZ.Mobile.Features.Exercises.Data;
 using TrackZ.Mobile.Identity;
+using TrackZ.Mobile.Features.Localization;
 
 namespace TrackZ.Mobile.Features.Exercises;
 
-public sealed class CustomExerciseViewModel : INotifyPropertyChanged
+public sealed record LocalizedBodyPartOption(BodyPart Value, string Label);
+public sealed record LocalizedTrackingModeOption(TrackingMode Value, string Label);
+
+public sealed class CustomExerciseViewModel : INotifyPropertyChanged, IDisposable
 {
     private readonly CustomExerciseImageService _service;
     private readonly ExerciseCache? _cache;
@@ -20,6 +24,7 @@ public sealed class CustomExerciseViewModel : INotifyPropertyChanged
     private readonly IAccountSessionBoundary _boundary;
     private BusinessErrorCode? _lastErrorCode;
     private CachedLibraryImage? _selectedLibraryImage;
+    private int _disposed;
 
     public CustomExerciseViewModel(
         CustomExerciseImageService service,
@@ -27,7 +32,8 @@ public sealed class CustomExerciseViewModel : INotifyPropertyChanged
         IExerciseCatalogApi? catalogApi = null,
         IConnectivityService? connectivity = null,
         IExerciseThumbnailCache? thumbnailCache = null,
-        IAccountSessionBoundary? boundary = null)
+        IAccountSessionBoundary? boundary = null,
+        MobileTextSet? text = null)
     {
         _service = service;
         _cache = cache;
@@ -35,6 +41,22 @@ public sealed class CustomExerciseViewModel : INotifyPropertyChanged
         _connectivity = connectivity;
         _thumbnailCache = thumbnailCache;
         _boundary = boundary ?? new AccountSessionBoundary();
+        Text = text ?? MobileResources.ForCulture(System.Globalization.CultureInfo.CurrentUICulture);
+        BodyPartOptions =
+        [
+            new(global::TrackZ.Domain.Exercises.BodyPart.Chest, Text.BodyPartChest),
+            new(global::TrackZ.Domain.Exercises.BodyPart.Back, Text.BodyPartBack),
+            new(global::TrackZ.Domain.Exercises.BodyPart.Shoulders, Text.BodyPartShoulders),
+            new(global::TrackZ.Domain.Exercises.BodyPart.Arms, Text.BodyPartArms),
+            new(global::TrackZ.Domain.Exercises.BodyPart.Legs, Text.BodyPartLegs),
+            new(global::TrackZ.Domain.Exercises.BodyPart.Core, Text.BodyPartCore)
+        ];
+        TrackingModeOptions =
+        [
+            new(global::TrackZ.Domain.Exercises.TrackingMode.Weighted, Text.TrackingWeighted),
+            new(global::TrackZ.Domain.Exercises.TrackingMode.Assisted, Text.TrackingAssisted),
+            new(global::TrackZ.Domain.Exercises.TrackingMode.Bodyweight, Text.TrackingBodyweight)
+        ];
         _boundary.SessionReset += OnSessionReset;
     }
 
@@ -46,8 +68,29 @@ public sealed class CustomExerciseViewModel : INotifyPropertyChanged
     public string? LocalImageContentType { get; set; }
     public Guid? ExistingExerciseId { get; set; }
     public string? PreviewImagePath { get; set; }
-    public IReadOnlyList<BodyPart> BodyParts { get; } = Enum.GetValues<BodyPart>();
-    public IReadOnlyList<TrackingMode> TrackingModes { get; } = Enum.GetValues<TrackingMode>();
+    public MobileTextSet Text { get; }
+    public IReadOnlyList<LocalizedBodyPartOption> BodyPartOptions { get; }
+    public IReadOnlyList<LocalizedTrackingModeOption> TrackingModeOptions { get; }
+    public LocalizedBodyPartOption? SelectedBodyPart
+    {
+        get => BodyPartOptions.SingleOrDefault(option => option.Value == BodyPart);
+        set
+        {
+            if (BodyPart == value?.Value) return;
+            BodyPart = value?.Value;
+            OnPropertyChanged();
+        }
+    }
+    public LocalizedTrackingModeOption? SelectedTrackingMode
+    {
+        get => TrackingModeOptions.SingleOrDefault(option => option.Value == TrackingMode);
+        set
+        {
+            if (TrackingMode == value?.Value) return;
+            TrackingMode = value?.Value;
+            OnPropertyChanged();
+        }
+    }
     public Dictionary<string, string[]> ValidationErrors { get; } = new(StringComparer.Ordinal);
     public ObservableCollection<CachedLibraryImage> LibraryImages { get; } = [];
 
@@ -183,6 +226,8 @@ public sealed class CustomExerciseViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(Name));
         OnPropertyChanged(nameof(BodyPart));
         OnPropertyChanged(nameof(TrackingMode));
+        OnPropertyChanged(nameof(SelectedBodyPart));
+        OnPropertyChanged(nameof(SelectedTrackingMode));
         OnPropertyChanged(nameof(PreviewImagePath));
     }
 
@@ -281,6 +326,8 @@ public sealed class CustomExerciseViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(Name));
         OnPropertyChanged(nameof(BodyPart));
         OnPropertyChanged(nameof(TrackingMode));
+        OnPropertyChanged(nameof(SelectedBodyPart));
+        OnPropertyChanged(nameof(SelectedTrackingMode));
         OnPropertyChanged(nameof(SelectedLibraryImage));
         OnPropertyChanged(nameof(PreviewImagePath));
     }
@@ -289,19 +336,25 @@ public sealed class CustomExerciseViewModel : INotifyPropertyChanged
     {
         ValidationErrors.Clear();
         if (string.IsNullOrWhiteSpace(Name) || Name.Trim().Length > 100)
-            ValidationErrors["name"] = ["Enter an exercise name of 100 characters or fewer."];
+            ValidationErrors["name"] = [Text.ExerciseNameValidation];
         if (BodyPart is not { } bodyPart || !Enum.IsDefined(bodyPart))
-            ValidationErrors["bodyPart"] = ["Choose a body part."];
+            ValidationErrors["bodyPart"] = [Text.BodyPartValidation];
         if (TrackingMode is not { } mode || !Enum.IsDefined(mode))
-            ValidationErrors["trackingMode"] = ["Choose a tracking mode."];
+            ValidationErrors["trackingMode"] = [Text.TrackingModeValidation];
         if (LibraryImageId is not null && LocalImagePath is not null)
-            ValidationErrors["image"] = ["Choose either a library image or a local image."];
+            ValidationErrors["image"] = [Text.ImageSourceConflict];
         if (LocalImagePath is not null && LocalImageContentType is not ("image/jpeg" or "image/png" or "image/webp"))
-            ValidationErrors["image"] = ["Choose a JPEG, PNG, or WebP image."];
+            ValidationErrors["image"] = [Text.UnsupportedExerciseImage];
         if (LocalImagePath is null && LocalImageContentType is not null)
-            ValidationErrors["image"] = ["The local image file is missing."];
+            ValidationErrors["image"] = [Text.LocalImageMissing];
     }
 
     private void OnPropertyChanged([CallerMemberName] string? name = null) =>
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        _boundary.SessionReset -= OnSessionReset;
+    }
 }

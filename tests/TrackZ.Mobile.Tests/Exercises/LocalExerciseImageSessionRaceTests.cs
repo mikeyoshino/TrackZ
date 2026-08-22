@@ -42,7 +42,7 @@ public sealed class LocalExerciseImageSessionRaceTests : IAsyncLifetime
         var viewModel = ViewModel(boundary);
         var coordinator = Coordinator(picker, boundary, new InlineUiDispatcher());
 
-        var selecting = coordinator.PickAndSelectAsync(_destination, viewModel.SelectLocalImage);
+        var selecting = coordinator.PickAndSelectAsync("Choose image", _destination, viewModel.SelectLocalImage);
         await picker.Entered;
         await ResetAsync(boundary);
         picker.Release();
@@ -60,7 +60,7 @@ public sealed class LocalExerciseImageSessionRaceTests : IAsyncLifetime
         var viewModel = ViewModel(boundary);
         var coordinator = Coordinator(picker, boundary, new InlineUiDispatcher());
 
-        var selecting = coordinator.PickAndSelectAsync(_destination, viewModel.SelectLocalImage);
+        var selecting = coordinator.PickAndSelectAsync("Choose image", _destination, viewModel.SelectLocalImage);
         await stream.ReadEntered;
         var resetting = ResetAsync(boundary);
         Assert.False(resetting.IsCompleted);
@@ -80,7 +80,7 @@ public sealed class LocalExerciseImageSessionRaceTests : IAsyncLifetime
         var viewModel = ViewModel(boundary);
         var coordinator = Coordinator(picker, boundary, dispatcher);
 
-        var selecting = coordinator.PickAndSelectAsync(_destination, viewModel.SelectLocalImage);
+        var selecting = coordinator.PickAndSelectAsync("Choose image", _destination, viewModel.SelectLocalImage);
         await dispatcher.Entered;
         var resetting = ResetAsync(boundary);
         Assert.False(resetting.IsCompleted);
@@ -99,7 +99,8 @@ public sealed class LocalExerciseImageSessionRaceTests : IAsyncLifetime
         var viewModel = ViewModel(boundary);
         var coordinator = Coordinator(picker, boundary, new InlineUiDispatcher());
 
-        Assert.True(await coordinator.PickAndSelectAsync(_destination, viewModel.SelectLocalImage));
+        Assert.True(await coordinator.PickAndSelectAsync("เลือกรูป", _destination, viewModel.SelectLocalImage));
+        Assert.Equal("เลือกรูป", picker.LastTitle);
         Assert.NotNull(viewModel.LocalImagePath);
         Assert.NotNull(viewModel.PreviewImagePath);
         Assert.True(File.Exists(viewModel.LocalImagePath));
@@ -160,7 +161,9 @@ public sealed class LocalExerciseImageSessionRaceTests : IAsyncLifetime
         private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public Task Entered => _entered.Task;
 
-        public async Task<LocalExerciseImageSelection?> PickAsync(CancellationToken cancellationToken = default)
+        public async Task<LocalExerciseImageSelection?> PickAsync(
+            string pickerTitle,
+            CancellationToken cancellationToken = default)
         {
             _entered.TrySetResult();
             await _release.Task;
@@ -172,8 +175,15 @@ public sealed class LocalExerciseImageSessionRaceTests : IAsyncLifetime
 
     private sealed class ImmediatePicker(LocalExerciseImageSelection selection) : ILocalExerciseImagePicker
     {
-        public Task<LocalExerciseImageSelection?> PickAsync(CancellationToken cancellationToken = default) =>
+        public string? LastTitle { get; private set; }
+        public Task<LocalExerciseImageSelection?> PickAsync(
+            string pickerTitle,
+            CancellationToken cancellationToken = default)
+        {
+            LastTitle = pickerTitle;
+            return
             Task.FromResult<LocalExerciseImageSelection?>(selection);
+        }
     }
 
     private sealed class GatedReadStream(byte[] bytes) : MemoryStream(bytes, writable: false)

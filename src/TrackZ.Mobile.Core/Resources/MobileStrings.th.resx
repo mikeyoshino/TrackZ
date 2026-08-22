@@ -8,4 +8,31 @@
   <data name="ThaiLanguage" xml:space="preserve"><value>ไทย</value></data>
   <data name="EnglishLanguage" xml:space="preserve"><value>English</value></data>
   <data name="LanguageSwitchFailed" xml:space="preserve"><value>เปลี่ยนภาษาแอปไม่สำเร็จ</value></data>
+  <data name="CustomExerciseTitle" xml:space="preserve"><value>สร้างท่าเอง</value></data>
+  <data name="ExerciseName" xml:space="preserve"><value>ชื่อท่า</value></data>
+  <data name="BodyPart" xml:space="preserve"><value>ส่วนร่างกาย</value></data>
+  <data name="TrackingMode" xml:space="preserve"><value>รูปแบบการบันทึก</value></data>
+  <data name="ChooseExerciseImage" xml:space="preserve"><value>เลือกรูป JPEG, PNG หรือ WebP</value></data>
+  <data name="PublishedLibraryImages" xml:space="preserve"><value>รูปจากคลังที่เผยแพร่</value></data>
+  <data name="ExerciseImageRetentionHelp" xml:space="preserve"><value>แอปจะเก็บไฟล์ต้นฉบับไว้อย่างปลอดภัยเพื่ออัปโหลด และปรับขนาดเฉพาะภาพตัวอย่าง คุณยังเลือกรูปจากคลังที่เผยแพร่แล้วได้</value></data>
+  <data name="SaveExercise" xml:space="preserve"><value>บันทึกท่า</value></data>
+  <data name="UnsupportedExerciseImage" xml:space="preserve"><value>กรุณาเลือกรูป JPEG, PNG หรือ WebP</value></data>
+  <data name="ImageNotImported" xml:space="preserve"><value>นำเข้ารูปไม่สำเร็จ</value></data>
+  <data name="ExerciseNotSaved" xml:space="preserve"><value>บันทึกท่าไม่สำเร็จ</value></data>
+  <data name="ExerciseSaveFailedFormat" xml:space="preserve"><value>บันทึกท่าไม่สำเร็จ ({0})</value></data>
+  <data name="Okay" xml:space="preserve"><value>ตกลง</value></data>
+  <data name="BodyPartChest" xml:space="preserve"><value>หน้าอก</value></data>
+  <data name="BodyPartBack" xml:space="preserve"><value>หลัง</value></data>
+  <data name="BodyPartShoulders" xml:space="preserve"><value>ไหล่</value></data>
+  <data name="BodyPartArms" xml:space="preserve"><value>แขน</value></data>
+  <data name="BodyPartLegs" xml:space="preserve"><value>ขา</value></data>
+  <data name="BodyPartCore" xml:space="preserve"><value>แกนกลางลำตัว</value></data>
+  <data name="TrackingWeighted" xml:space="preserve"><value>ใช้น้ำหนัก</value></data>
+  <data name="TrackingAssisted" xml:space="preserve"><value>ใช้น้ำหนักช่วย</value></data>
+  <data name="TrackingBodyweight" xml:space="preserve"><value>น้ำหนักตัว</value></data>
+  <data name="ExerciseNameValidation" xml:space="preserve"><value>กรุณากรอกชื่อท่าไม่เกิน 100 ตัวอักษร</value></data>
+  <data name="BodyPartValidation" xml:space="preserve"><value>กรุณาเลือกส่วนร่างกาย</value></data>
+  <data name="TrackingModeValidation" xml:space="preserve"><value>กรุณาเลือกรูปแบบการบันทึก</value></data>
+  <data name="ImageSourceConflict" xml:space="preserve"><value>กรุณาเลือกรูปจากคลังหรือรูปในเครื่องอย่างใดอย่างหนึ่ง</value></data>
+  <data name="LocalImageMissing" xml:space="preserve"><value>ไม่พบไฟล์รูปในเครื่อง</value></data>
 </root>

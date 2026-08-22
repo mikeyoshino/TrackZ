@@ -8,16 +8,16 @@
     x:DataType="viewModels:CustomExerciseViewModel"
     BackgroundColor="{DynamicResource TrackZBackground}"
     SafeAreaEdges="All"
-    Title="Custom exercise">
+    Title="{Binding Text.CustomExerciseTitle}">
     <Grid Padding="0,12,0,0" RowDefinitions="*,Auto" RowSpacing="{DynamicResource TrackZSpace12}">
         <ScrollView>
             <VerticalStackLayout Padding="{DynamicResource TrackZPageHorizontalPadding}" Spacing="{DynamicResource TrackZSpace16}">
-                <Entry Placeholder="Exercise name" Style="{DynamicResource TrackZFieldStyle}" Text="{Binding Name, Mode=TwoWay}" />
-                <Picker Style="{DynamicResource TrackZPickerStyle}" Title="Body part" ItemsSource="{Binding BodyParts}" SelectedItem="{Binding BodyPart, Mode=TwoWay}" />
-                <Picker Style="{DynamicResource TrackZPickerStyle}" Title="Tracking mode" ItemsSource="{Binding TrackingModes}" SelectedItem="{Binding TrackingMode, Mode=TwoWay}" />
+                <Entry Placeholder="{Binding Text.ExerciseName}" Style="{DynamicResource TrackZFieldStyle}" Text="{Binding Name, Mode=TwoWay}" />
+                <Picker ItemDisplayBinding="{Binding Label}" Style="{DynamicResource TrackZPickerStyle}" Title="{Binding Text.BodyPart}" ItemsSource="{Binding BodyPartOptions}" SelectedItem="{Binding SelectedBodyPart, Mode=TwoWay}" />
+                <Picker ItemDisplayBinding="{Binding Label}" Style="{DynamicResource TrackZPickerStyle}" Title="{Binding Text.TrackingMode}" ItemsSource="{Binding TrackingModeOptions}" SelectedItem="{Binding SelectedTrackingMode, Mode=TwoWay}" />
                 <Image Aspect="AspectFit" HeightRequest="{DynamicResource TrackZExerciseCardHeight}" Source="{Binding PreviewImagePath}" />
-                <Button Clicked="OnChooseImageClicked" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="Choose JPEG, PNG, or WebP" />
-                <Label Style="{DynamicResource TrackZSectionTitleStyle}" Text="Published library images" />
+                <Button Clicked="OnChooseImageClicked" SemanticProperties.Description="{Binding Text.ChooseExerciseImage}" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="{Binding Text.ChooseExerciseImage}" />
+                <Label Style="{DynamicResource TrackZSectionTitleStyle}" Text="{Binding Text.PublishedLibraryImages}" />
                 <CollectionView
                     HeightRequest="{DynamicResource TrackZExerciseCardHeight}"
                     ItemsSource="{Binding LibraryImages}"
@@ -37,12 +37,12 @@
                 </CollectionView>
                 <Label
                     Style="{DynamicResource TrackZSecondaryStyle}"
-                    Text="The original file is retained for secure upload; only this preview is resized. Published library images can also be assigned when available." />
+                    Text="{Binding Text.ExerciseImageRetentionHelp}" />
             </VerticalStackLayout>
         </ScrollView>
 
         <Border Grid.Row="1" Margin="0,0,0,12" Style="{DynamicResource TrackZStickyActionContainerStyle}">
-            <Button Clicked="OnSaveClicked" Style="{DynamicResource TrackZPrimaryButtonStyle}" Text="Save exercise" />
+            <Button Clicked="OnSaveClicked" SemanticProperties.Description="{Binding Text.SaveExercise}" Style="{DynamicResource TrackZPrimaryButtonStyle}" Text="{Binding Text.SaveExercise}" />
         </Border>
     </Grid>
 </ContentPage>

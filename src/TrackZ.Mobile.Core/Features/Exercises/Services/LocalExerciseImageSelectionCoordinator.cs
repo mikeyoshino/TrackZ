@@ -9,8 +9,12 @@ public sealed record LocalExerciseImageSelection(
 
 public interface ILocalExerciseImagePicker
 {
-    Task<LocalExerciseImageSelection?> PickAsync(CancellationToken cancellationToken = default);
+    Task<LocalExerciseImageSelection?> PickAsync(
+        string pickerTitle,
+        CancellationToken cancellationToken = default);
 }
+
+public sealed class UnsupportedExerciseImageException : Exception;
 
 public sealed class LocalExerciseImageSelectionCoordinator
 {
@@ -35,14 +39,16 @@ public sealed class LocalExerciseImageSelectionCoordinator
     }
 
     public async Task<bool> PickAndSelectAsync(
+        string pickerTitle,
         string destinationDirectory,
         Action<ImportedExerciseImage> select,
         CancellationToken cancellationToken = default)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(pickerTitle);
         ArgumentException.ThrowIfNullOrWhiteSpace(destinationDirectory);
         ArgumentNullException.ThrowIfNull(select);
         var generation = _boundary.Capture();
-        var selected = await _picker.PickAsync(cancellationToken);
+        var selected = await _picker.PickAsync(pickerTitle, cancellationToken);
         if (selected is null) return false;
 
         ImportedExerciseImage? imported = null;
@@ -51,7 +57,7 @@ public sealed class LocalExerciseImageSelectionCoordinator
             return await _boundary.TryCommitAsync(generation, async token =>
             {
                 var contentType = ResolveContentType(selected.FileName, selected.ReportedContentType)
-                    ?? throw new InvalidDataException("Choose a JPEG, PNG, or WebP image.");
+                    ?? throw new UnsupportedExerciseImageException();
                 token.ThrowIfCancellationRequested();
                 await using var source = await selected.OpenReadAsync(token);
                 token.ThrowIfCancellationRequested();

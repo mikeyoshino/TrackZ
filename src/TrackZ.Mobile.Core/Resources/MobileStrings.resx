@@ -8,4 +8,31 @@
   <data name="ThaiLanguage" xml:space="preserve"><value>Thai</value></data>
   <data name="EnglishLanguage" xml:space="preserve"><value>English</value></data>
   <data name="LanguageSwitchFailed" xml:space="preserve"><value>Could not change the app language.</value></data>
+  <data name="CustomExerciseTitle" xml:space="preserve"><value>Custom exercise</value></data>
+  <data name="ExerciseName" xml:space="preserve"><value>Exercise name</value></data>
+  <data name="BodyPart" xml:space="preserve"><value>Body part</value></data>
+  <data name="TrackingMode" xml:space="preserve"><value>Tracking mode</value></data>
+  <data name="ChooseExerciseImage" xml:space="preserve"><value>Choose JPEG, PNG, or WebP</value></data>
+  <data name="PublishedLibraryImages" xml:space="preserve"><value>Published library images</value></data>
+  <data name="ExerciseImageRetentionHelp" xml:space="preserve"><value>The original file is retained for secure upload; only this preview is resized. Published library images can also be assigned when available.</value></data>
+  <data name="SaveExercise" xml:space="preserve"><value>Save exercise</value></data>
+  <data name="UnsupportedExerciseImage" xml:space="preserve"><value>Choose a JPEG, PNG, or WebP image.</value></data>
+  <data name="ImageNotImported" xml:space="preserve"><value>Image not imported</value></data>
+  <data name="ExerciseNotSaved" xml:space="preserve"><value>Exercise not saved</value></data>
+  <data name="ExerciseSaveFailedFormat" xml:space="preserve"><value>Could not save the exercise ({0}).</value></data>
+  <data name="Okay" xml:space="preserve"><value>OK</value></data>
+  <data name="BodyPartChest" xml:space="preserve"><value>Chest</value></data>
+  <data name="BodyPartBack" xml:space="preserve"><value>Back</value></data>
+  <data name="BodyPartShoulders" xml:space="preserve"><value>Shoulders</value></data>
+  <data name="BodyPartArms" xml:space="preserve"><value>Arms</value></data>
+  <data name="BodyPartLegs" xml:space="preserve"><value>Legs</value></data>
+  <data name="BodyPartCore" xml:space="preserve"><value>Core</value></data>
+  <data name="TrackingWeighted" xml:space="preserve"><value>Weight</value></data>
+  <data name="TrackingAssisted" xml:space="preserve"><value>Assistance</value></data>
+  <data name="TrackingBodyweight" xml:space="preserve"><value>Bodyweight</value></data>
+  <data name="ExerciseNameValidation" xml:space="preserve"><value>Enter an exercise name of 100 characters or fewer.</value></data>
+  <data name="BodyPartValidation" xml:space="preserve"><value>Choose a body part.</value></data>
+  <data name="TrackingModeValidation" xml:space="preserve"><value>Choose a tracking mode.</value></data>
+  <data name="ImageSourceConflict" xml:space="preserve"><value>Choose either a library image or a local image.</value></data>
+  <data name="LocalImageMissing" xml:space="preserve"><value>The local image file is missing.</value></data>
 </root>

@@ -7,6 +7,7 @@ using TrackZ.Mobile.Identity;
 using TrackZ.Mobile.Features.Localization;
 using TrackZ.Mobile.Localization;
 using TrackZ.Mobile.Features.Workout;
+using System.Xml.Linq;
 
 namespace TrackZ.Mobile.Tests.Localization;
 
@@ -114,6 +115,42 @@ public sealed class AppLanguageTests
         {
             snapshot.Restore();
         }
+    }
+
+    [Fact]
+    public void Mobile_resource_files_have_identical_non_empty_keys()
+    {
+        var resources = Path.Combine(
+            FindSolutionDirectory(),
+            "src",
+            "TrackZ.Mobile.Core",
+            "Resources");
+        var english = ReadResourceValues(Path.Combine(resources, "MobileStrings.resx"));
+        var thai = ReadResourceValues(Path.Combine(resources, "MobileStrings.th.resx"));
+
+        Assert.Equal(english.Keys.Order(), thai.Keys.Order());
+        Assert.All(english, pair => Assert.False(string.IsNullOrWhiteSpace(pair.Value), pair.Key));
+        Assert.All(thai, pair => Assert.False(string.IsNullOrWhiteSpace(pair.Value), pair.Key));
+    }
+
+    private static Dictionary<string, string> ReadResourceValues(string path) =>
+        XDocument.Load(path)
+            .Descendants("data")
+            .ToDictionary(
+                element => element.Attribute("name")!.Value,
+                element => element.Element("value")?.Value ?? string.Empty,
+                StringComparer.Ordinal);
+
+    private static string FindSolutionDirectory()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            if (File.Exists(Path.Combine(directory.FullName, "TrackZ.slnx")))
+                return directory.FullName;
+            directory = directory.Parent;
+        }
+        throw new DirectoryNotFoundException("TrackZ.slnx was not found.");
     }
 
     private sealed class MemoryLanguageStore : IAppLanguageStore

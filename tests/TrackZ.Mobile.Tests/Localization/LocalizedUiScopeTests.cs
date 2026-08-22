@@ -19,6 +19,7 @@ public sealed class LocalizedUiScopeTests
         typeof(TrainTodayViewModel),
         typeof(WorkoutViewModel),
         typeof(ExercisePickerViewModel),
+        typeof(CustomExerciseViewModel),
         typeof(WorkoutHistoryViewModel),
         typeof(WorkoutHistoryDetailViewModel),
         typeof(ProgressDashboardViewModel)
