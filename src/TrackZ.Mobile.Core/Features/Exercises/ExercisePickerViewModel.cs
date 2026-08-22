@@ -150,7 +150,7 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged, IDisposabl
     {
         ExercisePickerPresentationState.AuthenticationRequired => _text.ChooseExercises,
         ExercisePickerPresentationState.OfflineWithoutCache => _text.NoExercises,
-        ExercisePickerPresentationState.RequestFailure => _lastError?.Message ?? _text.LoadFailed,
+        ExercisePickerPresentationState.RequestFailure => _text.LoadFailed,
         ExercisePickerPresentationState.NoFilterMatches => _text.NoMatchingExercises,
         _ => string.Empty
     };

@@ -520,8 +520,18 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged, IDisposabl
                 string.Format(Text.ExerciseCountFormat, exercises.Count(exercise => exercise.Sets.Any(set => !set.IsDeleted))),
                 string.Format(Text.SavedSetCountFormat, exercises.SelectMany(exercise => exercise.Sets).Count(set => !set.IsDeleted)),
                 conflict?.Type.ToString() ?? string.Empty,
-                conflict is null ? string.Empty : $"Local base {conflict.BaseVersion}",
-                conflict?.ServerVersion is { } serverVersion ? $"Server version {serverVersion}" : string.Empty));
+                conflict is null
+                    ? string.Empty
+                    : string.Format(
+                        System.Globalization.CultureInfo.CurrentUICulture,
+                        Text.ConflictLocalBaseFormat,
+                        conflict.BaseVersion),
+                conflict?.ServerVersion is { } serverVersion
+                    ? string.Format(
+                        System.Globalization.CultureInfo.CurrentUICulture,
+                        Text.ConflictServerVersionFormat,
+                        serverVersion)
+                    : string.Empty));
         }
         cancellationToken.ThrowIfCancellationRequested();
         if (_deactivated || _boundary.IsCancellationRequested(generation)) return;

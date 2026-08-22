@@ -314,8 +314,14 @@ public sealed class SetLoggerViewModelTests : IDisposable
         Assert.False(sut.IsBusy);
     }
 
-    [Fact]
-    public async Task Active_conflict_presents_local_and_server_comparison_with_both_resolution_actions()
+    [Theory]
+    [InlineData("en-US", "70 kg × 10", "1 exercise", "1 set")]
+    [InlineData("th-TH", "70 กก. × 10", "1 ท่า", "1 เซ็ต")]
+    public async Task Active_conflict_presents_localized_local_and_server_comparison_with_both_resolution_actions(
+        string cultureName,
+        string localMeasurement,
+        string exerciseCount,
+        string setCount)
     {
         var fixture = await CreateFixtureAsync(TrackingMode.Weighted);
         var active = (await fixture.Repository.GetActiveAsync())!;
@@ -355,15 +361,20 @@ public sealed class SetLoggerViewModelTests : IDisposable
             fixture.Boundary,
             new StubConnectivity(true),
             new ConflictStatusSource(conflict),
-            WorkoutResources.English,
+            WorkoutResources.ForCulture(CultureInfo.GetCultureInfo(cultureName)),
             conflicts: resolution);
 
         await sut.LoadAsync(ExerciseId, "Bench Press");
 
         Assert.True(sut.HasConflict);
-        Assert.Contains("70 kg × 10", sut.ConflictLocalSummary);
-        Assert.Contains("1 exercise", sut.ConflictServerSummary);
-        Assert.Contains("1 set", sut.ConflictServerSummary);
+        Assert.Contains(localMeasurement, sut.ConflictLocalSummary);
+        Assert.Contains(exerciseCount, sut.ConflictServerSummary);
+        Assert.Contains(setCount, sut.ConflictServerSummary);
+        if (cultureName == "th-TH")
+        {
+            Assert.DoesNotContain("Local", sut.ConflictLocalSummary, StringComparison.Ordinal);
+            Assert.DoesNotContain("Server", sut.ConflictServerSummary, StringComparison.Ordinal);
+        }
         Assert.True(sut.KeepServerCommand.CanExecute(null));
         Assert.True(sut.ApplyLocalCommand.CanExecute(null));
         await sut.KeepServerCommand.ExecuteAsync();

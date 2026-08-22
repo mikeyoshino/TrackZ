@@ -117,6 +117,25 @@ public sealed class ExercisePickerViewModelTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Thai_request_failure_never_exposes_an_English_transport_message()
+    {
+        var text = WorkoutResources.ForCulture(
+            System.Globalization.CultureInfo.GetCultureInfo("th-TH"));
+        var sut = new ExercisePickerViewModel(
+            _cache,
+            new FailingCatalogApi(),
+            new StubConnectivity(true),
+            new FixedClock(),
+            text: text);
+
+        await sut.LoadAsync();
+        await sut.RefreshCompletion;
+
+        Assert.Equal(text.LoadFailed, sut.StateMessage);
+        Assert.DoesNotContain("catalog", sut.StateMessage, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task Sign_in_command_uses_the_auth_entry_point()
     {
         var entryPoint = new RecordingAuthEntryPoint();

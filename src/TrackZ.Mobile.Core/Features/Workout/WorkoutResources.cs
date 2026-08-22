@@ -132,7 +132,15 @@ public sealed record WorkoutTextSet(
     string HomeContextFormat,
     string LastWorkoutSetsFormat,
     string FinishNeedsSetsFormat,
-    string DismissNotice);
+    string DismissNotice,
+    string ConflictLocalBaseFormat,
+    string ConflictLocalDetailFormat,
+    string ConflictServerVersionFormat,
+    string ConflictServerDetailFormat,
+    string ConflictExerciseSingularFormat,
+    string ConflictExercisePluralFormat,
+    string ConflictSetSingularFormat,
+    string ConflictSetPluralFormat);
 
 public static class WorkoutResources
 {
@@ -203,7 +211,15 @@ public static class WorkoutResources
             Value("HomeContextFormat", culture),
             Value("LastWorkoutSetsFormat", culture),
             Value("FinishNeedsSetsFormat", culture),
-            Value("DismissNotice", culture));
+            Value("DismissNotice", culture),
+            Value("ConflictLocalBaseFormat", culture),
+            Value("ConflictLocalDetailFormat", culture),
+            Value("ConflictServerVersionFormat", culture),
+            Value("ConflictServerDetailFormat", culture),
+            Value("ConflictExerciseSingularFormat", culture),
+            Value("ConflictExercisePluralFormat", culture),
+            Value("ConflictSetSingularFormat", culture),
+            Value("ConflictSetPluralFormat", culture));
     }
 
     private static string Value(string key, CultureInfo culture) =>

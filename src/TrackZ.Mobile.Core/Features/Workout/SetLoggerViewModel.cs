@@ -936,17 +936,18 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
     private string LocalConflictSummary(OutboxOperation operation) => operation.Type switch
     {
         OutboxOperationType.StartWorkout =>
-            $"Local StartWorkout · {Plural(operation.DeserializePayload<StartWorkoutOutboxPayload>().Exercises.Count, "exercise")} · base {operation.BaseVersion}",
+            LocalDetail(
+                ExerciseCount(operation.DeserializePayload<StartWorkoutOutboxPayload>().Exercises.Count),
+                operation.BaseVersion),
         OutboxOperationType.SaveSet => SaveSetConflictSummary(operation),
-        OutboxOperationType.CompleteWorkout =>
-            $"Local CompleteWorkout · base {operation.BaseVersion}",
-        OutboxOperationType.AddExercise =>
-            $"Local AddExercise · base {operation.BaseVersion}",
-        OutboxOperationType.RemoveExercise =>
-            $"Local RemoveExercise · base {operation.BaseVersion}",
+        OutboxOperationType.CompleteWorkout => LocalBase(operation.BaseVersion),
+        OutboxOperationType.AddExercise => LocalBase(operation.BaseVersion),
+        OutboxOperationType.RemoveExercise => LocalBase(operation.BaseVersion),
         OutboxOperationType.ReorderExercises =>
-            $"Local ReorderExercises · {Plural(operation.DeserializePayload<ReorderExercisesOutboxPayload>().WorkoutExerciseIds.Count, "exercise")} · base {operation.BaseVersion}",
-        _ => $"Local {operation.Type} · base {operation.BaseVersion}"
+            LocalDetail(
+                ExerciseCount(operation.DeserializePayload<ReorderExercisesOutboxPayload>().WorkoutExerciseIds.Count),
+                operation.BaseVersion),
+        _ => LocalBase(operation.BaseVersion)
     };
 
     private string SaveSetConflictSummary(OutboxOperation operation)
@@ -959,28 +960,35 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
             : assisted is not null
                 ? TrackingMode.Assisted
                 : TrackingMode.Bodyweight;
-        return $"Local SaveSet · {Measurement(weight, assisted, payload.Reps, mode)} · base {operation.BaseVersion}";
+        return LocalDetail(
+            Measurement(weight, assisted, payload.Reps, mode),
+            operation.BaseVersion);
     }
 
-    private static string ServerConflictSummary(OutboxOperation operation)
+    private string ServerConflictSummary(OutboxOperation operation)
     {
         if (operation.ServerPayload is null)
-            return $"Server version {operation.ServerVersion}";
+            return ServerVersion(operation.ServerVersion);
         try
         {
             var graph = JsonSerializer.Deserialize<SyncWorkoutDto>(
                 operation.ServerPayload, JsonSerializerOptions.Web);
-            if (graph is null) return $"Server version {operation.ServerVersion}";
+            if (graph is null) return ServerVersion(operation.ServerVersion);
             var exercises = graph.Exercises.Count(item => item.DeletedAt is null);
             var sets = graph.Exercises
                 .Where(item => item.DeletedAt is null)
                 .SelectMany(item => item.Sets)
                 .Count(item => item.DeletedAt is null);
-            return $"Server version {operation.ServerVersion} · {Plural(exercises, "exercise")} · {Plural(sets, "set")}";
+            return string.Format(
+                CultureInfo.CurrentUICulture,
+                _text.ConflictServerDetailFormat,
+                operation.ServerVersion,
+                ExerciseCount(exercises),
+                SetCount(sets));
         }
         catch (JsonException)
         {
-            return $"Server version {operation.ServerVersion}";
+            return ServerVersion(operation.ServerVersion);
         }
     }
 
@@ -990,8 +998,34 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
             ? parsed
             : null;
 
-    private static string Plural(int count, string noun) =>
-        $"{count} {noun}{(count == 1 ? string.Empty : "s")}";
+    private string LocalBase(long version) => string.Format(
+        CultureInfo.CurrentUICulture,
+        _text.ConflictLocalBaseFormat,
+        version);
+
+    private string LocalDetail(string detail, long version) => string.Format(
+        CultureInfo.CurrentUICulture,
+        _text.ConflictLocalDetailFormat,
+        detail,
+        version);
+
+    private string ServerVersion(long? version) => string.Format(
+        CultureInfo.CurrentUICulture,
+        _text.ConflictServerVersionFormat,
+        version);
+
+    private string ExerciseCount(int count) => Count(
+        count,
+        _text.ConflictExerciseSingularFormat,
+        _text.ConflictExercisePluralFormat);
+
+    private string SetCount(int count) => Count(
+        count,
+        _text.ConflictSetSingularFormat,
+        _text.ConflictSetPluralFormat);
+
+    private static string Count(int count, string singularFormat, string pluralFormat) =>
+        string.Format(CultureInfo.CurrentUICulture, count == 1 ? singularFormat : pluralFormat, count);
 
     private void ClearActiveConflict()
     {

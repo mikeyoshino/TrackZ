@@ -133,4 +133,12 @@
   <data name="HomeOpenWorkoutFailed" xml:space="preserve"><value>บันทึกการฝึกแล้ว แต่เปิดไม่สำเร็จ แตะออกกำลังกายต่อ</value></data>
   <data name="HomeContextFormat" xml:space="preserve"><value>วันนี้ · สัปดาห์ที่ {0}</value></data>
   <data name="LastWorkoutSetsFormat" xml:space="preserve"><value>ครั้งก่อน · {0} เซ็ต</value></data>
+  <data name="ConflictLocalBaseFormat" xml:space="preserve"><value>การเปลี่ยนแปลงในเครื่อง · เวอร์ชันฐาน {0}</value></data>
+  <data name="ConflictLocalDetailFormat" xml:space="preserve"><value>การเปลี่ยนแปลงในเครื่อง · {0} · เวอร์ชันฐาน {1}</value></data>
+  <data name="ConflictServerVersionFormat" xml:space="preserve"><value>เวอร์ชันเซิร์ฟเวอร์ {0}</value></data>
+  <data name="ConflictServerDetailFormat" xml:space="preserve"><value>เวอร์ชันเซิร์ฟเวอร์ {0} · {1} · {2}</value></data>
+  <data name="ConflictExerciseSingularFormat" xml:space="preserve"><value>{0} ท่า</value></data>
+  <data name="ConflictExercisePluralFormat" xml:space="preserve"><value>{0} ท่า</value></data>
+  <data name="ConflictSetSingularFormat" xml:space="preserve"><value>{0} เซ็ต</value></data>
+  <data name="ConflictSetPluralFormat" xml:space="preserve"><value>{0} เซ็ต</value></data>
 </root>

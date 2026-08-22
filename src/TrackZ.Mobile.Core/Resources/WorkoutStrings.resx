@@ -133,4 +133,12 @@
   <data name="HomeOpenWorkoutFailed" xml:space="preserve"><value>Workout saved. Could not open it. Tap Continue.</value></data>
   <data name="HomeContextFormat" xml:space="preserve"><value>Today · Week {0}</value></data>
   <data name="LastWorkoutSetsFormat" xml:space="preserve"><value>Last workout · {0} sets</value></data>
+  <data name="ConflictLocalBaseFormat" xml:space="preserve"><value>Local change · base {0}</value></data>
+  <data name="ConflictLocalDetailFormat" xml:space="preserve"><value>Local change · {0} · base {1}</value></data>
+  <data name="ConflictServerVersionFormat" xml:space="preserve"><value>Server version {0}</value></data>
+  <data name="ConflictServerDetailFormat" xml:space="preserve"><value>Server version {0} · {1} · {2}</value></data>
+  <data name="ConflictExerciseSingularFormat" xml:space="preserve"><value>{0} exercise</value></data>
+  <data name="ConflictExercisePluralFormat" xml:space="preserve"><value>{0} exercises</value></data>
+  <data name="ConflictSetSingularFormat" xml:space="preserve"><value>{0} set</value></data>
+  <data name="ConflictSetPluralFormat" xml:space="preserve"><value>{0} sets</value></data>
 </root>
