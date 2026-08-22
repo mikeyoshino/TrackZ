@@ -53,6 +53,59 @@ public sealed class LocalizedUiScopeTests
     }
 
     [Fact]
+    public void Language_changer_is_one_root_instance_shared_with_localized_profile()
+    {
+        using var app = MauiProgram.CreateMauiApp(services =>
+        {
+            services.RemoveAll<ILocalizedUiHost>();
+            services.AddSingleton<ILocalizedUiHost, NoopLocalizedUiHost>();
+            services.RemoveAll<AuthGateCoordinator>();
+            services.AddSingleton(new AuthGateCoordinator(
+                new MobileTokenStore(new MemoryTokenStorage()),
+                new NoopIdentitySession(),
+                new NoopPrivateDataCleaner(),
+                new AccountSessionBoundary(),
+                new FixedDeviceName(),
+                new OnlineConnectivity(),
+                TimeProvider.System));
+        }, new MemoryLanguageStore());
+        var concrete = app.Services.GetRequiredService<MauiAppLanguageChanger>();
+
+        Assert.Same(concrete, app.Services.GetRequiredService<IAppLanguageChanger>());
+
+        using var candidate = app.Services
+            .GetRequiredService<LocalizedUiScopeManager>()
+            .CreateCandidate();
+        Assert.Same(
+            concrete,
+            candidate.Services.GetRequiredService<IAppLanguageChanger>());
+    }
+
+    [Fact]
+    public void Root_tab_route_capture_and_restore_uses_the_selected_shell_content()
+    {
+        var original = CreateShell("history");
+        Assert.Equal("history", App.GetCurrentRootTabRoute(original));
+
+        var replacement = CreateShell("train");
+        App.RestoreRootTabRoute(replacement, "history");
+
+        Assert.Equal("history", App.GetCurrentRootTabRoute(replacement));
+    }
+
+    private static Shell CreateShell(string selectedRoute)
+    {
+        var train = new ShellContent { Route = "train", Content = new ContentPage() };
+        var history = new ShellContent { Route = "history", Content = new ContentPage() };
+        var trainTab = new Tab { Route = "train-tab", Items = { train } };
+        var historyTab = new Tab { Route = "history-tab", Items = { history } };
+        var tabs = new TabBar { Route = "root", Items = { trainTab, historyTab } };
+        var shell = new Shell { Items = { tabs } };
+        App.RestoreRootTabRoute(shell, selectedRoute);
+        return shell;
+    }
+
+    [Fact]
     public void Activating_a_candidate_returns_the_previous_scope_for_exact_disposal()
     {
         using var app = MauiProgram.CreateMauiApp(appLanguageStore: new MemoryLanguageStore());
@@ -163,6 +216,26 @@ public sealed class LocalizedUiScopeTests
     private sealed class NoopPrivateDataCleaner : IMobilePrivateDataCleaner
     {
         public Task ClearAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
+    private sealed class MemoryTokenStorage : IMobileTokenStorage
+    {
+        public Task<string?> GetAsync(string key, CancellationToken cancellationToken = default) => Task.FromResult<string?>(null);
+        public Task SetAsync(string key, string value, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task RemoveAsync(string key, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
+    private sealed class FixedDeviceName : IDeviceNameProvider
+    {
+        public string DeviceName => "tests";
+    }
+
+    private sealed class NoopLocalizedUiHost : ILocalizedUiHost
+    {
+        public string? CurrentRootTabRoute => "train";
+        public LocalizedUiInstallation Prepare(AuthGateSnapshot snapshot) => throw new NotSupportedException();
+        public Task InstallAsync(LocalizedUiInstallation installation, string? rootTabRoute, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
     }
 
     private sealed class OnlineConnectivity : IConnectivityService

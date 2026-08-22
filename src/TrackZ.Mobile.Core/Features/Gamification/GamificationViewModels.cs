@@ -6,6 +6,7 @@ using TrackZ.Contracts.Gamification;
 using TrackZ.Contracts.Progress;
 using TrackZ.Domain.Exercises;
 using TrackZ.Mobile.Features.Exercises;
+using TrackZ.Mobile.Features.Localization;
 using TrackZ.Mobile.Features.Workout;
 
 namespace TrackZ.Mobile.Features.Gamification;
@@ -393,6 +394,8 @@ public sealed class ProfileViewModel : GamificationViewModelBase
 {
     private readonly IProgressSnapshotSource _snapshots;
     private readonly IConnectivityService _connectivity;
+    private readonly IAppLanguageChanger _language;
+    private readonly MobileTextSet _mobileText;
     private int _totalXp;
     private int _level = 1;
     private int _weeklyGoal = 3;
@@ -401,17 +404,34 @@ public sealed class ProfileViewModel : GamificationViewModelBase
     private int _bestStreakWeeks;
     private int _currentLevelRequiredXp;
     private int? _nextLevelRequiredXp;
+    private string? _languageError;
 
-    public ProfileViewModel(IProgressSnapshotSource snapshots, IConnectivityService connectivity, GamificationTextSet text)
+    public ProfileViewModel(
+        IProgressSnapshotSource snapshots,
+        IConnectivityService connectivity,
+        GamificationTextSet text,
+        IAppLanguageChanger language,
+        MobileTextSet mobileText)
         : base(text)
     {
         _snapshots = snapshots;
         _connectivity = connectivity;
+        _language = language;
+        _mobileText = mobileText;
         SaveWeeklyGoalCommand = new AsyncCommand(_ => SaveWeeklyGoalAsync(), _ => !IsBusy && WeeklyGoal is >= 1 and <= 7 && _connectivity.IsOnline);
+        ChangeLanguageCommand = new AsyncCommand(ChangeLanguageAsync, parameter =>
+            parameter is AppLanguage requested &&
+            requested != _language.Current &&
+            !_language.IsChanging);
+        RefreshLanguages();
     }
 
     public ObservableCollection<EarnedBadgePresentation> Badges { get; } = [];
+    public ObservableCollection<LanguageOption> Languages { get; } = [];
     public AsyncCommand SaveWeeklyGoalCommand { get; }
+    public AsyncCommand ChangeLanguageCommand { get; }
+    public MobileTextSet MobileText => _mobileText;
+    public string? LanguageError { get => _languageError; private set => Set(ref _languageError, value); }
     public int TotalXp { get => _totalXp; private set => Set(ref _totalXp, value); }
     public int Level { get => _level; private set => Set(ref _level, value); }
     public int CurrentLevelRequiredXp { get => _currentLevelRequiredXp; private set => Set(ref _currentLevelRequiredXp, value); }
@@ -447,6 +467,45 @@ public sealed class ProfileViewModel : GamificationViewModelBase
         try { Apply(await _snapshots.UpdateWeeklyGoalAsync(WeeklyGoal)); IsProgressProvisional = false; }
         catch (Exception) { ErrorMessage = Text.SaveFailed; }
         finally { IsBusy = false; SaveWeeklyGoalCommand.RaiseCanExecuteChanged(); }
+    }
+
+    private async Task ChangeLanguageAsync(object? parameter)
+    {
+        if (parameter is not AppLanguage language || _language.IsChanging) return;
+        LanguageError = null;
+        try
+        {
+            await _language.ChangeAsync(language);
+            RefreshLanguages();
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (AppLanguageChangeException)
+        {
+            LanguageError = _mobileText.LanguageSwitchFailed;
+        }
+        finally
+        {
+            ChangeLanguageCommand.RaiseCanExecuteChanged();
+        }
+    }
+
+    private void RefreshLanguages()
+    {
+        Languages.Clear();
+        Languages.Add(new LanguageOption(
+            AppLanguage.Thai,
+            _mobileText.ThaiLanguage,
+            _mobileText.ThaiLanguage,
+            _language.Current == AppLanguage.Thai));
+        Languages.Add(new LanguageOption(
+            AppLanguage.English,
+            _mobileText.EnglishLanguage,
+            _mobileText.EnglishLanguage,
+            _language.Current == AppLanguage.English));
+        OnPropertyChanged(nameof(Languages));
     }
 
     private void Apply(ProgressSnapshot snapshot)

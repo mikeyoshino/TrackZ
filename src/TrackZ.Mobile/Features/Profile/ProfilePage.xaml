@@ -5,6 +5,7 @@
     xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
     xmlns:gamification="clr-namespace:TrackZ.Mobile.Features.Gamification;assembly=TrackZ.Mobile.Core"
+    xmlns:localization="clr-namespace:TrackZ.Mobile.Features.Localization;assembly=TrackZ.Mobile.Core"
     x:DataType="gamification:ProfileViewModel"
     BackgroundColor="{DynamicResource TrackZBackground}"
     SafeAreaEdges="All"
@@ -14,7 +15,44 @@
         <ScrollView>
             <VerticalStackLayout Padding="{DynamicResource TrackZPageBottomContentPadding}" Spacing="{DynamicResource TrackZSpace16}">
                 <Label Style="{DynamicResource TrackZPageTitleStyle}" Text="{Binding Text.ProfileTitle}" />
-                <Border Style="{DynamicResource TrackZCardStyle}">
+                <Border x:Name="LanguageSettingsCard" Style="{DynamicResource TrackZCardStyle}">
+                    <VerticalStackLayout Spacing="{DynamicResource TrackZSpace12}">
+                        <Label Style="{DynamicResource TrackZSectionTitleStyle}" Text="{Binding MobileText.Language}" />
+                        <Grid ColumnDefinitions="*,*" ColumnSpacing="{DynamicResource TrackZSpace8}">
+                            <Button
+                                x:Name="ThaiLanguageButton"
+                                Command="{Binding ChangeLanguageCommand}"
+                                CommandParameter="{x:Static localization:AppLanguage.Thai}"
+                                SemanticProperties.Description="{Binding Languages[0].AccessibilityLabel}"
+                                Style="{DynamicResource TrackZSecondaryButtonStyle}"
+                                Text="{Binding Languages[0].Label}">
+                                <Button.Triggers>
+                                    <DataTrigger TargetType="Button" Binding="{Binding Languages[0].IsSelected}" Value="True">
+                                        <Setter Property="BackgroundColor" Value="{DynamicResource TrackZPrimary}" />
+                                        <Setter Property="TextColor" Value="{DynamicResource TrackZPrimaryContrast}" />
+                                    </DataTrigger>
+                                </Button.Triggers>
+                            </Button>
+                            <Button
+                                x:Name="EnglishLanguageButton"
+                                Grid.Column="1"
+                                Command="{Binding ChangeLanguageCommand}"
+                                CommandParameter="{x:Static localization:AppLanguage.English}"
+                                SemanticProperties.Description="{Binding Languages[1].AccessibilityLabel}"
+                                Style="{DynamicResource TrackZSecondaryButtonStyle}"
+                                Text="{Binding Languages[1].Label}">
+                                <Button.Triggers>
+                                    <DataTrigger TargetType="Button" Binding="{Binding Languages[1].IsSelected}" Value="True">
+                                        <Setter Property="BackgroundColor" Value="{DynamicResource TrackZPrimary}" />
+                                        <Setter Property="TextColor" Value="{DynamicResource TrackZPrimaryContrast}" />
+                                    </DataTrigger>
+                                </Button.Triggers>
+                            </Button>
+                        </Grid>
+                        <Label Style="{DynamicResource TrackZInlineErrorStyle}" Text="{Binding LanguageError}" />
+                    </VerticalStackLayout>
+                </Border>
+                <Border x:Name="WeightUnitSettingsCard" Style="{DynamicResource TrackZCardStyle}">
                     <VerticalStackLayout Spacing="{DynamicResource TrackZSpace12}">
                         <Label Style="{DynamicResource TrackZSectionTitleStyle}" Text="{Binding Source={x:Reference Page}, Path=WorkoutText.Weight}" />
                         <Grid ColumnDefinitions="*,*" ColumnSpacing="{DynamicResource TrackZSpace8}">

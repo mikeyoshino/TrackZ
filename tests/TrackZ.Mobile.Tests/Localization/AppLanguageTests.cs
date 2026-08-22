@@ -1,7 +1,12 @@
 using System.Globalization;
 using Microsoft.Maui.Storage;
+using Microsoft.Extensions.DependencyInjection;
+using TrackZ.Mobile.Features.Exercises;
+using TrackZ.Mobile.Features.Gamification;
+using TrackZ.Mobile.Identity;
 using TrackZ.Mobile.Features.Localization;
 using TrackZ.Mobile.Localization;
+using TrackZ.Mobile.Features.Workout;
 
 namespace TrackZ.Mobile.Tests.Localization;
 
@@ -148,5 +153,336 @@ public sealed class AppLanguageTests
             CultureInfo.DefaultThreadCurrentCulture = Default;
             CultureInfo.DefaultThreadCurrentUICulture = DefaultUi;
         }
+    }
+}
+
+public sealed class AppLanguageChangerTests
+{
+    [Fact]
+    public async Task Same_language_is_a_no_op()
+    {
+        using var host = new RecordingUiHost();
+        var store = new MutableLanguageStore(AppLanguage.Thai);
+        var sut = new MauiAppLanguageChanger(store, host, CreateAuthentication());
+
+        await sut.ChangeAsync(AppLanguage.Thai);
+
+        Assert.Empty(host.RootTabRoutes);
+        Assert.Equal(0, store.WriteCount);
+    }
+
+    [Fact]
+    public async Task Concurrent_same_target_switches_install_one_replacement()
+    {
+        var culture = CultureSnapshot.Capture();
+        using var host = new RecordingUiHost();
+        try
+        {
+            var store = new MutableLanguageStore(AppLanguage.Thai);
+            var sut = new MauiAppLanguageChanger(store, host, CreateAuthentication());
+
+            await Task.WhenAll(
+                sut.ChangeAsync(AppLanguage.English),
+                sut.ChangeAsync(AppLanguage.English));
+
+            Assert.Equal(AppLanguage.English, sut.Current);
+            Assert.Equal("en-US", CultureInfo.CurrentUICulture.Name);
+            Assert.Equal(1, host.InstallCount);
+            Assert.Equal("train", Assert.Single(host.RootTabRoutes));
+        }
+        finally
+        {
+            culture.Restore();
+        }
+    }
+
+    [Fact]
+    public async Task Failed_install_restores_preference_and_culture_and_disposes_candidate()
+    {
+        var culture = CultureSnapshot.Capture();
+        AppLanguageCulture.Apply(AppLanguage.Thai);
+        using var host = new RecordingUiHost { FailInstall = true };
+        try
+        {
+            var store = new MutableLanguageStore(AppLanguage.Thai);
+            var sut = new MauiAppLanguageChanger(store, host, CreateAuthentication());
+
+            await Assert.ThrowsAsync<AppLanguageChangeException>(() =>
+                sut.ChangeAsync(AppLanguage.English));
+
+            Assert.Equal(AppLanguage.Thai, store.Read());
+            Assert.Equal(AppLanguage.Thai, sut.Current);
+            Assert.Equal("th-TH", CultureInfo.CurrentUICulture.Name);
+            Assert.True(host.LastProbe?.Disposed);
+        }
+        finally
+        {
+            culture.Restore();
+        }
+    }
+
+    [Fact]
+    public async Task Preference_failure_is_sanitized_and_keeps_the_old_language()
+    {
+        var culture = CultureSnapshot.Capture();
+        AppLanguageCulture.Apply(AppLanguage.Thai);
+        using var host = new RecordingUiHost();
+        try
+        {
+            var store = new MutableLanguageStore(AppLanguage.Thai) { FailedValue = AppLanguage.English };
+            var sut = new MauiAppLanguageChanger(store, host, CreateAuthentication());
+
+            var error = await Assert.ThrowsAsync<AppLanguageChangeException>(() =>
+                sut.ChangeAsync(AppLanguage.English));
+
+            Assert.DoesNotContain("secret", error.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(AppLanguage.Thai, store.Read());
+            Assert.Equal(AppLanguage.Thai, sut.Current);
+            Assert.Equal("th-TH", CultureInfo.CurrentUICulture.Name);
+            Assert.Equal(0, host.InstallCount);
+        }
+        finally
+        {
+            culture.Restore();
+        }
+    }
+
+    [Fact]
+    public async Task Caller_cancellation_during_install_rolls_back_and_rethrows()
+    {
+        var culture = CultureSnapshot.Capture();
+        AppLanguageCulture.Apply(AppLanguage.Thai);
+        using var cancellation = new CancellationTokenSource();
+        using var host = new RecordingUiHost { BeforeInstall = cancellation.Cancel };
+        try
+        {
+            var store = new MutableLanguageStore(AppLanguage.Thai);
+            var sut = new MauiAppLanguageChanger(store, host, CreateAuthentication());
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                sut.ChangeAsync(AppLanguage.English, cancellation.Token));
+
+            Assert.Equal(AppLanguage.Thai, store.Read());
+            Assert.Equal(AppLanguage.Thai, sut.Current);
+            Assert.Equal("th-TH", CultureInfo.CurrentUICulture.Name);
+            Assert.True(host.LastProbe?.Disposed);
+        }
+        finally
+        {
+            culture.Restore();
+        }
+    }
+
+    private static AuthGateCoordinator CreateAuthentication() => new(
+        new MobileTokenStore(new MemoryTokenStorage()),
+        new NoopIdentitySession(),
+        new NoopPrivateDataCleaner(),
+        new AccountSessionBoundary(),
+        new FixedDeviceName(),
+        new OnlineConnectivity(),
+        TimeProvider.System);
+
+    private sealed class MutableLanguageStore(AppLanguage language) : IAppLanguageStore
+    {
+        public AppLanguage? FailedValue { get; init; }
+        public int WriteCount { get; private set; }
+        public AppLanguage Read() => language;
+        public void Write(AppLanguage value)
+        {
+            WriteCount++;
+            if (value == FailedValue) throw new InvalidOperationException("secret preference failure");
+            language = value;
+        }
+    }
+
+    private sealed class RecordingUiHost : ILocalizedUiHost, IDisposable
+    {
+        private readonly List<ServiceProvider> _providers = [];
+        private LocalizedUiInstallation? _active;
+
+        public bool FailInstall { get; init; }
+        public Action? BeforeInstall { get; init; }
+        public int InstallCount { get; private set; }
+        public List<string?> RootTabRoutes { get; } = [];
+        public DisposeProbe? LastProbe { get; private set; }
+        public string? CurrentRootTabRoute => "train";
+
+        public LocalizedUiInstallation Prepare(AuthGateSnapshot snapshot)
+        {
+            var provider = new ServiceCollection()
+                .AddScoped<DisposeProbe>()
+                .BuildServiceProvider();
+            _providers.Add(provider);
+            var scope = new LocalizedUiScope(provider.CreateScope());
+            LastProbe = scope.Services.GetRequiredService<DisposeProbe>();
+            return new LocalizedUiInstallation(scope, new ContentPage());
+        }
+
+        public Task InstallAsync(
+            LocalizedUiInstallation installation,
+            string? rootTabRoute,
+            CancellationToken cancellationToken)
+        {
+            BeforeInstall?.Invoke();
+            cancellationToken.ThrowIfCancellationRequested();
+            if (FailInstall) throw new InvalidOperationException("secret platform failure");
+            InstallCount++;
+            RootTabRoutes.Add(rootTabRoute);
+            _active?.Dispose();
+            _active = installation;
+            return Task.CompletedTask;
+        }
+
+        public void Dispose()
+        {
+            _active?.Dispose();
+            foreach (var provider in _providers) provider.Dispose();
+        }
+    }
+
+    private sealed class DisposeProbe : IDisposable
+    {
+        public bool Disposed { get; private set; }
+        public void Dispose() => Disposed = true;
+    }
+
+    private sealed class MemoryTokenStorage : IMobileTokenStorage
+    {
+        public Task<string?> GetAsync(string key, CancellationToken cancellationToken = default) => Task.FromResult<string?>(null);
+        public Task SetAsync(string key, string value, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task RemoveAsync(string key, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
+    private sealed class NoopIdentitySession : IIdentitySessionApi
+    {
+        public Task LoginAsync(string email, string password, string deviceName, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task RegisterAndLoginAsync(string email, string password, string deviceName, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task RefreshAsync(string deviceName, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task LogoutAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
+    private sealed class NoopPrivateDataCleaner : IMobilePrivateDataCleaner
+    {
+        public Task ClearAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
+    private sealed class FixedDeviceName : IDeviceNameProvider
+    {
+        public string DeviceName => "tests";
+    }
+
+    private sealed class OnlineConnectivity : IConnectivityService
+    {
+        public bool IsOnline => true;
+        public event EventHandler? ConnectivityChanged { add { } remove { } }
+    }
+
+    private sealed record CultureSnapshot(
+        CultureInfo Current,
+        CultureInfo CurrentUi,
+        CultureInfo? Default,
+        CultureInfo? DefaultUi)
+    {
+        public static CultureSnapshot Capture() => new(
+            CultureInfo.CurrentCulture,
+            CultureInfo.CurrentUICulture,
+            CultureInfo.DefaultThreadCurrentCulture,
+            CultureInfo.DefaultThreadCurrentUICulture);
+
+        public void Restore()
+        {
+            CultureInfo.CurrentCulture = Current;
+            CultureInfo.CurrentUICulture = CurrentUi;
+            CultureInfo.DefaultThreadCurrentCulture = Default;
+            CultureInfo.DefaultThreadCurrentUICulture = DefaultUi;
+        }
+    }
+}
+
+public sealed class ProfileLanguageSelectionTests
+{
+    [Fact]
+    public async Task Profile_exposes_Thai_then_English_and_updates_selection_after_switch()
+    {
+        var language = new RecordingLanguageChanger(AppLanguage.Thai);
+        var sut = new ProfileViewModel(
+            new EmptyProgressSource(),
+            new OnlineConnectivity(),
+            GamificationResources.Thai,
+            language,
+            MobileResources.ForCulture(CultureInfo.GetCultureInfo("th-TH")));
+
+        Assert.Collection(
+            sut.Languages,
+            option =>
+            {
+                Assert.Equal(AppLanguage.Thai, option.Value);
+                Assert.Equal("ไทย", option.Label);
+                Assert.True(option.IsSelected);
+            },
+            option =>
+            {
+                Assert.Equal(AppLanguage.English, option.Value);
+                Assert.Equal("English", option.Label);
+                Assert.False(option.IsSelected);
+            });
+
+        await sut.ChangeLanguageCommand.ExecuteAsync(AppLanguage.English);
+
+        Assert.Equal([AppLanguage.English], language.Requests);
+        Assert.False(sut.Languages[0].IsSelected);
+        Assert.True(sut.Languages[1].IsSelected);
+        Assert.Null(sut.LanguageError);
+    }
+
+    [Fact]
+    public async Task Profile_maps_sanitized_switch_failure_to_localized_copy()
+    {
+        var language = new RecordingLanguageChanger(AppLanguage.Thai) { Fail = true };
+        var mobileText = MobileResources.ForCulture(CultureInfo.GetCultureInfo("th-TH"));
+        var sut = new ProfileViewModel(
+            new EmptyProgressSource(),
+            new OnlineConnectivity(),
+            GamificationResources.Thai,
+            language,
+            mobileText);
+
+        await sut.ChangeLanguageCommand.ExecuteAsync(AppLanguage.English);
+
+        Assert.Equal(mobileText.LanguageSwitchFailed, sut.LanguageError);
+        Assert.True(sut.Languages[0].IsSelected);
+        Assert.False(sut.Languages[1].IsSelected);
+    }
+
+    private sealed class RecordingLanguageChanger(AppLanguage current) : IAppLanguageChanger
+    {
+        public List<AppLanguage> Requests { get; } = [];
+        public bool Fail { get; init; }
+        public AppLanguage Current { get; private set; } = current;
+        public bool IsChanging => false;
+
+        public Task ChangeAsync(AppLanguage language, CancellationToken cancellationToken = default)
+        {
+            Requests.Add(language);
+            if (Fail) throw new AppLanguageChangeException();
+            Current = language;
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class EmptyProgressSource : IProgressSnapshotSource
+    {
+        public Task<ProgressSnapshot?> GetCachedAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult<ProgressSnapshot?>(null);
+        public Task<ProgressSnapshot> RefreshAsync(CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException();
+        public Task<ProgressSnapshot> UpdateWeeklyGoalAsync(int weeklyGoal, CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException();
+    }
+
+    private sealed class OnlineConnectivity : IConnectivityService
+    {
+        public bool IsOnline => true;
+        public event EventHandler? ConnectivityChanged { add { } remove { } }
     }
 }

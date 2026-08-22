@@ -31,3 +31,21 @@ public interface IAppLanguageStore
     AppLanguage Read();
     void Write(AppLanguage language);
 }
+
+public sealed record LanguageOption(
+    AppLanguage Value,
+    string Label,
+    string AccessibilityLabel,
+    bool IsSelected);
+
+public interface IAppLanguageChanger
+{
+    AppLanguage Current { get; }
+    bool IsChanging { get; }
+    Task ChangeAsync(AppLanguage language, CancellationToken cancellationToken = default);
+}
+
+public sealed class AppLanguageChangeException : Exception
+{
+    public AppLanguageChangeException() : base("The localized UI replacement failed.") { }
+}

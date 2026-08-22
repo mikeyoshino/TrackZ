@@ -40,6 +40,9 @@ public static class MauiProgram
 		builder.Services.AddSingleton<App>();
 		builder.Services.AddSingleton<IApplication>(services => services.GetRequiredService<App>());
 		builder.Services.AddSingleton<ILocalizedUiHost>(services => services.GetRequiredService<App>());
+		builder.Services.AddSingleton<MauiAppLanguageChanger>();
+		builder.Services.AddSingleton<IAppLanguageChanger>(services =>
+			services.GetRequiredService<MauiAppLanguageChanger>());
 
 		builder.Services.AddSingleton<IMobileTokenStorage, SecureMobileTokenStorage>();
 		builder.Services.AddSingleton<IAccountSessionBoundary, AccountSessionBoundary>();

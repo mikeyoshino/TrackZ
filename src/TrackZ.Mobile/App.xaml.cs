@@ -85,7 +85,7 @@ public partial class App : Application, ILocalizedUiHost
 	}
 
 	public string? CurrentRootTabRoute =>
-		(_window?.Page as Shell)?.CurrentItem?.Route;
+		GetCurrentRootTabRoute(_window?.Page as Shell);
 
 	public LocalizedUiInstallation Prepare(AuthGateSnapshot snapshot)
 	{
@@ -101,7 +101,7 @@ public partial class App : Application, ILocalizedUiHost
 		}
 	}
 
-	public Task InstallAsync(
+	public async Task InstallAsync(
 		LocalizedUiInstallation installation,
 		string? rootTabRoute,
 		CancellationToken cancellationToken)
@@ -111,16 +111,36 @@ public partial class App : Application, ILocalizedUiHost
 		if (_window is null)
 			throw new InvalidOperationException("The application window is not available.");
 
-		RunOnUiThread(() =>
+		await RunOnUiThreadAsync(() =>
 		{
 			cancellationToken.ThrowIfCancellationRequested();
 			if (_window.Page is AppShell) StopSynchronization();
 			_window.Page = installation.Root;
+			RestoreRootTabRoute(installation.Root as Shell, rootTabRoute);
 			_localizedUi = installation.Scope;
 			_localizedScopes.Activate(installation.Scope)?.Dispose();
 			if (installation.Root is AppShell) StartSynchronization();
-		});
-		return Task.CompletedTask;
+		}, cancellationToken);
+	}
+
+	internal static string? GetCurrentRootTabRoute(Shell? shell) =>
+		shell?.CurrentItem?.CurrentItem?.CurrentItem?.Route
+		?? shell?.CurrentItem?.CurrentItem?.Route
+		?? shell?.CurrentItem?.Route;
+
+	internal static void RestoreRootTabRoute(Shell? shell, string? route)
+	{
+		if (shell is null || string.IsNullOrWhiteSpace(route)) return;
+		foreach (var item in shell.Items)
+		foreach (var section in item.Items)
+		foreach (var content in section.Items)
+		{
+			if (!string.Equals(content.Route, route, StringComparison.Ordinal)) continue;
+			section.CurrentItem = content;
+			item.CurrentItem = section;
+			shell.CurrentItem = item;
+			return;
+		}
 	}
 
 	private static Page ResolveRoot(LocalizedUiScope scope, AuthGateSnapshot snapshot) =>
@@ -154,5 +174,36 @@ public partial class App : Application, ILocalizedUiHost
 			return;
 		}
 		action();
+	}
+
+	private async Task RunOnUiThreadAsync(Action action, CancellationToken cancellationToken)
+	{
+		cancellationToken.ThrowIfCancellationRequested();
+		var dispatcher = _window?.Dispatcher;
+		if (dispatcher?.IsDispatchRequired != true)
+		{
+			action();
+			return;
+		}
+
+		var completion = new TaskCompletionSource(
+			TaskCreationOptions.RunContinuationsAsynchronously);
+		if (!dispatcher.Dispatch(() =>
+		{
+			try
+			{
+				action();
+				completion.SetResult();
+			}
+			catch (Exception error)
+			{
+				completion.SetException(error);
+			}
+		}))
+		{
+			throw new InvalidOperationException("The localized UI dispatch could not be scheduled.");
+		}
+
+		await completion.Task;
 	}
 }

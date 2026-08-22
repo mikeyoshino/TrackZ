@@ -3,6 +3,7 @@ using TrackZ.Contracts.Progress;
 using TrackZ.Domain.Exercises;
 using TrackZ.Mobile.Features.Exercises;
 using TrackZ.Mobile.Features.Gamification;
+using TrackZ.Mobile.Features.Localization;
 using TrackZ.Mobile.Features.Workout;
 
 namespace TrackZ.Mobile.Tests.Gamification;
@@ -86,7 +87,12 @@ public sealed class GamificationViewModelTests
     public async Task Profile_updates_weekly_goal_with_valid_range_and_refreshes_confirmed_snapshot()
     {
         var source = new StubSnapshotSource(Snapshot());
-        var sut = new ProfileViewModel(source, new StubConnectivity(true), GamificationResources.English);
+        var sut = new ProfileViewModel(
+            source,
+            new StubConnectivity(true),
+            GamificationResources.English,
+            new FixedLanguageChanger(),
+            MobileResources.ForCulture(System.Globalization.CultureInfo.GetCultureInfo("en-US")));
         await sut.LoadAsync();
 
         sut.WeeklyGoal = 5;
@@ -160,5 +166,13 @@ public sealed class GamificationViewModelTests
             Current = unit;
             Changed?.Invoke(this, EventArgs.Empty);
         }
+    }
+
+    private sealed class FixedLanguageChanger : IAppLanguageChanger
+    {
+        public AppLanguage Current => AppLanguage.English;
+        public bool IsChanging => false;
+        public Task ChangeAsync(AppLanguage language, CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
     }
 }

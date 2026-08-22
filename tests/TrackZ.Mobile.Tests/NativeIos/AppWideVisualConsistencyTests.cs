@@ -438,6 +438,19 @@ public sealed class AppWideVisualConsistencyTests
     public void Profile_controls_expose_actual_unit_selection_and_native_targets()
     {
         var page = XDocument.Load(Path.Combine(MobileDirectory(), "Features/Profile/ProfilePage.xaml"));
+        var languageCard = Assert.Single(page.Descendants(), element => element.Attribute(XName.Get("Name", "http://schemas.microsoft.com/winfx/2009/xaml"))?.Value == "LanguageSettingsCard");
+        var weightCard = Assert.Single(page.Descendants(), element => element.Attribute(XName.Get("Name", "http://schemas.microsoft.com/winfx/2009/xaml"))?.Value == "WeightUnitSettingsCard");
+        Assert.True(languageCard.IsBefore(weightCard));
+
+        var thai = Assert.Single(page.Descendants(), element => element.Attribute(XName.Get("Name", "http://schemas.microsoft.com/winfx/2009/xaml"))?.Value == "ThaiLanguageButton");
+        var english = Assert.Single(page.Descendants(), element => element.Attribute(XName.Get("Name", "http://schemas.microsoft.com/winfx/2009/xaml"))?.Value == "EnglishLanguageButton");
+        Assert.Equal("TrackZSecondaryButtonStyle", ResourceKey(thai.Attribute("Style")?.Value));
+        Assert.Equal("TrackZSecondaryButtonStyle", ResourceKey(english.Attribute("Style")?.Value));
+        Assert.Equal("{Binding ChangeLanguageCommand}", thai.Attribute("Command")?.Value);
+        Assert.Equal("{Binding ChangeLanguageCommand}", english.Attribute("Command")?.Value);
+        Assert.Contains(thai.Descendants(), element => element.Name.LocalName == "DataTrigger" && element.Attribute("Binding")?.Value == "{Binding Languages[0].IsSelected}");
+        Assert.Contains(english.Descendants(), element => element.Name.LocalName == "DataTrigger" && element.Attribute("Binding")?.Value == "{Binding Languages[1].IsSelected}");
+
         var kilogram = Assert.Single(page.Descendants(), element => element.Attribute(XName.Get("Name", "http://schemas.microsoft.com/winfx/2009/xaml"))?.Value == "KilogramsButton");
         var pounds = Assert.Single(page.Descendants(), element => element.Attribute(XName.Get("Name", "http://schemas.microsoft.com/winfx/2009/xaml"))?.Value == "PoundsButton");
         Assert.Contains(kilogram.Descendants(), element => element.Name.LocalName == "DataTrigger" && element.Attribute("Binding")?.Value == "{Binding Source={x:Reference Page}, Path=IsKilogramsSelected}");
