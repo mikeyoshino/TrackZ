@@ -47,6 +47,36 @@ public sealed class TrainTodayViewModelTests
     }
 
     [Fact]
+    public async Task Known_offline_cache_read_never_shows_progress_loading_while_local_state_commits()
+    {
+        var progress = new GatedCachedProgressSource();
+        var activeId = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+        var viewModel = CreateViewModel(
+            new RecordingTrainDashboardSource(new(
+                new(activeId, At(9), [BodyPart.Chest], 2, 1, 4),
+                null)),
+            progress,
+            online: false);
+        var loadingStates = new List<bool>();
+        viewModel.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(TrainTodayViewModel.IsProgressLoading))
+                loadingStates.Add(viewModel.IsProgressLoading);
+        };
+
+        var load = viewModel.LoadAsync();
+        await progress.CacheEntered.Task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        Assert.Equal(activeId, viewModel.ActiveWorkout?.WorkoutId);
+        Assert.False(viewModel.IsProgressLoading);
+        Assert.DoesNotContain(true, loadingStates);
+        progress.Release(null);
+        await load;
+        Assert.False(viewModel.IsProgressLoading);
+        Assert.DoesNotContain(true, loadingStates);
+    }
+
+    [Fact]
     public async Task Progress_cache_read_failure_keeps_local_workout_and_hides_unauthoritative_motivation()
     {
         var source = new RecordingTrainDashboardSource(new(
@@ -287,6 +317,29 @@ public sealed class TrainTodayViewModelTests
 
         public Task<ProgressSnapshot> UpdateWeeklyGoalAsync(int weeklyGoal, CancellationToken cancellationToken = default) =>
             Task.FromResult(snapshot);
+    }
+
+    private sealed class GatedCachedProgressSource : IProgressSnapshotSource
+    {
+        private readonly TaskCompletionSource<ProgressSnapshot?> _cached =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource CacheEntered { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task<ProgressSnapshot?> GetCachedAsync(CancellationToken cancellationToken = default)
+        {
+            CacheEntered.TrySetResult();
+            return _cached.Task;
+        }
+
+        public void Release(ProgressSnapshot? snapshot) => _cached.TrySetResult(snapshot);
+
+        public Task<ProgressSnapshot> RefreshAsync(CancellationToken cancellationToken = default) =>
+            Task.FromException<ProgressSnapshot>(new InvalidOperationException("Offline refresh is not allowed."));
+
+        public Task<ProgressSnapshot> UpdateWeeklyGoalAsync(int weeklyGoal, CancellationToken cancellationToken = default) =>
+            RefreshAsync(cancellationToken);
     }
 
     private sealed class ThrowingProgressSource : IProgressSnapshotSource

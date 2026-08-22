@@ -79,3 +79,13 @@ The second command required the approved elevated local test environment because
 - `tests/TrackZ.Mobile.Tests/Train/TrainTodayViewModelTests.cs`
 
 `git diff --check` is clean. Simulator acceptance remains pending by design.
+
+## Review fix round 1 — known-offline loading state
+
+The approved reference keeps the motivation strip truthful and quiet; the spec narrows the optional native skeleton to an **initial online refresh** and requires it to disappear once the app knows it is offline. `LoadProgressAsync` now reads the cache without changing `IsProgressLoading` when connectivity is known offline. The property is generation-fenced to `true` only immediately before online refresh work, then fenced back to `false` in that refresh phase's `finally` block. Cached authoritative data still applies in both online and offline states.
+
+- RED: `Known_offline_cache_read_never_shows_progress_loading_while_local_state_commits` failed while the prior implementation set `IsProgressLoading = true` before its gated offline cache read.
+- GREEN focused fix: 1 passed, 0 failed, 0 skipped.
+- GREEN Task 2 focused suite: 19 passed, 0 failed, 0 skipped.
+- GREEN prescribed Train/Progress/Gamification regression: 25 passed, 0 failed, 0 skipped.
+- `git diff --check` remains clean; no services were started.

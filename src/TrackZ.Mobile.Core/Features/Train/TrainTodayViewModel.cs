@@ -209,12 +209,6 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
 
     private async Task LoadProgressAsync(AccountSessionGeneration generation, CancellationToken cancellationToken)
     {
-        await _boundary.TryCommitAsync(generation, _ =>
-        {
-            IsProgressLoading = true;
-            return Task.CompletedTask;
-        }, cancellationToken);
-
         try
         {
             var cached = await _progress!.GetCachedAsync(cancellationToken);
@@ -229,6 +223,11 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
 
             if (_connectivity is not { IsOnline: true }) return;
 
+            await _boundary.TryCommitAsync(generation, _ =>
+            {
+                IsProgressLoading = true;
+                return Task.CompletedTask;
+            }, cancellationToken);
             try
             {
                 var refreshed = await _progress.RefreshAsync(cancellationToken);
@@ -245,6 +244,14 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
             catch (Exception)
             {
                 // Cached progress, when present, remains authoritative and visible.
+            }
+            finally
+            {
+                await _boundary.TryCommitAsync(generation, _ =>
+                {
+                    IsProgressLoading = false;
+                    return Task.CompletedTask;
+                }, CancellationToken.None);
             }
         }
         catch (OperationCanceledException)
