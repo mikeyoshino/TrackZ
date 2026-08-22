@@ -1,7 +1,8 @@
 # Hypertrophy Load Guidance Design
 
 **Date:** 2026-08-23  
-**Status:** Approved design; awaiting written-spec review  
+**Status:** Approved
+
 **Scope:** TrackZ mobile Today Workout and Set Logger, offline persistence, workout sync, workout history contracts, and supporting API persistence
 
 ## Summary
@@ -119,7 +120,7 @@ If no increment exists when an exact change is needed, the same bottom sheet ask
 - the navigation chevron;
 - existing tap, move, and remove interactions.
 
-It removes visible tracking-mode metadata, previous-performance text, previous weight, the separator, and “sets logged” prose. Zero remains visible as `0 sets` so unfinished exercises are unambiguous. Accessibility describes the exercise name, set count, and available action but does not announce removed previous-weight information.
+It removes visible tracking-mode metadata, previous-performance text, previous weight, the separator, and “sets logged” prose. Zero remains visible as `0 sets` so unfinished exercises are unambiguous. Accessibility describes the exercise name, set count, and localized “open set logger” tap action but does not announce removed previous-weight information; move/remove remain exposed by the existing swipe actions.
 
 ### Set Logger reference card
 
@@ -145,16 +146,17 @@ Initial state:
 
 The sheet does not re-open automatically for an unrated set after navigation, restart, or dismissal. Skipping creates no effort operation.
 
-After a selection is durably stored, the same sheet transitions to one of these states:
+After a user selects an effort, the same sheet transitions without stacking another modal. Recommendation states appear only after the effort write is durable; if the write is no longer possible, or the workout changes immediately after it succeeds, the sheet uses the non-retryable unavailable state instead:
 
 - a numeric recommendation and explanation;
 - “keep this load” with the next repetition target;
 - “almost ready to increase—confirm with one more comparable set”;
 - “we need another comparable set”;
 - a bodyweight-specific repetition recommendation;
-- an effort-save error that explicitly confirms the original set is still safe.
+- an effort-save error that explicitly confirms the original set is still safe;
+- an unavailable state when the workout finishes or the target disappears, confirming the set is saved and offering dismissal without retry.
 
-There is no stacked alert or second modal. A numeric recommendation includes a primary action such as “Use 72.5 kg for the next set” and a secondary “Not now.” Accepting copies the value into the next transient draft only. If no next set is open, the copy says “Try … next time.”
+There is no stacked alert or second modal. A numeric recommendation includes a primary action such as “Use 72.5 kg for the next set” and a secondary “Not now.” Accepting copies the value into the next transient draft only. Set Logger has no planned-set ceiling, so v1 does not create or persist a separate “next workout” recommendation; dismissing leaves durable workout data unchanged.
 
 ### Safety copy
 
@@ -171,13 +173,11 @@ Inputs include:
 - active sets from the current workout;
 - comparable sets from the immediately preceding completed workout;
 - the optional per-exercise progression increment;
-- whether another set can be opened in the current workout.
 
 Outputs include:
 
 - action: `Increase`, `Keep`, `Reduce`, `IncreaseRepetitions`, `CollectMoreData`, or `None`;
 - optional suggested canonical weight, assistance, or repetition count;
-- destination: `NextSet` or `NextWorkout`;
 - a stable reason code used by localized presentation;
 - whether an increment must be requested before an exact value can be shown.
 
@@ -219,7 +219,7 @@ Effort is an observation about a completed set. It is not part of `SetMeasuremen
 
 ### Separate effort mutation
 
-Add an idempotent `RecordSetEffort` local/outbox/server operation that changes only the effort rating of an existing active set and advances normal aggregate versions. It has its own stable operation ID and carries the expected workout, exercise, set, and base-version identities.
+Add an idempotent `RecordSetEffort` local/outbox/server operation that changes only the effort rating of an existing active set while its workout remains active, and advances normal aggregate versions only when the value changes. It has its own stable operation ID and carries the expected workout, exercise, set, and base-version identities.
 
 This separate mutation is required for compatibility. If effort were added as a nullable field to ordinary `EditSet`, an older client that omitted the property could deserialize as `null` and accidentally erase a newer rating. `EditSet` therefore preserves existing effort, and only `RecordSetEffort` may set or replace it in v1.
 
@@ -253,6 +253,7 @@ Add an account-scoped local `ExerciseGuidancePreference` store keyed by exercise
 
 - Set save fails: preserve the editor and show the existing save error; do not open the effort sheet.
 - Effort local write fails: keep the set visible, state that the set was saved, offer effort retry or dismissal, and emit no recommendation.
+- Workout finishes or the target set disappears while the sheet is open: state that the original set is saved, offer dismissal without retry, and emit no recommendation.
 - Offline: save both operations locally, calculate guidance locally, and sync later.
 - Effort sync fails transiently: retain pending state and local guidance; retry through the normal sync lifecycle.
 - Permanent effort rejection: preserve the set, surface a non-destructive sync notice, and reconcile to authoritative server effort without altering weight or repetitions.
@@ -282,7 +283,7 @@ Add an account-scoped local `ExerciseGuidancePreference` store keyed by exercise
 - Same-load requirement and non-comparable tracking-mode/load cases.
 - Weighted, assisted-inverted, and bodyweight behavior.
 - Missing increment, invalid increment, unit conversion, precision, and measurement boundaries.
-- Stable reason codes and `NextSet` versus `NextWorkout` destination.
+- Stable reason codes and next-set-only draft behavior.
 - Legacy null-effort exclusion from increase readiness.
 
 ### Domain and persistence tests
@@ -308,7 +309,8 @@ Add an account-scoped local `ExerciseGuidancePreference` store keyed by exercise
 - Today Workout visual contract asserts the prominent set counter and absence of tracking mode, previous-performance, and previous-weight labels.
 - Reference-card selection and legacy neutral presentation.
 - Bottom sheet appears exactly once and only after durable save.
-- Skip, swipe dismissal, effort retry, collect-more-data, keep, increase, and reduce states.
+- Skip, swipe dismissal, effort retry, collect-more-data, keep, increase, reduce, and non-retryable unavailable states.
+- A workout completed before the effort write, a target removed while the sheet is open, and a workout completed immediately after a successful effort write all end in the saved-but-unavailable state without an impossible retry.
 - Missing-increment selection occurs inside the same sheet without modal stacking.
 - Accepting a suggestion changes only the next transient draft.
 - Save failure never opens the effort prompt.
@@ -328,5 +330,7 @@ Implementation updates both reference documents and their native visual contract
 
 - `docs/design/todays-workout-reference.html`
 - `docs/design/track-sets-reference.html`
+
+The Set Logger reference includes asking, recommendation, missing-increment, and saved-but-unavailable specimens. The unavailable specimen has only a quiet dismissal action and no retry or use action.
 
 The ignored Visual Companion exploration under `.superpowers/brainstorm/` is not a source of truth. This specification and the persistent reference documents are the maintained artifacts.
