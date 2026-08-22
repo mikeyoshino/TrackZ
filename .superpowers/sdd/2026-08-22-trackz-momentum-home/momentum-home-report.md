@@ -62,8 +62,8 @@ than inventing it.
 
 ## Approved HTML comparison and regression audit
 
-The production hierarchy was opened and compared directly with all six interactive reference
-states (Ready/Active × EN/TH × kg/lb):
+The production hierarchy was opened and compared directly with the reference's three binary
+toggles and all eight cross-product states (Ready/Active × EN/TH × kg/lb):
 
 - Header → state-aware hero → motivation → Ready-only Train again → Recent momentum is preserved.
 - `HeroActionButton` is one native button; Ready inverts it inside the lime hero and Active restores
@@ -103,17 +103,20 @@ Deliberate regression checks:
 - Native iOS XAML Compile: exit 0 with no product warning or error output.
 - `git diff --check`: exit 0 with no output.
 - `./scripts/trackz-dev status` before and after verification: Docker Desktop stopped; TrackZ
-  containers stopped; TrackZ API stopped; iOS Simulator stopped.
-- Read-only process audit: no TrackZ API, Docker Compose, `testhost`, Simulator.app, Java, or
-  `aapt2` process remained. macOS CoreSimulator background helper services remained resident while
-  the simulator device and app were stopped; they were not started or modified by this task.
+  containers stopped; TrackZ API stopped; and no booted simulator device (`iOS Simulator:
+  stopped`).
+- Read-only process audit found no TrackZ API, Docker Compose, `testhost`, Java, or `aapt2` process.
+  It did find a pre-existing Simulator.app UI process, PID 3075, started on August 21, plus macOS
+  CoreSimulator background helpers. Task 6 did not start, stop, or otherwise modify that UI process;
+  the script's stopped result describes booted device state, not absence of the Simulator.app UI.
 
 ## Manual simulator matrix
 
-No stack or simulator was started for Task 6. Every manual matrix row remains
-`pending — services intentionally stopped`. Screenshot paths, device/runtime, Dynamic Type,
-Reduce Motion, offline/relaunch, rapid double-tap, seeded profile/history comparison, and EN/TH
-observations must be recorded only after the user explicitly requests `./scripts/trackz-dev start`.
+No stack or simulator device was started for Task 6. Every manual matrix row remains
+`pending — services intentionally stopped`. The manual screenshot matrix explicitly requires all
+eight Ready/Active × EN/TH × kg/lb combinations; screenshot paths, device/runtime, Dynamic Type,
+Reduce Motion, offline/relaunch, rapid double-tap, and seeded profile/history comparisons must be
+recorded only after the user explicitly requests `./scripts/trackz-dev start`.
 
 ## Preserved unrelated worktree state
 

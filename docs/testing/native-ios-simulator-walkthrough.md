@@ -150,12 +150,18 @@ Do not run this section until the user explicitly asks to start the test stack. 
     overlap and every action must stay reachable with a minimum 44-point target. Repeat once with
     Reduce Motion enabled; no state change may depend on decoration or animation completion.
 
-Momentum Home screenshot record (leave pending until observed):
+Momentum Home screenshot record (leave every combination pending until observed):
 
-- Ready EN kg, small iPhone: pending — services intentionally stopped
-- Active EN kg, small iPhone: pending — services intentionally stopped
-- Ready TH lb, small iPhone: pending — services intentionally stopped
-- Ready/Active, Pro Max: pending — services intentionally stopped
+- Ready · EN · kg: pending — services intentionally stopped
+- Ready · EN · lb: pending — services intentionally stopped
+- Ready · TH · kg: pending — services intentionally stopped
+- Ready · TH · lb: pending — services intentionally stopped
+- Active · EN · kg: pending — services intentionally stopped
+- Active · EN · lb: pending — services intentionally stopped
+- Active · TH · kg: pending — services intentionally stopped
+- Active · TH · lb: pending — services intentionally stopped
+- Device-size coverage for all eight combinations (smallest supported iPhone and Pro Max):
+  pending — services intentionally stopped
 - Large Dynamic Type / Reduce Motion: pending — services intentionally stopped
 - Offline cached and no-cache states: pending — services intentionally stopped
 - Continue destination and rapid Train again result: pending — services intentionally stopped
