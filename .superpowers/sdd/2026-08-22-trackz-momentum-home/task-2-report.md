@@ -89,3 +89,13 @@ The approved reference keeps the motivation strip truthful and quiet; the spec n
 - GREEN Task 2 focused suite: 19 passed, 0 failed, 0 skipped.
 - GREEN prescribed Train/Progress/Gamification regression: 25 passed, 0 failed, 0 skipped.
 - `git diff --check` remains clean; no services were started.
+
+## Review fix round 2 — connectivity transition while refresh is gated
+
+The persistent HTML's quiet, truthful metric strip and the approved spec require an initial-online-only skeleton that disappears as soon as connectivity becomes known offline. `TrainTodayViewModel` now holds exactly one singleton-lifetime subscription to `IConnectivityService.ConnectivityChanged`. Its non-`async void` event entry schedules an exception-contained `Task` that captures the current account generation and commits through `TryCommitAsync`: it raises `IsOffline` for both directions and clears `IsProgressLoading` before notifying when now offline. A delayed refresh still cannot commit after an account reset because its existing commits remain generation-fenced.
+
+- RED: `Going_offline_during_gated_refresh_hides_loading_notifies_state_and_cannot_restore_after_reset` timed out awaiting `IsOffline`; no connectivity subscription existed.
+- GREEN focused fix: 1 passed, 0 failed, 0 skipped.
+- GREEN Task 2 focused suite: 20 passed, 0 failed, 0 skipped.
+- GREEN prescribed Train/Progress/Gamification regression: 26 passed, 0 failed, 0 skipped.
+- `git diff --check` remains clean; no services were started.

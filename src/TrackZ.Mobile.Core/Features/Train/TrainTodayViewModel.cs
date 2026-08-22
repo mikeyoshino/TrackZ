@@ -66,6 +66,7 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
         _gamificationText = gamificationText;
         Text = text;
         _boundary.SessionReset += OnSessionReset;
+        if (_connectivity is not null) _connectivity.ConnectivityChanged += OnConnectivityChanged;
     }
 
     public WorkoutTextSet Text { get; }
@@ -303,6 +304,30 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
         ErrorText = null;
         IsBusy = false;
         IsProgressLoading = false;
+    }
+
+    private void OnConnectivityChanged(object? sender, EventArgs eventArgs) =>
+        _ = ApplyConnectivityChangeAsync();
+
+    private async Task ApplyConnectivityChangeAsync()
+    {
+        try
+        {
+            var generation = _boundary.Capture();
+            await _boundary.TryCommitAsync(generation, _ =>
+            {
+                if (IsOffline) IsProgressLoading = false;
+                OnPropertyChanged(nameof(IsOffline));
+                return Task.CompletedTask;
+            }, CancellationToken.None);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception)
+        {
+            // Connectivity notifications are best effort and must not leak event-handler exceptions.
+        }
     }
 
     private string FormatBodyParts(IReadOnlyList<BodyPart> bodyParts) =>

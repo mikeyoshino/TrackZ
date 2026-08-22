@@ -77,6 +77,47 @@ public sealed class TrainTodayViewModelTests
     }
 
     [Fact]
+    public async Task Going_offline_during_gated_refresh_hides_loading_notifies_state_and_cannot_restore_after_reset()
+    {
+        var boundary = new AccountSessionBoundary();
+        var connectivity = new MutableConnectivity(online: true);
+        var progress = new CachedThenGatedProgressSource(Snapshot(goal: 4, done: 3, streak: 4, level: 8, xp: 640));
+        var viewModel = CreateViewModel(
+            new RecordingTrainDashboardSource(new(
+                new(Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc"), At(9), [BodyPart.Chest], 2, 1, 4),
+                new(Guid.Parse("dddddddd-dddd-dddd-dddd-dddddddddddd"), [BodyPart.Back], At(8), 2, 4, null,
+                    [new WorkoutExerciseSelection(Guid.Parse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"), TrackingMode.Weighted)]))),
+            progress,
+            connectivity,
+            boundary);
+        var load = viewModel.LoadAsync();
+        await progress.RefreshEntered.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        Assert.True(viewModel.IsProgressLoading);
+
+        var propertyChanges = new List<string?>();
+        var offlineChanged = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        viewModel.PropertyChanged += (_, args) =>
+        {
+            propertyChanges.Add(args.PropertyName);
+            if (args.PropertyName == nameof(TrainTodayViewModel.IsOffline)) offlineChanged.TrySetResult();
+        };
+
+        connectivity.SetOnline(false);
+        await offlineChanged.Task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        Assert.True(viewModel.IsOffline);
+        Assert.False(viewModel.IsProgressLoading);
+        Assert.Contains(nameof(TrainTodayViewModel.IsOffline), propertyChanges);
+        await boundary.ResetAsync(_ => Task.CompletedTask);
+        progress.Release(Snapshot(goal: 5, done: 5, streak: 9, level: 99, xp: 9999));
+        await load;
+
+        Assert.False(viewModel.HasAuthoritativeProgress);
+        Assert.Null(viewModel.ActiveWorkout);
+        Assert.Null(viewModel.RepeatWorkout);
+    }
+
+    [Fact]
     public async Task Progress_cache_read_failure_keeps_local_workout_and_hides_unauthoritative_motivation()
     {
         var source = new RecordingTrainDashboardSource(new(
@@ -235,12 +276,19 @@ public sealed class TrainTodayViewModelTests
         ITrainDashboardSource source,
         IProgressSnapshotSource progress,
         bool online,
+        IAccountSessionBoundary? boundary = null) =>
+        CreateViewModel(source, progress, new FixedConnectivity(online), boundary);
+
+    private static TrainTodayViewModel CreateViewModel(
+        ITrainDashboardSource source,
+        IProgressSnapshotSource progress,
+        IConnectivityService connectivity,
         IAccountSessionBoundary? boundary = null) => new(
         source,
         boundary ?? new AccountSessionBoundary(),
         WorkoutResources.English,
         progress,
-        new FixedConnectivity(online),
+        connectivity,
         new MutableWeightPreference(),
         GamificationResources.English);
 
@@ -416,6 +464,19 @@ public sealed class TrainTodayViewModelTests
     {
         public bool IsOnline => online;
         public event EventHandler? ConnectivityChanged { add { } remove { } }
+    }
+
+    private sealed class MutableConnectivity(bool online) : IConnectivityService
+    {
+        public bool IsOnline { get; private set; } = online;
+        public event EventHandler? ConnectivityChanged;
+
+        public void SetOnline(bool online)
+        {
+            if (IsOnline == online) return;
+            IsOnline = online;
+            ConnectivityChanged?.Invoke(this, EventArgs.Empty);
+        }
     }
 
     private sealed class MutableWeightPreference : IWeightUnitPreference
