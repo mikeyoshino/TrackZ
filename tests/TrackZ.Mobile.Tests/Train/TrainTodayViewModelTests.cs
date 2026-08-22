@@ -62,6 +62,23 @@ public sealed class TrainTodayViewModelTests
     }
 
     [Fact]
+    public async Task Caller_cancellation_during_progress_read_is_propagated()
+    {
+        var progress = new GatedCancellableProgressSource();
+        var viewModel = CreateViewModel(
+            new RecordingTrainDashboardSource(new(null, null)),
+            progress,
+            online: false);
+        using var cancellation = new CancellationTokenSource();
+
+        var load = viewModel.LoadAsync(cancellation.Token);
+        await progress.CacheEntered.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        await cancellation.CancelAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => load);
+    }
+
+    [Fact]
     public async Task Recent_momentum_uses_latest_time_then_descending_exercise_id()
     {
         var earliest = ProgressRecord("11111111-1111-1111-1111-111111111111", "Early", At(8));
@@ -279,6 +296,24 @@ public sealed class TrainTodayViewModelTests
 
         public Task<ProgressSnapshot> RefreshAsync(CancellationToken cancellationToken = default) =>
             Task.FromException<ProgressSnapshot>(new InvalidOperationException("Progress unavailable."));
+
+        public Task<ProgressSnapshot> UpdateWeeklyGoalAsync(int weeklyGoal, CancellationToken cancellationToken = default) =>
+            RefreshAsync(cancellationToken);
+    }
+
+    private sealed class GatedCancellableProgressSource : IProgressSnapshotSource
+    {
+        public TaskCompletionSource CacheEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public async Task<ProgressSnapshot?> GetCachedAsync(CancellationToken cancellationToken = default)
+        {
+            CacheEntered.TrySetResult();
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            return null;
+        }
+
+        public Task<ProgressSnapshot> RefreshAsync(CancellationToken cancellationToken = default) =>
+            Task.FromException<ProgressSnapshot>(new InvalidOperationException("Not reached."));
 
         public Task<ProgressSnapshot> UpdateWeeklyGoalAsync(int weeklyGoal, CancellationToken cancellationToken = default) =>
             RefreshAsync(cancellationToken);

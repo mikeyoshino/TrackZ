@@ -38,19 +38,25 @@ Task 2 requires localized Last/Best/assistance text while consuming `Gamificatio
 
    Result: RED — progress cache read leaked `"Could not load workout details"` into `ErrorText`; the expected presentation is local workout retained with hidden unauthoritative motivation and no technical error.
 
+3. Focused cancellation regression:
+
+   `dotnet test tests/TrackZ.Mobile.Tests/TrackZ.Mobile.Tests.csproj --no-restore --filter FullyQualifiedName~TrainTodayViewModelTests.Caller_cancellation_during_progress_read_is_propagated --verbosity minimal -m:1`
+
+   Result: RED — caller cancellation during cached-progress read was swallowed, so no `OperationCanceledException` reached the caller.
+
 ## GREEN evidence
 
 1. Prescribed Task 2 focused suite:
 
    `dotnet test tests/TrackZ.Mobile.Tests/TrackZ.Mobile.Tests.csproj --no-restore --filter "FullyQualifiedName~TrainTodayViewModelTests|FullyQualifiedName~HomeMomentumItemTests" --verbosity minimal -m:1`
 
-   Result: 17 passed, 0 failed, 0 skipped.
+   Result: 18 passed, 0 failed, 0 skipped.
 
 2. Prescribed related regression:
 
    `dotnet test tests/TrackZ.Mobile.Tests/TrackZ.Mobile.Tests.csproj --no-restore --filter "FullyQualifiedName~TrainTodayViewModelTests|FullyQualifiedName~ProgressDashboardViewModelTests|FullyQualifiedName~GamificationViewModelTests" --verbosity minimal -m:1`
 
-   Result: 23 passed, 0 failed, 0 skipped.
+   Result: 24 passed, 0 failed, 0 skipped.
 
 The second command required the approved elevated local test environment because VSTest loopback socket binding was denied by the sandbox; it passed outside the sandbox. No API, Docker, container, simulator, or other service was started.
 
@@ -62,6 +68,7 @@ The second command required the approved elevated local test environment because
 - Use incorrect conversion/precision or a generic mode formatter: literal weighted, assisted, and bodyweight tests fail.
 - Retain a unit event subscription after disposal: `Dispose_unsubscribes_from_the_shared_weight_preference` fails.
 - Surface progress-read errors as a local workout failure: `Progress_cache_read_failure_keeps_local_workout_and_hides_unauthoritative_motivation` fails.
+- Swallow caller cancellation during progress read: `Caller_cancellation_during_progress_read_is_propagated` fails.
 
 ## Files changed
 

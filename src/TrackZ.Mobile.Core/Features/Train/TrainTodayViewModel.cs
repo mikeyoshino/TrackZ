@@ -238,15 +238,16 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
                     return Task.CompletedTask;
                 }, cancellationToken);
             }
-            catch (OperationCanceledException) when (_boundary.IsCancellationRequested(generation))
+            catch (OperationCanceledException)
             {
+                throw;
             }
             catch (Exception)
             {
                 // Cached progress, when present, remains authoritative and visible.
             }
         }
-        catch (OperationCanceledException) when (_boundary.IsCancellationRequested(generation))
+        catch (OperationCanceledException)
         {
             throw;
         }
