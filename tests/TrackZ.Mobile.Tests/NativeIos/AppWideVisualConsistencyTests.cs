@@ -303,6 +303,35 @@ public sealed class AppWideVisualConsistencyTests
     }
 
     [Fact]
+    public void Momentum_home_artwork_audit_rejects_missing_fallback_or_decorative_exclusion()
+    {
+        var train = XDocument.Load(Path.Combine(MobileDirectory(), "Features/Train/TrainPage.xaml"));
+        Assert.Empty(AuditMomentumArtworkSemantics(train));
+
+        var missingFallback = new XDocument(train);
+        Named(missingFallback, "TrainAgainFallback").SetAttributeValue("Source", "another_image.png");
+        Assert.Contains(
+            AuditMomentumArtworkSemantics(missingFallback),
+            error => error.Contains("shared exercise fallback", StringComparison.Ordinal));
+
+        var accessibleDecoration = new XDocument(train);
+        Named(accessibleDecoration, "RecentMomentumGlyph")
+            .Attribute("AutomationProperties.ExcludedWithChildren")!
+            .Remove();
+        Assert.Contains(
+            AuditMomentumArtworkSemantics(accessibleDecoration),
+            error => error.Contains("decorative artwork", StringComparison.Ordinal));
+
+        var duplicateDescription = new XDocument(train);
+        Named(duplicateDescription, "TrainAgainFallback").SetAttributeValue(
+            "SemanticProperties.Description",
+            "{Binding RepeatWorkoutAccessibilityText}");
+        Assert.Contains(
+            AuditMomentumArtworkSemantics(duplicateDescription),
+            error => error.Contains("one authoritative semantic description", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Momentum_home_audit_rejects_metric_height_and_section_order_mutations()
     {
         const string trainPath = "Features/Train/TrainPage.xaml";
@@ -690,6 +719,39 @@ public sealed class AppWideVisualConsistencyTests
                 element.Attribute("Value")?.Value == "True");
             if (trigger is null || ResourceKey(Value(trigger, "TextColor")) != "TrackZPrimaryContrast")
                 yield return $"Momentum Home ready hero label '{labelName}' must use the high-contrast semantic color.";
+        }
+    }
+
+    private static IEnumerable<string> AuditMomentumArtworkSemantics(XDocument document)
+    {
+        var fallback = document.Descendants().SingleOrDefault(element => ElementName(element) == "TrainAgainFallback");
+        var thumbnail = document.Descendants().SingleOrDefault(element => ElementName(element) == "TrainAgainThumbnail");
+        if (fallback?.Name.LocalName != "Image" || fallback.Attribute("Source")?.Value != "exercise_placeholder.png" ||
+            thumbnail?.Name.LocalName != "Image" || thumbnail.Attribute("Source")?.Value != "{Binding RepeatWorkout.ThumbnailPath}")
+            yield return "Train again must layer the shared exercise fallback beneath its optional real thumbnail.";
+
+        foreach (var name in new[] { "TrainAgainArtwork", "TrainAgainChevron", "RecentMomentumArtwork", "RecentMomentumGlyph" })
+        {
+            var decoration = document.Descendants().SingleOrDefault(element => ElementName(element) == name);
+            if (decoration?.Attribute("AutomationProperties.ExcludedWithChildren")?.Value != "True")
+                yield return $"Momentum decorative artwork '{name}' must stay outside the accessibility tree.";
+        }
+
+        if (document.Descendants().Any(element => element.Attribute("Text")?.Value == "↻"))
+            yield return "Train again must not use the raw refresh glyph instead of exercise artwork.";
+
+        foreach (var (name, description) in new[]
+        {
+            ("TrainAgainCard", "{Binding RepeatWorkoutAccessibilityText}"),
+            ("RecentMomentumCard", "{Binding RecentMomentumText}")
+        })
+        {
+            var card = document.Descendants().SingleOrDefault(element => ElementName(element) == name);
+            var descriptions = card?.DescendantsAndSelf()
+                .SelectMany(element => element.Attributes("SemanticProperties.Description"))
+                .ToArray() ?? [];
+            if (descriptions.Length != 1 || descriptions[0].Parent != card || descriptions[0].Value != description)
+                yield return $"Momentum card '{name}' must retain one authoritative semantic description.";
         }
     }
 

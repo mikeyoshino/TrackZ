@@ -71,7 +71,20 @@ public sealed class MomentumHomePresentationTests
         Assert.NotNull(page.FindByName("WeeklyGoalMetric"));
         Assert.NotNull(page.FindByName("StreakMetric"));
         Assert.NotNull(page.FindByName("LevelMetric"));
-        Assert.NotNull(page.FindByName("TrainAgainArtwork"));
+        var trainAgainArtwork = Assert.IsType<Border>(page.FindByName("TrainAgainArtwork"));
+        var fallback = Assert.IsType<Image>(page.FindByName("TrainAgainFallback"));
+        var trainAgainChevron = Assert.IsType<Label>(page.FindByName("TrainAgainChevron"));
+        var recentArtwork = Assert.IsType<Border>(page.FindByName("RecentMomentumArtwork"));
+        var recentGlyph = Assert.IsType<Label>(page.FindByName("RecentMomentumGlyph"));
+        Assert.Equal("exercise_placeholder.png", Assert.IsType<FileImageSource>(fallback.Source).File);
+        Assert.True(AutomationProperties.GetExcludedWithChildren(trainAgainArtwork));
+        Assert.True(AutomationProperties.GetExcludedWithChildren(trainAgainChevron));
+        Assert.True(AutomationProperties.GetExcludedWithChildren(recentArtwork));
+        Assert.True(AutomationProperties.GetExcludedWithChildren(recentGlyph));
+        Assert.DoesNotContain(Descendants(trainAgainArtwork).OfType<Label>(), label => label.Text == "↻");
+        Assert.Equal(
+            viewModel.RepeatWorkoutAccessibilityText,
+            SemanticProperties.GetDescription(Assert.IsType<Border>(page.FindByName("TrainAgainCard"))));
     }
 
     [Fact]
@@ -261,7 +274,8 @@ public sealed class MomentumHomePresentationTests
                     new OfflineConnectivity(),
                     weightPreference,
                     GamificationResources.English,
-                    clock: new FixedClock(At(12)));
+                    clock: new FixedClock(At(12)),
+                    localTimeZone: TimeZoneInfo.Utc);
                 var app = MauiProgram.CreateMauiApp(services =>
                 {
                     services.AddSingleton(new ExerciseCache(Path.Combine(root, "exercises.db")));

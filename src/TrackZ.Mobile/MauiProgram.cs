@@ -105,6 +105,7 @@ public static class MauiProgram
 			services.GetRequiredService<IAccountSessionBoundary>()));
 		builder.Services.AddSingleton<IConnectivityService, MauiConnectivityService>();
 		builder.Services.AddSingleton<IClock, SystemClock>();
+		builder.Services.AddSingleton(TimeZoneInfo.Local);
 		builder.Services.AddSingleton(TimeProvider.System);
 		builder.Services.AddSingleton<IRetryDelay, SystemRetryDelay>();
 		builder.Services.AddSingleton<IUiDispatcher, MauiUiDispatcher>();
@@ -177,7 +178,8 @@ public static class MauiProgram
 			services.GetRequiredService<GamificationTextSet>(),
 			services.GetRequiredService<ActiveWorkoutCoordinator>(),
 			services.GetRequiredService<ITrainNavigator>(),
-			services.GetRequiredService<IClock>()));
+			services.GetRequiredService<IClock>(),
+			services.GetRequiredService<TimeZoneInfo>()));
 		builder.Services.AddTransient<BodyAreaSheetPage>();
 		builder.Services.AddSingleton<IBodyAreaPicker>(services => new MauiBodyAreaPicker(
 			services.GetRequiredService<INativeSheetPresenter>(),

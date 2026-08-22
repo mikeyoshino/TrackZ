@@ -15,9 +15,10 @@
   recent Last/Best, and `HomeLoadFailed`; source changes and account reset raise the required
   notifications.
 - `HomeContextText` uses `HomeContextFormat` and the reference-compatible ISO week from the
-  existing injected `IClock`. Production composition passes the registered singleton clock;
-  reload notification supports a week rollover without making Home depend directly on system
-  time.
+  existing injected `IClock`, converted through an injected device-local `TimeZoneInfo`.
+  Production composition registers/passes `TimeZoneInfo.Local`, matching the timezone ID sent by
+  progress preferences; reload notification supports a week rollover without making Home depend
+  directly on untestable host time or timezone state.
 - Artwork retains the app's native 88-point semantic geometry, every action is at least 44 points,
   and the page uses shared semantic colors, typography, spacing, card, and button resources. No
   WebView or HTML runtime was introduced.
@@ -79,12 +80,12 @@ Assertions were not weakened and no service, API, Docker container, or simulator
 dotnet test tests/TrackZ.Mobile.Tests/TrackZ.Mobile.Tests.csproj --no-restore \
   --filter "FullyQualifiedName~MomentumHomePresentationTests|FullyQualifiedName~AppWideVisualConsistencyTests" \
   --verbosity minimal -m:1
-Passed: 48, Failed: 0, Skipped: 0
+Passed: 49, Failed: 0, Skipped: 0
 
 dotnet test tests/TrackZ.Mobile.Tests/TrackZ.Mobile.Tests.csproj --no-restore \
   --filter "FullyQualifiedName~TrainTodayViewModelTests|FullyQualifiedName~TrainAgainWorkoutTests|FullyQualifiedName~HomeMomentumItemTests|FullyQualifiedName~NativeVisualTokenTests" \
   --verbosity minimal -m:1
-Passed: 57, Failed: 0, Skipped: 0
+Passed: 58, Failed: 0, Skipped: 0
 
 dotnet msbuild src/TrackZ.Mobile/TrackZ.Mobile.csproj -t:Compile \
   -p:TargetFramework=net10.0-ios -p:BuildProjectReferences=false -m:1 -v:minimal
@@ -104,6 +105,26 @@ Exit code: 0; no product warning or error
 - Removing presentation notifications fails the load/reset test; replacing injected time with a
   fixed/system-only value fails ISO-week rollover literals.
 - Breaking the shared weight event path fails exact EN/TH kg-to-lb recent-momentum literals.
+
+## Review Round 1
+
+Both verified reviewer findings were fixed with separate RED/GREEN cycles:
+
+1. A custom `Asia/Bangkok` test fixes the clock at Sunday 2026-08-23 17:30 UTC, verifies UTC is
+   ISO week 34, then requires Home to show literal `Today · Week 35` because device-local time is
+   Monday 00:30. RED was the missing `localTimeZone` constructor contract; production now converts
+   with `TimeZoneInfo.ConvertTimeFromUtc` before `ISOWeek.GetWeekOfYear`. Existing clock rollover
+   tests explicitly use UTC and do not depend on the test host's local timezone.
+2. The inflated page and structural audit initially failed because `TrainAgainFallback` and the
+   required decorative exclusions did not exist. Train again now layers the shared
+   `exercise_placeholder.png` below the optional real thumbnail within the existing 88-point
+   artwork frame. The full Train again artwork, chevron, Recent momentum artwork, and Recent
+   momentum glyph are excluded from accessibility, while each containing card retains exactly one
+   authoritative semantic description. Mutating the fallback source, removing a decorative
+   exclusion, or adding a duplicate inner description fails the audit.
+
+Fresh Round 1 verification is the 49/49 focused, 58/58 related, and exit-0 iOS Compile evidence
+recorded above. No service, API, Docker container, or simulator was started.
 
 ## Files changed
 

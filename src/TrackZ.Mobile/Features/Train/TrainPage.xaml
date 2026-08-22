@@ -136,24 +136,26 @@
                         </Grid.ColumnDefinitions>
                         <Border
                             x:Name="TrainAgainArtwork"
+                            AutomationProperties.ExcludedWithChildren="True"
                             HeightRequest="{DynamicResource TrackZExerciseArtworkSize}"
                             Style="{DynamicResource TrackZArtworkFrameStyle}"
                             WidthRequest="{DynamicResource TrackZExerciseArtworkSize}">
                             <Grid>
-                                <Label
-                                    HorizontalOptions="Center"
-                                    SemanticProperties.Description="{Binding RepeatWorkoutAccessibilityText}"
-                                    Style="{DynamicResource TrackZPerformanceNumberStyle}"
-                                    Text="↻"
-                                    VerticalOptions="Center" />
-                                <Image Aspect="AspectFill" Source="{Binding RepeatWorkout.ThumbnailPath}" />
+                                <Image x:Name="TrainAgainFallback" Aspect="AspectFit" Source="exercise_placeholder.png" />
+                                <Image x:Name="TrainAgainThumbnail" Aspect="AspectFill" Source="{Binding RepeatWorkout.ThumbnailPath}" />
                             </Grid>
                         </Border>
                         <VerticalStackLayout Grid.Column="1" Spacing="{DynamicResource TrackZSpace4}" VerticalOptions="Center">
                             <Label Style="{DynamicResource TrackZSectionTitleStyle}" Text="{Binding RepeatWorkoutTitle}" />
                             <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding RepeatWorkoutMetaText}" />
                         </VerticalStackLayout>
-                        <Label Grid.Column="2" Style="{DynamicResource TrackZBodyStyle}" Text="›" VerticalOptions="Center" />
+                        <Label
+                            x:Name="TrainAgainChevron"
+                            AutomationProperties.ExcludedWithChildren="True"
+                            Grid.Column="2"
+                            Style="{DynamicResource TrackZBodyStyle}"
+                            Text="›"
+                            VerticalOptions="Center" />
                     </Grid>
                 </Border>
             </VerticalStackLayout>
@@ -173,10 +175,13 @@
                         </Grid.ColumnDefinitions>
                         <Border
                             x:Name="RecentMomentumArtwork"
+                            AutomationProperties.ExcludedWithChildren="True"
                             HeightRequest="{DynamicResource TrackZExerciseArtworkSize}"
                             Style="{DynamicResource TrackZArtworkFrameStyle}"
                             WidthRequest="{DynamicResource TrackZExerciseArtworkSize}">
                             <Label
+                                x:Name="RecentMomentumGlyph"
+                                AutomationProperties.ExcludedWithChildren="True"
                                 HorizontalOptions="Center"
                                 Style="{DynamicResource TrackZPerformanceNumberStyle}"
                                 Text="↗"

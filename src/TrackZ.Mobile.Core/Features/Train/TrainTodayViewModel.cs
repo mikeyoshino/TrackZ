@@ -30,6 +30,7 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
     private readonly ActiveWorkoutCoordinator? _activeWorkouts;
     private readonly ITrainNavigator? _navigator;
     private readonly IClock _clock;
+    private readonly TimeZoneInfo _localTimeZone;
     private bool _isBusy;
     private bool _isDashboardKnown;
     private bool _isCommandMutation;
@@ -66,7 +67,8 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
         GamificationTextSet gamificationText,
         ActiveWorkoutCoordinator? activeWorkouts = null,
         ITrainNavigator? navigator = null,
-        IClock? clock = null)
+        IClock? clock = null,
+        TimeZoneInfo? localTimeZone = null)
     {
         _source = source;
         _boundary = boundary;
@@ -77,6 +79,7 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
         _activeWorkouts = activeWorkouts;
         _navigator = navigator;
         _clock = clock ?? new SystemClock();
+        _localTimeZone = localTimeZone ?? TimeZoneInfo.Local;
         Text = text;
         HeroActionCommand = new AsyncCommand(_ => ExecuteHeroActionAsync(), _ => CanMutate);
         TrainAgainCommand = new AsyncCommand(_ => ExecuteTrainAgainAsync(), _ => CanMutate && ShowTrainAgain);
@@ -97,7 +100,7 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
     public string HomeContextText => string.Format(
         CultureInfo.CurrentCulture,
         Text.HomeContextFormat,
-        ISOWeek.GetWeekOfYear(_clock.UtcNow.UtcDateTime));
+        ISOWeek.GetWeekOfYear(TimeZoneInfo.ConvertTimeFromUtc(_clock.UtcNow.UtcDateTime, _localTimeZone)));
     public string HeroEyebrowText => HasActiveWorkout ? Text.WorkoutInProgress : Text.StartTraining;
     public string HeroTitleText => ActiveWorkout is { BodyParts.Count: > 0 } active
         ? FormatBodyParts(active.BodyParts)

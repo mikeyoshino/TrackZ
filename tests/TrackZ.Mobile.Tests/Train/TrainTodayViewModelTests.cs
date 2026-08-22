@@ -467,7 +467,8 @@ public sealed class TrainTodayViewModelTests
                 connectivity: null,
                 weightUnits: new MutableWeightPreference(),
                 gamificationText: culture.TwoLetterISOLanguageName == "th" ? GamificationResources.Thai : GamificationResources.English,
-                clock: clock);
+                clock: clock,
+                localTimeZone: TimeZoneInfo.Utc);
             var contextChanges = 0;
             viewModel.PropertyChanged += (_, args) =>
             {
@@ -487,6 +488,30 @@ public sealed class TrainTodayViewModelTests
             CultureInfo.CurrentCulture = previousCulture;
             CultureInfo.CurrentUICulture = previousUiCulture;
         }
+    }
+
+    [Fact]
+    public void Home_context_uses_the_injected_device_timezone_at_an_iso_week_boundary()
+    {
+        var bangkok = TimeZoneInfo.CreateCustomTimeZone(
+            "Asia/Bangkok",
+            TimeSpan.FromHours(7),
+            "Asia/Bangkok",
+            "Asia/Bangkok");
+        var sundayUtcMondayLocal = new DateTimeOffset(2026, 8, 23, 17, 30, 0, TimeSpan.Zero);
+        Assert.Equal(34, ISOWeek.GetWeekOfYear(sundayUtcMondayLocal.UtcDateTime));
+        var viewModel = new TrainTodayViewModel(
+            new RecordingTrainDashboardSource(new(null, null)),
+            new AccountSessionBoundary(),
+            WorkoutResources.English,
+            progress: null,
+            connectivity: null,
+            weightUnits: new MutableWeightPreference(),
+            gamificationText: GamificationResources.English,
+            clock: new MutableClock(sundayUtcMondayLocal),
+            localTimeZone: bangkok);
+
+        Assert.Equal("Today · Week 35", viewModel.HomeContextText);
     }
 
     [Fact]
