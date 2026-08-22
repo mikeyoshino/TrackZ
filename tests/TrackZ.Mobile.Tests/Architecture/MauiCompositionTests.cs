@@ -691,10 +691,30 @@ public sealed class MauiCompositionTests
         var boundary = new CountingSessionBoundary();
         var connectivity = new CountingConnectivity(isOnline: false);
         var units = new CountingWeightPreference();
-        var dashboard = new FixedTrainDashboardSource(new TrainDashboardSnapshot(
-            new ActiveWorkoutCard(Guid.NewGuid(), DateTimeOffset.UtcNow, [BodyPart.Back], 2, 1, 3),
-            null));
-        var progress = new CachedProgressSource(CreateMomentumProgress());
+        var exerciseId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+        var exerciseCache = new ExerciseCache(Path.Combine(root, "exercises.db"));
+        var localDatabase = new TrackZLocalDatabase(Path.Combine(root, "workouts.db"));
+        var localWorkouts = new LocalWorkoutRepository(localDatabase);
+        var progressCache = new ProgressSnapshotCache(Path.Combine(root, "progress.json"));
+        await exerciseCache.ReplaceAllAsync([
+            new ExerciseSummaryDto(
+                exerciseId,
+                "Composed Pull",
+                BodyPart.Back,
+                TrackingMode.Weighted,
+                null,
+                DateTimeOffset.UtcNow,
+                new PerformanceSetDto(70m, null, 8),
+                new PerformanceSetDto(72.5m, null, 6),
+                false)
+        ], DateTimeOffset.UtcNow);
+        var seededCoordinator = new ActiveWorkoutCoordinator(localWorkouts, boundary, new SystemClock());
+        var seededWorkout = await seededCoordinator.StartAsync([
+            new WorkoutExerciseSelection(exerciseId, TrackingMode.Weighted)
+        ]);
+        await seededCoordinator.SaveSetAsync(exerciseId, new LocalSet(70m, null, 8));
+        var cachedProgress = CreateMomentumProgress();
+        await progressCache.WriteAsync(cachedProgress);
         var app = MauiProgram.CreateMauiApp(services =>
         {
             ConfigureAuthenticatedServices(services);
@@ -705,16 +725,30 @@ public sealed class MauiCompositionTests
             services.RemoveAll<IWeightUnitPreference>();
             services.AddSingleton<IWeightUnitPreference>(units);
             services.RemoveAll<IProgressSnapshotSource>();
-            services.AddSingleton<IProgressSnapshotSource>(progress);
+            services.RemoveAll<ProgressSnapshotSource>();
+            services.RemoveAll<IProgressApi>();
+            services.AddSingleton<IProgressApi, OfflineProgressApi>();
+            services.RemoveAll<ProgressSnapshotCache>();
+            services.AddSingleton(progressCache);
+            services.AddSingleton<ProgressSnapshotSource>();
+            services.AddSingleton<IProgressSnapshotSource>(provider =>
+                provider.GetRequiredService<ProgressSnapshotSource>());
             services.RemoveAll<ITrainDashboardSource>();
-            services.AddSingleton<ITrainDashboardSource>(dashboard);
-            services.AddSingleton(new ExerciseHistoryCache(Path.Combine(root, "history.db")));
-            services.AddSingleton(new ExerciseCache(Path.Combine(root, "exercises.db")));
-            services.AddSingleton(new TrackZLocalDatabase(Path.Combine(root, "workouts.db")));
-            services.AddSingleton(new ProgressSnapshotCache(Path.Combine(root, "progress.json")));
-            services.AddSingleton<IUiDispatcher>(new InlineUiDispatcher());
-            services.AddSingleton<IExerciseThumbnailCache>(new HeadlessThumbnailCache());
-            services.AddSingleton<IWorkoutPreferenceStore>(new HeadlessPreferences());
+            services.RemoveAll<LocalTrainDashboardSource>();
+            services.AddSingleton<LocalTrainDashboardSource>();
+            services.AddSingleton<ITrainDashboardSource>(provider =>
+                provider.GetRequiredService<LocalTrainDashboardSource>());
+            services.RemoveAll<ExerciseCache>();
+            services.AddSingleton(exerciseCache);
+            services.RemoveAll<TrackZLocalDatabase>();
+            services.AddSingleton(localDatabase);
+            services.RemoveAll<LocalWorkoutRepository>();
+            services.AddSingleton(localWorkouts);
+            services.RemoveAll<ILocalWorkoutRepository>();
+            services.AddSingleton<ILocalWorkoutRepository>(provider =>
+                provider.GetRequiredService<LocalWorkoutRepository>());
+            services.RemoveAll<IWorkoutSyncTrigger>();
+            services.AddSingleton<IWorkoutSyncTrigger, NoopWorkoutSyncTrigger>();
         });
 
         try
@@ -725,15 +759,28 @@ public sealed class MauiCompositionTests
             var boundarySubscriptions = boundary.SessionResetSubscriptions;
             var connectivitySubscriptions = connectivity.Subscriptions;
 
+            Assert.IsType<LocalTrainDashboardSource>(app.Services.GetRequiredService<ITrainDashboardSource>());
+            Assert.IsType<ProgressSnapshotSource>(app.Services.GetRequiredService<IProgressSnapshotSource>());
+            Assert.Same(localWorkouts, app.Services.GetRequiredService<ILocalWorkoutRepository>());
+            Assert.Same(localWorkouts, app.Services.GetRequiredService<LocalWorkoutRepository>());
+            Assert.Same(exerciseCache, app.Services.GetRequiredService<ExerciseCache>());
+            Assert.Same(progressCache, app.Services.GetRequiredService<ProgressSnapshotCache>());
+            Assert.IsType<MauiTrainNavigator>(app.Services.GetRequiredService<ITrainNavigator>());
+            Assert.Equal(1, connectivitySubscriptions);
+
             InvokePageLifecycle(firstPage, "OnAppearing");
-            await WaitUntilAsync(() => Task.FromResult(dashboard.LoadCount == 1));
+            await WaitUntilAsync(async () => (await localWorkouts.GetActiveAsync())?.Id == seededWorkout.Id
+                && viewModel.ActiveWorkout?.WorkoutId == seededWorkout.Id
+                && !viewModel.IsBusy);
             InvokePageLifecycle(firstPage, "OnDisappearing");
             var unitSubscriptions = units.Subscriptions;
             InvokePageLifecycle(firstPage, "OnAppearing");
-            await WaitUntilAsync(() => Task.FromResult(dashboard.LoadCount == 2));
+            await WaitUntilAsync(() => Task.FromResult(
+                viewModel.ActiveWorkout?.WorkoutId == seededWorkout.Id && !viewModel.IsBusy));
             InvokePageLifecycle(firstPage, "OnDisappearing");
             InvokePageLifecycle(firstPage, "OnAppearing");
-            await WaitUntilAsync(() => Task.FromResult(dashboard.LoadCount == 3));
+            await WaitUntilAsync(() => Task.FromResult(
+                viewModel.ActiveWorkout?.WorkoutId == seededWorkout.Id && !viewModel.IsBusy));
             InvokePageLifecycle(firstPage, "OnDisappearing");
 
             Assert.Same(firstPage, secondPage);
@@ -746,12 +793,15 @@ public sealed class MauiCompositionTests
             Assert.Equal(connectivitySubscriptions, connectivity.Subscriptions);
             Assert.Equal(1, unitSubscriptions);
             Assert.Equal(unitSubscriptions, units.Subscriptions);
-            Assert.Equal(3, dashboard.LoadCount);
-            Assert.Equal(3, progress.CachedReadCount);
             Assert.True(viewModel.ShowContinueHero);
-            Assert.Equal(3, viewModel.ActiveWorkout!.LoggedSetCount);
+            Assert.Equal(seededWorkout.Id, viewModel.ActiveWorkout!.WorkoutId);
+            Assert.Equal([BodyPart.Back], viewModel.ActiveWorkout.BodyParts);
+            Assert.Equal(1, viewModel.ActiveWorkout.ExerciseCount);
+            Assert.Equal(1, viewModel.ActiveWorkout.LoggedExerciseCount);
+            Assert.Equal(1, viewModel.ActiveWorkout.LoggedSetCount);
             Assert.True(viewModel.HasAuthoritativeProgress);
             Assert.Equal(8, viewModel.Level);
+            Assert.Equal("Composed Press", viewModel.RecentMomentum!.ExerciseName);
         }
         finally
         {
@@ -1167,6 +1217,26 @@ public sealed class MauiCompositionTests
 
         public Task<ProgressSnapshot> UpdateWeeklyGoalAsync(int weeklyGoal, CancellationToken cancellationToken = default) =>
             Task.FromResult(cached);
+    }
+
+    private sealed class OfflineProgressApi : IProgressApi
+    {
+        public Task<ProgressSummaryDto> GetSummaryAsync(CancellationToken cancellationToken = default) =>
+            Task.FromException<ProgressSummaryDto>(new HttpRequestException("The composition host is offline."));
+
+        public Task<GamificationProfileDto> GetProfileAsync(CancellationToken cancellationToken = default) =>
+            Task.FromException<GamificationProfileDto>(new HttpRequestException("The composition host is offline."));
+
+        public Task<GamificationProfileDto> UpdatePreferencesAsync(
+            int weeklyGoal,
+            string timeZoneId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromException<GamificationProfileDto>(new HttpRequestException("The composition host is offline."));
+    }
+
+    private sealed class NoopWorkoutSyncTrigger : IWorkoutSyncTrigger
+    {
+        public void NotifyMutation() { }
     }
 
     private sealed class CountingConnectivity(bool isOnline) : IConnectivityService
