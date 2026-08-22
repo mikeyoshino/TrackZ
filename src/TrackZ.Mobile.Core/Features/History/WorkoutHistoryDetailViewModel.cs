@@ -5,7 +5,7 @@ using TrackZ.Mobile.Identity;
 
 namespace TrackZ.Mobile.Features.History;
 
-public sealed class WorkoutHistoryDetailViewModel : INotifyPropertyChanged
+public sealed class WorkoutHistoryDetailViewModel : INotifyPropertyChanged, IDisposable
 {
     private readonly WorkoutHistoryViewModel _source;
     private readonly IAccountSessionBoundary _boundary;
@@ -60,6 +60,8 @@ public sealed class WorkoutHistoryDetailViewModel : INotifyPropertyChanged
         _source.Deactivate();
         Workout = null;
     }
+
+    public void Dispose() => Deactivate();
 
     public static bool CanResolveDestructively(HistoryWorkoutItem workout) =>
         !workout.ActionsBlocked && !workout.IsReconciling;

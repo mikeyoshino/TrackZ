@@ -12,6 +12,5 @@ public sealed class AuthShell : Shell
             Route = "sign-in",
             ContentTemplate = new DataTemplate(() => services.GetRequiredService<SignInPage>())
         });
-        Routing.RegisterRoute("create-account", typeof(CreateAccountPage));
     }
 }

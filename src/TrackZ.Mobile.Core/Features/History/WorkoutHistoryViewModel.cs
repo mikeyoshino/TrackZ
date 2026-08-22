@@ -213,7 +213,7 @@ public sealed class HistoryMonthGroup(string month, IEnumerable<HistoryWorkoutIt
     public string Month { get; } = month;
 }
 
-public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged
+public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged, IDisposable
 {
     private readonly WorkoutHistoryCoordinator _history;
     private readonly IHistoryOutboxStatusSource _outbox;
@@ -337,6 +337,8 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged
         WorkoutGroups.Clear();
         RaiseCommands();
     }
+
+    public void Dispose() => Deactivate();
 
     private async Task EditSetAsync(object? parameter)
     {

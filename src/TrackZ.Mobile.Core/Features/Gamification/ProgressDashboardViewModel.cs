@@ -6,7 +6,7 @@ using TrackZ.Mobile.Identity;
 
 namespace TrackZ.Mobile.Features.Gamification;
 
-public sealed class ProgressDashboardViewModel : GamificationViewModelBase
+public sealed class ProgressDashboardViewModel : GamificationViewModelBase, IDisposable
 {
     private readonly IProgressSnapshotSource _snapshots;
     private readonly IConnectivityService _connectivity;
@@ -21,6 +21,7 @@ public sealed class ProgressDashboardViewModel : GamificationViewModelBase
     private int _currentLevelRequiredXp;
     private int? _nextLevelRequiredXp;
     private bool _hasAuthoritativeProgressData;
+    private bool _disposed;
 
     public ProgressDashboardViewModel(
         IProgressSnapshotSource snapshots,
@@ -94,9 +95,13 @@ public sealed class ProgressDashboardViewModel : GamificationViewModelBase
 
     public void Deactivate()
     {
+        if (_disposed) return;
+        _disposed = true;
         _boundary.SessionReset -= OnSessionReset;
         Clear();
     }
+
+    public void Dispose() => Deactivate();
 
     private void Apply(ProgressSnapshot snapshot)
     {

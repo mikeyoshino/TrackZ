@@ -30,7 +30,7 @@ public sealed record WorkoutExerciseDraftItem(
     public bool ShowsArtworkPlaceholder => !HasArtwork;
 }
 
-public sealed class WorkoutViewModel : INotifyPropertyChanged
+public sealed class WorkoutViewModel : INotifyPropertyChanged, IDisposable
 {
     private readonly ActiveWorkoutCoordinator _coordinator;
     private readonly ExerciseCache _cache;
@@ -45,6 +45,7 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged
     private string? _errorMessage;
     private string? _noticeMessage;
     private TrackZNoticeSeverity _noticeSeverity = TrackZNoticeSeverity.Information;
+    private bool _disposed;
 
     public WorkoutViewModel(
         ActiveWorkoutCoordinator coordinator,
@@ -423,6 +424,15 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged
     }
 
     private void OnSessionReset(object? sender, EventArgs eventArgs) => Clear();
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        _boundary.SessionReset -= OnSessionReset;
+        if (_unitPreference is not null)
+            _unitPreference.Changed -= OnWeightUnitChanged;
+    }
 
     private void Clear()
     {

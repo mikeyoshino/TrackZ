@@ -10,10 +10,14 @@ public partial class ProfilePage : ContentPage
     private readonly IWeightUnitPreference _units;
     private readonly TrackZIdentityApiClient _identity;
     private bool _unitsSubscribed;
-    public ProfilePage(ProfileViewModel viewModel, IWeightUnitPreference units, TrackZIdentityApiClient identity)
+    public ProfilePage(
+        ProfileViewModel viewModel,
+        IWeightUnitPreference units,
+        TrackZIdentityApiClient identity,
+        WorkoutTextSet workoutText)
     {
         InitializeComponent();
-        WorkoutText = WorkoutResources.Current;
+        WorkoutText = workoutText;
         _units = units;
         _identity = identity;
         BindingContext = _viewModel = viewModel;

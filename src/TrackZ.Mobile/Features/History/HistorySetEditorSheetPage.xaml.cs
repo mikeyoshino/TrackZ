@@ -12,10 +12,12 @@ public partial class HistorySetEditorSheetPage : ContentPage
     private int _originalReps;
     private bool _committed;
 
-    public HistorySetEditorSheetPage(INativeSheetPresenter presenter)
+    public HistorySetEditorSheetPage(
+        INativeSheetPresenter presenter,
+        TrackZ.Mobile.Features.Workout.WorkoutTextSet text)
     {
         _presenter = presenter;
-        Text = TrackZ.Mobile.Features.Workout.WorkoutResources.Current;
+        Text = text;
         InitializeComponent();
     }
 

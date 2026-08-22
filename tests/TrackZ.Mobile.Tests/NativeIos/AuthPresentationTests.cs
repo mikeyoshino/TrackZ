@@ -14,6 +14,7 @@ using TrackZ.Mobile.Identity;
 using TrackZ.Mobile.Sync;
 using TrackZ.Mobile.Data;
 using TrackZ.Mobile.Features.Workout;
+using TrackZ.Mobile.Features.Localization;
 
 namespace TrackZ.Mobile.Tests.NativeIos;
 
@@ -360,6 +361,9 @@ public sealed class AuthPresentationTests
             Directory.CreateDirectory(root);
             var probe = new ProtectedShellProbe();
             var sync = new RecordingSyncLifecycle();
+            var language = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName == "th"
+                ? AppLanguage.Thai
+                : AppLanguage.English;
             var app = MauiProgram.CreateMauiApp(services =>
             {
                 services.RemoveAll<IMobileTokenStorage>();
@@ -383,7 +387,7 @@ public sealed class AuthPresentationTests
                     probe.ResolutionCount++;
                     return ActivatorUtilities.CreateInstance<AppShell>(provider);
                 });
-            });
+            }, new FixedLanguageStore(language));
             return new TestApp(app, probe, sync, original, root);
         }
 
@@ -473,5 +477,11 @@ public sealed class AuthPresentationTests
             CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo(cultureName);
 
         public void Dispose() => CultureInfo.CurrentUICulture = _original;
+    }
+
+    private sealed class FixedLanguageStore(AppLanguage language) : IAppLanguageStore
+    {
+        public AppLanguage Read() => language;
+        public void Write(AppLanguage value) => language = value;
     }
 }

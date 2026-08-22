@@ -7,10 +7,10 @@ public partial class BodyAreaSheetPage : ContentPage
 {
     private Func<BodyPart?, Task>? _completion;
 
-    public BodyAreaSheetPage()
+    public BodyAreaSheetPage(WorkoutTextSet text)
     {
         InitializeComponent();
-        Text = WorkoutResources.Current;
+        Text = text;
         BindingContext = this;
     }
 

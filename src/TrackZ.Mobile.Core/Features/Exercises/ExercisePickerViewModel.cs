@@ -52,7 +52,7 @@ public enum ExercisePickerPresentationState
     Results = 7
 }
 
-public sealed class ExercisePickerViewModel : INotifyPropertyChanged
+public sealed class ExercisePickerViewModel : INotifyPropertyChanged, IDisposable
 {
     private readonly ExerciseCache _cache;
     private readonly IExerciseCatalogApi _catalogApi;
@@ -75,6 +75,7 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged
     private bool _hasCatalogBacking;
     private MobileApiException? _lastError;
     private AccountSessionGeneration? _authenticationRequiredGeneration;
+    private bool _disposed;
 
     public ExercisePickerViewModel(
         ExerciseCache cache,
@@ -517,6 +518,15 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(LastError));
         OnPropertyChanged(nameof(LastErrorCode));
         UpdatePresentation();
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        _boundary.SessionReset -= OnSessionReset;
+        if (_unitPreference is not null)
+            _unitPreference.Changed -= OnWeightUnitChanged;
     }
 
     private Task RequireSignInAsync()

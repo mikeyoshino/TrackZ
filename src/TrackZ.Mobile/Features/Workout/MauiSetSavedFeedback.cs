@@ -6,8 +6,10 @@ public sealed class MauiSetSavedFeedback(
     Func<bool>? hapticsEnabled = null,
     Func<Action, Task>? invokeOnMainThread = null,
     Action? performHaptic = null,
-    Action<SetSavedOutcome>? performOutcomeHaptic = null) : ISetSavedFeedback
+    Action<SetSavedOutcome>? performOutcomeHaptic = null,
+    WorkoutTextSet? text = null) : ISetSavedFeedback
 {
+    private readonly WorkoutTextSet _text = text ?? WorkoutResources.Current;
     private readonly Func<bool> _hapticsEnabled = hapticsEnabled
         ?? (() => Preferences.Default.Get("trackz_haptics_enabled", true));
     private readonly Func<Action, Task> _invokeOnMainThread = invokeOnMainThread
@@ -48,6 +50,6 @@ public sealed class MauiSetSavedFeedback(
         SetSavedAsync(new SetSavedPresentation(
             savedSet,
             SetSavedOutcome.Saved,
-            WorkoutResources.Current.SetSaved,
-            WorkoutResources.Current.SetSavedSecondary), session);
+            _text.SetSaved,
+            _text.SetSavedSecondary), session);
 }

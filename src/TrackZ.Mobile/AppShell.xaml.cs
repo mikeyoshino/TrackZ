@@ -16,16 +16,18 @@ public partial class AppShell : Shell
 	public AppShell(
 		TrainPage trainPage,
 		WorkoutPage workoutPage,
-		IServiceProvider services)
+		IServiceProvider services,
+		WorkoutTextSet workoutText,
+		GamificationTextSet gamificationText)
 	{
 		InitializeComponent();
 		var tabs = new TabBar();
 		tabs.Items.Add(CreateTab(
-			WorkoutResources.Current.TrainTab,
+			workoutText.TrainTab,
 			"tab_train.png",
 			new ShellContent { Route = "train", Content = trainPage }));
 		tabs.Items.Add(CreateTab(
-			WorkoutResources.Current.HistoryTab,
+			workoutText.HistoryTab,
 			"tab_history.png",
 			new ShellContent
 			{
@@ -33,7 +35,7 @@ public partial class AppShell : Shell
 				ContentTemplate = new DataTemplate(() => services.GetRequiredService<WorkoutHistoryPage>())
 			}));
 		tabs.Items.Add(CreateTab(
-			GamificationResources.Current.ProgressTitle,
+			gamificationText.ProgressTitle,
 			"tab_progress.png",
 			new ShellContent
 			{
@@ -41,7 +43,7 @@ public partial class AppShell : Shell
 				ContentTemplate = new DataTemplate(() => services.GetRequiredService<ExerciseProgressPage>())
 			}));
 		tabs.Items.Add(CreateTab(
-			GamificationResources.Current.YouTab,
+			gamificationText.YouTab,
 			"tab_you.png",
 			new ShellContent
 			{
@@ -49,14 +51,6 @@ public partial class AppShell : Shell
 				ContentTemplate = new DataTemplate(() => services.GetRequiredService<ProfilePage>())
 			}));
 		Items.Add(tabs);
-
-		Routing.RegisterRoute(nameof(ExercisePickerPage), typeof(ExercisePickerPage));
-		Routing.RegisterRoute("active-workout", typeof(WorkoutPage));
-		Routing.RegisterRoute(nameof(CustomExercisePage), typeof(CustomExercisePage));
-		Routing.RegisterRoute(nameof(SetLoggerPage), typeof(SetLoggerPage));
-		Routing.RegisterRoute(nameof(WorkoutHistoryPage), typeof(WorkoutHistoryPage));
-		Routing.RegisterRoute("workout-history-detail", typeof(WorkoutHistoryDetailPage));
-		Routing.RegisterRoute(nameof(WorkoutSummaryPage), typeof(WorkoutSummaryPage));
 	}
 
 	protected override void OnHandlerChanged()

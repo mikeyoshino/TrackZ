@@ -39,6 +39,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<IAppLanguageStore>(appLanguageStore);
 		builder.Services.AddSingleton<App>();
 		builder.Services.AddSingleton<IApplication>(services => services.GetRequiredService<App>());
+		builder.Services.AddSingleton<ILocalizedUiHost>(services => services.GetRequiredService<App>());
 
 		builder.Services.AddSingleton<IMobileTokenStorage, SecureMobileTokenStorage>();
 		builder.Services.AddSingleton<IAccountSessionBoundary, AccountSessionBoundary>();
@@ -74,7 +75,7 @@ public static class MauiProgram
 			apiOrigin));
 		builder.Services.AddSingleton<IIdentitySessionApi>(services => services.GetRequiredService<TrackZIdentityApiClient>());
 		builder.Services.AddSingleton<IDeviceNameProvider, MauiDeviceNameProvider>();
-		builder.Services.AddSingleton(_ => AuthTextSet.For(CultureInfo.CurrentUICulture));
+		builder.Services.AddScoped(_ => AuthTextSet.For(CultureInfo.CurrentUICulture));
 		builder.Services.AddSingleton<AuthGateCoordinator>();
 		builder.Services.AddSingleton<IAuthEntryPoint, MauiAuthEntryPoint>();
 		builder.Services.AddSingleton<IProtectedRequestAuthentication, ProtectedRequestAuthentication>();
@@ -146,12 +147,14 @@ public static class MauiProgram
 		builder.Services.AddSingleton<WorkoutHistoryCoordinator>();
 		builder.Services.AddSingleton<IExerciseHistorySource, CachedExerciseHistorySource>();
 		builder.Services.AddSingleton<IWorkoutSyncRunner, WorkoutSyncRunner>();
-		builder.Services.AddSingleton(WorkoutResources.Current);
-		builder.Services.AddSingleton(GamificationResources.Current);
+		builder.Services.AddScoped(_ => WorkoutResources.ForCulture(CultureInfo.CurrentUICulture));
+		builder.Services.AddScoped(_ => GamificationResources.Current);
+		builder.Services.AddScoped(_ => MobileResources.ForCulture(CultureInfo.CurrentUICulture));
+		builder.Services.AddSingleton<LocalizedUiScopeManager>();
 		builder.Services.AddSingleton<IWorkoutPreferenceStore, MauiWorkoutPreferenceStore>();
 		builder.Services.AddSingleton<IWeightUnitPreference, WeightUnitPreference>();
-		builder.Services.AddSingleton<MauiSetSavedFeedback>();
-		builder.Services.AddSingleton<ISetSavedFeedback>(services => services.GetRequiredService<MauiSetSavedFeedback>());
+		builder.Services.AddScoped<MauiSetSavedFeedback>();
+		builder.Services.AddScoped<ISetSavedFeedback>(services => services.GetRequiredService<MauiSetSavedFeedback>());
 		builder.Services.AddSingleton<IReduceMotionPreference, MauiReduceMotionPreference>();
 		builder.Services.AddSingleton<ITrackZMotion, MauiTrackZMotion>();
 		builder.Services.AddSingleton<SyncCoordinator>();
@@ -168,18 +171,18 @@ public static class MauiProgram
 		builder.Services.AddSingleton<CustomExerciseImageService>();
 		builder.Services.AddSingleton<LocalExerciseImageImporter>();
 		builder.Services.AddSingleton<LocalExerciseImageSelectionCoordinator>();
-		builder.Services.AddTransient<ExercisePickerViewModel>();
+		builder.Services.AddScoped<ExercisePickerViewModel>();
 		builder.Services.AddTransient<CustomExerciseViewModel>();
-		builder.Services.AddTransient<WorkoutViewModel>();
+		builder.Services.AddScoped<WorkoutViewModel>();
 		builder.Services.AddTransient<SetLoggerViewModel>();
 		builder.Services.AddSingleton<IInlineSetEditorTransition, MauiInlineSetEditorTransition>();
 		builder.Services.AddTransient<WorkoutHistoryViewModel>();
 		builder.Services.AddTransient<WorkoutHistoryDetailViewModel>();
 		builder.Services.AddTransient<WorkoutSummaryViewModel>();
 		builder.Services.AddTransient<ExerciseProgressViewModel>();
-		builder.Services.AddTransient<ProgressDashboardViewModel>();
-		builder.Services.AddTransient<ProfileViewModel>();
-		builder.Services.AddSingleton(services => new TrainTodayViewModel(
+		builder.Services.AddScoped<ProgressDashboardViewModel>();
+		builder.Services.AddScoped<ProfileViewModel>();
+		builder.Services.AddScoped(services => new TrainTodayViewModel(
 			services.GetRequiredService<ITrainDashboardSource>(),
 			services.GetRequiredService<IAccountSessionBoundary>(),
 			services.GetRequiredService<WorkoutTextSet>(),
@@ -197,9 +200,9 @@ public static class MauiProgram
 			services.GetRequiredService<BodyAreaSheetPage>));
 		builder.Services.AddSingleton<ITrainNavigator, MauiTrainNavigator>();
 		builder.Services.AddSingleton<IExercisePickerNavigator, MauiExercisePickerNavigator>();
-		builder.Services.AddSingleton<ExercisePickerPage>();
+		builder.Services.AddScoped<ExercisePickerPage>();
 		builder.Services.AddTransient<CustomExercisePage>();
-		builder.Services.AddSingleton<WorkoutPage>();
+		builder.Services.AddScoped<WorkoutPage>();
 		builder.Services.AddTransient<SetLoggerPage>();
 		builder.Services.AddTransient<SetEntrySheetPage>();
 		builder.Services.AddTransient<WorkoutHistoryPage>();
@@ -207,15 +210,15 @@ public static class MauiProgram
 		builder.Services.AddTransient<HistorySetEditorSheetPage>();
 		builder.Services.AddTransient<HistoryConflictSheetPage>();
 		builder.Services.AddTransient<WorkoutSummaryPage>();
-		builder.Services.AddSingleton<ExerciseProgressPage>();
-		builder.Services.AddSingleton<ProfilePage>();
-		builder.Services.AddSingleton<TrainPage>();
+		builder.Services.AddScoped<ExerciseProgressPage>();
+		builder.Services.AddScoped<ProfilePage>();
+		builder.Services.AddScoped<TrainPage>();
 		builder.Services.AddTransient<AuthFormViewModel>();
 		builder.Services.AddTransient<SignInPage>();
 		builder.Services.AddTransient<CreateAccountPage>();
-		builder.Services.AddSingleton<AuthGatePage>();
-		builder.Services.AddSingleton<AuthShell>();
-		builder.Services.AddSingleton<AppShell>();
+		builder.Services.AddScoped<AuthGatePage>();
+		builder.Services.AddScoped<AuthShell>();
+		builder.Services.AddScoped<AppShell>();
 		configureTestServices?.Invoke(builder.Services);
 
 #if DEBUG

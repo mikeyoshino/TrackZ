@@ -12,7 +12,9 @@ public sealed class BodyAreaSheetTests
     public async Task Dismissing_body_area_sheet_returns_null()
     {
         var presenter = new RecordingSheetPresenter();
-        var picker = new MauiBodyAreaPicker(presenter, () => new BodyAreaSheetPage());
+        var picker = new MauiBodyAreaPicker(
+            presenter,
+            () => new BodyAreaSheetPage(WorkoutResources.English));
 
         var pending = picker.PickAsync();
         await presenter.Presented.Task.WaitAsync(TimeSpan.FromSeconds(1));
@@ -26,7 +28,9 @@ public sealed class BodyAreaSheetTests
     public async Task Selecting_body_area_completes_once_and_dismisses()
     {
         var presenter = new RecordingSheetPresenter();
-        var picker = new MauiBodyAreaPicker(presenter, () => new BodyAreaSheetPage());
+        var picker = new MauiBodyAreaPicker(
+            presenter,
+            () => new BodyAreaSheetPage(WorkoutResources.English));
 
         var pending = picker.PickAsync();
         await presenter.Presented.Task.WaitAsync(TimeSpan.FromSeconds(1));

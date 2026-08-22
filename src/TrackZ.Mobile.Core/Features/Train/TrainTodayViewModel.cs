@@ -10,7 +10,7 @@ using TrackZ.Mobile.Identity;
 
 namespace TrackZ.Mobile.Features.Train;
 
-public sealed class TrainTodayViewModel : INotifyPropertyChanged
+public sealed class TrainTodayViewModel : INotifyPropertyChanged, IDisposable
 {
     private readonly ITrainDashboardSource _source;
     private readonly IAccountSessionBoundary _boundary;
@@ -39,6 +39,7 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
     private int? _nextLevelRequiredXp;
     private string? _errorText;
     private bool _hasLoadRetry;
+    private bool _disposed;
 
     public TrainTodayViewModel(
         ITrainDashboardSource source,
@@ -134,7 +135,8 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
     public string RecentMomentumText => RecentMomentum is { } recent
         ? string.Format(CultureInfo.CurrentCulture, Text.LastBestFormat, recent.LastText, recent.BestText)
         : string.Empty;
-    public bool CanMutate => _isDashboardKnown
+    public bool CanMutate => !_disposed
+        && _isDashboardKnown
         && !_isCommandMutation
         && !_boundary.IsCancellationRequested(_boundary.Capture());
     public bool IsOffline => _connectivity is { IsOnline: false };
@@ -268,7 +270,7 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
 
     public async Task LoadAsync(CancellationToken cancellationToken = default)
     {
-        if (IsBusy) return;
+        if (_disposed || IsBusy) return;
         var generation = _boundary.Capture();
         if (!_boundary.TryStartSessionPhase(generation, () =>
         {
@@ -438,6 +440,17 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(ShowContinueHero));
         OnPropertyChanged(nameof(ShowTrainAgain));
         OnPropertyChanged(nameof(CanMutate));
+        RefreshCommandState();
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        _boundary.SessionReset -= OnSessionReset;
+        if (_connectivity is not null)
+            _connectivity.ConnectivityChanged -= OnConnectivityChanged;
+        RecentMomentum = null;
         RefreshCommandState();
     }
 

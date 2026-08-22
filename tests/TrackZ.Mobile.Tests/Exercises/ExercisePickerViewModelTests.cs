@@ -190,7 +190,12 @@ public sealed class ExercisePickerViewModelTests : IAsyncLifetime
     {
         var press = ChestPressWithPerformance();
         await _cache.ReplaceAllAsync([press], new DateTimeOffset(2026, 8, 15, 1, 0, 0, TimeSpan.Zero));
-        var sut = new ExercisePickerViewModel(_cache, new StubCatalogApi(), new StubConnectivity(false), new FixedClock());
+        var sut = new ExercisePickerViewModel(
+            _cache,
+            new StubCatalogApi(),
+            new StubConnectivity(false),
+            new FixedClock(),
+            text: WorkoutResources.English);
 
         await sut.LoadAsync(BodyPart.Chest);
         sut.ToggleSelectionCommand.Execute(sut.Exercises[0]);
@@ -212,7 +217,8 @@ public sealed class ExercisePickerViewModelTests : IAsyncLifetime
             _cache,
             new StubCatalogApi(),
             new StubConnectivity(false),
-            new FixedClock());
+            new FixedClock(),
+            text: WorkoutResources.English);
         await sut.LoadAsync(BodyPart.Chest);
         var item = Assert.Single(sut.Exercises);
 
