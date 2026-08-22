@@ -23,7 +23,7 @@
   <data name="MatchLast" xml:space="preserve"><value>ใช้ค่าครั้งก่อน</value></data>
   <data name="CompleteSet" xml:space="preserve"><value>จบเซ็ต</value></data>
   <data name="AddExercise" xml:space="preserve"><value>เพิ่มท่า</value></data>
-  <data name="StartWorkout" xml:space="preserve"><value>เริ่มการฝึก</value></data>
+  <data name="StartWorkout" xml:space="preserve"><value>เริ่มออกกำลังกาย</value></data>
   <data name="Remove" xml:space="preserve"><value>นำออก</value></data>
   <data name="MoveUp" xml:space="preserve"><value>เลื่อนขึ้น</value></data>
   <data name="MoveDown" xml:space="preserve"><value>เลื่อนลง</value></data>
@@ -113,4 +113,21 @@
   <data name="LowerAssistanceProgress" xml:space="preserve"><value>แรงช่วยที่น้อยลงหมายถึงคุณออกแรงเองมากขึ้น</value></data>
   <data name="NoPreviousSetsYet" xml:space="preserve"><value>ยังไม่มีเซ็ตครั้งก่อน เริ่มที่เซ็ต 1 ได้เลย</value></data>
   <data name="SaveSetNumberFormat" xml:space="preserve"><value>บันทึกเซ็ต {0}</value></data>
+  <data name="ReadyWhenYouAre" xml:space="preserve"><value>พร้อมเมื่อไหร่ เริ่มได้เลย</value></data>
+  <data name="YouAreInMotion" xml:space="preserve"><value>กำลังไปได้ดี</value></data>
+  <data name="StartTraining" xml:space="preserve"><value>เริ่มฝึก</value></data>
+  <data name="ChooseTodaysWorkout" xml:space="preserve"><value>เลือกการฝึกวันนี้</value></data>
+  <data name="ChooseWorkoutSupporting" xml:space="preserve"><value>คุณเลือกส่วนร่างกายและท่าออกกำลังกายเอง</value></data>
+  <data name="WorkoutInProgress" xml:space="preserve"><value>กำลังออกกำลังกาย</value></data>
+  <data name="ContinueWorkout" xml:space="preserve"><value>ออกกำลังกายต่อ</value></data>
+  <data name="ThisWeek" xml:space="preserve"><value>สัปดาห์นี้</value></data>
+  <data name="WeekStreak" xml:space="preserve"><value>ต่อเนื่องรายสัปดาห์</value></data>
+  <data name="LevelXpFormat" xml:space="preserve"><value>เลเวล {0} · {1} XP</value></data>
+  <data name="TrainAgain" xml:space="preserve"><value>ฝึกแบบเดิมอีกครั้ง</value></data>
+  <data name="RecentMomentum" xml:space="preserve"><value>ความก้าวหน้าล่าสุด</value></data>
+  <data name="LastBestFormat" xml:space="preserve"><value>{0} · {1}</value></data>
+  <data name="HomeExerciseProgressFormat" xml:space="preserve"><value>บันทึกแล้ว {0} จาก {1} ท่า · {2} เซ็ต</value></data>
+  <data name="RepeatWorkoutAccessibilityFormat" xml:space="preserve"><value>ฝึกแบบเดิมอีกครั้ง: {0}, {1} ท่า, {2} เซ็ต</value></data>
+  <data name="HomeLoadFailed" xml:space="preserve"><value>โหลดหน้าหลักไม่สำเร็จ</value></data>
+  <data name="HomeContextFormat" xml:space="preserve"><value>วันนี้ · สัปดาห์ที่ {0}</value></data>
 </root>

@@ -179,6 +179,20 @@ public sealed class TrainTodayViewModelTests
     }
 
     [Fact]
+    public async Task Home_dashboard_load_failure_uses_the_home_specific_localized_error()
+    {
+        var viewModel = new TrainTodayViewModel(
+            new ThrowingTrainDashboardSource(),
+            new AccountSessionBoundary(),
+            WorkoutResources.English);
+
+        await viewModel.LoadAsync();
+
+        Assert.Equal("Could not load Home", viewModel.ErrorText);
+        Assert.NotEqual(WorkoutResources.English.LoadFailed, viewModel.ErrorText);
+    }
+
+    [Fact]
     public async Task Caller_cancellation_during_progress_read_is_propagated()
     {
         var progress = new GatedCancellableProgressSource();
@@ -296,6 +310,222 @@ public sealed class TrainTodayViewModelTests
         }
     }
 
+    [Theory]
+    [InlineData(
+        "en-US",
+        "Ready when you are.",
+        "Start training",
+        "Choose today's workout",
+        "You choose the body area and exercises",
+        "3/4",
+        "4",
+        "Level 8 · 640 XP",
+        "Shoulders + Back",
+        "Thursday · 2 exercises · 3 sets logged",
+        "Train again: Shoulders + Back, 2 exercises, 3 sets",
+        "Last 70.125 kg × 8 · Best 72.5 kg × 6",
+        "Last 154.60 lb × 8 · Best 159.84 lb × 6")]
+    [InlineData(
+        "th-TH",
+        "พร้อมเมื่อไหร่ เริ่มได้เลย",
+        "เริ่มฝึก",
+        "เลือกการฝึกวันนี้",
+        "คุณเลือกส่วนร่างกายและท่าออกกำลังกายเอง",
+        "3/4",
+        "4",
+        "เลเวล 8 · 640 XP",
+        "ไหล่ + หลัง",
+        "วันพฤหัสบดี · 2 ท่า · บันทึกแล้ว 3 เซ็ต",
+        "ฝึกแบบเดิมอีกครั้ง: ไหล่ + หลัง, 2 ท่า, 3 เซ็ต",
+        "ล่าสุด 70.125 กก. × 8 · สูงสุด 72.5 กก. × 6",
+        "ล่าสุด 154.60 ปอนด์ × 8 · สูงสุด 159.84 ปอนด์ × 6")]
+    public async Task Ready_home_presentation_uses_literal_localized_copy_and_formats(
+        string cultureName,
+        string headline,
+        string eyebrow,
+        string title,
+        string supporting,
+        string weekly,
+        string streak,
+        string levelXp,
+        string repeatTitle,
+        string repeatMeta,
+        string repeatAccessibility,
+        string recent,
+        string recentPounds)
+    {
+        var previousCulture = CultureInfo.CurrentCulture;
+        var previousUiCulture = CultureInfo.CurrentUICulture;
+        try
+        {
+            var culture = CultureInfo.GetCultureInfo(cultureName);
+            CultureInfo.CurrentCulture = culture;
+            CultureInfo.CurrentUICulture = culture;
+            var repeat = new RepeatWorkoutShortcut(
+                Guid.Parse("55555555-5555-5555-5555-555555555555"),
+                [BodyPart.Shoulders, BodyPart.Back],
+                At(8),
+                2,
+                3,
+                null,
+                [new WorkoutExerciseSelection(Guid.Parse("66666666-6666-6666-6666-666666666666"), TrackingMode.Weighted)]);
+            var weightPreference = new MutableWeightPreference();
+            var viewModel = new TrainTodayViewModel(
+                new RecordingTrainDashboardSource(new(null, repeat)),
+                new AccountSessionBoundary(),
+                WorkoutResources.ForCulture(culture),
+                new CachedProgressSource(Snapshot(goal: 4, done: 3, streak: 4, level: 8, xp: 640)),
+                new FixedConnectivity(false),
+                weightPreference,
+                culture.TwoLetterISOLanguageName == "th" ? GamificationResources.Thai : GamificationResources.English);
+
+            await viewModel.LoadAsync();
+
+            Assert.Equal(headline, viewModel.HomeHeadlineText);
+            Assert.Equal(eyebrow, viewModel.HeroEyebrowText);
+            Assert.Equal(title, viewModel.HeroTitleText);
+            Assert.Equal(supporting, viewModel.HeroSupportingText);
+            Assert.Equal(weekly, viewModel.WeeklyGoalProgressText);
+            Assert.Equal(streak, viewModel.StreakValueText);
+            Assert.Equal(levelXp, viewModel.LevelXpText);
+            Assert.Equal(repeatTitle, viewModel.RepeatWorkoutTitle);
+            Assert.Equal(repeatMeta, viewModel.RepeatWorkoutMetaText);
+            Assert.Equal(repeatAccessibility, viewModel.RepeatWorkoutAccessibilityText);
+            Assert.Equal(recent, viewModel.RecentMomentumText);
+            weightPreference.Set(WeightDisplayUnit.Pounds);
+            Assert.Equal(recentPounds, viewModel.RecentMomentumText);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previousCulture;
+            CultureInfo.CurrentUICulture = previousUiCulture;
+        }
+    }
+
+    [Theory]
+    [InlineData("en-US", "You're in motion.", "Workout in progress", "Chest + Arms", "3 of 5 exercises logged · 8 sets", "Continue workout")]
+    [InlineData("th-TH", "กำลังไปได้ดี", "กำลังออกกำลังกาย", "หน้าอก + แขน", "บันทึกแล้ว 3 จาก 5 ท่า · 8 เซ็ต", "ออกกำลังกายต่อ")]
+    public async Task Active_home_presentation_uses_the_same_localized_hero_contract(
+        string cultureName,
+        string headline,
+        string eyebrow,
+        string title,
+        string supporting,
+        string action)
+    {
+        var previousCulture = CultureInfo.CurrentCulture;
+        var previousUiCulture = CultureInfo.CurrentUICulture;
+        try
+        {
+            var culture = CultureInfo.GetCultureInfo(cultureName);
+            CultureInfo.CurrentCulture = culture;
+            CultureInfo.CurrentUICulture = culture;
+            var viewModel = new TrainTodayViewModel(
+                new RecordingTrainDashboardSource(new(
+                    new(Guid.Parse("77777777-7777-7777-7777-777777777777"), At(9), [BodyPart.Chest, BodyPart.Arms], 5, 3, 8),
+                    null)),
+                new AccountSessionBoundary(),
+                WorkoutResources.ForCulture(culture));
+
+            await viewModel.LoadAsync();
+
+            Assert.Equal(headline, viewModel.HomeHeadlineText);
+            Assert.Equal(eyebrow, viewModel.HeroEyebrowText);
+            Assert.Equal(title, viewModel.HeroTitleText);
+            Assert.Equal(supporting, viewModel.HeroSupportingText);
+            Assert.Equal(action, viewModel.HeroActionText);
+            Assert.Equal(0.6d, viewModel.ActiveWorkoutProgress);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previousCulture;
+            CultureInfo.CurrentUICulture = previousUiCulture;
+        }
+    }
+
+    [Theory]
+    [InlineData("en-US", "Today · Week 34", "Today · Week 35")]
+    [InlineData("th-TH", "วันนี้ · สัปดาห์ที่ 34", "วันนี้ · สัปดาห์ที่ 35")]
+    public async Task Home_context_uses_the_injected_clock_and_notifies_on_each_reload(
+        string cultureName,
+        string week34,
+        string week35)
+    {
+        var previousCulture = CultureInfo.CurrentCulture;
+        var previousUiCulture = CultureInfo.CurrentUICulture;
+        try
+        {
+            var culture = CultureInfo.GetCultureInfo(cultureName);
+            CultureInfo.CurrentCulture = culture;
+            CultureInfo.CurrentUICulture = culture;
+            var clock = new MutableClock(new DateTimeOffset(2026, 8, 22, 12, 0, 0, TimeSpan.Zero));
+            var viewModel = new TrainTodayViewModel(
+                new RecordingTrainDashboardSource(new(null, null)),
+                new AccountSessionBoundary(),
+                WorkoutResources.ForCulture(culture),
+                progress: null,
+                connectivity: null,
+                weightUnits: new MutableWeightPreference(),
+                gamificationText: culture.TwoLetterISOLanguageName == "th" ? GamificationResources.Thai : GamificationResources.English,
+                clock: clock);
+            var contextChanges = 0;
+            viewModel.PropertyChanged += (_, args) =>
+            {
+                if (args.PropertyName == nameof(TrainTodayViewModel.HomeContextText)) contextChanges++;
+            };
+
+            await viewModel.LoadAsync();
+            Assert.Equal(week34, viewModel.HomeContextText);
+            clock.UtcNow = new DateTimeOffset(2026, 8, 29, 12, 0, 0, TimeSpan.Zero);
+            await viewModel.LoadAsync();
+
+            Assert.Equal(week35, viewModel.HomeContextText);
+            Assert.Equal(2, contextChanges);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previousCulture;
+            CultureInfo.CurrentUICulture = previousUiCulture;
+        }
+    }
+
+    [Fact]
+    public async Task Presentation_properties_notify_when_loaded_and_when_the_account_resets()
+    {
+        var boundary = new AccountSessionBoundary();
+        var viewModel = CreateViewModel(
+            new RecordingTrainDashboardSource(new(
+                new(Guid.Parse("88888888-8888-8888-8888-888888888888"), At(9), [BodyPart.Chest], 5, 3, 8),
+                new(Guid.Parse("99999999-9999-9999-9999-999999999999"), [BodyPart.Back], At(8), 2, 3, null,
+                    [new WorkoutExerciseSelection(Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"), TrackingMode.Weighted)]))),
+            new CachedProgressSource(Snapshot(goal: 4, done: 3, streak: 4, level: 8, xp: 640)),
+            online: false,
+            boundary);
+        var changes = new List<string?>();
+        viewModel.PropertyChanged += (_, args) => changes.Add(args.PropertyName);
+
+        await viewModel.LoadAsync();
+        await boundary.ResetAsync(_ => Task.CompletedTask);
+
+        var derivedProperties = new[]
+        {
+            nameof(TrainTodayViewModel.HomeHeadlineText),
+            nameof(TrainTodayViewModel.HeroEyebrowText),
+            nameof(TrainTodayViewModel.HeroTitleText),
+            nameof(TrainTodayViewModel.HeroSupportingText),
+            nameof(TrainTodayViewModel.ActiveWorkoutProgress),
+            nameof(TrainTodayViewModel.WeeklyGoalProgressText),
+            nameof(TrainTodayViewModel.StreakValueText),
+            nameof(TrainTodayViewModel.LevelXpText),
+            nameof(TrainTodayViewModel.RepeatWorkoutTitle),
+            nameof(TrainTodayViewModel.RepeatWorkoutMetaText),
+            nameof(TrainTodayViewModel.RepeatWorkoutAccessibilityText),
+            nameof(TrainTodayViewModel.RecentMomentumText)
+        };
+        Assert.All(derivedProperties, property =>
+            Assert.True(changes.Count(change => change == property) >= 2, $"{property} did not notify for load and reset."));
+    }
+
     [Fact]
     public async Task Account_reset_during_load_does_not_commit_stale_dashboard()
     {
@@ -409,6 +639,12 @@ public sealed class TrainTodayViewModelTests
             LoadCount++;
             return Task.FromResult(snapshot);
         }
+    }
+
+    private sealed class ThrowingTrainDashboardSource : ITrainDashboardSource
+    {
+        public Task<TrainDashboardSnapshot> LoadAsync(CancellationToken cancellationToken = default) =>
+            Task.FromException<TrainDashboardSnapshot>(new IOException("Dashboard unavailable."));
     }
 
     private sealed class GatedTrainDashboardSource : ITrainDashboardSource
@@ -564,9 +800,20 @@ public sealed class TrainTodayViewModelTests
 
     private sealed class MutableWeightPreference : IWeightUnitPreference
     {
-        public WeightDisplayUnit Current => WeightDisplayUnit.Kilograms;
-        public event EventHandler? Changed { add { } remove { } }
-        public void Set(WeightDisplayUnit unit) { }
+        public WeightDisplayUnit Current { get; private set; } = WeightDisplayUnit.Kilograms;
+        public event EventHandler? Changed;
+
+        public void Set(WeightDisplayUnit unit)
+        {
+            if (Current == unit) return;
+            Current = unit;
+            Changed?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    private sealed class MutableClock(DateTimeOffset utcNow) : IClock
+    {
+        public DateTimeOffset UtcNow { get; set; } = utcNow;
     }
 
     private sealed class RecordingTrainNavigator : ITrainNavigator

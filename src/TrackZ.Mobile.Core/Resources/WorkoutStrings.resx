@@ -113,4 +113,21 @@
   <data name="LowerAssistanceProgress" xml:space="preserve"><value>Lower assistance means more of the work is yours.</value></data>
   <data name="NoPreviousSetsYet" xml:space="preserve"><value>No previous sets yet. Start with set 1.</value></data>
   <data name="SaveSetNumberFormat" xml:space="preserve"><value>Save set {0}</value></data>
+  <data name="ReadyWhenYouAre" xml:space="preserve"><value>Ready when you are.</value></data>
+  <data name="YouAreInMotion" xml:space="preserve"><value>You're in motion.</value></data>
+  <data name="StartTraining" xml:space="preserve"><value>Start training</value></data>
+  <data name="ChooseTodaysWorkout" xml:space="preserve"><value>Choose today's workout</value></data>
+  <data name="ChooseWorkoutSupporting" xml:space="preserve"><value>You choose the body area and exercises</value></data>
+  <data name="WorkoutInProgress" xml:space="preserve"><value>Workout in progress</value></data>
+  <data name="ContinueWorkout" xml:space="preserve"><value>Continue workout</value></data>
+  <data name="ThisWeek" xml:space="preserve"><value>This week</value></data>
+  <data name="WeekStreak" xml:space="preserve"><value>Week streak</value></data>
+  <data name="LevelXpFormat" xml:space="preserve"><value>Level {0} · {1} XP</value></data>
+  <data name="TrainAgain" xml:space="preserve"><value>Train again</value></data>
+  <data name="RecentMomentum" xml:space="preserve"><value>Recent momentum</value></data>
+  <data name="LastBestFormat" xml:space="preserve"><value>{0} · {1}</value></data>
+  <data name="HomeExerciseProgressFormat" xml:space="preserve"><value>{0} of {1} exercises logged · {2} sets</value></data>
+  <data name="RepeatWorkoutAccessibilityFormat" xml:space="preserve"><value>Train again: {0}, {1} exercises, {2} sets</value></data>
+  <data name="HomeLoadFailed" xml:space="preserve"><value>Could not load Home</value></data>
+  <data name="HomeContextFormat" xml:space="preserve"><value>Today · Week {0}</value></data>
 </root>

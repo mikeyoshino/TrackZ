@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using TrackZ.Domain.Exercises;
 using TrackZ.Mobile.Data.Models;
@@ -28,6 +29,7 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
     private readonly GamificationTextSet _gamificationText;
     private readonly ActiveWorkoutCoordinator? _activeWorkouts;
     private readonly ITrainNavigator? _navigator;
+    private readonly IClock _clock;
     private bool _isBusy;
     private bool _isDashboardKnown;
     private bool _isCommandMutation;
@@ -63,7 +65,8 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
         IWeightUnitPreference weightUnits,
         GamificationTextSet gamificationText,
         ActiveWorkoutCoordinator? activeWorkouts = null,
-        ITrainNavigator? navigator = null)
+        ITrainNavigator? navigator = null,
+        IClock? clock = null)
     {
         _source = source;
         _boundary = boundary;
@@ -73,6 +76,7 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
         _gamificationText = gamificationText;
         _activeWorkouts = activeWorkouts;
         _navigator = navigator;
+        _clock = clock ?? new SystemClock();
         Text = text;
         HeroActionCommand = new AsyncCommand(_ => ExecuteHeroActionAsync(), _ => CanMutate);
         TrainAgainCommand = new AsyncCommand(_ => ExecuteTrainAgainAsync(), _ => CanMutate && ShowTrainAgain);
@@ -89,7 +93,51 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
     public bool ShowStartHero => _isDashboardKnown && !HasActiveWorkout;
     public bool ShowContinueHero => _isDashboardKnown && HasActiveWorkout;
     public bool ShowTrainAgain => _isDashboardKnown && !HasActiveWorkout && RepeatWorkout is not null;
-    public string HeroActionText => HasActiveWorkout ? Text.Continue : Text.StartWorkout;
+    public string HomeHeadlineText => HasActiveWorkout ? Text.YouAreInMotion : Text.ReadyWhenYouAre;
+    public string HomeContextText => string.Format(
+        CultureInfo.CurrentCulture,
+        Text.HomeContextFormat,
+        ISOWeek.GetWeekOfYear(_clock.UtcNow.UtcDateTime));
+    public string HeroEyebrowText => HasActiveWorkout ? Text.WorkoutInProgress : Text.StartTraining;
+    public string HeroTitleText => ActiveWorkout is { BodyParts.Count: > 0 } active
+        ? FormatBodyParts(active.BodyParts)
+        : HasActiveWorkout ? Text.WorkoutInProgress : Text.ChooseTodaysWorkout;
+    public string HeroSupportingText => ActiveWorkout is { } active
+        ? string.Format(
+            CultureInfo.CurrentCulture,
+            Text.HomeExerciseProgressFormat,
+            active.LoggedExerciseCount,
+            active.ExerciseCount,
+            active.LoggedSetCount)
+        : Text.ChooseWorkoutSupporting;
+    public double ActiveWorkoutProgress => ActiveWorkout is { ExerciseCount: > 0 } active
+        ? Math.Clamp((double)active.LoggedExerciseCount / active.ExerciseCount, 0d, 1d)
+        : 0d;
+    public string HeroActionText => HasActiveWorkout ? Text.ContinueWorkout : Text.StartWorkout;
+    public string WeeklyGoalProgressText => $"{WeeklyCompletedWorkouts}/{WeeklyGoal}";
+    public string StreakValueText => CurrentStreakWeeks.ToString(CultureInfo.CurrentCulture);
+    public string LevelXpText => string.Format(CultureInfo.CurrentCulture, Text.LevelXpFormat, Level, TotalXp);
+    public string RepeatWorkoutTitle => RepeatWorkout is { BodyParts.Count: > 0 } repeat
+        ? FormatBodyParts(repeat.BodyParts)
+        : string.Empty;
+    public string RepeatWorkoutMetaText => RepeatWorkout is { } repeat
+        ? string.Join(
+            " · ",
+            repeat.CompletedAt.ToString("dddd", CultureInfo.CurrentCulture),
+            string.Format(CultureInfo.CurrentCulture, Text.ExerciseCountFormat, repeat.ExerciseCount),
+            string.Format(CultureInfo.CurrentCulture, Text.SetsLoggedFormat, repeat.LoggedSetCount))
+        : string.Empty;
+    public string RepeatWorkoutAccessibilityText => RepeatWorkout is { } repeat
+        ? string.Format(
+            CultureInfo.CurrentCulture,
+            Text.RepeatWorkoutAccessibilityFormat,
+            RepeatWorkoutTitle,
+            repeat.ExerciseCount,
+            repeat.LoggedSetCount)
+        : string.Empty;
+    public string RecentMomentumText => RecentMomentum is { } recent
+        ? string.Format(CultureInfo.CurrentCulture, Text.LastBestFormat, recent.LastText, recent.BestText)
+        : string.Empty;
     public bool CanMutate => _isDashboardKnown
         && !_isCommandMutation
         && !_boundary.IsCancellationRequested(_boundary.Capture());
@@ -103,11 +151,31 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
                 OnPropertyChanged(nameof(LevelProgress));
         }
     }
-    public int WeeklyCompletedWorkouts { get => _weeklyCompletedWorkouts; private set => Set(ref _weeklyCompletedWorkouts, value); }
-    public int WeeklyGoal { get => _weeklyGoal; private set => Set(ref _weeklyGoal, value); }
-    public int CurrentStreakWeeks { get => _currentStreakWeeks; private set => Set(ref _currentStreakWeeks, value); }
-    public int Level { get => _level; private set => Set(ref _level, value); }
-    public int TotalXp { get => _totalXp; private set => Set(ref _totalXp, value); }
+    public int WeeklyCompletedWorkouts
+    {
+        get => _weeklyCompletedWorkouts;
+        private set { if (Set(ref _weeklyCompletedWorkouts, value)) OnPropertyChanged(nameof(WeeklyGoalProgressText)); }
+    }
+    public int WeeklyGoal
+    {
+        get => _weeklyGoal;
+        private set { if (Set(ref _weeklyGoal, value)) OnPropertyChanged(nameof(WeeklyGoalProgressText)); }
+    }
+    public int CurrentStreakWeeks
+    {
+        get => _currentStreakWeeks;
+        private set { if (Set(ref _currentStreakWeeks, value)) OnPropertyChanged(nameof(StreakValueText)); }
+    }
+    public int Level
+    {
+        get => _level;
+        private set { if (Set(ref _level, value)) OnPropertyChanged(nameof(LevelXpText)); }
+    }
+    public int TotalXp
+    {
+        get => _totalXp;
+        private set { if (Set(ref _totalXp, value)) OnPropertyChanged(nameof(LevelXpText)); }
+    }
     public double LevelProgress => !HasAuthoritativeProgress
         ? 0d
         : _nextLevelRequiredXp is not { } next || next <= _currentLevelRequiredXp
@@ -119,10 +187,17 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
         private set
         {
             if (ReferenceEquals(_recentMomentum, value)) return;
-            _recentMomentum?.Dispose();
+            if (_recentMomentum is not null)
+            {
+                _recentMomentum.PropertyChanged -= OnRecentMomentumChanged;
+                _recentMomentum.Dispose();
+            }
             _recentMomentum = value;
+            if (_recentMomentum is not null)
+                _recentMomentum.PropertyChanged += OnRecentMomentumChanged;
             OnPropertyChanged();
             OnPropertyChanged(nameof(HasRecentMomentum));
+            OnPropertyChanged(nameof(RecentMomentumText));
         }
     }
     public bool HasRecentMomentum => RecentMomentum is not null;
@@ -144,6 +219,7 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
                 OnPropertyChanged(nameof(ShowContinueHero));
                 OnPropertyChanged(nameof(ShowTrainAgain));
                 OnPropertyChanged(nameof(HeroActionText));
+                NotifyHeroPresentation();
                 RefreshCommandState();
             }
         }
@@ -156,6 +232,9 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
         {
             if (!Set(ref _repeatWorkout, value)) return;
             OnPropertyChanged(nameof(ShowTrainAgain));
+            OnPropertyChanged(nameof(RepeatWorkoutTitle));
+            OnPropertyChanged(nameof(RepeatWorkoutMetaText));
+            OnPropertyChanged(nameof(RepeatWorkoutAccessibilityText));
             RefreshCommandState();
         }
     }
@@ -181,6 +260,7 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
         if (!_boundary.TryStartSessionPhase(generation, () =>
         {
             IsBusy = true;
+            OnPropertyChanged(nameof(HomeContextText));
             _isDashboardKnown = false;
             OnPropertyChanged(nameof(ShowStartHero));
             OnPropertyChanged(nameof(ShowContinueHero));
@@ -229,7 +309,7 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
         {
             await _boundary.TryCommitAsync(generation, _ =>
             {
-                ErrorText = Text.LoadFailed;
+                ErrorText = Text.HomeLoadFailed;
                 return Task.CompletedTask;
             }, CancellationToken.None);
         }
@@ -400,7 +480,7 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
         {
             await _boundary.TryCommitAsync(generation, _ =>
             {
-                ErrorText = Text.LoadFailed;
+                ErrorText = Text.HomeLoadFailed;
                 return Task.CompletedTask;
             }, CancellationToken.None);
         }
@@ -446,6 +526,21 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged
 
     private void OnConnectivityChanged(object? sender, EventArgs eventArgs) =>
         _ = ApplyConnectivityChangeAsync();
+
+    private void OnRecentMomentumChanged(object? sender, PropertyChangedEventArgs eventArgs)
+    {
+        if (eventArgs.PropertyName is nameof(HomeMomentumItem.LastText) or nameof(HomeMomentumItem.BestText))
+            OnPropertyChanged(nameof(RecentMomentumText));
+    }
+
+    private void NotifyHeroPresentation()
+    {
+        OnPropertyChanged(nameof(HomeHeadlineText));
+        OnPropertyChanged(nameof(HeroEyebrowText));
+        OnPropertyChanged(nameof(HeroTitleText));
+        OnPropertyChanged(nameof(HeroSupportingText));
+        OnPropertyChanged(nameof(ActiveWorkoutProgress));
+    }
 
     private async Task ApplyConnectivityChangeAsync()
     {

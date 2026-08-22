@@ -112,7 +112,24 @@ public sealed record WorkoutTextSet(
     string PersonalRecordSecondary,
     string LowerAssistanceProgress,
     string NoPreviousSetsYet,
-    string SaveSetNumberFormat);
+    string SaveSetNumberFormat,
+    string ReadyWhenYouAre,
+    string YouAreInMotion,
+    string StartTraining,
+    string ChooseTodaysWorkout,
+    string ChooseWorkoutSupporting,
+    string WorkoutInProgress,
+    string ContinueWorkout,
+    string ThisWeek,
+    string WeekStreak,
+    string LevelXpFormat,
+    string TrainAgain,
+    string RecentMomentum,
+    string LastBestFormat,
+    string HomeExerciseProgressFormat,
+    string RepeatWorkoutAccessibilityFormat,
+    string HomeLoadFailed,
+    string HomeContextFormat);
 
 public static class WorkoutResources
 {
@@ -171,7 +188,15 @@ public static class WorkoutResources
             Value("MatchedPreviousSet", culture), Value("MatchedPreviousSecondary", culture),
             Value("PersonalRecordSaved", culture), Value("PersonalRecordSecondary", culture),
             Value("LowerAssistanceProgress", culture), Value("NoPreviousSetsYet", culture),
-            Value("SaveSetNumberFormat", culture));
+            Value("SaveSetNumberFormat", culture), Value("ReadyWhenYouAre", culture),
+            Value("YouAreInMotion", culture), Value("StartTraining", culture),
+            Value("ChooseTodaysWorkout", culture), Value("ChooseWorkoutSupporting", culture),
+            Value("WorkoutInProgress", culture), Value("ContinueWorkout", culture),
+            Value("ThisWeek", culture), Value("WeekStreak", culture),
+            Value("LevelXpFormat", culture), Value("TrainAgain", culture),
+            Value("RecentMomentum", culture), Value("LastBestFormat", culture),
+            Value("HomeExerciseProgressFormat", culture), Value("RepeatWorkoutAccessibilityFormat", culture),
+            Value("HomeLoadFailed", culture), Value("HomeContextFormat", culture));
     }
 
     private static string Value(string key, CultureInfo culture) =>

@@ -102,6 +102,22 @@
         <Setter Property="StrokeThickness" Value="1" />
         <Setter Property="StrokeShape" Value="RoundRectangle 16" />
     </Style>
+    <Style x:Key="TrackZHomeHeroStyle" TargetType="Border">
+        <Setter Property="MinimumHeightRequest" Value="172" />
+        <Setter Property="Padding" Value="{StaticResource TrackZSpace16}" />
+        <Setter Property="BackgroundColor" Value="{StaticResource TrackZSurfaceRaised}" />
+        <Setter Property="Stroke" Value="{StaticResource TrackZPrimary}" />
+        <Setter Property="StrokeThickness" Value="1" />
+        <Setter Property="StrokeShape" Value="RoundRectangle 24" />
+    </Style>
+    <Style x:Key="TrackZHomeMetricCardStyle" TargetType="Border">
+        <Setter Property="MinimumHeightRequest" Value="76" />
+        <Setter Property="Padding" Value="{StaticResource TrackZSpace8}" />
+        <Setter Property="BackgroundColor" Value="{StaticResource TrackZSurface}" />
+        <Setter Property="Stroke" Value="{StaticResource TrackZHairline}" />
+        <Setter Property="StrokeThickness" Value="1" />
+        <Setter Property="StrokeShape" Value="RoundRectangle 16" />
+    </Style>
     <Style x:Key="TrackZArtworkFrameStyle" TargetType="Border">
         <Setter Property="BackgroundColor" Value="{StaticResource TrackZSurfaceRaised}" />
         <Setter Property="StrokeThickness" Value="0" />

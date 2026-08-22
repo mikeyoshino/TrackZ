@@ -167,7 +167,17 @@ public static class MauiProgram
 		builder.Services.AddTransient<ExerciseProgressViewModel>();
 		builder.Services.AddTransient<ProgressDashboardViewModel>();
 		builder.Services.AddTransient<ProfileViewModel>();
-		builder.Services.AddTransient<TrainTodayViewModel>();
+		builder.Services.AddTransient(services => new TrainTodayViewModel(
+			services.GetRequiredService<ITrainDashboardSource>(),
+			services.GetRequiredService<IAccountSessionBoundary>(),
+			services.GetRequiredService<WorkoutTextSet>(),
+			services.GetRequiredService<IProgressSnapshotSource>(),
+			services.GetRequiredService<IConnectivityService>(),
+			services.GetRequiredService<IWeightUnitPreference>(),
+			services.GetRequiredService<GamificationTextSet>(),
+			services.GetRequiredService<ActiveWorkoutCoordinator>(),
+			services.GetRequiredService<ITrainNavigator>(),
+			services.GetRequiredService<IClock>()));
 		builder.Services.AddTransient<BodyAreaSheetPage>();
 		builder.Services.AddSingleton<IBodyAreaPicker>(services => new MauiBodyAreaPicker(
 			services.GetRequiredService<INativeSheetPresenter>(),

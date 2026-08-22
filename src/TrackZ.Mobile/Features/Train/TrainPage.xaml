@@ -10,58 +10,187 @@
     SafeAreaEdges="All"
     Shell.NavBarIsVisible="False"
     Title="{Binding Text.TrainTodayTitle}">
-    <Grid Padding="0,16,0,0" RowDefinitions="Auto,Auto,*,Auto" RowSpacing="{DynamicResource TrackZSpace16}">
-        <Grid Padding="{DynamicResource TrackZPageHorizontalPadding}">
-            <Label Style="{DynamicResource TrackZPageTitleStyle}" Text="{Binding Text.TrainTodayTitle}" />
-        </Grid>
+    <ScrollView
+        x:Name="MomentumHomeScroll"
+        Padding="{DynamicResource TrackZPageContentPadding}">
+        <VerticalStackLayout Spacing="{DynamicResource TrackZSpace16}">
+            <VerticalStackLayout Spacing="{DynamicResource TrackZSpace4}">
+                <Label x:Name="HomeContextLabel" Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding HomeContextText}" />
+                <Label Style="{DynamicResource TrackZPageTitleStyle}" Text="{Binding HomeHeadlineText}" />
+            </VerticalStackLayout>
 
-        <Grid Grid.Row="1" Padding="{DynamicResource TrackZPageHorizontalPadding}">
-          <Border
-            IsVisible="{Binding HasActiveWorkout}"
-            Style="{DynamicResource TrackZListRowStyle}">
-            <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
-                <Label Style="{DynamicResource TrackZSectionTitleStyle}" Text="{Binding Text.ResumeWorkout}" />
-                <Label Grid.Row="1" Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding SavedSetCountText}" />
-                <Button Grid.Column="1" Grid.RowSpan="2" Command="{Binding HeroActionCommand}" Style="{DynamicResource TrackZQuietButtonStyle}" Text="›" />
+            <Border
+                x:Name="HomeHero"
+                SemanticProperties.Description="{Binding HeroSupportingText}"
+                Style="{DynamicResource TrackZHomeHeroStyle}">
+                <VisualStateManager.VisualStateGroups>
+                    <VisualStateGroup x:Name="WorkoutState">
+                        <VisualState x:Name="Ready">
+                            <VisualState.StateTriggers>
+                                <StateTrigger IsActive="{Binding ShowStartHero}" />
+                            </VisualState.StateTriggers>
+                            <VisualState.Setters>
+                                <Setter Property="BackgroundColor" Value="{DynamicResource TrackZPrimary}" />
+                                <Setter Property="Stroke" Value="{DynamicResource TrackZPrimary}" />
+                            </VisualState.Setters>
+                        </VisualState>
+                        <VisualState x:Name="Active">
+                            <VisualState.StateTriggers>
+                                <StateTrigger IsActive="{Binding ShowContinueHero}" />
+                            </VisualState.StateTriggers>
+                            <VisualState.Setters>
+                                <Setter Property="BackgroundColor" Value="{DynamicResource TrackZSurface}" />
+                                <Setter Property="Stroke" Value="{DynamicResource TrackZHairline}" />
+                            </VisualState.Setters>
+                        </VisualState>
+                    </VisualStateGroup>
+                </VisualStateManager.VisualStateGroups>
+                <VerticalStackLayout Spacing="{DynamicResource TrackZSpace12}">
+                    <VerticalStackLayout Spacing="{DynamicResource TrackZSpace4}">
+                        <Label x:Name="HeroEyebrowLabel" Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding HeroEyebrowText}">
+                            <Label.Triggers>
+                                <DataTrigger Binding="{Binding ShowStartHero}" TargetType="Label" Value="True">
+                                    <Setter Property="TextColor" Value="{DynamicResource TrackZPrimaryContrast}" />
+                                </DataTrigger>
+                            </Label.Triggers>
+                        </Label>
+                        <Label x:Name="HeroTitleLabel" Style="{DynamicResource TrackZSectionTitleStyle}" Text="{Binding HeroTitleText}">
+                            <Label.Triggers>
+                                <DataTrigger Binding="{Binding ShowStartHero}" TargetType="Label" Value="True">
+                                    <Setter Property="TextColor" Value="{DynamicResource TrackZPrimaryContrast}" />
+                                </DataTrigger>
+                            </Label.Triggers>
+                        </Label>
+                        <Label x:Name="HeroSupportingLabel" Style="{DynamicResource TrackZBodyStyle}" Text="{Binding HeroSupportingText}">
+                            <Label.Triggers>
+                                <DataTrigger Binding="{Binding ShowStartHero}" TargetType="Label" Value="True">
+                                    <Setter Property="TextColor" Value="{DynamicResource TrackZPrimaryContrast}" />
+                                </DataTrigger>
+                            </Label.Triggers>
+                        </Label>
+                        <ProgressBar
+                            IsVisible="{Binding ShowContinueHero}"
+                            Progress="{Binding ActiveWorkoutProgress}"
+                            ProgressColor="{DynamicResource TrackZPrimary}"
+                            SemanticProperties.Description="{Binding HeroSupportingText}" />
+                    </VerticalStackLayout>
+                    <Button
+                        x:Name="HeroActionButton"
+                        Command="{Binding HeroActionCommand}"
+                        IsEnabled="{Binding CanMutate}"
+                        SemanticProperties.Description="{Binding HeroActionText}"
+                        Style="{DynamicResource TrackZPrimaryButtonStyle}"
+                        Text="{Binding HeroActionText}">
+                        <Button.Triggers>
+                            <DataTrigger Binding="{Binding ShowStartHero}" TargetType="Button" Value="True">
+                                <Setter Property="BackgroundColor" Value="{DynamicResource TrackZPrimaryContrast}" />
+                                <Setter Property="TextColor" Value="{DynamicResource TrackZPrimary}" />
+                            </DataTrigger>
+                        </Button.Triggers>
+                    </Button>
+                </VerticalStackLayout>
+            </Border>
+
+            <Grid
+                x:Name="MotivationStrip"
+                ColumnDefinitions="*,*,*"
+                ColumnSpacing="{DynamicResource TrackZSpace8}"
+                IsVisible="{Binding HasAuthoritativeProgress}"
+                SemanticProperties.Description="{Binding Text.ThisWeek}">
+                <Border x:Name="WeeklyGoalMetric" Style="{DynamicResource TrackZHomeMetricCardStyle}">
+                    <VerticalStackLayout HorizontalOptions="Center" Spacing="{DynamicResource TrackZSpace4}" VerticalOptions="Center">
+                        <Label HorizontalTextAlignment="Center" Style="{DynamicResource TrackZPerformanceNumberStyle}" Text="{Binding WeeklyGoalProgressText}" />
+                        <Label HorizontalTextAlignment="Center" Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Text.ThisWeek}" />
+                    </VerticalStackLayout>
+                </Border>
+                <Border x:Name="StreakMetric" Grid.Column="1" Style="{DynamicResource TrackZHomeMetricCardStyle}">
+                    <VerticalStackLayout HorizontalOptions="Center" Spacing="{DynamicResource TrackZSpace4}" VerticalOptions="Center">
+                        <Label HorizontalTextAlignment="Center" Style="{DynamicResource TrackZPerformanceNumberStyle}" Text="{Binding StreakValueText}" />
+                        <Label HorizontalTextAlignment="Center" Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Text.WeekStreak}" />
+                    </VerticalStackLayout>
+                </Border>
+                <Border x:Name="LevelMetric" Grid.Column="2" Style="{DynamicResource TrackZHomeMetricCardStyle}">
+                    <VerticalStackLayout HorizontalOptions="Center" Spacing="{DynamicResource TrackZSpace4}" VerticalOptions="Center">
+                        <Label HorizontalTextAlignment="Center" Style="{DynamicResource TrackZBodyStyle}" Text="{Binding LevelXpText}" />
+                        <ProgressBar Progress="{Binding LevelProgress}" ProgressColor="{DynamicResource TrackZPrimary}" />
+                    </VerticalStackLayout>
+                </Border>
             </Grid>
-          </Border>
-        </Grid>
 
-        <Grid Grid.Row="2" Padding="{DynamicResource TrackZPageHorizontalPadding}" RowDefinitions="Auto,*" RowSpacing="{DynamicResource TrackZSpace12}">
-            <Label Style="{DynamicResource TrackZSectionTitleStyle}" Text="{Binding Text.Recent}" />
-            <CollectionView Grid.Row="1" ItemsSource="{Binding RecentWorkouts}" SelectionMode="None">
-                <CollectionView.EmptyView>
-                    <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Source={x:Reference Page}, Path=BindingContext.Text.NoRecentWorkouts}" />
-                </CollectionView.EmptyView>
-                <CollectionView.ItemTemplate>
-                    <DataTemplate x:DataType="train:RecentWorkoutItem">
-                        <Border Margin="0,0,0,12" Style="{DynamicResource TrackZListRowStyle}">
-                            <Grid ColumnSpacing="{DynamicResource TrackZSpace12}">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="{DynamicResource TrackZExerciseArtworkColumnWidth}" />
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <Border x:Name="RecentWorkoutArtwork" HeightRequest="{DynamicResource TrackZExerciseArtworkSize}" WidthRequest="{DynamicResource TrackZExerciseArtworkSize}" Style="{DynamicResource TrackZArtworkFrameStyle}">
-                                    <Image Aspect="AspectFill" SemanticProperties.Description="{Binding Title}" Source="{Binding ThumbnailPath}" />
-                                </Border>
-                                <VerticalStackLayout Grid.Column="1" VerticalOptions="Center" Spacing="{DynamicResource TrackZSpace4}">
-                                    <Label Style="{DynamicResource TrackZSectionTitleStyle}" Text="{Binding Title}" />
-                                    <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding ExerciseCountText}" />
-                                </VerticalStackLayout>
-                                <Label Grid.Column="2" VerticalOptions="Center" Text="›" TextColor="{DynamicResource TrackZTextSecondary}" />
+            <VerticalStackLayout IsVisible="{Binding ShowTrainAgain}" Spacing="{DynamicResource TrackZSpace8}">
+                <Label Style="{DynamicResource TrackZSectionTitleStyle}" Text="{Binding Text.TrainAgain}" />
+                <Border
+                    x:Name="TrainAgainCard"
+                    IsVisible="{Binding ShowTrainAgain}"
+                    MinimumHeightRequest="{DynamicResource TrackZExerciseCardHeight}"
+                    SemanticProperties.Description="{Binding RepeatWorkoutAccessibilityText}"
+                    Style="{DynamicResource TrackZListRowStyle}">
+                    <Border.GestureRecognizers>
+                        <TapGestureRecognizer Command="{Binding TrainAgainCommand}" />
+                    </Border.GestureRecognizers>
+                    <Grid ColumnSpacing="{DynamicResource TrackZSpace12}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="{DynamicResource TrackZExerciseArtworkColumnWidth}" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Border
+                            x:Name="TrainAgainArtwork"
+                            HeightRequest="{DynamicResource TrackZExerciseArtworkSize}"
+                            Style="{DynamicResource TrackZArtworkFrameStyle}"
+                            WidthRequest="{DynamicResource TrackZExerciseArtworkSize}">
+                            <Grid>
+                                <Label
+                                    HorizontalOptions="Center"
+                                    SemanticProperties.Description="{Binding RepeatWorkoutAccessibilityText}"
+                                    Style="{DynamicResource TrackZPerformanceNumberStyle}"
+                                    Text="↻"
+                                    VerticalOptions="Center" />
+                                <Image Aspect="AspectFill" Source="{Binding RepeatWorkout.ThumbnailPath}" />
                             </Grid>
                         </Border>
-                    </DataTemplate>
-                </CollectionView.ItemTemplate>
-            </CollectionView>
-        </Grid>
+                        <VerticalStackLayout Grid.Column="1" Spacing="{DynamicResource TrackZSpace4}" VerticalOptions="Center">
+                            <Label Style="{DynamicResource TrackZSectionTitleStyle}" Text="{Binding RepeatWorkoutTitle}" />
+                            <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding RepeatWorkoutMetaText}" />
+                        </VerticalStackLayout>
+                        <Label Grid.Column="2" Style="{DynamicResource TrackZBodyStyle}" Text="›" VerticalOptions="Center" />
+                    </Grid>
+                </Border>
+            </VerticalStackLayout>
 
-        <Border Grid.Row="3" Style="{DynamicResource TrackZStickyActionContainerStyle}">
-            <Button
-                Command="{Binding HeroActionCommand}"
-                Style="{DynamicResource TrackZPrimaryButtonStyle}"
-                Text="{Binding Text.ChooseWorkout}" />
-        </Border>
-    </Grid>
+            <VerticalStackLayout IsVisible="{Binding HasRecentMomentum}" Spacing="{DynamicResource TrackZSpace8}">
+                <Label Style="{DynamicResource TrackZSectionTitleStyle}" Text="{Binding Text.RecentMomentum}" />
+                <Border
+                    x:Name="RecentMomentumCard"
+                    IsVisible="{Binding HasRecentMomentum}"
+                    MinimumHeightRequest="{DynamicResource TrackZExerciseCardHeight}"
+                    SemanticProperties.Description="{Binding RecentMomentumText}"
+                    Style="{DynamicResource TrackZListRowStyle}">
+                    <Grid ColumnSpacing="{DynamicResource TrackZSpace12}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="{DynamicResource TrackZExerciseArtworkColumnWidth}" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Border
+                            x:Name="RecentMomentumArtwork"
+                            HeightRequest="{DynamicResource TrackZExerciseArtworkSize}"
+                            Style="{DynamicResource TrackZArtworkFrameStyle}"
+                            WidthRequest="{DynamicResource TrackZExerciseArtworkSize}">
+                            <Label
+                                HorizontalOptions="Center"
+                                Style="{DynamicResource TrackZPerformanceNumberStyle}"
+                                Text="↗"
+                                VerticalOptions="Center" />
+                        </Border>
+                        <VerticalStackLayout Grid.Column="1" Spacing="{DynamicResource TrackZSpace4}" VerticalOptions="Center">
+                            <Label Style="{DynamicResource TrackZSectionTitleStyle}" Text="{Binding RecentMomentum.ExerciseName}" />
+                            <Label x:Name="RecentMomentumValue" Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding RecentMomentumText}" />
+                        </VerticalStackLayout>
+                    </Grid>
+                </Border>
+            </VerticalStackLayout>
+
+            <Label Style="{DynamicResource TrackZInlineErrorStyle}" Text="{Binding ErrorText}" />
+        </VerticalStackLayout>
+    </ScrollView>
 </ContentPage>
