@@ -80,7 +80,7 @@ Assertions were not weakened and no service, API, Docker container, or simulator
 dotnet test tests/TrackZ.Mobile.Tests/TrackZ.Mobile.Tests.csproj --no-restore \
   --filter "FullyQualifiedName~MomentumHomePresentationTests|FullyQualifiedName~AppWideVisualConsistencyTests" \
   --verbosity minimal -m:1
-Passed: 49, Failed: 0, Skipped: 0
+Passed: 50, Failed: 0, Skipped: 0
 
 dotnet test tests/TrackZ.Mobile.Tests/TrackZ.Mobile.Tests.csproj --no-restore \
   --filter "FullyQualifiedName~TrainTodayViewModelTests|FullyQualifiedName~TrainAgainWorkoutTests|FullyQualifiedName~HomeMomentumItemTests|FullyQualifiedName~NativeVisualTokenTests" \
@@ -125,6 +125,27 @@ Both verified reviewer findings were fixed with separate RED/GREEN cycles:
 
 Fresh Round 1 verification is the 49/49 focused, 58/58 related, and exit-0 iOS Compile evidence
 recorded above. No service, API, Docker container, or simulator was started.
+
+## Review Round 2
+
+The structural artwork audit was hardened without changing product source. The previous audit found
+the two named images anywhere in the document, so it could not prove they were sibling layers or
+that the fallback rendered first. A deliberate three-row mutation test observed RED for all cases:
+
+```text
+Assert.All() Failure: 3 out of 3 items did not pass
+swap fallback/thumbnail: audit collection was empty
+move fallback outside artwork Grid: audit collection was empty
+move thumbnail outside artwork Grid: audit collection was empty
+```
+
+`AuditMomentumArtworkSemantics` now requires exactly one `TrainAgainArtwork`, one immediate child
+`Grid`, exactly two direct `Image` layers, and object identity/order of
+`TrainAgainFallback` followed by `TrainAgainThumbnail`. Source and binding are then verified on
+those same direct children. The three mutation rows now fail the audit as intended, while the real
+XAML remains unchanged. Fresh verification: focused Task 4 50/50 and iOS XAML Compile exit 0; the
+related source regression suite was not rerun because Round 2 changed only test/report files. No
+service, API, Docker container, or simulator was started.
 
 ## Files changed
 

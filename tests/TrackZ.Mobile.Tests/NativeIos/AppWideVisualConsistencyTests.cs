@@ -332,6 +332,36 @@ public sealed class AppWideVisualConsistencyTests
     }
 
     [Fact]
+    public void Momentum_home_artwork_audit_rejects_swapped_or_detached_image_layers()
+    {
+        var train = XDocument.Load(Path.Combine(MobileDirectory(), "Features/Train/TrainPage.xaml"));
+
+        var swapped = new XDocument(train);
+        var swappedFallback = Named(swapped, "TrainAgainFallback");
+        var swappedThumbnail = Named(swapped, "TrainAgainThumbnail");
+        swappedThumbnail.Remove();
+        swappedFallback.AddBeforeSelf(swappedThumbnail);
+
+        var detachedFallback = new XDocument(train);
+        var fallbackArtwork = Named(detachedFallback, "TrainAgainArtwork");
+        var fallback = Named(detachedFallback, "TrainAgainFallback");
+        fallback.Remove();
+        fallbackArtwork.AddAfterSelf(fallback);
+
+        var detachedThumbnail = new XDocument(train);
+        var thumbnailArtwork = Named(detachedThumbnail, "TrainAgainArtwork");
+        var thumbnail = Named(detachedThumbnail, "TrainAgainThumbnail");
+        thumbnail.Remove();
+        thumbnailArtwork.AddAfterSelf(thumbnail);
+
+        Assert.All(
+            new[] { swapped, detachedFallback, detachedThumbnail },
+            mutation => Assert.Contains(
+                AuditMomentumArtworkSemantics(mutation),
+                error => error.Contains("direct fallback-first image layer", StringComparison.Ordinal)));
+    }
+
+    [Fact]
     public void Momentum_home_audit_rejects_metric_height_and_section_order_mutations()
     {
         const string trainPath = "Features/Train/TrainPage.xaml";
@@ -724,11 +754,26 @@ public sealed class AppWideVisualConsistencyTests
 
     private static IEnumerable<string> AuditMomentumArtworkSemantics(XDocument document)
     {
-        var fallback = document.Descendants().SingleOrDefault(element => ElementName(element) == "TrainAgainFallback");
-        var thumbnail = document.Descendants().SingleOrDefault(element => ElementName(element) == "TrainAgainThumbnail");
-        if (fallback?.Name.LocalName != "Image" || fallback.Attribute("Source")?.Value != "exercise_placeholder.png" ||
-            thumbnail?.Name.LocalName != "Image" || thumbnail.Attribute("Source")?.Value != "{Binding RepeatWorkout.ThumbnailPath}")
+        var artworks = document.Descendants().Where(element => ElementName(element) == "TrainAgainArtwork").ToArray();
+        var grids = artworks.Length == 1
+            ? artworks[0].Elements().Where(element => element.Name.LocalName == "Grid").ToArray()
+            : [];
+        var images = grids.Length == 1
+            ? grids[0].Elements().Where(element => element.Name.LocalName == "Image").ToArray()
+            : [];
+        var fallbacks = document.Descendants().Where(element => ElementName(element) == "TrainAgainFallback").ToArray();
+        var thumbnails = document.Descendants().Where(element => ElementName(element) == "TrainAgainThumbnail").ToArray();
+        if (artworks.Length != 1 || grids.Length != 1 || images.Length != 2 ||
+            fallbacks.Length != 1 || thumbnails.Length != 1 ||
+            !ReferenceEquals(images[0], fallbacks[0]) || !ReferenceEquals(images[1], thumbnails[0]))
+        {
+            yield return "Train again artwork must contain one immediate Grid with one direct fallback-first image layer followed by its thumbnail.";
+        }
+        else if (images[0].Attribute("Source")?.Value != "exercise_placeholder.png" ||
+                 images[1].Attribute("Source")?.Value != "{Binding RepeatWorkout.ThumbnailPath}")
+        {
             yield return "Train again must layer the shared exercise fallback beneath its optional real thumbnail.";
+        }
 
         foreach (var name in new[] { "TrainAgainArtwork", "TrainAgainChevron", "RecentMomentumArtwork", "RecentMomentumGlyph" })
         {
