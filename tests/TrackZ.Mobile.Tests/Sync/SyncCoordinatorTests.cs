@@ -407,6 +407,64 @@ public sealed class SyncCoordinatorTests
     }
 
     [Fact]
+    public async Task Equal_authority_pull_keeps_retryable_rebase_replacement_pending_and_runnable()
+    {
+        await using var context = await SyncContext.CreateAsync();
+        var local = await context.StartAsync();
+        context.Clock.UtcNow = context.Clock.UtcNow.AddMinutes(1);
+        await new ActiveWorkoutCoordinator(context.Workouts, context.Boundary, context.Clock)
+            .SaveSetAsync(local.Exercises[0].ExerciseDefinitionId, new LocalSet(70m, null, 8));
+        var pending = await context.Outbox.PendingAsync();
+        var original = pending[1];
+        context.Api.PushResponses.Enqueue(new SyncPushResponse([
+            new(pending[0].OperationId, SyncOperationStatus.Applied, 1, null)
+        ]));
+        context.Api.PushResponses.Enqueue(new SyncPushResponse([
+            new(original.OperationId, SyncOperationStatus.Conflict, 3,
+                BusinessErrorCode.VersionConflict)
+        ]));
+        var authority = ServerGraphWithRemoteSet(local, 3);
+        context.Api.PullResponses.Enqueue(new SyncPullResponse([
+            Change(authority, 1)
+        ], "cursor-1", false));
+        await context.Coordinator.RunOnceAsync();
+        var replacement = await new ConflictResolution(context.Coordinator)
+            .ApplyLocalAgainstVersionAsync(original.OperationId, authority.Version);
+        context.Api.PushResponses.Enqueue(new SyncPushResponse([
+            new(replacement.OperationId, SyncOperationStatus.Retryable, null,
+                BusinessErrorCode.InternalServerError)
+        ]));
+        context.Api.PullResponses.Enqueue(new SyncPullResponse([
+            Change(authority, 2)
+        ], "cursor-2", false));
+
+        await context.Coordinator.RunOnceAsync();
+
+        var retry = Assert.Single(await context.Outbox.PendingAsync());
+        Assert.Equal(replacement.OperationId, retry.OperationId);
+        Assert.Equal(1, retry.RetryCount);
+        Assert.NotNull(retry.NextAttemptAt);
+        var retainedConflict = Assert.Single(await context.Outbox.ConflictedAsync());
+        Assert.Equal(original.OperationId, retainedConflict.OperationId);
+
+        context.Clock.UtcNow = retry.NextAttemptAt.Value;
+        var acknowledged = AppendServerSet(authority, replacement, 4);
+        context.Api.PushResponses.Enqueue(new SyncPushResponse([
+            new(replacement.OperationId, SyncOperationStatus.Applied, acknowledged.Version, null)
+        ]));
+        context.Api.PullResponses.Enqueue(new SyncPullResponse([
+            Change(acknowledged, 3)
+        ], "cursor-3", false));
+
+        await context.Coordinator.RunOnceAsync();
+
+        Assert.Equal(replacement.OperationId,
+            context.Api.PushRequests[^1].Operations.Single().OperationId);
+        Assert.Empty(await context.Outbox.PendingAsync());
+        Assert.Empty(await context.Outbox.ConflictedAsync());
+    }
+
+    [Fact]
     public async Task Replacement_blocks_new_save_until_acknowledgement_pull_then_unblocks_causal_restart()
     {
         await using var context = await SyncContext.CreateAsync();

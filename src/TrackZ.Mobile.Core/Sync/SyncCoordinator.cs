@@ -799,8 +799,13 @@ public sealed class SyncCoordinator(
                     {
                         var conflictChainStarted = false;
                         var soleEffortAuthorityStored = false;
+                        var liveOperationIds = conflicts.Select(operation => operation.OperationId)
+                            .ToHashSet();
                         foreach (var operation in conflicts)
                         {
+                            if (operation.ReplacesOperationId is { } replacedOperationId
+                                && liveOperationIds.Contains(replacedOperationId))
+                                conflictChainStarted = false;
                             conflictChainStarted |= operation.State == OutboxOperationState.Conflicted
                                 || change.ServerVersion > operation.BaseVersion;
                             if (!conflictChainStarted) continue;
