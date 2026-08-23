@@ -77,6 +77,44 @@ public sealed class TrackSetsVisualContractTests
         Assert.Contains("data-last-workout=\"expanded\"", html, StringComparison.Ordinal);
         Assert.Contains("Save set 3", html, StringComparison.Ordinal);
         Assert.Contains("Assistance", html, StringComparison.Ordinal);
+
+        foreach (var token in new[]
+        {
+            "data-previous-reference=\"true\"",
+            "Previous workout reference",
+            "70 kg × 10 reps",
+            "Heaviest set in the 8–12 rep range",
+            "data-effort-sheet=\"asking\"",
+            "How did this set feel?",
+            "Too easy — many reps left",
+            "About right — the final reps were hard, with good form",
+            "Too heavy — missed the range or form began to break",
+            "data-effort-sheet=\"recommendation\"",
+            "Try 72.5 kg next set",
+            "data-effort-sheet=\"needs-increment\"",
+            "data-effort-sheet=\"unavailable\"",
+            "This set can no longer be rated. Your original set is saved.",
+            "data-effort-unavailable-action=\"dismiss\""
+        })
+        {
+            Assert.Equal(1, Occurrences(html, token));
+        }
+        Assert.DoesNotContain("data-effort-unavailable-action=\"retry\"", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("data-effort-unavailable-action=\"use\"", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("RIR", html, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("4+", html, StringComparison.Ordinal);
+    }
+
+    private static int Occurrences(string source, string value)
+    {
+        var count = 0;
+        var start = 0;
+        while ((start = source.IndexOf(value, start, StringComparison.Ordinal)) >= 0)
+        {
+            count++;
+            start += value.Length;
+        }
+        return count;
     }
 
     private static string? Name(XElement element) => element.Attribute(X + "Name")?.Value;

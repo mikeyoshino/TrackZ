@@ -5,21 +5,68 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>TrackZ · Track sets reference</title>
   <style>
-    :root{color-scheme:dark;--bg:#070a0b;--card:#14191d;--line:#2b3339;--muted:#9098a4;--lime:#baff2d;--text:#f5f7f8}
-    *{box-sizing:border-box}body{margin:0;background:#20252d;color:var(--text);font:16px -apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif}
-    main{width:390px;min-height:844px;margin:24px auto;padding:24px 20px 104px;background:var(--bg);border-radius:44px}
-    h1{margin:8px 0 28px;text-align:center;font-size:20px}.exercise{display:grid;grid-template-columns:72px 1fr;gap:12px;align-items:center}.art{height:72px;border-radius:18px;background:#20272c;display:grid;place-items:center}.muted{color:var(--muted)}
-    .editor{margin-top:20px;padding:16px;border:1px solid var(--lime);border-radius:20px;background:var(--card)}.editor h2{margin:0 0 16px;font-size:20px}.controls{display:grid;grid-template-columns:1fr 1fr;gap:12px}.control{padding:12px;border-radius:16px;background:#0d1114}.step{display:grid;grid-template-columns:44px 1fr 44px;gap:4px;align-items:center;margin-top:8px}.step button{height:44px;border:0;border-radius:12px;background:#252c31;color:white;font-size:22px}.entry{height:50px;padding:0 8px;display:grid;grid-template-columns:1fr auto;align-items:center;border:1px solid var(--line);border-radius:15px}.value-input{min-width:0;border:0;outline:0;background:transparent;color:var(--text);font:700 16px -apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif;text-align:center}.unit{color:var(--muted);font-size:13px}.save{width:100%;height:52px;margin-top:16px;border:0;border-radius:16px;background:var(--lime);font-size:18px;font-weight:800}.section{margin-top:20px}.eyebrow{letter-spacing:.12em;color:var(--muted);font-size:13px}.row{display:flex;justify-content:space-between;margin-top:8px;padding:12px 14px;border:1px solid var(--line);border-radius:14px;background:var(--card)}details{margin-top:20px}summary{min-height:44px;display:flex;align-items:center;color:var(--muted)}
+    :root{color-scheme:dark;--bg:#070a0b;--card:#14191d;--line:#2b3339;--muted:#9098a4;--lime:#baff2d;--text:#f5f7f8;--space-4:4px;--space-8:8px;--space-12:12px;--space-16:16px;--space-20:20px}
+    *{box-sizing:border-box}body{margin:0;padding-bottom:32px;background:#20252d;color:var(--text);font:16px -apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif}
+    button,input{font:inherit}main{width:390px;min-height:844px;margin:24px auto;padding:24px 20px 104px;background:var(--bg);border-radius:44px}
+    h1{margin:8px 0 28px;text-align:center;font-size:20px}.exercise{display:grid;grid-template-columns:72px 1fr;gap:var(--space-12);align-items:center}.art{height:72px;border-radius:18px;background:#20272c;display:grid;place-items:center}.muted{color:var(--muted)}
+    .previous-reference{margin-top:var(--space-16);padding:var(--space-16);border:1px solid var(--line);border-radius:20px;background:var(--card)}.previous-measurement{display:flex;gap:var(--space-8);align-items:baseline;margin-top:var(--space-8)}.performance-number{font-size:28px;font-weight:800;letter-spacing:-.03em}.secondary{color:var(--muted);font-size:14px}.reference-reason{margin-top:var(--space-4)}
+    .editor{margin-top:var(--space-20);padding:var(--space-16);border:1px solid var(--lime);border-radius:20px;background:var(--card)}.editor h2{margin:0 0 var(--space-16);font-size:20px}.controls{display:grid;grid-template-columns:1fr 1fr;gap:var(--space-12)}.control{padding:var(--space-12);border-radius:16px;background:#0d1114}.step{display:grid;grid-template-columns:44px 1fr 44px;gap:var(--space-4);align-items:center;margin-top:var(--space-8)}.step button{height:44px;border:0;border-radius:12px;background:#252c31;color:white;font-size:22px}.entry{height:50px;padding:0 var(--space-8);display:grid;grid-template-columns:1fr auto;align-items:center;border:1px solid var(--line);border-radius:15px}.value-input{min-width:0;border:0;outline:0;background:transparent;color:var(--text);font:700 16px -apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif;text-align:center}.unit{color:var(--muted);font-size:13px}.save,.primary{width:100%;min-height:52px;border:0;border-radius:16px;background:var(--lime);color:#080b06;font-size:18px;font-weight:800}.save{margin-top:var(--space-16)}.section{margin-top:var(--space-20)}.eyebrow{letter-spacing:.12em;color:var(--muted);font-size:13px}.row{display:flex;justify-content:space-between;margin-top:var(--space-8);padding:12px 14px;border:1px solid var(--line);border-radius:14px;background:var(--card)}details{margin-top:var(--space-20)}summary{min-height:44px;display:flex;align-items:center;color:var(--muted)}
+    .sheet-reference{width:min(1120px,calc(100% - 48px));margin:24px auto;padding:var(--space-16);overflow:hidden;border:1px solid #39434a;border-radius:28px;background:#0d1114;box-shadow:0 -12px 40px #0008}.sheet-handle{width:42px;height:5px;margin:0 auto var(--space-16);border-radius:999px;background:#66717a}.sheet-reference-header{display:flex;justify-content:space-between;gap:var(--space-16);align-items:baseline;margin-bottom:var(--space-16)}.sheet-reference-header h2{margin:0;font-size:20px}.sheet-states{display:grid;grid-template-columns:repeat(4,minmax(250px,1fr));gap:var(--space-12);overflow-x:auto;padding-bottom:var(--space-8)}.sheet-state{min-height:466px;padding:var(--space-16);border:1px solid var(--line);border-radius:20px;background:var(--card)}.sheet-state h3{margin:0 0 var(--space-8);font-size:21px}.sheet-state p{margin:0 0 var(--space-12);line-height:1.4}.sheet-state button{width:100%;min-height:48px;margin-top:var(--space-8);padding:10px 12px;border:1px solid var(--line);border-radius:14px;background:#252c31;color:var(--text);font-weight:700}.sheet-state .quiet{border-color:transparent;background:transparent;color:var(--muted)}.sheet-state .primary{border:0;background:var(--lime);color:#080b06}.saved{color:var(--lime);font-size:26px;font-weight:800}.state-label{display:block;margin-bottom:var(--space-12);color:var(--muted);font-size:12px;letter-spacing:.12em;text-transform:uppercase}.increment-options{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--space-8);margin-bottom:var(--space-12)}.increment-field{display:grid;grid-template-columns:1fr auto;align-items:center;height:50px;padding:0 var(--space-12);border:1px solid var(--line);border-radius:14px}.increment-field input{min-width:0;border:0;outline:0;background:transparent;color:var(--text)}
+    @media(max-width:640px){.sheet-reference{width:390px;max-width:calc(100% - 24px)}.sheet-reference-header{display:block}.sheet-reference-header .secondary{display:block;margin-top:var(--space-4)}}
   </style>
 </head>
 <body>
   <main data-unit="kg" data-last-workout="collapsed">
     <h1>Track sets</h1>
-    <section class="exercise"><div class="art">🏋️</div><div><strong>Assisted Pull-Up</strong><div class="muted">Back · Assistance</div><div class="muted">Last: 15 kg × 8</div></div></section>
-    <section class="editor"><h2>Set 3</h2><div class="controls"><div class="control"><span class="muted">Assistance</span><div class="step"><button aria-label="Decrease assistance">−</button><label class="entry"><input class="value-input" inputmode="decimal" value="15" aria-label="Assistance"><span class="unit">kg</span></label><button aria-label="Increase assistance">+</button></div></div><div class="control"><span class="muted">Reps</span><div class="step"><button aria-label="Decrease reps">−</button><label class="entry"><input class="value-input" inputmode="numeric" value="8" aria-label="Reps"></label><button aria-label="Increase reps">+</button></div></div></div><button class="save">Save set 3</button></section>
-    <section class="section"><div class="eyebrow">TODAY</div><div class="row"><span>#1</span><strong>15 kg × 8</strong></div><div class="row"><span>#2</span><strong>15 kg × 8</strong></div></section>
-    <details data-last-workout="expanded"><summary>Last workout · 2 sets</summary><div class="row"><span>#1</span><span>15 kg × 8</span></div><div class="row"><span>#2</span><span>15 kg × 8</span></div></details>
-    <span hidden data-unit="lb">33.07 lb × 8</span>
+    <section class="exercise"><div class="art">🏋️</div><div><strong>Bench Press</strong><div class="muted">Chest · Barbell</div></div></section>
+    <section class="previous-reference" data-previous-reference="true" aria-labelledby="previous-reference-title">
+      <div class="eyebrow" id="previous-reference-title">Previous workout reference</div>
+      <div class="previous-measurement" aria-label="70 kg × 10 reps"><strong class="performance-number" aria-hidden="true">70 kg</strong><span aria-hidden="true">×</span><span class="secondary" aria-hidden="true">10 reps</span></div>
+      <div class="secondary reference-reason">Heaviest set in the 8–12 rep range</div>
+    </section>
+    <section class="editor"><h2>Set 3</h2><div class="controls"><div class="control"><span class="muted">Weight</span><div class="step"><button aria-label="Decrease weight">−</button><label class="entry"><input class="value-input" inputmode="decimal" value="70" aria-label="Weight"><span class="unit">kg</span></label><button aria-label="Increase weight">+</button></div></div><div class="control"><span class="muted">Reps</span><div class="step"><button aria-label="Decrease reps">−</button><label class="entry"><input class="value-input" inputmode="numeric" value="12" aria-label="Reps"></label><button aria-label="Increase reps">+</button></div></div></div><button class="save">Save set 3</button></section>
+    <section class="section"><div class="eyebrow">TODAY</div><div class="row"><span>#1</span><strong>70 kg × 12</strong></div><div class="row"><span>#2</span><strong>70 kg × 12</strong></div></section>
+    <details data-last-workout="expanded"><summary>Last workout · 2 sets</summary><div class="row"><span>#1</span><span>70 kg × 10</span></div><div class="row"><span>#2</span><span>67.5 kg × 12</span></div></details>
+    <span hidden data-unit="lb" data-tracking-mode="assisted">Assistance · 33.07 lb × 8</span>
   </main>
+  <section class="sheet-reference" data-detent="medium" aria-labelledby="sheet-reference-title">
+    <div class="sheet-handle" aria-hidden="true"></div>
+    <header class="sheet-reference-header"><h2 id="sheet-reference-title">Set effort · medium sheet</h2><span class="secondary">Mutually exclusive runtime states</span></header>
+    <div class="sheet-states">
+      <article class="sheet-state" data-effort-sheet="asking">
+        <span class="state-label">Asking</span>
+        <p class="saved" data-saved-pulse="true">Set saved</p>
+        <h3>How did this set feel?</h3>
+        <p class="secondary">Answer based on the reps you could do with the same good form.</p>
+        <button>Too easy — many reps left</button>
+        <button>About right — the final reps were hard, with good form</button>
+        <button>Too heavy — missed the range or form began to break</button>
+        <button class="quiet">Not sure · skip this time</button>
+        <p class="secondary">If you feel pain or cannot keep good form, stop this exercise.</p>
+      </article>
+      <article class="sheet-state" data-effort-sheet="recommendation">
+        <span class="state-label">Recommendation</span>
+        <h3>Try 72.5 kg next set</h3>
+        <p class="secondary">Two comparable sets reached at least 12 reps with good form.</p>
+        <button class="primary">Use for next set</button>
+        <p class="secondary">Fills the unsaved next-set draft only. Save it when you’re ready.</p>
+        <button class="quiet">Not now</button>
+      </article>
+      <article class="sheet-state" data-effort-sheet="needs-increment">
+        <span class="state-label">Equipment setup</span>
+        <h3>What is the smallest load change available?</h3>
+        <p class="secondary">We’ll remember it for this exercise on this device.</p>
+        <div class="increment-options"><button>1.25 kg</button><button>2.5 kg</button><button>5 kg</button></div>
+        <label class="increment-field"><input inputmode="decimal" placeholder="For example, 2.5" aria-label="Smallest load change"><span class="unit">kg</span></label>
+        <button class="primary">Use this increment</button>
+        <button class="quiet">Not now</button>
+      </article>
+      <article class="sheet-state" data-effort-sheet="unavailable">
+        <span class="state-label">Unavailable</span>
+        <h3>This set can no longer be rated. Your original set is saved.</h3>
+        <button class="quiet" data-effort-unavailable-action="dismiss">Not now</button>
+      </article>
+    </div>
+  </section>
 </body>
 </html>
