@@ -11,8 +11,9 @@ public partial class SetLoggerPage : ContentPage, IQueryAttributable
     private readonly IInlineSetEditorTransition _inlineTransition;
     private readonly ISetEffortSheet _effortSheet;
     private readonly IAccountSessionBoundary _sessionBoundary;
+    private readonly object _effortSheetLifetimeSync = new();
     private bool _wasParented;
-    private bool _deactivated;
+    private volatile bool _deactivated;
     private bool _feedbackSubscribed;
     private bool _draftTransitionSubscribed;
     private bool _effortPromptSubscribed;
@@ -113,12 +114,18 @@ public partial class SetLoggerPage : ContentPage, IQueryAttributable
 
     public void Deactivate()
     {
-        if (_deactivated) return;
-        _deactivated = true;
+        EffortSheetLifetime? lifetime;
+        lock (_effortSheetLifetimeSync)
+        {
+            if (_deactivated) return;
+            _deactivated = true;
+            lifetime = _effortSheetLifetime;
+            _effortSheetLifetime = null;
+        }
         UnsubscribeFeedback();
         UnsubscribeDraftTransition();
         UnsubscribeEffortPrompt();
-        Interlocked.Exchange(ref _effortSheetLifetime, null)?.Dispose();
+        DisposeEffortSheetLifetimeBestEffort(lifetime);
         _viewModel.Deactivate();
         BindingContext = null;
     }
@@ -168,31 +175,63 @@ public partial class SetLoggerPage : ContentPage, IQueryAttributable
         _effortPromptSubscribed = false;
     }
 
-    private async void OnEffortPromptRequested(
+    private void OnEffortPromptRequested(
         object? sender,
         SetEffortPromptRequestedEventArgs eventArgs)
     {
-        if (_deactivated) return;
-        var lifetime = new EffortSheetLifetime(_sessionBoundary);
-        var previous = Interlocked.Exchange(ref _effortSheetLifetime, lifetime);
-        previous?.Dispose();
+        _ = PresentEffortPromptBestEffortAsync(eventArgs);
+    }
+
+    private async Task PresentEffortPromptBestEffortAsync(
+        SetEffortPromptRequestedEventArgs eventArgs)
+    {
+        EffortSheetLifetime? lifetime = null;
+        EffortSheetLifetime? previous = null;
+        var published = false;
         try
         {
+            if (_deactivated) return;
+            lifetime = new EffortSheetLifetime(_sessionBoundary);
+            lock (_effortSheetLifetimeSync)
+            {
+                if (_deactivated) return;
+                previous = _effortSheetLifetime;
+                _effortSheetLifetime = lifetime;
+                published = true;
+            }
+            DisposeEffortSheetLifetimeBestEffort(previous);
             await _effortSheet.PresentAsync(
                 eventArgs.Request,
                 _viewModel.TryApplyGuidanceToNextDraft,
                 lifetime.Token);
         }
-        catch (OperationCanceledException) when (lifetime.Token.IsCancellationRequested) { }
+        catch (OperationCanceledException)
+            when (lifetime?.Token.IsCancellationRequested == true) { }
         catch
         {
             // The set is already durable; modal presentation is best effort.
         }
         finally
         {
-            if (ReferenceEquals(Interlocked.CompareExchange(
-                    ref _effortSheetLifetime, null, lifetime), lifetime))
-                lifetime.Dispose();
+            if (published)
+            {
+                lock (_effortSheetLifetimeSync)
+                {
+                    if (ReferenceEquals(_effortSheetLifetime, lifetime))
+                        _effortSheetLifetime = null;
+                }
+            }
+            DisposeEffortSheetLifetimeBestEffort(lifetime);
+        }
+    }
+
+    private static void DisposeEffortSheetLifetimeBestEffort(
+        EffortSheetLifetime? lifetime)
+    {
+        try { lifetime?.Dispose(); }
+        catch
+        {
+            // Cancellation and lease cleanup cannot undo the durable set.
         }
     }
 

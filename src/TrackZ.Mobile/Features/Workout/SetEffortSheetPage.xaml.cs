@@ -7,24 +7,38 @@ public partial class SetEffortSheetPage : ContentPage, ISetEffortSheet
 {
     private readonly INativeSheetPresenter _presenter;
     private readonly SetEffortPromptViewModel _viewModel;
+    private readonly Func<VisualElement, bool> _semanticFocus;
     private readonly SemaphoreSlim _presentationGate = new(1, 1);
+    private readonly object _dismissalSync = new();
     private TaskCompletionSource? _dismissed;
-    private int _dismissStarted;
+    private Task? _dismissalTask;
     private bool _savedAnnouncementMade;
     private SetEffortPromptState? _announcedState;
 
     public SetEffortSheetPage(
         INativeSheetPresenter presenter,
-        SetEffortPromptViewModel viewModel)
+        SetEffortPromptViewModel viewModel) : this(
+            presenter,
+            viewModel,
+            SemanticAccessibilityFocus.TrySetFocus)
+    {
+    }
+
+    internal SetEffortSheetPage(
+        INativeSheetPresenter presenter,
+        SetEffortPromptViewModel viewModel,
+        Func<VisualElement, bool> semanticFocus)
     {
         _presenter = presenter;
         _viewModel = viewModel;
+        _semanticFocus = semanticFocus
+            ?? throw new ArgumentNullException(nameof(semanticFocus));
         InitializeComponent();
     }
 
     internal string? LastAnnouncementForTest { get; private set; }
     internal int AnnouncementCountForTest { get; private set; }
-    internal int FocusAttemptCountForTest { get; private set; }
+    internal bool LastSemanticFocusResultForTest { get; private set; }
     internal SetEffortPromptViewModel ViewModelForTest => _viewModel;
 
     public async Task PresentAsync(
@@ -42,12 +56,12 @@ public partial class SetEffortSheetPage : ContentPage, ISetEffortSheet
                     "The effort sheet presentation gate is inconsistent.");
             _dismissed = new TaskCompletionSource(
                 TaskCreationOptions.RunContinuationsAsynchronously);
-            Interlocked.Exchange(ref _dismissStarted, 0);
+            lock (_dismissalSync) _dismissalTask = null;
             _savedAnnouncementMade = false;
             _announcedState = null;
             LastAnnouncementForTest = null;
             AnnouncementCountForTest = 0;
-            FocusAttemptCountForTest = 0;
+            LastSemanticFocusResultForTest = false;
             try
             {
                 _viewModel.Initialize(request, applyToDraft);
@@ -57,6 +71,7 @@ public partial class SetEffortSheetPage : ContentPage, ISetEffortSheet
                 await _presenter.ShowAsync(
                     this, NativeSheetDetent.Medium, cancellationToken);
                 await _dismissed.Task.WaitAsync(cancellationToken);
+                await AwaitDismissalCompletionAsync();
             }
             catch (OperationCanceledException)
                 when (cancellationToken.IsCancellationRequested)
@@ -82,9 +97,14 @@ public partial class SetEffortSheetPage : ContentPage, ISetEffortSheet
         }
     }
 
-    private async Task DismissCoreAsync()
+    private Task DismissCoreAsync()
     {
-        if (Interlocked.Exchange(ref _dismissStarted, 1) != 0) return;
+        lock (_dismissalSync)
+            return _dismissalTask ??= DismissNativeAsync();
+    }
+
+    private async Task DismissNativeAsync()
+    {
         try
         {
             await _presenter.DismissAsync(this, CancellationToken.None);
@@ -92,6 +112,18 @@ public partial class SetEffortSheetPage : ContentPage, ISetEffortSheet
         finally
         {
             _dismissed?.TrySetResult();
+        }
+    }
+
+    private async Task AwaitDismissalCompletionAsync()
+    {
+        Task? dismissal;
+        lock (_dismissalSync) dismissal = _dismissalTask;
+        if (dismissal is null) return;
+        try { await dismissal; }
+        catch
+        {
+            // Dismissal is best effort, but replacement still waits for it to finish.
         }
     }
 
@@ -125,16 +157,23 @@ public partial class SetEffortSheetPage : ContentPage, ISetEffortSheet
 
     protected override void OnDisappearing()
     {
-        Interlocked.Exchange(ref _dismissStarted, 1);
+        lock (_dismissalSync)
+            _dismissalTask ??= Task.CompletedTask;
         _dismissed?.TrySetResult();
         base.OnDisappearing();
     }
 
     private void RunAppearingActions()
     {
-        FocusAttemptCountForTest++;
-        try { EffortSheetHeading.Focus(); }
-        catch { }
+        try
+        {
+            LastSemanticFocusResultForTest =
+                _semanticFocus(EffortSheetHeading);
+        }
+        catch
+        {
+            LastSemanticFocusResultForTest = false;
+        }
         if (_savedAnnouncementMade) return;
         _savedAnnouncementMade = true;
         AnnounceBestEffort(_viewModel.Text.EffortSetSaved);
@@ -145,6 +184,7 @@ public partial class SetEffortSheetPage : ContentPage, ISetEffortSheet
     private void AnnounceState(SetEffortPromptState state)
     {
         if (_announcedState == state) return;
+        _announcedState = state;
         var announcement = state switch
         {
             SetEffortPromptState.NeedsIncrement =>
@@ -158,7 +198,6 @@ public partial class SetEffortSheetPage : ContentPage, ISetEffortSheet
             _ => null
         };
         if (announcement is null) return;
-        _announcedState = state;
         AnnounceBestEffort(announcement);
     }
 
@@ -187,7 +226,7 @@ public partial class SetEffortSheetPage : ContentPage, ISetEffortSheet
         _viewModel.Deactivate();
         BindingContext = null;
         Interlocked.Exchange(ref _dismissed, null);
-        Interlocked.Exchange(ref _dismissStarted, 0);
+        lock (_dismissalSync) _dismissalTask = null;
     }
 
     internal Task DismissAsyncForTest() => DismissCoreAsync();
@@ -196,4 +235,29 @@ public partial class SetEffortSheetPage : ContentPage, ISetEffortSheet
     internal void AnnounceCurrentStateForTest() => AnnounceCurrentState();
     internal void AnnounceStateForTest(SetEffortPromptState state) =>
         AnnounceState(state);
+}
+
+internal static class SemanticAccessibilityFocus
+{
+    internal static bool TrySetFocus(VisualElement target)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+#if IOS || MACCATALYST
+        if (target.Handler?.PlatformView is UIKit.UIView nativeView)
+        {
+            UIKit.UIAccessibility.PostNotification(
+                UIKit.UIAccessibilityPostNotification.ScreenChanged,
+                nativeView);
+            return true;
+        }
+#elif ANDROID
+        if (target.Handler?.PlatformView is Android.Views.View nativeView)
+        {
+            nativeView.SendAccessibilityEvent(
+                Android.Views.Accessibility.EventTypes.ViewAccessibilityFocused);
+            return true;
+        }
+#endif
+        return target.Focus();
+    }
 }

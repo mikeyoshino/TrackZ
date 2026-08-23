@@ -94,7 +94,40 @@ public sealed class SetEffortSheetTests
     }
 
     [Fact]
-    public async Task Focus_and_runtime_announcements_follow_each_visible_state_once()
+    public async Task Cancelled_replacement_waits_for_in_flight_native_pop_to_finish()
+    {
+        await using var fixture = await SheetFixture.CreateAsync();
+        var presenter = new RecordingSheetPresenter(delayFirstDismissal: true);
+        var page = fixture.CreatePage(presenter);
+        using var firstOwner = new CancellationTokenSource();
+        var first = page.PresentAsync(fixture.Request, _ => true, firstOwner.Token);
+        await presenter.Presented.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        var replacement = page.PresentAsync(
+            fixture.Request with { EffortOperationId = Guid.NewGuid() },
+            _ => true);
+
+        page.ViewModelForTest.Skip();
+        await presenter.DismissStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        firstOwner.Cancel();
+        var premature = await Task.WhenAny(
+            presenter.SecondPresented.Task,
+            Task.Delay(TimeSpan.FromMilliseconds(100)));
+        var replacementOpenedBeforePopFinished =
+            ReferenceEquals(premature, presenter.SecondPresented.Task);
+
+        presenter.AllowDisappearing.TrySetResult();
+        presenter.ReleaseDismissal.TrySetResult();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => first);
+        await presenter.SecondPresented.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        if (!replacement.IsCompleted)
+            await page.DismissAsyncForTest();
+        await replacement;
+
+        Assert.False(replacementOpenedBeforePopFinished);
+    }
+
+    [Fact]
+    public async Task Saved_and_runtime_announcements_follow_each_visible_state_once()
     {
         await using var fixture = await SheetFixture.CreateAsync();
         var presenter = new RecordingSheetPresenter();
@@ -104,7 +137,6 @@ public sealed class SetEffortSheetTests
 
         page.SimulateAppearingForTest();
         page.SimulateAppearingForTest();
-        Assert.Equal(2, page.FocusAttemptCountForTest);
         Assert.Equal(1, page.AnnouncementCountForTest);
         Assert.Equal(WorkoutResources.English.EffortSetSaved,
             page.LastAnnouncementForTest);
@@ -143,11 +175,69 @@ public sealed class SetEffortSheetTests
         await pending;
     }
 
-    private sealed class RecordingSheetPresenter : INativeSheetPresenter
+    [Fact]
+    public async Task Appearing_requests_semantic_focus_for_heading_and_records_success()
+    {
+        await using var fixture = await SheetFixture.CreateAsync();
+        var presenter = new RecordingSheetPresenter();
+        VisualElement? focusedTarget = null;
+        var focusCalls = 0;
+        var page = fixture.CreatePage(presenter, target =>
+        {
+            focusedTarget = target;
+            focusCalls++;
+            return true;
+        });
+        var pending = page.PresentAsync(fixture.Request, _ => true);
+        await presenter.Presented.Task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        page.SimulateAppearingForTest();
+
+        Assert.Equal(1, focusCalls);
+        Assert.Same(page.FindByName<Label>("EffortSheetHeading"), focusedTarget);
+        Assert.True(page.LastSemanticFocusResultForTest);
+        await page.DismissAsyncForTest();
+        await pending;
+    }
+
+    [Fact]
+    public async Task Retry_failure_announces_each_new_save_failed_transition()
+    {
+        await using var fixture = await SheetFixture.CreateAsync();
+        fixture.Recorder.RecordFailuresRemaining = 2;
+        var presenter = new RecordingSheetPresenter();
+        var page = fixture.CreatePage(presenter);
+        var pending = page.PresentAsync(fixture.Request, _ => true);
+        await presenter.Presented.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        page.SimulateAppearingForTest();
+
+        await page.ViewModelForTest.ChooseEffortAsync(SetEffortRating.Productive);
+        Assert.Equal(SetEffortPromptState.SaveFailed, page.ViewModelForTest.State);
+        Assert.Equal(2, page.AnnouncementCountForTest);
+
+        await page.ViewModelForTest.RetryAsync();
+
+        Assert.Equal(SetEffortPromptState.SaveFailed, page.ViewModelForTest.State);
+        Assert.Equal(3, page.AnnouncementCountForTest);
+        Assert.Equal(WorkoutResources.English.EffortSaveFailed,
+            page.LastAnnouncementForTest);
+        Assert.Equal(2, fixture.Recorder.RecordCalls);
+        await page.DismissAsyncForTest();
+        await pending;
+    }
+
+    private sealed class RecordingSheetPresenter(bool delayFirstDismissal = false)
+        : INativeSheetPresenter
     {
         public TaskCompletionSource Presented { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource SecondPresented { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource DismissStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource AllowDisappearing { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseDismissal { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         public ContentPage? Page { get; private set; }
         public NativeSheetDetent? Detent { get; private set; }
@@ -165,12 +255,16 @@ public sealed class SetEffortSheetTests
             return Task.CompletedTask;
         }
 
-        public Task DismissAsync(ContentPage page,
+        public async Task DismissAsync(ContentPage page,
             CancellationToken cancellationToken = default)
         {
             Assert.Same(Page, page);
             DismissCount++;
-            return Task.CompletedTask;
+            if (!delayFirstDismissal || DismissCount != 1) return;
+            DismissStarted.TrySetResult();
+            await AllowDisappearing.Task;
+            Assert.IsType<SetEffortSheetPage>(page).SimulateDisappearingForTest();
+            await ReleaseDismissal.Task;
         }
     }
 
@@ -233,6 +327,18 @@ public sealed class SetEffortSheetTests
             new SetEffortPromptViewModel(
                 Recorder, Preferences, UnitPreference, Boundary, WorkoutResources.English));
 
+        public SetEffortSheetPage CreatePage(
+            INativeSheetPresenter presenter,
+            Func<VisualElement, bool> semanticFocus) => new(
+                presenter,
+                new SetEffortPromptViewModel(
+                    Recorder,
+                    Preferences,
+                    UnitPreference,
+                    Boundary,
+                    WorkoutResources.English),
+                semanticFocus);
+
         public ValueTask DisposeAsync()
         {
             DispatcherProvider.SetCurrent(OriginalDispatcher);
@@ -244,6 +350,7 @@ public sealed class SetEffortSheetTests
     {
         private LocalWorkout _graph = initialGraph;
         public int RecordCalls { get; private set; }
+        public int RecordFailuresRemaining { get; set; }
 
         public Task<LocalSet> RecordSetEffortAsync(
             Guid exerciseDefinitionId,
@@ -254,6 +361,11 @@ public sealed class SetEffortSheetTests
         {
             cancellationToken.ThrowIfCancellationRequested();
             RecordCalls++;
+            if (RecordFailuresRemaining > 0)
+            {
+                RecordFailuresRemaining--;
+                throw new InvalidOperationException("Effort write failed.");
+            }
             var exercise = _graph.Exercises.Single(item =>
                 item.DeletedAt is null
                 && item.ExerciseDefinitionId == exerciseDefinitionId);
