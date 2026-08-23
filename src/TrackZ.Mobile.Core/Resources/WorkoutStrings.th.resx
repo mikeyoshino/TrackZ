@@ -197,4 +197,14 @@
   <data name="GuidanceUseWeightFormat" xml:space="preserve"><value>ใช้ {0} {1} ในเซ็ตถัดไป</value></data>
   <data name="GuidanceUseAssistanceFormat" xml:space="preserve"><value>ใช้แรงช่วย {0} {1} ในเซ็ตถัดไป</value></data>
   <data name="GuidanceUseRepsFormat" xml:space="preserve"><value>ใช้เป้าหมาย {0} ครั้งในเซ็ตถัดไป</value></data>
+  <data name="HomeWeeklyGoalFormat" xml:space="preserve"><value>สัปดาห์นี้ฝึกแล้ว {0} จากเป้าหมาย {1} ครั้ง</value></data>
+  <data name="HomeWeeklyStreakFormat" xml:space="preserve"><value>ทำถึงเป้า {0} สัปดาห์ติด</value></data>
+  <data name="HomeLatestPerformance" xml:space="preserve"><value>ผลงานท่าล่าสุด</value></data>
+  <data name="HomeLatestLabel" xml:space="preserve"><value>ครั้งล่าสุด</value></data>
+  <data name="HomeBestLabel" xml:space="preserve"><value>สถิติสูงสุด</value></data>
+  <data name="HomeViewAllData" xml:space="preserve"><value>ดูข้อมูลทั้งหมด</value></data>
+  <data name="HomeWeightedValueFormat" xml:space="preserve"><value>{0} {1} × {2} ครั้ง</value></data>
+  <data name="HomeAssistedValueFormat" xml:space="preserve"><value>แรงช่วย {0} {1} × {2} ครั้ง</value></data>
+  <data name="HomeBodyweightValueFormat" xml:space="preserve"><value>{0} ครั้ง</value></data>
+  <data name="Open" xml:space="preserve"><value>เปิด</value></data>
 </root>

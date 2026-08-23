@@ -1,7 +1,7 @@
 using System.ComponentModel;
+using System.Globalization;
 using TrackZ.Contracts.Progress;
 using TrackZ.Domain.Exercises;
-using TrackZ.Mobile.Features.Gamification;
 using TrackZ.Mobile.Features.Train;
 using TrackZ.Mobile.Features.Workout;
 
@@ -10,63 +10,113 @@ namespace TrackZ.Mobile.Tests.Train;
 public sealed class HomeMomentumItemTests
 {
     [Theory]
-    [InlineData(WeightDisplayUnit.Kilograms, "Last 70.125 kg × 8", "Best 72.5 kg × 6")]
-    [InlineData(WeightDisplayUnit.Pounds, "Last 154.60 lb × 8", "Best 159.84 lb × 6")]
-    public void Formats_exact_weighted_last_and_best(
-        WeightDisplayUnit unit,
-        string expectedLast,
+    [InlineData("en-US", "75 kg × 8 reps", "80 kg × 8 reps")]
+    [InlineData("th-TH", "75 กก. × 8 ครั้ง", "80 กก. × 8 ครั้ง")]
+    public void Weighted_latest_and_best_are_factual_and_localized(
+        string cultureName,
+        string expectedLatest,
         string expectedBest)
     {
-        using var item = CreateItem(unit, TrackingMode.Weighted, 70.125m, null, 8, 72.5m, null, 6);
+        using var item = CreateItem(
+            CultureInfo.GetCultureInfo(cultureName),
+            new MutableWeightPreference(WeightDisplayUnit.Kilograms),
+            TrackingMode.Weighted,
+            75m,
+            null,
+            8,
+            80m,
+            null,
+            8);
 
-        Assert.Equal(expectedLast, item.LastText);
-        Assert.Equal(expectedBest, item.BestText);
+        Assert.Equal(expectedLatest, item.LatestValueText);
+        Assert.Equal(expectedBest, item.BestValueText);
     }
 
     [Theory]
-    [InlineData(WeightDisplayUnit.Kilograms, "Last 20 kg assistance × 8", "Best 15.5 kg assistance × 10")]
-    [InlineData(WeightDisplayUnit.Pounds, "Last 44.09 lb assistance × 8", "Best 34.17 lb assistance × 10")]
-    public void Formats_exact_assisted_last_and_best(
-        WeightDisplayUnit unit,
-        string expectedLast,
+    [InlineData("en-US", "20 kg assistance × 8 reps", "15.5 kg assistance × 10 reps")]
+    [InlineData("th-TH", "แรงช่วย 20 กก. × 8 ครั้ง", "แรงช่วย 15.5 กก. × 10 ครั้ง")]
+    public void Assisted_latest_and_best_are_factual_and_localized(
+        string cultureName,
+        string expectedLatest,
         string expectedBest)
     {
-        using var item = CreateItem(unit, TrackingMode.Assisted, null, 20m, 8, null, 15.5m, 10);
+        using var item = CreateItem(
+            CultureInfo.GetCultureInfo(cultureName),
+            new MutableWeightPreference(WeightDisplayUnit.Kilograms),
+            TrackingMode.Assisted,
+            null,
+            20m,
+            8,
+            null,
+            15.5m,
+            10);
 
-        Assert.Equal(expectedLast, item.LastText);
-        Assert.Equal(expectedBest, item.BestText);
+        Assert.Equal(expectedLatest, item.LatestValueText);
+        Assert.Equal(expectedBest, item.BestValueText);
     }
 
-    [Fact]
-    public void Formats_bodyweight_as_reps_without_fabricating_weight()
+    [Theory]
+    [InlineData("en-US", "12 reps", "15 reps")]
+    [InlineData("th-TH", "12 ครั้ง", "15 ครั้ง")]
+    public void Bodyweight_latest_and_best_are_factual_and_localized(
+        string cultureName,
+        string expectedLatest,
+        string expectedBest)
     {
-        using var item = CreateItem(WeightDisplayUnit.Kilograms, TrackingMode.Bodyweight, null, null, 12, null, null, 15);
+        using var item = CreateItem(
+            CultureInfo.GetCultureInfo(cultureName),
+            new MutableWeightPreference(WeightDisplayUnit.Kilograms),
+            TrackingMode.Bodyweight,
+            null,
+            null,
+            12,
+            null,
+            null,
+            15);
 
-        Assert.Equal("Last 12 reps", item.LastText);
-        Assert.Equal("Best 15 reps", item.BestText);
+        Assert.Equal(expectedLatest, item.LatestValueText);
+        Assert.Equal(expectedBest, item.BestValueText);
     }
 
     [Fact]
     public void Preference_change_updates_both_text_properties_without_replacing_item()
     {
         var preference = new MutableWeightPreference(WeightDisplayUnit.Kilograms);
-        using var item = CreateItem(preference, TrackingMode.Weighted, 70.125m, null, 8, 72.5m, null, 6);
+        using var item = CreateItem(
+            CultureInfo.GetCultureInfo("en-US"),
+            preference,
+            TrackingMode.Weighted,
+            70.125m,
+            null,
+            8,
+            72.5m,
+            null,
+            6);
         var raised = new List<string?>();
         item.PropertyChanged += (_, args) => raised.Add(args.PropertyName);
 
         preference.Set(WeightDisplayUnit.Pounds);
 
-        Assert.Equal("Last 154.60 lb × 8", item.LastText);
-        Assert.Equal("Best 159.84 lb × 6", item.BestText);
-        Assert.Contains(nameof(HomeMomentumItem.LastText), raised);
-        Assert.Contains(nameof(HomeMomentumItem.BestText), raised);
+        Assert.Equal("154.60 lb × 8 reps", item.LatestValueText);
+        Assert.Equal("159.84 lb × 6 reps", item.BestValueText);
+        Assert.Contains(nameof(HomeMomentumItem.LatestValueText), raised);
+        Assert.Contains(nameof(HomeMomentumItem.BestValueText), raised);
     }
 
     [Fact]
     public void Dispose_unsubscribes_from_the_shared_weight_preference()
     {
         var preference = new MutableWeightPreference(WeightDisplayUnit.Kilograms);
-        var item = CreateItem(preference, TrackingMode.Weighted, 70m, null, 8, 72m, null, 6);
+        var item = CreateItem(
+            CultureInfo.GetCultureInfo("en-US"),
+            preference,
+            TrackingMode.Weighted,
+            70m,
+            null,
+            8,
+            72m,
+            null,
+            6);
         var raised = new List<string?>();
         item.PropertyChanged += (_, args) => raised.Add(args.PropertyName);
 
@@ -76,29 +126,8 @@ public sealed class HomeMomentumItemTests
         Assert.Empty(raised);
     }
 
-    [Fact]
-    public void Resource_contract_has_distinct_english_and_thai_momentum_copy()
-    {
-        Assert.Equal("Last", GamificationResources.English.Last);
-        Assert.Equal("Best", GamificationResources.English.Best);
-        Assert.Equal("assistance", GamificationResources.English.Assistance);
-        Assert.Equal("ล่าสุด", GamificationResources.Thai.Last);
-        Assert.Equal("สูงสุด", GamificationResources.Thai.Best);
-        Assert.Equal("น้ำหนักช่วย", GamificationResources.Thai.Assistance);
-    }
-
     private static HomeMomentumItem CreateItem(
-        WeightDisplayUnit unit,
-        TrackingMode mode,
-        decimal? lastWeight,
-        decimal? lastAssisted,
-        int lastReps,
-        decimal? bestWeight,
-        decimal? bestAssisted,
-        int bestReps) => CreateItem(
-        new MutableWeightPreference(unit), mode, lastWeight, lastAssisted, lastReps, bestWeight, bestAssisted, bestReps);
-
-    private static HomeMomentumItem CreateItem(
+        CultureInfo culture,
         IWeightUnitPreference preference,
         TrackingMode mode,
         decimal? lastWeight,
@@ -119,7 +148,7 @@ public sealed class HomeMomentumItemTests
             bestAssisted,
             bestReps),
         preference,
-        GamificationResources.English);
+        WorkoutResources.ForCulture(culture));
 
     private sealed class MutableWeightPreference(WeightDisplayUnit current) : IWeightUnitPreference
     {

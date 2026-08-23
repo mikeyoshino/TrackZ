@@ -197,4 +197,14 @@
   <data name="GuidanceUseWeightFormat" xml:space="preserve"><value>Use {0} {1} for the next set</value></data>
   <data name="GuidanceUseAssistanceFormat" xml:space="preserve"><value>Use {0} {1} assistance for the next set</value></data>
   <data name="GuidanceUseRepsFormat" xml:space="preserve"><value>Use {0} reps for the next set</value></data>
+  <data name="HomeWeeklyGoalFormat" xml:space="preserve"><value>This week you completed {0} of {1} workouts</value></data>
+  <data name="HomeWeeklyStreakFormat" xml:space="preserve"><value>Goal met {0} weeks in a row</value></data>
+  <data name="HomeLatestPerformance" xml:space="preserve"><value>Latest performance</value></data>
+  <data name="HomeLatestLabel" xml:space="preserve"><value>Latest</value></data>
+  <data name="HomeBestLabel" xml:space="preserve"><value>Best</value></data>
+  <data name="HomeViewAllData" xml:space="preserve"><value>View all data</value></data>
+  <data name="HomeWeightedValueFormat" xml:space="preserve"><value>{0} {1} × {2} reps</value></data>
+  <data name="HomeAssistedValueFormat" xml:space="preserve"><value>{0} {1} assistance × {2} reps</value></data>
+  <data name="HomeBodyweightValueFormat" xml:space="preserve"><value>{0} reps</value></data>
+  <data name="Open" xml:space="preserve"><value>Open</value></data>
 </root>

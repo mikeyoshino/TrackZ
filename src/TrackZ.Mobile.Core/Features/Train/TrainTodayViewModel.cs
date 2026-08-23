@@ -12,6 +12,7 @@ namespace TrackZ.Mobile.Features.Train;
 
 public sealed class TrainTodayViewModel : INotifyPropertyChanged, IDisposable
 {
+    private const decimal PoundsPerKilogram = 2.204622621848775807m;
     private readonly ITrainDashboardSource _source;
     private readonly IAccountSessionBoundary _boundary;
     private readonly IConnectivityService? _connectivity;
@@ -113,6 +114,18 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged, IDisposable
     public string WeeklyGoalProgressText => $"{WeeklyCompletedWorkouts}/{WeeklyGoal}";
     public string StreakValueText => CurrentStreakWeeks.ToString(CultureInfo.CurrentCulture);
     public string LevelXpText => string.Format(CultureInfo.CurrentCulture, Text.LevelXpFormat, Level, TotalXp);
+    public string WeeklyGoalSentenceText => string.Format(
+        CultureInfo.CurrentCulture,
+        Text.HomeWeeklyGoalFormat,
+        WeeklyCompletedWorkouts,
+        WeeklyGoal);
+    public bool HasWeeklyStreak => CurrentStreakWeeks > 0;
+    public string WeeklyStreakSentenceText => HasWeeklyStreak
+        ? string.Format(CultureInfo.CurrentCulture, Text.HomeWeeklyStreakFormat, CurrentStreakWeeks)
+        : string.Empty;
+    public string LatestPerformanceTitle => RecentMomentum?.ExerciseName ?? string.Empty;
+    public string LatestPerformanceValue => RecentMomentum?.LatestValueText ?? string.Empty;
+    public string BestPerformanceValue => RecentMomentum?.BestValueText ?? string.Empty;
     public string RepeatWorkoutTitle => RepeatWorkout is { BodyParts.Count: > 0 } repeat
         ? FormatBodyParts(repeat.BodyParts)
         : string.Empty;
@@ -133,7 +146,11 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged, IDisposable
             repeat.LoggedSetCount)
         : string.Empty;
     public string RecentMomentumText => RecentMomentum is { } recent
-        ? string.Format(CultureInfo.CurrentCulture, Text.LastBestFormat, recent.LastText, recent.BestText)
+        ? string.Format(
+            CultureInfo.CurrentCulture,
+            Text.LastBestFormat,
+            FormatLegacyMomentumValue(_gamificationText.Last, recent.Source.LastWeightKg, recent.Source.LastAssistedKg, recent.Source.LastReps, recent.Source.TrackingMode),
+            FormatLegacyMomentumValue(_gamificationText.Best, recent.Source.BestWeightKg, recent.Source.BestAssistedKg, recent.Source.BestReps, recent.Source.TrackingMode))
         : string.Empty;
     public bool CanMutate => !_disposed
         && _isDashboardKnown
@@ -152,17 +169,33 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged, IDisposable
     public int WeeklyCompletedWorkouts
     {
         get => _weeklyCompletedWorkouts;
-        private set { if (Set(ref _weeklyCompletedWorkouts, value)) OnPropertyChanged(nameof(WeeklyGoalProgressText)); }
+        private set
+        {
+            if (!Set(ref _weeklyCompletedWorkouts, value)) return;
+            OnPropertyChanged(nameof(WeeklyGoalProgressText));
+            OnPropertyChanged(nameof(WeeklyGoalSentenceText));
+        }
     }
     public int WeeklyGoal
     {
         get => _weeklyGoal;
-        private set { if (Set(ref _weeklyGoal, value)) OnPropertyChanged(nameof(WeeklyGoalProgressText)); }
+        private set
+        {
+            if (!Set(ref _weeklyGoal, value)) return;
+            OnPropertyChanged(nameof(WeeklyGoalProgressText));
+            OnPropertyChanged(nameof(WeeklyGoalSentenceText));
+        }
     }
     public int CurrentStreakWeeks
     {
         get => _currentStreakWeeks;
-        private set { if (Set(ref _currentStreakWeeks, value)) OnPropertyChanged(nameof(StreakValueText)); }
+        private set
+        {
+            if (!Set(ref _currentStreakWeeks, value)) return;
+            OnPropertyChanged(nameof(StreakValueText));
+            OnPropertyChanged(nameof(HasWeeklyStreak));
+            OnPropertyChanged(nameof(WeeklyStreakSentenceText));
+        }
     }
     public int Level
     {
@@ -196,6 +229,9 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged, IDisposable
             OnPropertyChanged();
             OnPropertyChanged(nameof(HasRecentMomentum));
             OnPropertyChanged(nameof(RecentMomentumText));
+            OnPropertyChanged(nameof(LatestPerformanceTitle));
+            OnPropertyChanged(nameof(LatestPerformanceValue));
+            OnPropertyChanged(nameof(BestPerformanceValue));
         }
     }
     public bool HasRecentMomentum => RecentMomentum is not null;
@@ -413,7 +449,7 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged, IDisposable
             .OrderByDescending(item => item.LastPerformedAt)
             .ThenByDescending(item => item.ExerciseId)
             .FirstOrDefault();
-        RecentMomentum = recent is null ? null : new HomeMomentumItem(recent, _weightUnits, _gamificationText);
+        RecentMomentum = recent is null ? null : new HomeMomentumItem(recent, _weightUnits, Text);
     }
 
     private void OnSessionReset(object? sender, EventArgs eventArgs)
@@ -585,8 +621,33 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged, IDisposable
 
     private void OnRecentMomentumChanged(object? sender, PropertyChangedEventArgs eventArgs)
     {
-        if (eventArgs.PropertyName is nameof(HomeMomentumItem.LastText) or nameof(HomeMomentumItem.BestText))
+        if (eventArgs.PropertyName is nameof(HomeMomentumItem.LatestValueText) or nameof(HomeMomentumItem.BestValueText))
+        {
             OnPropertyChanged(nameof(RecentMomentumText));
+            OnPropertyChanged(nameof(LatestPerformanceValue));
+            OnPropertyChanged(nameof(BestPerformanceValue));
+        }
+    }
+
+    private string FormatLegacyMomentumValue(
+        string label,
+        decimal? weightKg,
+        decimal? assistedKg,
+        int reps,
+        TrackingMode trackingMode) => trackingMode switch
+    {
+        TrackingMode.Weighted => $"{label} {FormatLegacyWeight(weightKg)} × {reps}",
+        TrackingMode.Assisted => $"{label} {FormatLegacyWeight(assistedKg)} {_gamificationText.Assistance} × {reps}",
+        TrackingMode.Bodyweight => $"{label} {reps} {_gamificationText.Reps.ToLower(CultureInfo.CurrentCulture)}",
+        _ => throw new ArgumentOutOfRangeException(nameof(trackingMode))
+    };
+
+    private string FormatLegacyWeight(decimal? kilograms)
+    {
+        if (kilograms is null) return "—";
+        return _weightUnits.Current == WeightDisplayUnit.Pounds
+            ? $"{decimal.Round(kilograms.Value * PoundsPerKilogram, 2, MidpointRounding.AwayFromZero):0.00} {_gamificationText.Pounds}"
+            : $"{kilograms.Value:0.###} {_gamificationText.Kilograms}";
     }
 
     private void NotifyHeroPresentation()

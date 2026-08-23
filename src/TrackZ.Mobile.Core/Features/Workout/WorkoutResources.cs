@@ -196,7 +196,17 @@ public sealed record WorkoutTextSet(
     string GuidanceLowerAssistanceUnavailable,
     string GuidanceUseWeightFormat,
     string GuidanceUseAssistanceFormat,
-    string GuidanceUseRepsFormat);
+    string GuidanceUseRepsFormat,
+    string HomeWeeklyGoalFormat,
+    string HomeWeeklyStreakFormat,
+    string HomeLatestPerformance,
+    string HomeLatestLabel,
+    string HomeBestLabel,
+    string HomeViewAllData,
+    string HomeWeightedValueFormat,
+    string HomeAssistedValueFormat,
+    string HomeBodyweightValueFormat,
+    string Open);
 
 public static class WorkoutResources
 {
@@ -330,7 +340,17 @@ public static class WorkoutResources
             Value("GuidanceLowerAssistanceUnavailable", culture),
             Value("GuidanceUseWeightFormat", culture),
             Value("GuidanceUseAssistanceFormat", culture),
-            Value("GuidanceUseRepsFormat", culture));
+            Value("GuidanceUseRepsFormat", culture),
+            Value("HomeWeeklyGoalFormat", culture),
+            Value("HomeWeeklyStreakFormat", culture),
+            Value("HomeLatestPerformance", culture),
+            Value("HomeLatestLabel", culture),
+            Value("HomeBestLabel", culture),
+            Value("HomeViewAllData", culture),
+            Value("HomeWeightedValueFormat", culture),
+            Value("HomeAssistedValueFormat", culture),
+            Value("HomeBodyweightValueFormat", culture),
+            Value("Open", culture));
     }
 
     private static string Value(string key, CultureInfo culture) =>

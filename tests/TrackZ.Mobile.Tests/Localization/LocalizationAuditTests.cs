@@ -51,6 +51,29 @@ public sealed class LocalizationAuditTests
         };
 
     [Fact]
+    public void Insight_first_home_copy_is_exact_in_English_and_Thai()
+    {
+        var en = WorkoutResources.ForCulture(CultureInfo.GetCultureInfo("en-US"));
+        var th = WorkoutResources.ForCulture(CultureInfo.GetCultureInfo("th-TH"));
+
+        Assert.Equal("This week you completed {0} of {1} workouts", en.HomeWeeklyGoalFormat);
+        Assert.Equal("Goal met {0} weeks in a row", en.HomeWeeklyStreakFormat);
+        Assert.Equal("Latest performance", en.HomeLatestPerformance);
+        Assert.Equal("Latest", en.HomeLatestLabel);
+        Assert.Equal("Best", en.HomeBestLabel);
+        Assert.Equal("View all data", en.HomeViewAllData);
+        Assert.Equal("Open", en.Open);
+
+        Assert.Equal("สัปดาห์นี้ฝึกแล้ว {0} จากเป้าหมาย {1} ครั้ง", th.HomeWeeklyGoalFormat);
+        Assert.Equal("ทำถึงเป้า {0} สัปดาห์ติด", th.HomeWeeklyStreakFormat);
+        Assert.Equal("ผลงานท่าล่าสุด", th.HomeLatestPerformance);
+        Assert.Equal("ครั้งล่าสุด", th.HomeLatestLabel);
+        Assert.Equal("สถิติสูงสุด", th.HomeBestLabel);
+        Assert.Equal("ดูข้อมูลทั้งหมด", th.HomeViewAllData);
+        Assert.Equal("เปิด", th.Open);
+    }
+
+    [Fact]
     public void Previous_workout_reference_copy_is_localized_in_English_and_Thai()
     {
         var english = WorkoutResources.ForCulture(CultureInfo.GetCultureInfo("en-US"));

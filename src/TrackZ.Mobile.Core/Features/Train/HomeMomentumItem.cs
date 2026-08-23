@@ -2,7 +2,6 @@ using System.ComponentModel;
 using System.Globalization;
 using TrackZ.Contracts.Progress;
 using TrackZ.Domain.Exercises;
-using TrackZ.Mobile.Features.Gamification;
 using TrackZ.Mobile.Features.Workout;
 
 namespace TrackZ.Mobile.Features.Train;
@@ -11,13 +10,13 @@ public sealed class HomeMomentumItem : INotifyPropertyChanged, IDisposable
 {
     private const decimal PoundsPerKilogram = 2.204622621848775807m;
     private readonly IWeightUnitPreference _preference;
-    private readonly GamificationTextSet _text;
+    private readonly WorkoutTextSet _text;
     private bool _disposed;
 
     public HomeMomentumItem(
         ExerciseProgressSummaryDto source,
         IWeightUnitPreference preference,
-        GamificationTextSet text)
+        WorkoutTextSet text)
     {
         Source = source;
         _preference = preference;
@@ -27,8 +26,8 @@ public sealed class HomeMomentumItem : INotifyPropertyChanged, IDisposable
 
     public ExerciseProgressSummaryDto Source { get; }
     public string ExerciseName => Source.ExerciseName;
-    public string LastText => Format(_text.Last, Source.LastWeightKg, Source.LastAssistedKg, Source.LastReps);
-    public string BestText => Format(_text.Best, Source.BestWeightKg, Source.BestAssistedKg, Source.BestReps);
+    public string LatestValueText => Format(Source.LastWeightKg, Source.LastAssistedKg, Source.LastReps);
+    public string BestValueText => Format(Source.BestWeightKg, Source.BestAssistedKg, Source.BestReps);
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -39,26 +38,42 @@ public sealed class HomeMomentumItem : INotifyPropertyChanged, IDisposable
         _preference.Changed -= OnPreferenceChanged;
     }
 
-    private string Format(string label, decimal? weightKg, decimal? assistedKg, int reps) => Source.TrackingMode switch
+    private string Format(decimal? weightKg, decimal? assistedKg, int reps) => Source.TrackingMode switch
     {
-        TrackingMode.Weighted => $"{label} {FormatWeight(weightKg)} × {reps}",
-        TrackingMode.Assisted => $"{label} {FormatWeight(assistedKg)} {_text.Assistance} × {reps}",
-        TrackingMode.Bodyweight => $"{label} {reps} {_text.Reps.ToLower(CultureInfo.CurrentCulture)}",
+        TrackingMode.Weighted => string.Format(
+            CultureInfo.CurrentCulture,
+            _text.HomeWeightedValueFormat,
+            FormatNumber(weightKg),
+            UnitLabel,
+            reps),
+        TrackingMode.Assisted => string.Format(
+            CultureInfo.CurrentCulture,
+            _text.HomeAssistedValueFormat,
+            FormatNumber(assistedKg),
+            UnitLabel,
+            reps),
+        TrackingMode.Bodyweight => string.Format(
+            CultureInfo.CurrentCulture,
+            _text.HomeBodyweightValueFormat,
+            reps),
         _ => throw new ArgumentOutOfRangeException(nameof(Source.TrackingMode))
     };
 
-    private string FormatWeight(decimal? kilograms)
+    private string UnitLabel => _preference.Current == WeightDisplayUnit.Pounds ? _text.Pounds : _text.Kilograms;
+
+    private string FormatNumber(decimal? kilograms)
     {
         if (kilograms is null) return "—";
         return _preference.Current == WeightDisplayUnit.Pounds
-            ? $"{decimal.Round(kilograms.Value * PoundsPerKilogram, 2, MidpointRounding.AwayFromZero):0.00} {_text.Pounds}"
-            : $"{kilograms.Value:0.###} {_text.Kilograms}";
+            ? decimal.Round(kilograms.Value * PoundsPerKilogram, 2, MidpointRounding.AwayFromZero)
+                .ToString("0.00", CultureInfo.CurrentCulture)
+            : kilograms.Value.ToString("0.###", CultureInfo.CurrentCulture);
     }
 
     private void OnPreferenceChanged(object? sender, EventArgs eventArgs)
     {
         if (_disposed) return;
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LastText)));
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(BestText)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LatestValueText)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(BestValueText)));
     }
 }

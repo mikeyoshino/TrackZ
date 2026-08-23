@@ -308,6 +308,25 @@ public sealed class TrainTodayViewModelTests
     }
 
     [Fact]
+    public async Task Home_progress_presentation_uses_plain_language_facts()
+    {
+        var viewModel = CreateViewModel(
+            new RecordingTrainDashboardSource(new(null, null)),
+            new CachedProgressSource(Snapshot(goal: 3, done: 1, streak: 4, level: 8, xp: 640)),
+            online: false);
+
+        await viewModel.LoadAsync();
+
+        Assert.Equal("This week you completed 1 of 3 workouts", viewModel.WeeklyGoalSentenceText);
+        Assert.Equal("Goal met 4 weeks in a row", viewModel.WeeklyStreakSentenceText);
+        Assert.True(viewModel.HasWeeklyStreak);
+        Assert.Equal("Latest performance", viewModel.Text.HomeLatestPerformance);
+        Assert.Equal("Bench Press", viewModel.LatestPerformanceTitle);
+        Assert.Equal("70.125 kg × 8 reps", viewModel.LatestPerformanceValue);
+        Assert.Equal("72.5 kg × 6 reps", viewModel.BestPerformanceValue);
+    }
+
+    [Fact]
     public async Task Account_reset_after_cached_progress_prevents_delayed_refresh_from_restoring_home_state()
     {
         var boundary = new AccountSessionBoundary();
@@ -668,12 +687,18 @@ public sealed class TrainTodayViewModelTests
             nameof(TrainTodayViewModel.HeroSupportingText),
             nameof(TrainTodayViewModel.ActiveWorkoutProgress),
             nameof(TrainTodayViewModel.WeeklyGoalProgressText),
+            nameof(TrainTodayViewModel.WeeklyGoalSentenceText),
             nameof(TrainTodayViewModel.StreakValueText),
+            nameof(TrainTodayViewModel.HasWeeklyStreak),
+            nameof(TrainTodayViewModel.WeeklyStreakSentenceText),
             nameof(TrainTodayViewModel.LevelXpText),
             nameof(TrainTodayViewModel.RepeatWorkoutTitle),
             nameof(TrainTodayViewModel.RepeatWorkoutMetaText),
             nameof(TrainTodayViewModel.RepeatWorkoutAccessibilityText),
-            nameof(TrainTodayViewModel.RecentMomentumText)
+            nameof(TrainTodayViewModel.RecentMomentumText),
+            nameof(TrainTodayViewModel.LatestPerformanceTitle),
+            nameof(TrainTodayViewModel.LatestPerformanceValue),
+            nameof(TrainTodayViewModel.BestPerformanceValue)
         };
         Assert.All(derivedProperties, property =>
             Assert.True(changes.Count(change => change == property) >= 2, $"{property} did not notify for load and reset."));
