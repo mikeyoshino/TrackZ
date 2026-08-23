@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Maui.Dispatching;
 using TrackZ.Contracts.Exercises;
@@ -14,6 +15,7 @@ namespace TrackZ.Mobile.Tests.NativeIos;
 
 public sealed class ExercisePickerInteractionTests : IDisposable
 {
+    private readonly CultureSnapshot _culture = CultureSnapshot.Capture();
     private readonly string _root = Path.Combine(
         Path.GetTempPath(), $"trackz-picker-interaction-{Guid.NewGuid():N}");
     private readonly IDispatcherProvider _originalDispatcher = DispatcherProvider.Current;
@@ -201,10 +203,17 @@ public sealed class ExercisePickerInteractionTests : IDisposable
 
     public void Dispose()
     {
-        _app.Dispose();
-        DispatcherProvider.SetCurrent(_originalDispatcher);
-        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
-        Directory.Delete(_root, recursive: true);
+        try
+        {
+            _app.Dispose();
+            DispatcherProvider.SetCurrent(_originalDispatcher);
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            Directory.Delete(_root, recursive: true);
+        }
+        finally
+        {
+            _culture.Restore();
+        }
     }
 
     private static IEnumerable<Element> Descendants(IVisualTreeElement root)
@@ -242,6 +251,27 @@ public sealed class ExercisePickerInteractionTests : IDisposable
     {
         public AppLanguage Read() => language;
         public void Write(AppLanguage value) => language = value;
+    }
+
+    private sealed record CultureSnapshot(
+        CultureInfo Current,
+        CultureInfo CurrentUi,
+        CultureInfo? Default,
+        CultureInfo? DefaultUi)
+    {
+        public static CultureSnapshot Capture() => new(
+            CultureInfo.CurrentCulture,
+            CultureInfo.CurrentUICulture,
+            CultureInfo.DefaultThreadCurrentCulture,
+            CultureInfo.DefaultThreadCurrentUICulture);
+
+        public void Restore()
+        {
+            CultureInfo.CurrentCulture = Current;
+            CultureInfo.CurrentUICulture = CurrentUi;
+            CultureInfo.DefaultThreadCurrentCulture = Default;
+            CultureInfo.DefaultThreadCurrentUICulture = DefaultUi;
+        }
     }
 
     private sealed class InlineDispatcherProvider : IDispatcherProvider

@@ -63,6 +63,20 @@ public sealed class LocalizationAuditTests
     }
 
     [Fact]
+    public void Empty_exercise_selection_warning_copy_is_exact_in_English_and_Thai()
+    {
+        var english = WorkoutResources.ForCulture(CultureInfo.GetCultureInfo("en-US"));
+        var thai = WorkoutResources.ForCulture(CultureInfo.GetCultureInfo("th-TH"));
+
+        Assert.Equal("No exercises selected", english.ExerciseSelectionRequiredTitle);
+        Assert.Equal("Choose at least 1 exercise before creating your workout.", english.ExerciseSelectionRequiredMessage);
+        Assert.Equal("OK", english.Okay);
+        Assert.Equal("ยังไม่ได้เลือกท่า", thai.ExerciseSelectionRequiredTitle);
+        Assert.Equal("เลือกอย่างน้อย 1 ท่าก่อนสร้างการฝึก", thai.ExerciseSelectionRequiredMessage);
+        Assert.Equal("ตกลง", thai.Okay);
+    }
+
+    [Fact]
     public void Effort_and_guidance_copy_preserves_English_and_Thai_meaning()
     {
         var english = WorkoutResources.ForCulture(CultureInfo.GetCultureInfo("en-US"));
