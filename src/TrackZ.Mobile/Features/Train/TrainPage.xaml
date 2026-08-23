@@ -91,33 +91,10 @@
                 </VerticalStackLayout>
             </Border>
 
-            <Grid
-                x:Name="MotivationStrip"
-                ColumnDefinitions="*,*,*"
-                ColumnSpacing="{DynamicResource TrackZSpace8}"
-                IsVisible="{Binding HasAuthoritativeProgress}"
-                SemanticProperties.Description="{Binding Text.ThisWeek}">
-                <Border x:Name="WeeklyGoalMetric" Style="{DynamicResource TrackZHomeMetricCardStyle}">
-                    <VerticalStackLayout HorizontalOptions="Center" Spacing="{DynamicResource TrackZSpace4}" VerticalOptions="Center">
-                        <Label HorizontalTextAlignment="Center" Style="{DynamicResource TrackZPerformanceNumberStyle}" Text="{Binding WeeklyGoalProgressText}" />
-                        <Label HorizontalTextAlignment="Center" Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Text.ThisWeek}" />
-                    </VerticalStackLayout>
-                </Border>
-                <Border x:Name="StreakMetric" Grid.Column="1" Style="{DynamicResource TrackZHomeMetricCardStyle}">
-                    <VerticalStackLayout HorizontalOptions="Center" Spacing="{DynamicResource TrackZSpace4}" VerticalOptions="Center">
-                        <Label HorizontalTextAlignment="Center" Style="{DynamicResource TrackZPerformanceNumberStyle}" Text="{Binding StreakValueText}" />
-                        <Label HorizontalTextAlignment="Center" Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Text.WeekStreak}" />
-                    </VerticalStackLayout>
-                </Border>
-                <Border x:Name="LevelMetric" Grid.Column="2" Style="{DynamicResource TrackZHomeMetricCardStyle}">
-                    <VerticalStackLayout HorizontalOptions="Center" Spacing="{DynamicResource TrackZSpace4}" VerticalOptions="Center">
-                        <Label HorizontalTextAlignment="Center" Style="{DynamicResource TrackZBodyStyle}" Text="{Binding LevelXpText}" />
-                        <ProgressBar Progress="{Binding LevelProgress}" ProgressColor="{DynamicResource TrackZPrimary}" />
-                    </VerticalStackLayout>
-                </Border>
-            </Grid>
-
-            <VerticalStackLayout IsVisible="{Binding ShowTrainAgain}" Spacing="{DynamicResource TrackZSpace8}">
+            <VerticalStackLayout
+                x:Name="TrainAgainSection"
+                IsVisible="{Binding ShowTrainAgain}"
+                Spacing="{DynamicResource TrackZSpace8}">
                 <Label Style="{DynamicResource TrackZSectionTitleStyle}" Text="{Binding Text.TrainAgain}" />
                 <Border
                     x:Name="TrainAgainCard"
@@ -150,48 +127,65 @@
                             <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding RepeatWorkoutMetaText}" />
                         </VerticalStackLayout>
                         <Label
-                            x:Name="TrainAgainChevron"
-                            AutomationProperties.ExcludedWithChildren="True"
                             Grid.Column="2"
                             Style="{DynamicResource TrackZBodyStyle}"
-                            Text="›"
+                            Text="{Binding Text.Open}"
                             VerticalOptions="Center" />
                     </Grid>
                 </Border>
             </VerticalStackLayout>
 
-            <VerticalStackLayout IsVisible="{Binding HasRecentMomentum}" Spacing="{DynamicResource TrackZSpace8}">
-                <Label Style="{DynamicResource TrackZSectionTitleStyle}" Text="{Binding Text.RecentMomentum}" />
+            <Border
+                x:Name="WeeklyGoalCard"
+                IsVisible="{Binding HasAuthoritativeProgress}"
+                Style="{DynamicResource TrackZCardStyle}">
+                <VerticalStackLayout Spacing="{DynamicResource TrackZSpace8}">
+                    <Label
+                        x:Name="WeeklyGoalSentence"
+                        Style="{DynamicResource TrackZSectionTitleStyle}"
+                        Text="{Binding WeeklyGoalSentenceText}" />
+                    <Label
+                        x:Name="WeeklyStreakSentence"
+                        IsVisible="{Binding HasWeeklyStreak}"
+                        Style="{DynamicResource TrackZSecondaryStyle}"
+                        Text="{Binding WeeklyStreakSentenceText}" />
+                    <ProgressBar Progress="{Binding WeeklyProgress}" ProgressColor="{DynamicResource TrackZPrimary}" />
+                </VerticalStackLayout>
+            </Border>
+
+            <VerticalStackLayout
+                x:Name="LatestPerformanceSection"
+                IsVisible="{Binding HasRecentMomentum}"
+                Spacing="{DynamicResource TrackZSpace8}">
+                <Label Style="{DynamicResource TrackZSectionTitleStyle}" Text="{Binding Text.HomeLatestPerformance}" />
                 <Border
-                    x:Name="RecentMomentumCard"
+                    x:Name="LatestPerformanceCard"
                     IsVisible="{Binding HasRecentMomentum}"
                     MinimumHeightRequest="{DynamicResource TrackZExerciseCardHeight}"
-                    SemanticProperties.Description="{Binding RecentMomentumText}"
                     Style="{DynamicResource TrackZListRowStyle}">
-                    <Grid ColumnSpacing="{DynamicResource TrackZSpace12}">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="{DynamicResource TrackZExerciseArtworkColumnWidth}" />
-                            <ColumnDefinition Width="*" />
-                        </Grid.ColumnDefinitions>
-                        <Border
-                            x:Name="RecentMomentumArtwork"
-                            AutomationProperties.ExcludedWithChildren="True"
-                            HeightRequest="{DynamicResource TrackZExerciseArtworkSize}"
-                            Style="{DynamicResource TrackZArtworkFrameStyle}"
-                            WidthRequest="{DynamicResource TrackZExerciseArtworkSize}">
+                    <VerticalStackLayout Spacing="{DynamicResource TrackZSpace8}">
+                        <Label Style="{DynamicResource TrackZSectionTitleStyle}" Text="{Binding LatestPerformanceTitle}" />
+                        <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto" RowSpacing="{DynamicResource TrackZSpace4}">
+                            <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Text.HomeLatestLabel}" />
                             <Label
-                                x:Name="RecentMomentumGlyph"
-                                AutomationProperties.ExcludedWithChildren="True"
-                                HorizontalOptions="Center"
-                                Style="{DynamicResource TrackZPerformanceNumberStyle}"
-                                Text="↗"
-                                VerticalOptions="Center" />
-                        </Border>
-                        <VerticalStackLayout Grid.Column="1" Spacing="{DynamicResource TrackZSpace4}" VerticalOptions="Center">
-                            <Label Style="{DynamicResource TrackZSectionTitleStyle}" Text="{Binding RecentMomentum.ExerciseName}" />
-                            <Label x:Name="RecentMomentumValue" Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding RecentMomentumText}" />
-                        </VerticalStackLayout>
-                    </Grid>
+                                x:Name="LatestPerformanceValue"
+                                Grid.Column="1"
+                                HorizontalTextAlignment="End"
+                                Style="{DynamicResource TrackZBodyStyle}"
+                                Text="{Binding LatestPerformanceValue}" />
+                            <Label
+                                Grid.Row="1"
+                                Style="{DynamicResource TrackZSecondaryStyle}"
+                                Text="{Binding Text.HomeBestLabel}" />
+                            <Label
+                                x:Name="BestPerformanceValue"
+                                Grid.Column="1"
+                                Grid.Row="1"
+                                HorizontalTextAlignment="End"
+                                Style="{DynamicResource TrackZBodyStyle}"
+                                Text="{Binding BestPerformanceValue}" />
+                        </Grid>
+                    </VerticalStackLayout>
                 </Border>
             </VerticalStackLayout>
 

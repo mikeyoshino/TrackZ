@@ -90,8 +90,9 @@ public sealed class NativeIosExperienceAcceptanceTests
 
         var approvedHierarchy = new[]
         {
-            "MomentumHomeScroll", "HomeContextLabel", "HomeHero", "HeroActionButton", "MotivationStrip",
-            "WeeklyGoalMetric", "StreakMetric", "LevelMetric", "TrainAgainCard", "RecentMomentumCard"
+            "MomentumHomeScroll", "HomeContextLabel", "HomeHero", "HeroActionButton", "TrainAgainSection",
+            "TrainAgainCard", "WeeklyGoalCard", "WeeklyGoalSentence", "WeeklyStreakSentence",
+            "LatestPerformanceSection", "LatestPerformanceCard", "LatestPerformanceValue", "BestPerformanceValue"
         };
         Assert.Equal(
             approvedHierarchy,
@@ -99,6 +100,12 @@ public sealed class NativeIosExperienceAcceptanceTests
         Assert.Single(document.Descendants(), element =>
             element.Name.LocalName == "Button"
             && element.Attributes().Any(attribute => attribute.Value.Contains("TrackZPrimaryButtonStyle", StringComparison.Ordinal)));
+        var homeText = document.Root!.DescendantsAndSelf()
+            .Attributes("Text")
+            .Select(attribute => attribute.Value);
+        Assert.DoesNotContain(homeText, value => value.EnumerateRunes().Any(rune =>
+            rune.Value is >= 0x2190 and <= 0x21FF
+            || rune.Value is >= 0x1F000 and <= 0x1FAFF));
 
         var homeCopy = HomeCopy(WorkoutResources.English).Concat(HomeCopy(WorkoutResources.ForCulture(System.Globalization.CultureInfo.GetCultureInfo("th-TH"))));
         Assert.DoesNotContain(homeCopy, value => value.Contains("offline", StringComparison.OrdinalIgnoreCase)
@@ -116,10 +123,16 @@ public sealed class NativeIosExperienceAcceptanceTests
         text.ChooseWorkoutSupporting,
         text.WorkoutInProgress,
         text.ContinueWorkout,
-        text.ThisWeek,
-        text.WeekStreak,
         text.TrainAgain,
-        text.RecentMomentum,
+        text.Open,
+        text.HomeWeeklyGoalFormat,
+        text.HomeWeeklyStreakFormat,
+        text.HomeLatestPerformance,
+        text.HomeLatestLabel,
+        text.HomeBestLabel,
+        text.HomeWeightedValueFormat,
+        text.HomeAssistedValueFormat,
+        text.HomeBodyweightValueFormat,
         text.HomeExerciseProgressFormat,
         text.RepeatWorkoutAccessibilityFormat,
         text.HomeLoadFailed,

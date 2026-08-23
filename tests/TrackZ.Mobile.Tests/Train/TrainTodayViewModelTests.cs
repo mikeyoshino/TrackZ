@@ -75,12 +75,12 @@ public sealed class TrainTodayViewModelTests
 
         Assert.NotNull(viewModel.ActiveWorkout);
         Assert.Equal(3, viewModel.WeeklyCompletedWorkouts);
-        Assert.Equal(8, viewModel.Level);
+        Assert.Equal(0.75d, viewModel.WeeklyProgress, 3);
         progress.FailRefresh();
         await load;
 
         Assert.True(viewModel.HasAuthoritativeProgress);
-        Assert.Equal(640, viewModel.TotalXp);
+        Assert.Equal(0.75d, viewModel.WeeklyProgress, 3);
     }
 
     [Fact]
@@ -346,8 +346,7 @@ public sealed class TrainTodayViewModelTests
         Assert.Null(viewModel.ActiveWorkout);
         Assert.Null(viewModel.RepeatWorkout);
         Assert.False(viewModel.HasAuthoritativeProgress);
-        Assert.Equal(0, viewModel.Level);
-        Assert.Equal(0, viewModel.TotalXp);
+        Assert.Equal(0d, viewModel.WeeklyProgress);
         Assert.False(viewModel.HasRecentMomentum);
     }
     [Fact]
@@ -413,42 +412,45 @@ public sealed class TrainTodayViewModelTests
         "Start training",
         "Choose today's workout",
         "You choose the body area and exercises",
-        "3/4",
-        "4",
-        "Level 8 · 640 XP",
+        "This week you completed 3 of 4 workouts",
+        "Goal met 4 weeks in a row",
         "Shoulders + Back",
         "Thursday · 2 exercises · 3 sets logged",
         "Train again: Shoulders + Back, 2 exercises, 3 sets",
-        "Last 70.125 kg × 8 · Best 72.5 kg × 6",
-        "Last 154.60 lb × 8 · Best 159.84 lb × 6")]
+        "70.125 kg × 8 reps",
+        "72.5 kg × 6 reps",
+        "154.60 lb × 8 reps",
+        "159.84 lb × 6 reps")]
     [InlineData(
         "th-TH",
         "พร้อมเมื่อไหร่ เริ่มได้เลย",
         "เริ่มฝึก",
         "เลือกการฝึกวันนี้",
         "คุณเลือกส่วนร่างกายและท่าออกกำลังกายเอง",
-        "3/4",
-        "4",
-        "เลเวล 8 · 640 XP",
+        "สัปดาห์นี้ฝึกแล้ว 3 จากเป้าหมาย 4 ครั้ง",
+        "ทำถึงเป้า 4 สัปดาห์ติด",
         "ไหล่ + หลัง",
         "วันพฤหัสบดี · 2 ท่า · บันทึกแล้ว 3 เซ็ต",
         "ฝึกแบบเดิมอีกครั้ง: ไหล่ + หลัง, 2 ท่า, 3 เซ็ต",
-        "ล่าสุด 70.125 กก. × 8 · สูงสุด 72.5 กก. × 6",
-        "ล่าสุด 154.60 ปอนด์ × 8 · สูงสุด 159.84 ปอนด์ × 6")]
+        "70.125 กก. × 8 ครั้ง",
+        "72.5 กก. × 6 ครั้ง",
+        "154.60 ปอนด์ × 8 ครั้ง",
+        "159.84 ปอนด์ × 6 ครั้ง")]
     public async Task Ready_home_presentation_uses_literal_localized_copy_and_formats(
         string cultureName,
         string headline,
         string eyebrow,
         string title,
         string supporting,
-        string weekly,
-        string streak,
-        string levelXp,
+        string weeklyGoalSentence,
+        string weeklyStreakSentence,
         string repeatTitle,
         string repeatMeta,
         string repeatAccessibility,
-        string recent,
-        string recentPounds)
+        string latest,
+        string best,
+        string latestPounds,
+        string bestPounds)
     {
         var previousCulture = CultureInfo.CurrentCulture;
         var previousUiCulture = CultureInfo.CurrentUICulture;
@@ -481,15 +483,16 @@ public sealed class TrainTodayViewModelTests
             Assert.Equal(eyebrow, viewModel.HeroEyebrowText);
             Assert.Equal(title, viewModel.HeroTitleText);
             Assert.Equal(supporting, viewModel.HeroSupportingText);
-            Assert.Equal(weekly, viewModel.WeeklyGoalProgressText);
-            Assert.Equal(streak, viewModel.StreakValueText);
-            Assert.Equal(levelXp, viewModel.LevelXpText);
+            Assert.Equal(weeklyGoalSentence, viewModel.WeeklyGoalSentenceText);
+            Assert.Equal(weeklyStreakSentence, viewModel.WeeklyStreakSentenceText);
             Assert.Equal(repeatTitle, viewModel.RepeatWorkoutTitle);
             Assert.Equal(repeatMeta, viewModel.RepeatWorkoutMetaText);
             Assert.Equal(repeatAccessibility, viewModel.RepeatWorkoutAccessibilityText);
-            Assert.Equal(recent, viewModel.RecentMomentumText);
+            Assert.Equal(latest, viewModel.LatestPerformanceValue);
+            Assert.Equal(best, viewModel.BestPerformanceValue);
             weightPreference.Set(WeightDisplayUnit.Pounds);
-            Assert.Equal(recentPounds, viewModel.RecentMomentumText);
+            Assert.Equal(latestPounds, viewModel.LatestPerformanceValue);
+            Assert.Equal(bestPounds, viewModel.BestPerformanceValue);
         }
         finally
         {
@@ -686,16 +689,13 @@ public sealed class TrainTodayViewModelTests
             nameof(TrainTodayViewModel.HeroTitleText),
             nameof(TrainTodayViewModel.HeroSupportingText),
             nameof(TrainTodayViewModel.ActiveWorkoutProgress),
-            nameof(TrainTodayViewModel.WeeklyGoalProgressText),
+            nameof(TrainTodayViewModel.WeeklyProgress),
             nameof(TrainTodayViewModel.WeeklyGoalSentenceText),
-            nameof(TrainTodayViewModel.StreakValueText),
             nameof(TrainTodayViewModel.HasWeeklyStreak),
             nameof(TrainTodayViewModel.WeeklyStreakSentenceText),
-            nameof(TrainTodayViewModel.LevelXpText),
             nameof(TrainTodayViewModel.RepeatWorkoutTitle),
             nameof(TrainTodayViewModel.RepeatWorkoutMetaText),
             nameof(TrainTodayViewModel.RepeatWorkoutAccessibilityText),
-            nameof(TrainTodayViewModel.RecentMomentumText),
             nameof(TrainTodayViewModel.LatestPerformanceTitle),
             nameof(TrainTodayViewModel.LatestPerformanceValue),
             nameof(TrainTodayViewModel.BestPerformanceValue)

@@ -48,12 +48,12 @@ public sealed class AccessibilitySemanticsTests
         Assert.Contains("x:Name=\"HeroActionButton\"", xaml, StringComparison.Ordinal);
         Assert.Contains("SemanticProperties.Description=\"{Binding HeroActionText}\"", xaml, StringComparison.Ordinal);
         Assert.Contains("SemanticProperties.Description=\"{Binding RepeatWorkoutAccessibilityText}\"", xaml, StringComparison.Ordinal);
-        Assert.Contains("SemanticProperties.Description=\"{Binding RecentMomentumText}\"", xaml, StringComparison.Ordinal);
         Assert.Contains("x:Name=\"HomeRetryButton\"", xaml, StringComparison.Ordinal);
         Assert.Contains("SemanticProperties.Description=\"{Binding Text.TryAgain}\"", xaml, StringComparison.Ordinal);
         Assert.Contains("Style=\"{DynamicResource TrackZSecondaryButtonStyle}\"", xaml, StringComparison.Ordinal);
         Assert.Contains("x:Name=\"TrainAgainCard\"", xaml, StringComparison.Ordinal);
-        Assert.Contains("x:Name=\"RecentMomentumCard\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"LatestPerformanceCard\"", xaml, StringComparison.Ordinal);
+        Assert.DoesNotContain("RecentMomentumText", xaml, StringComparison.Ordinal);
         Assert.Contains("TrackZPrimaryButtonStyle", controls, StringComparison.Ordinal);
         Assert.Contains("TrackZExerciseCardHeight", controls, StringComparison.Ordinal);
         Assert.True(NativeAccessibility.MinimumActionTarget >= 44);

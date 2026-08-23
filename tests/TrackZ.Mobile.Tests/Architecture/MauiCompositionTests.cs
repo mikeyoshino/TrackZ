@@ -823,7 +823,6 @@ public sealed class MauiCompositionTests
             Assert.Equal(1, viewModel.ActiveWorkout.LoggedExerciseCount);
             Assert.Equal(1, viewModel.ActiveWorkout.LoggedSetCount);
             Assert.True(viewModel.HasAuthoritativeProgress);
-            Assert.Equal(8, viewModel.Level);
             Assert.Equal("Composed Press", viewModel.RecentMomentum!.ExerciseName);
         }
         finally

@@ -95,11 +95,6 @@ public sealed class AppWideVisualConsistencyTests
                     "Border",
                     "ContentPage/ScrollView/VerticalStackLayout/VerticalStackLayout/Border/Grid/Border",
                     "TrackZArtworkFrameStyle"),
-                new(
-                    "RecentMomentumArtwork",
-                    "Border",
-                    "ContentPage/ScrollView/VerticalStackLayout/VerticalStackLayout/Border/Grid/Border",
-                    "TrackZArtworkFrameStyle")
             ],
             ["Features/Workout/SetLoggerPage.xaml"] =
             [
@@ -308,12 +303,6 @@ public sealed class AppWideVisualConsistencyTests
             AuditArtworkGridGeometry("Features/Train/TrainPage.xaml", mutated),
             error => error.Contains("artwork width", StringComparison.Ordinal));
 
-        var heightMutation = new XDocument(train);
-        var heightArtwork = Named(heightMutation, "RecentMomentumArtwork");
-        heightArtwork.SetAttributeValue("HeightRequest", "{DynamicResource TrackZExerciseCardHeight}");
-        Assert.Contains(
-            AuditArtworkGridGeometry("Features/Train/TrainPage.xaml", heightMutation),
-            error => error.Contains("height and width", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -328,12 +317,12 @@ public sealed class AppWideVisualConsistencyTests
             AuditMomentumArtworkSemantics(missingFallback),
             error => error.Contains("shared exercise fallback", StringComparison.Ordinal));
 
-        var accessibleDecoration = new XDocument(train);
-        Named(accessibleDecoration, "RecentMomentumGlyph")
+        var accessibleArtwork = new XDocument(train);
+        Named(accessibleArtwork, "TrainAgainArtwork")
             .Attribute("AutomationProperties.ExcludedWithChildren")!
             .Remove();
         Assert.Contains(
-            AuditMomentumArtworkSemantics(accessibleDecoration),
+            AuditMomentumArtworkSemantics(accessibleArtwork),
             error => error.Contains("decorative artwork", StringComparison.Ordinal));
 
         var duplicateDescription = new XDocument(train);
@@ -376,24 +365,16 @@ public sealed class AppWideVisualConsistencyTests
     }
 
     [Fact]
-    public void Momentum_home_audit_rejects_metric_height_and_section_order_mutations()
+    public void Momentum_home_audit_rejects_action_first_section_order_mutations()
     {
         const string trainPath = "Features/Train/TrainPage.xaml";
-        var controls = XDocument.Load(Path.Combine(MobileDirectory(), "Resources/Styles/TrackZControls.xaml"));
-        Assert.Empty(AuditHomeMetricStyle(controls));
-        var metricStyle = Style(controls, "TrackZHomeMetricCardStyle");
-        Setter(metricStyle, "MinimumHeightRequest").SetAttributeValue("Value", "72");
-        Assert.Contains(
-            AuditHomeMetricStyle(controls),
-            error => error.Contains("equal 76-point height", StringComparison.Ordinal));
-
         var train = XDocument.Load(Path.Combine(MobileDirectory(), trainPath));
         var repeat = Named(train, "TrainAgainCard").Parent!;
         repeat.Remove();
         Named(train, "HomeHero").AddBeforeSelf(repeat);
         Assert.Contains(
             AuditPage(trainPath, train),
-            error => error.Contains("after the hero", StringComparison.Ordinal));
+            error => error.Contains("action-first order", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -667,7 +648,7 @@ public sealed class AppWideVisualConsistencyTests
             if (hero is null || primaryActions.Any(action => !action.Ancestors().Contains(hero)))
                 yield return "Momentum Home primary action must stay inside HomeHero.";
 
-            var orderedNames = new[] { "HomeHero", "MotivationStrip", "TrainAgainCard", "RecentMomentumCard" };
+            var orderedNames = new[] { "HomeHero", "TrainAgainSection", "WeeklyGoalCard", "LatestPerformanceSection" };
             var descendants = document.Descendants().ToList();
             var orderedElements = orderedNames
                 .Select(name => descendants.SingleOrDefault(element => ElementName(element) == name))
@@ -675,14 +656,7 @@ public sealed class AppWideVisualConsistencyTests
             if (orderedElements.Any(element => element is null) ||
                 !orderedElements.Select(element => descendants.IndexOf(element!)).SequenceEqual(
                     orderedElements.Select(element => descendants.IndexOf(element!)).Order()))
-                yield return "Momentum Home hierarchy must keep motivation, Train again, and recent momentum after the hero in the approved order.";
-
-            foreach (var metricName in new[] { "WeeklyGoalMetric", "StreakMetric", "LevelMetric" })
-            {
-                var metric = descendants.SingleOrDefault(element => ElementName(element) == metricName);
-                if (metric is null || ResourceKey(metric.Attribute("Style")?.Value) != "TrackZHomeMetricCardStyle")
-                    yield return $"Momentum metric '{metricName}' must use the shared equal-height metric style.";
-            }
+                yield return "Momentum Home hierarchy must keep the approved action-first order after the hero.";
         }
 
         if (BottomActionPages.Contains(relativePath, StringComparer.Ordinal))
@@ -708,23 +682,6 @@ public sealed class AppWideVisualConsistencyTests
                     yield return "Primary actions on sticky pages must stay inside the safe-area action container.";
             }
         }
-    }
-
-    private static IEnumerable<string> AuditHomeMetricStyle(XDocument controls)
-    {
-        var metric = controls.Descendants().SingleOrDefault(element =>
-            element.Name.LocalName == "Style" && XamlKey(element) == "TrackZHomeMetricCardStyle");
-        if (metric is null)
-        {
-            yield return "Momentum metrics need one shared semantic card style.";
-            yield break;
-        }
-
-        var minimum = metric.Elements().SingleOrDefault(element =>
-            element.Name.LocalName == "Setter" && element.Attribute("Property")?.Value == "MinimumHeightRequest")?
-            .Attribute("Value")?.Value;
-        if (minimum != "76")
-            yield return "Momentum metrics must retain one equal 76-point height.";
     }
 
     private static IEnumerable<string> AuditMomentumHeroStates(XDocument document)
@@ -804,7 +761,7 @@ public sealed class AppWideVisualConsistencyTests
             yield return "Train again must layer the shared exercise fallback beneath its optional real thumbnail.";
         }
 
-        foreach (var name in new[] { "TrainAgainArtwork", "TrainAgainChevron", "RecentMomentumArtwork", "RecentMomentumGlyph" })
+        foreach (var name in new[] { "TrainAgainArtwork" })
         {
             var decoration = document.Descendants().SingleOrDefault(element => ElementName(element) == name);
             if (decoration?.Attribute("AutomationProperties.ExcludedWithChildren")?.Value != "True")
@@ -816,8 +773,7 @@ public sealed class AppWideVisualConsistencyTests
 
         foreach (var (name, description) in new[]
         {
-            ("TrainAgainCard", "{Binding RepeatWorkoutAccessibilityText}"),
-            ("RecentMomentumCard", "{Binding RecentMomentumText}")
+            ("TrainAgainCard", "{Binding RepeatWorkoutAccessibilityText}")
         })
         {
             var card = document.Descendants().SingleOrDefault(element => ElementName(element) == name);
