@@ -67,6 +67,32 @@ public sealed class SetEffortSheetTests
     }
 
     [Fact]
+    public async Task Pre_show_initialization_failure_releases_gate_for_next_presentation()
+    {
+        const string expectedMessage = "Throw-once workout preference read.";
+        var preferenceStore = new ThrowOnceWorkoutPreferenceStore(expectedMessage);
+        await using var fixture = await SheetFixture.CreateAsync(preferenceStore);
+        var presenter = new RecordingSheetPresenter();
+        var page = fixture.CreatePage(presenter);
+
+        var first = page.PresentAsync(fixture.Request, _ => true);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => first.WaitAsync(TimeSpan.FromMilliseconds(250)));
+        Assert.Equal(expectedMessage, exception.Message);
+        Assert.Equal(0, presenter.ShowCount);
+
+        var second = page.PresentAsync(
+            fixture.Request with { EffortOperationId = Guid.NewGuid() },
+            _ => true);
+        await presenter.Presented.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        Assert.Equal(1, presenter.ShowCount);
+
+        await page.DismissAsyncForTest();
+        await second.WaitAsync(TimeSpan.FromSeconds(1));
+    }
+
+    [Fact]
     public async Task Account_reset_during_native_push_eventually_pops_before_replacement_opens()
     {
         await using var fixture = await SheetFixture.CreateAsync();
@@ -287,8 +313,9 @@ public sealed class SetEffortSheetTests
         public async Task DismissAsync(ContentPage page,
             CancellationToken cancellationToken = default)
         {
-            Assert.Same(Page, page);
             DismissCount++;
+            if (Page is null) return;
+            Assert.Same(Page, page);
             if (!delayFirstDismissal || DismissCount != 1) return;
             DismissStarted.TrySetResult();
             await AllowDisappearing.Task;
@@ -372,7 +399,8 @@ public sealed class SetEffortSheetTests
         public AccountSessionBoundary Boundary { get; }
         private IDispatcherProvider OriginalDispatcher { get; }
 
-        public static Task<SheetFixture> CreateAsync()
+        public static Task<SheetFixture> CreateAsync(
+            IWorkoutPreferenceStore? preferenceStore = null)
         {
             var workoutId = Guid.NewGuid();
             var exerciseDefinitionId = Guid.NewGuid();
@@ -387,7 +415,7 @@ public sealed class SetEffortSheetTests
                 [new LocalWorkoutExercise(
                     workoutExerciseId, workoutId, exerciseDefinitionId,
                     TrackingMode.Weighted, 0, null, 2, 1, [saved])]);
-            var raw = new SheetPreferenceStore();
+            var raw = preferenceStore ?? new SheetPreferenceStore();
             var originalDispatcher = DispatcherProvider.Current;
             DispatcherProvider.SetCurrent(new InlineDispatcherProvider());
             return Task.FromResult(new SheetFixture(
@@ -483,6 +511,22 @@ public sealed class SetEffortSheetTests
         private readonly Dictionary<string, string> _values = [];
         public string? Get(string key) => _values.GetValueOrDefault(key);
         public void Set(string key, string value) => _values[key] = value;
+    }
+
+    private sealed class ThrowOnceWorkoutPreferenceStore(string message)
+        : IWorkoutPreferenceStore
+    {
+        private readonly SheetPreferenceStore _inner = new();
+        private int _throwOnRead = 1;
+
+        public string? Get(string key)
+        {
+            if (Interlocked.Exchange(ref _throwOnRead, 0) == 1)
+                throw new InvalidOperationException(message);
+            return _inner.Get(key);
+        }
+
+        public void Set(string key, string value) => _inner.Set(key, value);
     }
 
     private sealed class InlineDispatcherProvider : IDispatcherProvider

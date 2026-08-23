@@ -70,12 +70,12 @@ public partial class SetEffortSheetPage : ContentPage, ISetEffortSheet
             LastSemanticFocusResultForTest = false;
             try
             {
-                _viewModel.Initialize(request, applyToDraft);
-                _viewModel.DismissRequested += OnDismissRequested;
-                _viewModel.PropertyChanged += OnViewModelPropertyChanged;
-                BindingContext = _viewModel;
                 try
                 {
+                    _viewModel.Initialize(request, applyToDraft);
+                    _viewModel.DismissRequested += OnDismissRequested;
+                    _viewModel.PropertyChanged += OnViewModelPropertyChanged;
+                    BindingContext = _viewModel;
                     await _presenter.ShowAsync(
                         this, NativeSheetDetent.Medium, cancellationToken);
                 }
