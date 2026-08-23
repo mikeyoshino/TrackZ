@@ -68,6 +68,30 @@ public sealed class TrackSetsVisualContractTests
     }
 
     [Fact]
+    public void Draft_entries_use_in_field_hints_without_obscuring_entered_values()
+    {
+        var page = XDocument.Load(Path.Combine(
+            Root(), "src/TrackZ.Mobile/Features/Workout/SetLoggerPage.xaml"));
+        var controls = page.Descendants().Single(element =>
+            Name(element) == "DraftControlGrid");
+        var weightInput = controls.Descendants().Single(element =>
+            Name(element) == "DraftWeightInput");
+        var repsInput = controls.Descendants().Single(element =>
+            Name(element) == "DraftRepsInput");
+
+        Assert.Equal("{Binding WeightUnitLabel}",
+            weightInput.Attribute("Placeholder")?.Value);
+        Assert.Equal("{Binding Text.Reps}",
+            repsInput.Attribute("Placeholder")?.Value);
+        Assert.Equal("Border", weightInput.Parent?.Name.LocalName);
+        Assert.DoesNotContain(controls.Descendants(), element =>
+            element.Name.LocalName == "Label"
+            && element.Attribute("Text")?.Value is
+                "{Binding WeightCaption}" or "{Binding Text.Reps}" or
+                "{Binding WeightUnitLabel}");
+    }
+
+    [Fact]
     public void Persistent_html_reference_covers_kilograms_pounds_and_both_disclosure_states()
     {
         var html = File.ReadAllText(Path.Combine(Root(), "docs/design/track-sets-reference.html"));
