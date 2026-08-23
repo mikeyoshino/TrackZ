@@ -69,6 +69,44 @@ public sealed class ProgressExerciseFocusTests
         Assert.False(request.Animated);
     }
 
+    [Fact]
+    public async Task Overlapping_appearances_keep_the_latest_focus_request_after_the_first_is_cancelled()
+    {
+        using var dispatcher = new DispatcherScope();
+        var source = new GatedFirstReadProgressSnapshotSource(CreateSnapshot());
+        var scrollRequest = new TaskCompletionSource<ScrollRequest>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var page = new ExerciseProgressPage(
+            CreateViewModel(source),
+            (scroll, x, y, animated) =>
+            {
+                scrollRequest.TrySetResult(new ScrollRequest(scroll, x, y, animated));
+                return Task.CompletedTask;
+            });
+        page.ApplyQueryAttributes(new Dictionary<string, object>
+        {
+            ["exerciseId"] = "66666666-6666-6666-6666-666666666666"
+        });
+
+        var firstAppearance = page.HandleAppearingAsync();
+        await source.FirstReadStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        page.ApplyQueryAttributes(new Dictionary<string, object>
+        {
+            ["exerciseId"] = "77777777-7777-7777-7777-777777777777"
+        });
+
+        var secondAppearance = page.HandleAppearingAsync();
+        var rows = page.FindByName<VerticalStackLayout>("ExerciseProgressRows");
+        var latestRequestedRow = Assert.IsAssignableFrom<VisualElement>(rows.Children[1]);
+        latestRequestedRow.Arrange(new Rect(0, 240, 390, 120));
+
+        var request = await scrollRequest.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        await Task.WhenAll(firstAppearance, secondAppearance);
+
+        Assert.Equal(240, request.Y);
+        Assert.False(request.Animated);
+    }
+
     [Theory]
     [InlineData("not-a-guid")]
     [InlineData("")]
@@ -93,8 +131,14 @@ public sealed class ProgressExerciseFocusTests
         Assert.Null(page.ConsumeRequestedExercise());
     }
 
-    private static ProgressDashboardViewModel CreateViewModel() => new(
-        new FixedProgressSnapshotSource(new ProgressSnapshot(
+    private static ProgressDashboardViewModel CreateViewModel(IProgressSnapshotSource? source = null) => new(
+        source ?? new FixedProgressSnapshotSource(CreateSnapshot()),
+        new OfflineConnectivity(),
+        new KilogramPreference(),
+        new AccountSessionBoundary(),
+        GamificationResources.English);
+
+    private static ProgressSnapshot CreateSnapshot() => new(
             new ProgressSummaryDto(
                 1000m,
                 500m,
@@ -105,11 +149,7 @@ public sealed class ProgressExerciseFocusTests
                     Exercise("77777777-7777-7777-7777-777777777777", "Bench Press")
                 ]),
             new GamificationProfileDto(640, 8, 600, 800, 3, 2, 4, 4, [], []),
-            new DateTimeOffset(2026, 8, 20, 11, 0, 0, TimeSpan.Zero))),
-        new OfflineConnectivity(),
-        new KilogramPreference(),
-        new AccountSessionBoundary(),
-        GamificationResources.English);
+            new DateTimeOffset(2026, 8, 20, 11, 0, 0, TimeSpan.Zero));
 
     private static ExerciseProgressSummaryDto Exercise(string id, string name) => new(
         Guid.Parse(id),
@@ -127,6 +167,31 @@ public sealed class ProgressExerciseFocusTests
     {
         public Task<ProgressSnapshot?> GetCachedAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult<ProgressSnapshot?>(snapshot);
+
+        public Task<ProgressSnapshot> RefreshAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(snapshot);
+
+        public Task<ProgressSnapshot> UpdateWeeklyGoalAsync(int weeklyGoal, CancellationToken cancellationToken = default) =>
+            Task.FromResult(snapshot);
+    }
+
+    private sealed class GatedFirstReadProgressSnapshotSource(ProgressSnapshot snapshot) : IProgressSnapshotSource
+    {
+        private int _readCount;
+
+        public TaskCompletionSource FirstReadStarted { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public async Task<ProgressSnapshot?> GetCachedAsync(CancellationToken cancellationToken = default)
+        {
+            if (Interlocked.Increment(ref _readCount) == 1)
+            {
+                FirstReadStarted.TrySetResult();
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            }
+
+            return snapshot;
+        }
 
         public Task<ProgressSnapshot> RefreshAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(snapshot);

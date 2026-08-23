@@ -35,24 +35,29 @@ public partial class ExerciseProgressPage : ContentPage, IQueryAttributable
     protected override async void OnAppearing()
     {
         base.OnAppearing();
+        await HandleAppearingAsync();
+    }
+
+    internal async Task HandleAppearingAsync()
+    {
         _focusCancellation?.Cancel();
-        _focusCancellation?.Dispose();
-        var cancellation = _focusCancellation = new CancellationTokenSource();
+        var cancellation = new CancellationTokenSource();
+        _focusCancellation = cancellation;
+        var cancellationToken = cancellation.Token;
         try
         {
-            await _viewModel.LoadAsync();
-            await FocusRequestedExerciseAsync(cancellation.Token);
+            await _viewModel.LoadAsync(cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            await FocusRequestedExerciseAsync(cancellationToken);
         }
-        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
         }
         finally
         {
             if (ReferenceEquals(_focusCancellation, cancellation))
-            {
                 _focusCancellation = null;
-                cancellation.Dispose();
-            }
+            cancellation.Dispose();
         }
     }
 
