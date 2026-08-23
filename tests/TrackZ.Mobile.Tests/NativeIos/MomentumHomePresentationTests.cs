@@ -29,11 +29,13 @@ public sealed class MomentumHomePresentationTests
         Assert.Equal("Try again", english.TryAgain);
         Assert.Equal("Could not repeat that workout. Try again.", english.HomeRepeatFailed);
         Assert.Equal("Workout saved. Could not open it. Tap Continue.", english.HomeOpenWorkoutFailed);
+        Assert.Equal("Couldn't open progress. Try again.", english.HomeOpenProgressFailed);
         Assert.Equal("เริ่มออกกำลังกาย", thai.StartWorkout);
         Assert.Equal("ออกกำลังกายต่อ", thai.ContinueWorkout);
         Assert.Equal("ลองอีกครั้ง", thai.TryAgain);
         Assert.Equal("เริ่มการฝึกแบบเดิมไม่สำเร็จ ลองอีกครั้ง", thai.HomeRepeatFailed);
         Assert.Equal("บันทึกการฝึกแล้ว แต่เปิดไม่สำเร็จ แตะออกกำลังกายต่อ", thai.HomeOpenWorkoutFailed);
+        Assert.Equal("เปิดข้อมูลผลงานไม่สำเร็จ ลองอีกครั้ง", thai.HomeOpenProgressFailed);
 
         var englishHome = HomeCopy(english);
         var thaiHome = HomeCopy(thai);
@@ -96,6 +98,8 @@ public sealed class MomentumHomePresentationTests
             Assert.IsType<Label>(page.FindByName("LatestPerformanceValue")).Text);
         Assert.Equal(viewModel.BestPerformanceValue,
             Assert.IsType<Label>(page.FindByName("BestPerformanceValue")).Text);
+        var weeklyProgress = Assert.IsType<ProgressBar>(page.FindByName("WeeklyGoalProgress"));
+        Assert.Equal(viewModel.WeeklyGoalSentenceText, SemanticProperties.GetDescription(weeklyProgress));
         var trainAgainArtwork = Assert.IsType<Border>(page.FindByName("TrainAgainArtwork"));
         var fallback = Assert.IsType<Image>(page.FindByName("TrainAgainFallback"));
         Assert.Equal("exercise_placeholder.png", Assert.IsType<FileImageSource>(fallback.Source).File);
@@ -183,7 +187,7 @@ public sealed class MomentumHomePresentationTests
         Assert.Same(context.ViewModel.RetryCommand, retry.Command);
         Assert.Equal(context.ViewModel.Text.TryAgain, retry.Text);
         Assert.Equal(context.ViewModel.Text.TryAgain, SemanticProperties.GetDescription(retry));
-        Assert.Same(context.Application.Resources["TrackZSecondaryButtonStyle"], retry.Style);
+        Assert.Same(context.Application.Resources["TrackZQuietButtonStyle"], retry.Style);
         Assert.Single(
             Descendants(context.Page).OfType<Button>(),
             button => ReferenceEquals(button.Style, context.Application.Resources["TrackZPrimaryButtonStyle"]));
@@ -235,6 +239,7 @@ public sealed class MomentumHomePresentationTests
         text.HomeLoadFailed,
         text.HomeRepeatFailed,
         text.HomeOpenWorkoutFailed,
+        text.HomeOpenProgressFailed,
         text.HomeContextFormat
     ];
 

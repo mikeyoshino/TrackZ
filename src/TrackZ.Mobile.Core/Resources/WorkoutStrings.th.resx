@@ -138,6 +138,7 @@
   <data name="HomeLoadFailed" xml:space="preserve"><value>โหลดหน้าหลักไม่สำเร็จ</value></data>
   <data name="HomeRepeatFailed" xml:space="preserve"><value>เริ่มการฝึกแบบเดิมไม่สำเร็จ ลองอีกครั้ง</value></data>
   <data name="HomeOpenWorkoutFailed" xml:space="preserve"><value>บันทึกการฝึกแล้ว แต่เปิดไม่สำเร็จ แตะออกกำลังกายต่อ</value></data>
+  <data name="HomeOpenProgressFailed" xml:space="preserve"><value>เปิดข้อมูลผลงานไม่สำเร็จ ลองอีกครั้ง</value></data>
   <data name="HomeContextFormat" xml:space="preserve"><value>วันนี้ · สัปดาห์ที่ {0}</value></data>
   <data name="LastWorkoutSetsFormat" xml:space="preserve"><value>ครั้งก่อน · {0} เซ็ต</value></data>
   <data name="PreviousWorkoutReference" xml:space="preserve"><value>นน. ครั้งก่อน</value></data>

@@ -149,7 +149,11 @@
                         IsVisible="{Binding HasWeeklyStreak}"
                         Style="{DynamicResource TrackZSecondaryStyle}"
                         Text="{Binding WeeklyStreakSentenceText}" />
-                    <ProgressBar Progress="{Binding WeeklyProgress}" ProgressColor="{DynamicResource TrackZPrimary}" />
+                    <ProgressBar
+                        x:Name="WeeklyGoalProgress"
+                        Progress="{Binding WeeklyProgress}"
+                        ProgressColor="{DynamicResource TrackZPrimary}"
+                        SemanticProperties.Description="{Binding WeeklyGoalSentenceText}" />
                 </VerticalStackLayout>
             </Border>
 
@@ -209,7 +213,7 @@
                     HorizontalOptions="Start"
                     IsVisible="{Binding HasLoadRetry}"
                     SemanticProperties.Description="{Binding Text.TryAgain}"
-                    Style="{DynamicResource TrackZSecondaryButtonStyle}"
+                    Style="{DynamicResource TrackZQuietButtonStyle}"
                     Text="{Binding Text.TryAgain}" />
             </VerticalStackLayout>
         </VerticalStackLayout>

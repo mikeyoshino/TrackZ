@@ -65,32 +65,59 @@ public sealed class ProgressDashboardViewModel : GamificationViewModelBase, IDis
 
     public async Task LoadAsync(CancellationToken cancellationToken = default)
     {
+        if (_disposed) return;
         var generation = _boundary.Capture();
-        IsBusy = true;
-        ErrorMessage = null;
+        if (!_boundary.TryStartSessionPhase(generation, () =>
+        {
+            IsBusy = true;
+            ErrorMessage = null;
+        }, cancellationToken)) return;
         try
         {
-            var cached = await _snapshots.GetCachedAsync(cancellationToken);
-            if (cached is not null) Apply(cached);
-            IsProgressProvisional = true;
+            using var lease = _boundary.CreateCancellationLease(generation, cancellationToken);
+            var cached = await _snapshots.GetCachedAsync(lease.Token);
+            if (!await _boundary.TryCommitAsync(generation, _ =>
+            {
+                if (cached is not null) Apply(cached);
+                IsProgressProvisional = true;
+                return Task.CompletedTask;
+            }, lease.Token)) return;
+
             if (_connectivity.IsOnline)
             {
-                var refreshed = await _snapshots.RefreshAsync(cancellationToken);
-                if (_boundary.IsCancellationRequested(generation)) return;
-                Apply(refreshed);
-                IsProgressProvisional = false;
+                var refreshed = await _snapshots.RefreshAsync(lease.Token);
+                await _boundary.TryCommitAsync(generation, _ =>
+                {
+                    Apply(refreshed);
+                    IsProgressProvisional = false;
+                    return Task.CompletedTask;
+                }, lease.Token);
             }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (OperationCanceledException) when (_boundary.IsCancellationRequested(generation))
         {
-            Clear();
         }
         catch (Exception)
         {
-            ErrorMessage = Text.LoadFailed;
-            IsProgressProvisional = true;
+            await _boundary.TryCommitAsync(generation, _ =>
+            {
+                ErrorMessage = Text.LoadFailed;
+                IsProgressProvisional = true;
+                return Task.CompletedTask;
+            }, CancellationToken.None);
         }
-        finally { IsBusy = false; }
+        finally
+        {
+            await _boundary.TryCommitAsync(generation, _ =>
+            {
+                IsBusy = false;
+                return Task.CompletedTask;
+            }, CancellationToken.None);
+        }
     }
 
     public void Deactivate()
@@ -135,9 +162,13 @@ public sealed class ProgressDashboardViewModel : GamificationViewModelBase, IDis
         _currentLevelRequiredXp = 0;
         NextLevelRequiredXp = null;
         HasAuthoritativeProgressData = false;
+        WeeklyGoal = 3;
+        WeeklyCompletedWorkouts = 0;
         CurrentStreakWeeks = 0;
         BestStreakWeeks = 0;
+        IsProgressProvisional = false;
         ErrorMessage = null;
+        IsBusy = false;
     }
 
     private void OnSessionReset(object? sender, EventArgs eventArgs) => Clear();

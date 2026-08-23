@@ -17,8 +17,9 @@ public sealed class ProgressExerciseFocusTests
     {
         using var dispatcher = new DispatcherScope();
         var requestedExerciseId = Guid.Parse("77777777-7777-7777-7777-777777777777");
-        var viewModel = CreateViewModel();
-        var page = new ExerciseProgressPage(viewModel);
+        var boundary = new AccountSessionBoundary();
+        var viewModel = CreateViewModel(boundary: boundary);
+        var page = new ExerciseProgressPage(viewModel, boundary);
 
         page.ApplyQueryAttributes(new Dictionary<string, object>
         {
@@ -31,18 +32,20 @@ public sealed class ProgressExerciseFocusTests
     }
 
     [Fact]
-    public async Task Focus_waits_for_the_mapped_generated_row_to_receive_layout_before_nonanimated_scroll()
+    public async Task Focus_scrolls_the_exact_generated_row_to_start_without_animation_after_layout()
     {
         using var dispatcher = new DispatcherScope();
         var requestedExerciseId = Guid.Parse("77777777-7777-7777-7777-777777777777");
         var scrollRequest = new TaskCompletionSource<ScrollRequest>(
             TaskCreationOptions.RunContinuationsAsynchronously);
-        var viewModel = CreateViewModel();
+        var boundary = new AccountSessionBoundary();
+        var viewModel = CreateViewModel(boundary: boundary);
         var page = new ExerciseProgressPage(
             viewModel,
-            (scroll, x, y, animated) =>
+            boundary,
+            (scroll, element, position, animated) =>
             {
-                scrollRequest.TrySetResult(new ScrollRequest(scroll, x, y, animated));
+                scrollRequest.TrySetResult(new ScrollRequest(scroll, element, position, animated));
                 return Task.CompletedTask;
             });
         page.ApplyQueryAttributes(new Dictionary<string, object>
@@ -64,8 +67,8 @@ public sealed class ProgressExerciseFocusTests
         var request = await scrollRequest.Task.WaitAsync(TimeSpan.FromSeconds(1));
         await focus;
         Assert.Same(page.FindByName<ScrollView>("ExerciseProgressScroll"), request.Scroll);
-        Assert.Equal(0, request.X);
-        Assert.Equal(240, request.Y);
+        Assert.Same(requestedRow, request.Element);
+        Assert.Equal(ScrollToPosition.Start, request.Position);
         Assert.False(request.Animated);
     }
 
@@ -76,11 +79,13 @@ public sealed class ProgressExerciseFocusTests
         var source = new GatedFirstReadProgressSnapshotSource(CreateSnapshot());
         var scrollRequest = new TaskCompletionSource<ScrollRequest>(
             TaskCreationOptions.RunContinuationsAsynchronously);
+        var boundary = new AccountSessionBoundary();
         var page = new ExerciseProgressPage(
-            CreateViewModel(source),
-            (scroll, x, y, animated) =>
+            CreateViewModel(source, boundary),
+            boundary,
+            (scroll, element, position, animated) =>
             {
-                scrollRequest.TrySetResult(new ScrollRequest(scroll, x, y, animated));
+                scrollRequest.TrySetResult(new ScrollRequest(scroll, element, position, animated));
                 return Task.CompletedTask;
             });
         page.ApplyQueryAttributes(new Dictionary<string, object>
@@ -103,8 +108,43 @@ public sealed class ProgressExerciseFocusTests
         var request = await scrollRequest.Task.WaitAsync(TimeSpan.FromSeconds(1));
         await Task.WhenAll(firstAppearance, secondAppearance);
 
-        Assert.Equal(240, request.Y);
+        Assert.Same(latestRequestedRow, request.Element);
+        Assert.Equal(ScrollToPosition.Start, request.Position);
         Assert.False(request.Animated);
+    }
+
+    [Fact]
+    public async Task Account_reset_while_requested_row_layout_is_pending_cancels_focus_without_scrolling()
+    {
+        using var dispatcher = new DispatcherScope();
+        var boundary = new AccountSessionBoundary();
+        var scrollCount = 0;
+        var viewModel = CreateViewModel(boundary: boundary);
+        var page = new ExerciseProgressPage(
+            viewModel,
+            boundary,
+            (_, _, _, _) =>
+            {
+                Interlocked.Increment(ref scrollCount);
+                return Task.CompletedTask;
+            });
+        page.ApplyQueryAttributes(new Dictionary<string, object>
+        {
+            ["exerciseId"] = "77777777-7777-7777-7777-777777777777"
+        });
+
+        var appearance = page.HandleAppearingAsync();
+        var rows = page.FindByName<VerticalStackLayout>("ExerciseProgressRows");
+        var requestedRow = Assert.IsAssignableFrom<VisualElement>(rows.Children[1]);
+        Assert.True(requestedRow.Width <= 0 || requestedRow.Height <= 0);
+
+        await boundary.ResetAsync(_ => Task.CompletedTask);
+        await appearance.WaitAsync(TimeSpan.FromSeconds(1));
+        requestedRow.Arrange(new Rect(0, 240, 390, 120));
+        await Task.Yield();
+
+        Assert.Equal(0, Volatile.Read(ref scrollCount));
+        Assert.Empty(viewModel.Exercises);
     }
 
     [Theory]
@@ -113,7 +153,8 @@ public sealed class ProgressExerciseFocusTests
     public async Task Invalid_requested_exercise_is_not_consumed(string exerciseId)
     {
         using var dispatcher = new DispatcherScope();
-        var page = new ExerciseProgressPage(CreateViewModel());
+        var boundary = new AccountSessionBoundary();
+        var page = new ExerciseProgressPage(CreateViewModel(boundary: boundary), boundary);
 
         page.ApplyQueryAttributes(new Dictionary<string, object> { ["exerciseId"] = exerciseId });
 
@@ -124,18 +165,21 @@ public sealed class ProgressExerciseFocusTests
     public void Missing_requested_exercise_is_not_consumed()
     {
         using var dispatcher = new DispatcherScope();
-        var page = new ExerciseProgressPage(CreateViewModel());
+        var boundary = new AccountSessionBoundary();
+        var page = new ExerciseProgressPage(CreateViewModel(boundary: boundary), boundary);
 
         page.ApplyQueryAttributes(new Dictionary<string, object>());
 
         Assert.Null(page.ConsumeRequestedExercise());
     }
 
-    private static ProgressDashboardViewModel CreateViewModel(IProgressSnapshotSource? source = null) => new(
+    private static ProgressDashboardViewModel CreateViewModel(
+        IProgressSnapshotSource? source = null,
+        IAccountSessionBoundary? boundary = null) => new(
         source ?? new FixedProgressSnapshotSource(CreateSnapshot()),
         new OfflineConnectivity(),
         new KilogramPreference(),
-        new AccountSessionBoundary(),
+        boundary ?? new AccountSessionBoundary(),
         GamificationResources.English);
 
     private static ProgressSnapshot CreateSnapshot() => new(
@@ -213,7 +257,11 @@ public sealed class ProgressExerciseFocusTests
         public void Set(WeightDisplayUnit unit) { }
     }
 
-    private sealed record ScrollRequest(ScrollView Scroll, double X, double Y, bool Animated);
+    private sealed record ScrollRequest(
+        ScrollView Scroll,
+        Element Element,
+        ScrollToPosition Position,
+        bool Animated);
 
     private sealed class DispatcherScope : IDisposable
     {

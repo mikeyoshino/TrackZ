@@ -34,6 +34,7 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged, IDisposable
     private int _currentStreakWeeks;
     private string? _errorText;
     private bool _hasLoadRetry;
+    private Guid? _progressRetryExerciseId;
     private bool _disposed;
 
     public TrainTodayViewModel(
@@ -71,7 +72,7 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged, IDisposable
         HeroActionCommand = new AsyncCommand(_ => ExecuteHeroActionAsync(), _ => CanMutate);
         TrainAgainCommand = new AsyncCommand(_ => ExecuteTrainAgainAsync(), _ => CanMutate && ShowTrainAgain);
         OpenProgressCommand = new AsyncCommand(_ => ExecuteOpenProgressAsync(), _ => CanMutate && RecentMomentum is not null);
-        RetryCommand = new AsyncCommand(_ => LoadAsync(), _ => HasLoadRetry && !IsBusy);
+        RetryCommand = new AsyncCommand(_ => RetryAsync(), _ => HasLoadRetry && !IsBusy);
         _boundary.SessionReset += OnSessionReset;
         if (_connectivity is not null) _connectivity.ConnectivityChanged += OnConnectivityChanged;
     }
@@ -287,6 +288,7 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged, IDisposable
             OnPropertyChanged(nameof(ShowTrainAgain));
             OnPropertyChanged(nameof(CanMutate));
             RefreshCommandState();
+            _progressRetryExerciseId = null;
             HasLoadRetry = false;
             ErrorText = null;
         }, cancellationToken)) return;
@@ -427,6 +429,7 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged, IDisposable
         WeeklyGoal = 0;
         CurrentStreakWeeks = 0;
         RecentMomentum = null;
+        _progressRetryExerciseId = null;
         HasLoadRetry = false;
         ErrorText = null;
         IsBusy = false;
@@ -512,15 +515,59 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
-    private Task ExecuteOpenProgressAsync()
+    private async Task ExecuteOpenProgressAsync()
     {
         var generation = _boundary.Capture();
         var exerciseId = RecentMomentum?.Source.ExerciseId;
         if (!CanMutate || exerciseId is null || _boundary.IsCancellationRequested(generation))
-            return Task.CompletedTask;
+            return;
 
-        return NavigateAsync(generation, (navigator, token) =>
-            navigator.OpenProgressAsync(exerciseId.Value, token));
+        await OpenProgressWithRecoveryAsync(generation, exerciseId.Value);
+    }
+
+    private async Task OpenProgressWithRecoveryAsync(
+        AccountSessionGeneration generation,
+        Guid exerciseId)
+    {
+        try
+        {
+            await NavigateAsync(generation, (navigator, token) =>
+                navigator.OpenProgressAsync(exerciseId, token));
+            await _boundary.TryCommitAsync(generation, _ =>
+            {
+                _progressRetryExerciseId = null;
+                HasLoadRetry = false;
+                ErrorText = null;
+                return Task.CompletedTask;
+            }, CancellationToken.None);
+        }
+        catch (OperationCanceledException) when (_boundary.IsCancellationRequested(generation))
+        {
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            await _boundary.TryCommitAsync(generation, _ =>
+            {
+                _progressRetryExerciseId = exerciseId;
+                HasLoadRetry = true;
+                ErrorText = Text.HomeOpenProgressFailed;
+                return Task.CompletedTask;
+            }, CancellationToken.None);
+        }
+    }
+
+    private async Task RetryAsync()
+    {
+        var exerciseId = _progressRetryExerciseId;
+        if (exerciseId is null)
+        {
+            await LoadAsync();
+            return;
+        }
+
+        var generation = _boundary.Capture();
+        if (!CanMutate || _boundary.IsCancellationRequested(generation)) return;
+        await OpenProgressWithRecoveryAsync(generation, exerciseId.Value);
     }
 
     private async Task OpenActiveWorkoutWithRecoveryAsync(

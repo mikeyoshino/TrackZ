@@ -60,6 +60,74 @@ public sealed class TrainTodayViewModelTests
         Assert.Equal(["progress:77777777-7777-7777-7777-777777777777"], navigator.Events);
     }
 
+    [Theory]
+    [InlineData("en-US", "Couldn't open progress. Try again.")]
+    [InlineData("th-TH", "เปิดข้อมูลผลงานไม่สำเร็จ ลองอีกครั้ง")]
+    public async Task Progress_navigation_failure_is_localized_and_the_quiet_retry_opens_the_same_exercise(
+        string cultureName,
+        string expectedError)
+    {
+        var culture = CultureInfo.GetCultureInfo(cultureName);
+        var navigator = new FailOnceProgressNavigator();
+        var viewModel = new TrainTodayViewModel(
+            new RecordingTrainDashboardSource(new TrainDashboardSnapshot(null, null)),
+            new AccountSessionBoundary(),
+            WorkoutResources.ForCulture(culture),
+            new CachedProgressSource(Snapshot(3, 1, 4, 8, 640)),
+            new FixedConnectivity(false),
+            new MutableWeightPreference(),
+            culture.TwoLetterISOLanguageName == "th"
+                ? GamificationResources.Thai
+                : GamificationResources.English,
+            navigator: navigator);
+        await viewModel.LoadAsync();
+
+        var failure = await Record.ExceptionAsync(() => viewModel.OpenProgressCommand.ExecuteAsync());
+
+        Assert.Null(failure);
+        Assert.Equal(expectedError, viewModel.ErrorText);
+        Assert.True(viewModel.HasLoadRetry);
+        Assert.True(viewModel.RetryCommand.CanExecute(null));
+
+        await viewModel.RetryCommand.ExecuteAsync();
+
+        Assert.Equal(2, navigator.OpenProgressCount);
+        Assert.Equal(
+            Guid.Parse("77777777-7777-7777-7777-777777777777"),
+            navigator.LastExerciseId);
+        Assert.False(viewModel.HasError);
+        Assert.False(viewModel.HasLoadRetry);
+        Assert.False(viewModel.RetryCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task Account_reset_cancels_progress_navigation_without_leaking_cancellation_or_error_state()
+    {
+        var boundary = new AccountSessionBoundary();
+        var navigator = new CancellableProgressNavigator();
+        var viewModel = new TrainTodayViewModel(
+            new RecordingTrainDashboardSource(new TrainDashboardSnapshot(null, null)),
+            boundary,
+            WorkoutResources.English,
+            new CachedProgressSource(Snapshot(3, 1, 4, 8, 640)),
+            new FixedConnectivity(false),
+            new MutableWeightPreference(),
+            GamificationResources.English,
+            navigator: navigator);
+        await viewModel.LoadAsync();
+
+        var navigation = viewModel.OpenProgressCommand.ExecuteAsync();
+        await navigator.Started.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        var reset = boundary.ResetAsync(_ => Task.CompletedTask);
+
+        await Task.WhenAll(navigation, reset).WaitAsync(TimeSpan.FromSeconds(1));
+
+        Assert.Null(viewModel.ErrorText);
+        Assert.False(viewModel.HasLoadRetry);
+        Assert.False(viewModel.RetryCommand.CanExecute(null));
+        Assert.Null(viewModel.RecentMomentum);
+    }
+
     [Fact]
     public async Task Train_again_is_available_only_after_a_ready_snapshot_commits()
     {
@@ -1063,6 +1131,48 @@ public sealed class TrainTodayViewModelTests
         {
             Events.Add($"progress:{exerciseId:D}");
             return Task.CompletedTask;
+        }
+    }
+
+    private sealed class FailOnceProgressNavigator : ITrainNavigator
+    {
+        public int OpenProgressCount { get; private set; }
+        public Guid? LastExerciseId { get; private set; }
+
+        public Task OpenWorkoutPickerAsync(CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+
+        public Task OpenActiveWorkoutAsync(CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+
+        public Task OpenProgressAsync(Guid exerciseId, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            OpenProgressCount++;
+            LastExerciseId = exerciseId;
+            return OpenProgressCount == 1
+                ? Task.FromException(new InvalidOperationException("Progress navigation failed."))
+                : Task.CompletedTask;
+        }
+    }
+
+    private sealed class CancellableProgressNavigator : ITrainNavigator
+    {
+        public TaskCompletionSource Started { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task OpenWorkoutPickerAsync(CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+
+        public Task OpenActiveWorkoutAsync(CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+
+        public async Task OpenProgressAsync(
+            Guid exerciseId,
+            CancellationToken cancellationToken = default)
+        {
+            Started.TrySetResult();
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
         }
     }
 }

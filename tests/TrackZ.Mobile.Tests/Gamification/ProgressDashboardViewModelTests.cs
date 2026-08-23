@@ -145,6 +145,34 @@ public sealed class ProgressDashboardViewModelTests
     }
 
     [Fact]
+    public async Task Account_reset_during_cached_load_does_not_restore_the_previous_accounts_progress()
+    {
+        var boundary = new AccountSessionBoundary();
+        var source = new GatedCachedSource(Snapshot(11, 640, 3));
+        var sut = new ProgressDashboardViewModel(
+            source,
+            new OfflineConnectivity(),
+            new KilogramPreference(),
+            boundary,
+            GamificationResources.English);
+
+        var load = sut.LoadAsync();
+        await source.ReadStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        await boundary.ResetAsync(_ => Task.CompletedTask);
+        source.Release();
+        await load;
+
+        Assert.False(sut.HasAuthoritativeProgressData);
+        Assert.Empty(sut.Badges);
+        Assert.Empty(sut.Exercises);
+        Assert.Equal(1, sut.Level);
+        Assert.Equal(0, sut.TotalXp);
+        Assert.Equal(0, sut.WeeklyCompletedWorkouts);
+        Assert.False(sut.IsProgressProvisional);
+        Assert.False(sut.IsBusy);
+    }
+
+    [Fact]
     public async Task Summary_uses_cached_baseline_then_authoritative_reward_delta()
     {
         var workoutId = Guid.NewGuid();
@@ -244,6 +272,31 @@ public sealed class ProgressDashboardViewModelTests
 
         public Task<ProgressSnapshot> UpdateWeeklyGoalAsync(int weeklyGoal, CancellationToken cancellationToken = default) =>
             RefreshAsync(cancellationToken);
+    }
+
+    private sealed class GatedCachedSource(ProgressSnapshot snapshot) : IProgressSnapshotSource
+    {
+        private readonly TaskCompletionSource _release = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource ReadStarted { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public async Task<ProgressSnapshot?> GetCachedAsync(CancellationToken cancellationToken = default)
+        {
+            ReadStarted.TrySetResult();
+            await _release.Task;
+            return snapshot;
+        }
+
+        public Task<ProgressSnapshot> RefreshAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(snapshot);
+
+        public Task<ProgressSnapshot> UpdateWeeklyGoalAsync(
+            int weeklyGoal,
+            CancellationToken cancellationToken = default) => Task.FromResult(snapshot);
+
+        public void Release() => _release.TrySetResult();
     }
 
     private sealed class OnlineConnectivity : IConnectivityService

@@ -1,26 +1,36 @@
 using System.Globalization;
 using TrackZ.Mobile.Features.Gamification;
+using TrackZ.Mobile.Identity;
 
 namespace TrackZ.Mobile.Features.Progress;
 
 public partial class ExerciseProgressPage : ContentPage, IQueryAttributable
 {
     private readonly ProgressDashboardViewModel _viewModel;
-    private readonly Func<ScrollView, double, double, bool, Task> _scrollTo;
+    private readonly IAccountSessionBoundary _boundary;
+    private readonly Func<ScrollView, Element, ScrollToPosition, bool, Task> _scrollTo;
     private Guid? _requestedExerciseId;
     private CancellationTokenSource? _focusCancellation;
 
-    public ExerciseProgressPage(ProgressDashboardViewModel viewModel)
-        : this(viewModel, static (scroll, x, y, animated) => scroll.ScrollToAsync(x, y, animated))
+    public ExerciseProgressPage(
+        ProgressDashboardViewModel viewModel,
+        IAccountSessionBoundary boundary)
+        : this(
+            viewModel,
+            boundary,
+            static (scroll, element, position, animated) =>
+                scroll.ScrollToAsync(element, position, animated))
     {
     }
 
     internal ExerciseProgressPage(
         ProgressDashboardViewModel viewModel,
-        Func<ScrollView, double, double, bool, Task> scrollTo)
+        IAccountSessionBoundary boundary,
+        Func<ScrollView, Element, ScrollToPosition, bool, Task> scrollTo)
     {
         InitializeComponent();
         BindingContext = _viewModel = viewModel;
+        _boundary = boundary;
         _scrollTo = scrollTo;
     }
 
@@ -43,14 +53,21 @@ public partial class ExerciseProgressPage : ContentPage, IQueryAttributable
         _focusCancellation?.Cancel();
         var cancellation = new CancellationTokenSource();
         _focusCancellation = cancellation;
-        var cancellationToken = cancellation.Token;
+        var generation = _boundary.Capture();
+        using var lease = _boundary.CreateCancellationLease(generation, cancellation.Token);
+        var cancellationToken = lease.Token;
         try
         {
             await _viewModel.LoadAsync(cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
-            await FocusRequestedExerciseAsync(cancellationToken);
+            _ = await _boundary.TryCommitAsync(
+                generation,
+                FocusRequestedExerciseAsync,
+                cancellationToken);
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (
+            cancellation.IsCancellationRequested
+            || _boundary.IsCancellationRequested(generation))
         {
         }
         finally
@@ -79,7 +96,7 @@ public partial class ExerciseProgressPage : ContentPage, IQueryAttributable
         if (row is null) return;
         await WaitForPositiveLayoutAsync(row, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
-        await _scrollTo(ExerciseProgressScroll, 0, row.Frame.Y, false);
+        await _scrollTo(ExerciseProgressScroll, row, ScrollToPosition.Start, false);
     }
 
     internal ExerciseProgressItem? ConsumeRequestedExercise()

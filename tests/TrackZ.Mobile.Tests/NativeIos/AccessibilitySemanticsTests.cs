@@ -50,7 +50,7 @@ public sealed class AccessibilitySemanticsTests
         Assert.Contains("SemanticProperties.Description=\"{Binding RepeatWorkoutAccessibilityText}\"", xaml, StringComparison.Ordinal);
         Assert.Contains("x:Name=\"HomeRetryButton\"", xaml, StringComparison.Ordinal);
         Assert.Contains("SemanticProperties.Description=\"{Binding Text.TryAgain}\"", xaml, StringComparison.Ordinal);
-        Assert.Contains("Style=\"{DynamicResource TrackZSecondaryButtonStyle}\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Style=\"{DynamicResource TrackZQuietButtonStyle}\"", xaml, StringComparison.Ordinal);
         Assert.Contains("x:Name=\"TrainAgainCard\"", xaml, StringComparison.Ordinal);
         Assert.Contains("x:Name=\"LatestPerformanceCard\"", xaml, StringComparison.Ordinal);
         Assert.DoesNotContain("RecentMomentumText", xaml, StringComparison.Ordinal);

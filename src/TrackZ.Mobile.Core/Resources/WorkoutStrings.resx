@@ -138,6 +138,7 @@
   <data name="HomeLoadFailed" xml:space="preserve"><value>Could not load Home</value></data>
   <data name="HomeRepeatFailed" xml:space="preserve"><value>Could not repeat that workout. Try again.</value></data>
   <data name="HomeOpenWorkoutFailed" xml:space="preserve"><value>Workout saved. Could not open it. Tap Continue.</value></data>
+  <data name="HomeOpenProgressFailed" xml:space="preserve"><value>Couldn't open progress. Try again.</value></data>
   <data name="HomeContextFormat" xml:space="preserve"><value>Today · Week {0}</value></data>
   <data name="LastWorkoutSetsFormat" xml:space="preserve"><value>Last workout · {0} sets</value></data>
   <data name="PreviousWorkoutReference" xml:space="preserve"><value>Previous workout reference</value></data>
