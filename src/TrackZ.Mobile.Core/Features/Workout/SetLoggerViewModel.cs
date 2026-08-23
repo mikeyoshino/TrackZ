@@ -150,6 +150,8 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
     private int _draftBaselineReps;
     private string _weightInputText = string.Empty;
     private bool _isApplyingWeightInput;
+    private ExerciseHistorySessionDto? _previousSession;
+    private PreviousWorkoutReference? _previousReference;
 
     public SetLoggerViewModel(
         ActiveWorkoutCoordinator coordinator,
@@ -251,6 +253,32 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
     public string ExerciseMetadataText { get => _exerciseMetadataText; private set => Set(ref _exerciseMetadataText, value); }
     public string PreviousBestText { get => _previousBestText; private set => Set(ref _previousBestText, value); }
     public string AllTimePrText { get => _allTimePrText; private set => Set(ref _allTimePrText, value); }
+    public bool HasPreviousReference => _previousReference is not null;
+    public string PreviousReferenceTitle => _text.PreviousWorkoutReference;
+    public string PreviousReferenceLoad => _previousReference is null
+        ? string.Empty
+        : _previousReference.TrackingMode switch
+        {
+            TrackingMode.Weighted =>
+                $"{MeasurementValue(_previousReference.WeightKg)} {WeightUnitLabel}",
+            TrackingMode.Assisted =>
+                $"{MeasurementValue(_previousReference.AssistedKg)} {WeightUnitLabel}",
+            TrackingMode.Bodyweight =>
+                $"{_previousReference.Reps} {_text.Reps.ToLower(CultureInfo.CurrentCulture)}",
+            _ => string.Empty
+        };
+    public string PreviousReferenceReps => _previousReference is
+        { TrackingMode: TrackingMode.Weighted or TrackingMode.Assisted }
+            ? $"{_previousReference.Reps} {_text.Reps.ToLower(CultureInfo.CurrentCulture)}"
+            : string.Empty;
+    public string PreviousReferenceReason => _previousReference switch
+    {
+        null => string.Empty,
+        { HasRatedEffort: false } => _text.LegacyWorkoutReference,
+        { TrackingMode: TrackingMode.Weighted } => _text.HeaviestSetInRepRange,
+        { TrackingMode: TrackingMode.Assisted } => _text.LightestAssistanceInRepRange,
+        _ => _text.HighestRepsInRepRange
+    };
 
     public TrackingMode TrackingMode
     {
@@ -385,6 +413,7 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(IsKilograms));
             OnPropertyChanged(nameof(IsPounds));
             RefreshMeasurementRows();
+            PublishPreviousReferenceState();
         }
     }
 
@@ -499,6 +528,7 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
     public bool HasAllTimePr => _cachedExercise?.AllTimeBest is not null;
 
     public event PropertyChangedEventHandler? PropertyChanged;
+    public event EventHandler<SetEffortPromptRequestedEventArgs>? EffortPromptRequested;
 
     public async Task LoadAsync(
         Guid exerciseId,
@@ -553,6 +583,7 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
                 foreach (var set in OrderedExact(previous.Sets))
                     LastSets.Add(Row(set, exercise.TrackingMode));
             }
+            ApplyPreviousSession(previous);
             TodaySets.Clear();
             foreach (var set in exercise.Sets.Where(item => item.DeletedAt is null).OrderBy(item => item.Order))
                 TodaySets.Add(Row(set, exercise.TrackingMode));
@@ -572,6 +603,7 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         {
             _exerciseId = Guid.Empty;
             _cachedExercise = null;
+            ApplyPreviousSession(null);
             PreviousBestText = string.Empty;
             AllTimePrText = string.Empty;
             LastSets.Clear();
@@ -627,6 +659,7 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
             LastSets.Clear();
             foreach (var set in ordered) LastSets.Add(Row(set, expectedMode));
             _lastHistoryCompletedAt = refreshed.CompletedAt;
+            ApplyPreviousSession(refreshed);
             RefreshExerciseContext();
             PublishSetPresentationState();
             OnPropertyChanged(nameof(CanMatchLast));
@@ -741,6 +774,20 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
             if (_disposed || _boundary.IsCancellationRequested(generation)) return;
             if (_syncRunner is not null && _connectivity.IsOnline)
                 SyncCompletion = SynchronizeBestEffortAsync(generation);
+            var request = new SetEffortPromptRequest(
+                _exerciseId,
+                TrackingMode,
+                saved,
+                _previousSession,
+                Guid.NewGuid());
+            try
+            {
+                EffortPromptRequested?.Invoke(this, new(request));
+            }
+            catch
+            {
+                // A presentation subscriber cannot invalidate the durable set save.
+            }
         }
         finally
         {
@@ -773,6 +820,25 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         RestoreDraftBaseline();
         ErrorMessage = null;
         HasDraftSet = true;
+    }
+
+    public bool TryApplyGuidanceToNextDraft(HypertrophyGuidanceResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        if (_disposed || IsBusy || result.RequiresIncrement
+            || (result.SuggestedWeightKg is null
+                && result.SuggestedAssistedKg is null
+                && result.SuggestedReps is null))
+            return false;
+        if (!HasDraftSet) BeginSet();
+        if (!HasDraftSet) return false;
+        if (TrackingMode == TrackingMode.Weighted && result.SuggestedWeightKg is { } weight)
+            WeightKg = weight;
+        if (TrackingMode == TrackingMode.Assisted && result.SuggestedAssistedKg is { } assistance)
+            AssistedKg = assistance;
+        if (result.SuggestedReps is { } reps)
+            Reps = reps;
+        return IsValidMeasurement();
     }
 
     private void CancelDraftSet()
@@ -1166,6 +1232,22 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
             : string.Empty;
     }
 
+    private void ApplyPreviousSession(ExerciseHistorySessionDto? session)
+    {
+        _previousSession = session;
+        _previousReference = PreviousWorkoutReferenceSelector.Select(session);
+        PublishPreviousReferenceState();
+    }
+
+    private void PublishPreviousReferenceState()
+    {
+        OnPropertyChanged(nameof(HasPreviousReference));
+        OnPropertyChanged(nameof(PreviousReferenceTitle));
+        OnPropertyChanged(nameof(PreviousReferenceLoad));
+        OnPropertyChanged(nameof(PreviousReferenceReps));
+        OnPropertyChanged(nameof(PreviousReferenceReason));
+    }
+
     private void PublishSetPresentationState()
     {
         OnPropertyChanged(nameof(ShowsNoSetHistory));
@@ -1258,6 +1340,7 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         _exerciseId = Guid.Empty;
         ExerciseName = string.Empty;
         _cachedExercise = null;
+        ApplyPreviousSession(null);
         ThumbnailUri = null;
         ExerciseMetadataText = string.Empty;
         PreviousBestText = string.Empty;

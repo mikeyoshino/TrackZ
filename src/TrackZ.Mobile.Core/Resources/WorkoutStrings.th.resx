@@ -136,6 +136,11 @@
   <data name="HomeOpenWorkoutFailed" xml:space="preserve"><value>บันทึกการฝึกแล้ว แต่เปิดไม่สำเร็จ แตะออกกำลังกายต่อ</value></data>
   <data name="HomeContextFormat" xml:space="preserve"><value>วันนี้ · สัปดาห์ที่ {0}</value></data>
   <data name="LastWorkoutSetsFormat" xml:space="preserve"><value>ครั้งก่อน · {0} เซ็ต</value></data>
+  <data name="PreviousWorkoutReference" xml:space="preserve"><value>ข้อมูลอ้างอิงจากครั้งก่อน</value></data>
+  <data name="HeaviestSetInRepRange" xml:space="preserve"><value>เซ็ตที่หนักที่สุดในช่วง 8–12 ครั้ง</value></data>
+  <data name="LightestAssistanceInRepRange" xml:space="preserve"><value>แรงช่วยน้อยที่สุดในช่วง 8–12 ครั้ง</value></data>
+  <data name="HighestRepsInRepRange" xml:space="preserve"><value>จำนวนครั้งสูงสุดในช่วง 8–12 ครั้ง</value></data>
+  <data name="LegacyWorkoutReference" xml:space="preserve"><value>บันทึกไว้ในการฝึกครั้งก่อน</value></data>
   <data name="ConflictLocalBaseFormat" xml:space="preserve"><value>การเปลี่ยนแปลงในเครื่อง · เวอร์ชันฐาน {0}</value></data>
   <data name="ConflictLocalDetailFormat" xml:space="preserve"><value>การเปลี่ยนแปลงในเครื่อง · {0} · เวอร์ชันฐาน {1}</value></data>
   <data name="ConflictServerVersionFormat" xml:space="preserve"><value>เวอร์ชันเซิร์ฟเวอร์ {0}</value></data>

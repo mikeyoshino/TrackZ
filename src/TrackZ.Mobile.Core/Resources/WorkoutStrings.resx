@@ -136,6 +136,11 @@
   <data name="HomeOpenWorkoutFailed" xml:space="preserve"><value>Workout saved. Could not open it. Tap Continue.</value></data>
   <data name="HomeContextFormat" xml:space="preserve"><value>Today · Week {0}</value></data>
   <data name="LastWorkoutSetsFormat" xml:space="preserve"><value>Last workout · {0} sets</value></data>
+  <data name="PreviousWorkoutReference" xml:space="preserve"><value>Previous workout reference</value></data>
+  <data name="HeaviestSetInRepRange" xml:space="preserve"><value>Heaviest set in the 8–12 rep range</value></data>
+  <data name="LightestAssistanceInRepRange" xml:space="preserve"><value>Least assistance in the 8–12 rep range</value></data>
+  <data name="HighestRepsInRepRange" xml:space="preserve"><value>Most reps in the 8–12 rep range</value></data>
+  <data name="LegacyWorkoutReference" xml:space="preserve"><value>Recorded in your previous workout</value></data>
   <data name="ConflictLocalBaseFormat" xml:space="preserve"><value>Local change · base {0}</value></data>
   <data name="ConflictLocalDetailFormat" xml:space="preserve"><value>Local change · {0} · base {1}</value></data>
   <data name="ConflictServerVersionFormat" xml:space="preserve"><value>Server version {0}</value></data>

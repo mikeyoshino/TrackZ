@@ -23,9 +23,27 @@
                     <VerticalStackLayout Grid.Column="1" Spacing="{DynamicResource TrackZSpace4}" VerticalOptions="Center">
                         <Label Style="{DynamicResource TrackZNavigationTitleStyle}" Text="{Binding ExerciseName}" />
                         <Label Style="{DynamicResource TrackZPerformanceMetadataStyle}" Text="{Binding ExerciseMetadataText}" />
-                        <Label x:Name="PreviousBestLabel" IsVisible="{Binding HasPreviousBest}" Style="{DynamicResource TrackZPerformanceMetadataStyle}" Text="{Binding PreviousBestText}" />
                     </VerticalStackLayout>
                 </Grid>
+
+                <Border x:Name="PreviousWorkoutReferenceCard"
+                        IsVisible="{Binding HasPreviousReference}"
+                        Style="{DynamicResource TrackZCardStyle}">
+                    <VerticalStackLayout Spacing="{DynamicResource TrackZSpace4}">
+                        <Label CharacterSpacing="1.6"
+                               Style="{DynamicResource TrackZPerformanceMetadataStyle}"
+                               Text="{Binding PreviousReferenceTitle}" />
+                        <Label x:Name="PreviousWorkoutReferenceLoad"
+                               Style="{DynamicResource TrackZPerformanceNumberStyle}"
+                               Text="{Binding PreviousReferenceLoad}" />
+                        <Label x:Name="PreviousWorkoutReferenceReps"
+                               Style="{DynamicResource TrackZSecondaryStyle}"
+                               Text="{Binding PreviousReferenceReps}" />
+                        <Label x:Name="PreviousWorkoutReferenceReason"
+                               Style="{DynamicResource TrackZSecondaryStyle}"
+                               Text="{Binding PreviousReferenceReason}" />
+                    </VerticalStackLayout>
+                </Border>
 
                 <components:SyncStatusPill x:Name="SetLoggerSyncStatus" HorizontalOptions="Start" IsVisible="{Binding ShowsSyncStatus}" State="{Binding SyncState}" Text="{Binding SyncStatusText}" />
 

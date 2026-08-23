@@ -7,6 +7,7 @@ using TrackZ.Contracts.Exercises;
 using TrackZ.Contracts.Sync;
 using TrackZ.Contracts.Workouts;
 using TrackZ.Domain.Exercises;
+using TrackZ.Domain.Workouts;
 using TrackZ.Mobile.Data;
 using TrackZ.Mobile.Data.Models;
 using TrackZ.Mobile.Features.Exercises;
@@ -54,6 +55,222 @@ public sealed class SetLoggerViewModelTests : IDisposable
         Assert.True(sut.HasPreviousBest);
         Assert.False(sut.HasAllTimePr);
         Assert.Equal(string.Empty, sut.AllTimePrText);
+    }
+
+    [Fact]
+    public async Task Load_exposes_selected_previous_workout_reference()
+    {
+        var fixture = await CreateFixtureAsync(TrackingMode.Weighted);
+        var sut = fixture.CreateLogger(Previous(
+            TrackingMode.Weighted,
+            Set(0, 70m, null, 10, SetEffortRating.Productive),
+            Set(1, 75m, null, 7, SetEffortRating.Easy)));
+
+        await sut.LoadAsync(ExerciseId, "Bench Press");
+
+        Assert.True(sut.HasPreviousReference);
+        Assert.Equal("70 kg", sut.PreviousReferenceLoad);
+        Assert.Equal("10 reps", sut.PreviousReferenceReps);
+        Assert.Equal("Heaviest set in the 8–12 rep range", sut.PreviousReferenceReason);
+    }
+
+    [Fact]
+    public async Task Effort_prompt_is_raised_once_only_after_durable_save_and_feedback()
+    {
+        var fixture = await CreateFixtureAsync(TrackingMode.Weighted);
+        var sequence = new List<string>();
+        fixture.Feedback.OnSaved = () =>
+        {
+            sequence.Add("feedback");
+            return Task.CompletedTask;
+        };
+        var sut = fixture.CreateLogger(null);
+        await sut.LoadAsync(ExerciseId, "Bench Press");
+        sut.BeginSetCommand.Execute(null);
+        sut.WeightKg = 70m;
+        sut.Reps = 10;
+        SetEffortPromptRequest? request = null;
+        sut.EffortPromptRequested += (_, eventArgs) =>
+        {
+            sequence.Add("prompt");
+            request = eventArgs.Request;
+        };
+
+        await sut.SaveDraftSetCommand.ExecuteAsync();
+
+        Assert.Equal(["feedback", "prompt"], sequence);
+        Assert.NotNull(request);
+        Assert.Equal(Assert.Single(sut.TodaySets).Id, request!.SavedSet.Id);
+        Assert.NotNull(await fixture.Repository.GetOperationAsync(request.SavedSet.OperationId, default));
+        Assert.NotEqual(Guid.Empty, request.EffortOperationId);
+    }
+
+    [Fact]
+    public async Task Failed_save_and_reload_never_raise_effort_prompt()
+    {
+        var fixture = await CreateFixtureAsync(TrackingMode.Weighted);
+        await CreateSaveFailureTriggerAsync();
+        var sut = fixture.CreateLogger(null);
+        var count = 0;
+        sut.EffortPromptRequested += (_, _) => count++;
+        await sut.LoadAsync(ExerciseId, "Bench Press");
+        sut.BeginSetCommand.Execute(null);
+        sut.WeightKg = 70m;
+        sut.Reps = 10;
+
+        await sut.SaveDraftSetCommand.ExecuteAsync();
+        await sut.LoadAsync(ExerciseId, "Bench Press");
+
+        Assert.Equal(0, count);
+    }
+
+    [Fact]
+    public async Task Applying_guidance_changes_only_a_transient_next_draft()
+    {
+        var fixture = await CreateFixtureAsync(TrackingMode.Weighted);
+        var sut = fixture.CreateLogger(null);
+        await sut.LoadAsync(ExerciseId, "Bench Press");
+        var outbox = new OutboxRepository(fixture.Database);
+        var outboxBefore = (await outbox.PendingAsync()).Count;
+        var result = new HypertrophyGuidanceResult(
+            HypertrophyGuidanceAction.Increase,
+            HypertrophyGuidanceReason.TwoQualifyingSets,
+            SuggestedWeightKg: 72.5m,
+            SuggestedReps: 12);
+
+        var applied = sut.TryApplyGuidanceToNextDraft(result);
+
+        Assert.True(applied);
+        Assert.True(sut.HasDraftSet);
+        Assert.Equal(72.5m, sut.WeightKg);
+        Assert.Equal(12, sut.Reps);
+        Assert.Equal(outboxBefore, (await outbox.PendingAsync()).Count);
+        Assert.Empty(sut.TodaySets);
+    }
+
+    [Fact]
+    public async Task Legacy_reference_is_neutral_and_ineligible_history_hides_the_card()
+    {
+        var legacyFixture = await CreateFixtureAsync(TrackingMode.Weighted);
+        var legacy = legacyFixture.CreateLogger(Previous(
+            TrackingMode.Weighted,
+            Set(0, 70m, null, 10)));
+        await legacy.LoadAsync(ExerciseId, "Bench Press");
+        Assert.True(legacy.HasPreviousReference);
+        Assert.Equal("Recorded in your previous workout", legacy.PreviousReferenceReason);
+
+        var empty = legacyFixture.CreateLogger(Previous(
+            TrackingMode.Weighted,
+            Set(0, 90m, null, 7, SetEffortRating.Easy),
+            Set(1, 80m, null, 10, SetEffortRating.TooHeavy)));
+        await empty.LoadAsync(ExerciseId, "Bench Press");
+        Assert.False(empty.HasPreviousReference);
+        Assert.Equal(string.Empty, empty.PreviousReferenceLoad);
+        Assert.Equal(string.Empty, empty.PreviousReferenceReps);
+    }
+
+    [Theory]
+    [InlineData(TrackingMode.Assisted, null, 25d, "25 kg", "10 reps")]
+    [InlineData(TrackingMode.Bodyweight, null, null, "10 reps", "")]
+    public async Task Reference_measurement_respects_tracking_mode(
+        TrackingMode mode,
+        double? weight,
+        double? assistance,
+        string expectedLoad,
+        string expectedReps)
+    {
+        var fixture = await CreateFixtureAsync(mode);
+        var sut = fixture.CreateLogger(Previous(
+            mode,
+            Set(0, Decimal(weight), Decimal(assistance), 10, SetEffortRating.Productive)));
+        await sut.LoadAsync(ExerciseId, "Exercise");
+        Assert.Equal(expectedLoad, sut.PreviousReferenceLoad);
+        Assert.Equal(expectedReps, sut.PreviousReferenceReps);
+    }
+
+    [Fact]
+    public async Task Non_actionable_guidance_cannot_change_the_current_draft()
+    {
+        var fixture = await CreateFixtureAsync(TrackingMode.Weighted);
+        var sut = fixture.CreateLogger(null);
+        await sut.LoadAsync(ExerciseId, "Bench Press");
+        var result = new HypertrophyGuidanceResult(
+            HypertrophyGuidanceAction.CollectMoreData,
+            HypertrophyGuidanceReason.OneQualifyingSet);
+        Assert.False(sut.TryApplyGuidanceToNextDraft(result));
+        Assert.False(sut.HasDraftSet);
+    }
+
+    [Fact]
+    public async Task Reset_during_feedback_suppresses_prompt_and_subscriber_failure_cannot_fail_save()
+    {
+        var resetFixture = await CreateFixtureAsync(TrackingMode.Weighted);
+        resetFixture.Feedback.Block = true;
+        var resetSut = resetFixture.CreateLogger(null);
+        await resetSut.LoadAsync(ExerciseId, "Bench Press");
+        resetSut.BeginSetCommand.Execute(null);
+        resetSut.WeightKg = 70m;
+        resetSut.Reps = 10;
+        var promptCount = 0;
+        resetSut.EffortPromptRequested += (_, _) => promptCount++;
+        var save = resetSut.SaveDraftSetCommand.ExecuteAsync();
+        await resetFixture.Feedback.Entered.Task;
+        var reset = resetFixture.Boundary.ResetAsync(resetFixture.Coordinator.ClearPrivateDataAsync);
+        resetFixture.Feedback.Release.TrySetResult();
+        await Task.WhenAll(save, reset);
+        Assert.Equal(0, promptCount);
+
+        var throwFixture = await CreateFixtureAsync(TrackingMode.Weighted);
+        var throwSut = throwFixture.CreateLogger(null);
+        await throwSut.LoadAsync(ExerciseId, "Bench Press");
+        throwSut.BeginSetCommand.Execute(null);
+        throwSut.WeightKg = 70m;
+        throwSut.Reps = 10;
+        throwSut.EffortPromptRequested += (_, _) => throw new InvalidOperationException("presentation failed");
+        await throwSut.SaveDraftSetCommand.ExecuteAsync();
+        Assert.Single(throwSut.TodaySets);
+        Assert.Null(throwSut.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task Remote_refresh_updates_future_prompt_snapshot()
+    {
+        var fixture = await CreateFixtureAsync(TrackingMode.Weighted);
+        var cached = Previous(
+            TrackingMode.Weighted,
+            Set(0, 67.5m, null, 12, SetEffortRating.Easy));
+        var refreshed = cached with
+        {
+            WorkoutId = Guid.NewGuid(),
+            CompletedAt = cached.CompletedAt.AddDays(1),
+            Sets = [Set(0, 70m, null, 12, SetEffortRating.Productive)]
+        };
+        var history = new GatedRemoteHistory(cached, refreshed);
+        var sut = new SetLoggerViewModel(
+            fixture.Coordinator,
+            history,
+            fixture.Feedback,
+            fixture.Boundary,
+            new StubConnectivity(true),
+            new OutboxRepository(fixture.Database),
+            WorkoutResources.English);
+
+        await sut.LoadAsync(ExerciseId, "Bench Press");
+        Assert.Equal("67.5 kg", sut.PreviousReferenceLoad);
+        await history.RemoteEntered.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        history.ReleaseRemote.TrySetResult();
+        await sut.HistoryRefreshCompletion.WaitAsync(TimeSpan.FromSeconds(1));
+        Assert.Equal("70 kg", sut.PreviousReferenceLoad);
+
+        SetEffortPromptRequest? request = null;
+        sut.EffortPromptRequested += (_, eventArgs) => request = eventArgs.Request;
+        sut.BeginSetCommand.Execute(null);
+        sut.WeightKg = 70m;
+        sut.Reps = 10;
+        await sut.SaveDraftSetCommand.ExecuteAsync();
+
+        Assert.NotNull(request);
+        Assert.Same(refreshed, request!.PreviousSession);
     }
 
     [Fact]
@@ -1479,8 +1696,14 @@ public sealed class SetLoggerViewModelTests : IDisposable
     private static ExerciseHistorySessionDto Previous(TrackingMode mode, params WorkoutSetDto[] sets) =>
         new(Guid.NewGuid(), Now.AddDays(-2), mode, 0m, sets);
 
-    private static WorkoutSetDto Set(int order, decimal? weight, decimal? assisted, int reps) =>
-        new(Guid.NewGuid(), order, weight, assisted, reps, Now.AddDays(-2).AddMinutes(order), null);
+    private static WorkoutSetDto Set(
+        int order,
+        decimal? weight,
+        decimal? assisted,
+        int reps,
+        SetEffortRating? effort = null) =>
+        new(Guid.NewGuid(), order, weight, assisted, reps,
+            Now.AddDays(-2).AddMinutes(order), null, effort);
 
     private static ExerciseSummaryDto Summary(Guid id, string name, TrackingMode mode) =>
         new(id, name, BodyPart.Chest, mode, null, null, null, null, false);

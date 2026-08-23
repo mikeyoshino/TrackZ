@@ -18,6 +18,31 @@ public sealed class TrackSetsVisualContractTests
         var previous = content.Elements().Single(element => Name(element) == "LastWorkoutSection");
         var children = content.Elements().ToList();
 
+        Assert.DoesNotContain(page.Descendants(), element => Name(element) == "PreviousBestLabel");
+        var reference = content.Elements().Single(element =>
+            Name(element) == "PreviousWorkoutReferenceCard");
+        var referenceLoad = reference.Descendants().Single(element =>
+            Name(element) == "PreviousWorkoutReferenceLoad");
+        var referenceReps = reference.Descendants().Single(element =>
+            Name(element) == "PreviousWorkoutReferenceReps");
+        var referenceReason = reference.Descendants().Single(element =>
+            Name(element) == "PreviousWorkoutReferenceReason");
+        Assert.Equal("{Binding HasPreviousReference}", reference.Attribute("IsVisible")?.Value);
+        Assert.Equal("{DynamicResource TrackZPerformanceNumberStyle}",
+            referenceLoad.Attribute("Style")?.Value);
+        Assert.Equal("{Binding PreviousReferenceLoad}",
+            referenceLoad.Attribute("Text")?.Value);
+        Assert.Equal("{DynamicResource TrackZSecondaryStyle}",
+            referenceReps.Attribute("Style")?.Value);
+        Assert.Equal("{Binding PreviousReferenceReps}",
+            referenceReps.Attribute("Text")?.Value);
+        Assert.Equal("{DynamicResource TrackZSecondaryStyle}",
+            referenceReason.Attribute("Style")?.Value);
+        Assert.Equal("{Binding PreviousReferenceReason}",
+            referenceReason.Attribute("Text")?.Value);
+        Assert.Equal(children.IndexOf(exercise) + 1, children.IndexOf(reference));
+        Assert.True(children.IndexOf(reference) < children.IndexOf(editor));
+
         Assert.True(children.IndexOf(exercise) < children.IndexOf(editor));
         Assert.True(children.IndexOf(editor) < children.IndexOf(today));
         Assert.True(children.IndexOf(today) < children.IndexOf(previous));

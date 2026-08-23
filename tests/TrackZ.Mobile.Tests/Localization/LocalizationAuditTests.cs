@@ -50,6 +50,18 @@ public sealed class LocalizationAuditTests
         };
 
     [Fact]
+    public void Previous_workout_reference_copy_is_localized_in_English_and_Thai()
+    {
+        var english = WorkoutResources.ForCulture(CultureInfo.GetCultureInfo("en-US"));
+        var thai = WorkoutResources.ForCulture(CultureInfo.GetCultureInfo("th-TH"));
+
+        Assert.Equal("Previous workout reference", english.PreviousWorkoutReference);
+        Assert.Equal("Heaviest set in the 8–12 rep range", english.HeaviestSetInRepRange);
+        Assert.Equal("ข้อมูลอ้างอิงจากครั้งก่อน", thai.PreviousWorkoutReference);
+        Assert.Equal("เซ็ตที่หนักที่สุดในช่วง 8–12 ครั้ง", thai.HeaviestSetInRepRange);
+    }
+
+    [Fact]
     public void Every_shipped_page_and_user_facing_component_uses_bound_or_resource_copy()
     {
         var mobile = MobileDirectory();

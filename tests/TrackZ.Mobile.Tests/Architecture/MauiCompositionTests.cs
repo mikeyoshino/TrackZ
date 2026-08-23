@@ -896,20 +896,21 @@ public sealed class MauiCompositionTests
         var today = page.FindByName<VerticalStackLayout>("TodaySetsSection");
         var previous = page.FindByName<VerticalStackLayout>("LastWorkoutSection");
         var noHistory = Assert.IsType<Label>(page.FindByName("NoSetHistoryLabel"));
-        var previousBest = Assert.IsType<Label>(page.FindByName("PreviousBestLabel"));
+        var reference = page.FindByName<Border>("PreviousWorkoutReferenceCard");
         var sync = Assert.IsType<SyncStatusPill>(page.FindByName("SetLoggerSyncStatus"));
         var addButton = page.FindByName<Button>("AddSetButton");
         var saveButton = page.FindByName<Button>("SaveDraftSetButton");
         var weightInput = page.FindByName<Entry>("DraftWeightInput");
         var repsInput = page.FindByName<Entry>("DraftRepsInput");
-        Assert.True(content.Children.IndexOf(exercise) < content.Children.IndexOf(editor));
+        Assert.True(content.Children.IndexOf(exercise) < content.Children.IndexOf(reference));
+        Assert.True(content.Children.IndexOf(reference) < content.Children.IndexOf(editor));
         Assert.True(content.Children.IndexOf(editor) < content.Children.IndexOf(today));
         Assert.True(content.Children.IndexOf(today) < content.Children.IndexOf(previous));
         Assert.True(noHistory.IsVisible);
         Assert.Equal(logger.Text.NoPreviousSetsYet, noHistory.Text);
         Assert.False(today.IsVisible);
         Assert.False(previous.IsVisible);
-        Assert.False(previousBest.IsVisible);
+        Assert.Equal(logger.HasPreviousReference, reference.IsVisible);
         Assert.False(sync.IsVisible);
 
         logger.BeginSetCommand.Execute(null);
