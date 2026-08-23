@@ -38,9 +38,42 @@ public sealed class TodayWorkoutVisualContractTests
         var artwork = component.Descendants().Single(element => Name(element) == "ActiveWorkoutArtwork");
         Assert.Equal("{DynamicResource TrackZExerciseArtworkSize}", artwork.Attribute("HeightRequest")?.Value);
         Assert.Equal("{DynamicResource TrackZExerciseArtworkSize}", artwork.Attribute("WidthRequest")?.Value);
-        Assert.Contains(component.Descendants(), element => Name(element) == "WorkoutExercisePerformanceLine");
-        Assert.Contains(component.Descendants(), element => Name(element) == "WorkoutExerciseLastText");
-        Assert.Contains(component.Descendants(), element => Name(element) == "WorkoutExerciseTodayText");
+
+        var counter = component.Descendants().Single(element => Name(element) == "WorkoutExerciseSetCounter");
+        Assert.Equal("2", counter.Attribute("Grid.Column")?.Value);
+        Assert.Equal("{Binding Exercise.LoggedSetText, Source={x:Reference Root}}", counter.Attribute("Text")?.Value);
+        Assert.Equal("{DynamicResource TrackZPerformanceNumberStyle}", counter.Attribute("Style")?.Value);
+        Assert.Equal("False", counter.Attribute("AutomationProperties.IsInAccessibleTree")?.Value);
+
+        var row = component.Descendants().Single(element =>
+            element.Name.LocalName == "Border"
+            && element.Attribute("Style")?.Value == "{DynamicResource TrackZListRowStyle}");
+        Assert.Equal("True",
+            row.Attribute("AutomationProperties.IsInAccessibleTree")?.Value);
+        var visualContent = row.Elements().Single(element =>
+            element.Name.LocalName == "Grid");
+        Assert.Equal("True",
+            visualContent.Attribute("AutomationProperties.ExcludedWithChildren")?.Value);
+        Assert.DoesNotContain(visualContent.DescendantsAndSelf(), element =>
+            element.Attribute("AutomationProperties.IsInAccessibleTree")?.Value == "True"
+            || element.Attribute("SemanticProperties.Description") is not null);
+        Assert.Single(component.Descendants(), element =>
+            element.Attribute("SemanticProperties.Description")?.Value
+                == "{Binding Exercise.AccessibilitySummary, Source={x:Reference Root}}");
+
+        var chevron = component.Descendants().Single(element => Name(element) == "WorkoutExerciseChevron");
+        Assert.Equal("3", chevron.Attribute("Grid.Column")?.Value);
+
+        Assert.DoesNotContain(component.Descendants(), element => Name(element) == "WorkoutExercisePerformanceLine");
+        Assert.DoesNotContain(component.Descendants(), element => Name(element) == "WorkoutExerciseLastText");
+        Assert.DoesNotContain(component.Descendants(), element => Name(element) == "WorkoutExerciseTodayText");
+        Assert.DoesNotContain(component.Descendants(), element =>
+            element.Attribute("Text")?.Value is "{Binding Exercise.TrackingModeText, Source={x:Reference Root}}"
+                or "{Binding Exercise.LastText, Source={x:Reference Root}}");
+        Assert.Single(component.Descendants(), element =>
+            element.Attribute("Text")?.Value == "{Binding Exercise.Name, Source={x:Reference Root}}");
+        Assert.Equal("{Binding Exercise.AccessibilitySummary, Source={x:Reference Root}}",
+            row.Attribute("SemanticProperties.Description")?.Value);
     }
 
     [Fact]
