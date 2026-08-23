@@ -12,6 +12,7 @@ using Testcontainers.PostgreSql;
 using TrackZ.Contracts.Sync;
 using TrackZ.Domain.Exercises;
 using TrackZ.Domain.Sync;
+using TrackZ.Domain.Workouts;
 using TrackZ.Infrastructure.Persistence;
 using Xunit.Sdk;
 
@@ -79,37 +80,64 @@ public sealed class SyncPullTests : IAsyncLifetime
         };
         await PushAsync(account.Token, operation);
         await PushAsync(account.Token, operation);
+        var setId = Guid.NewGuid();
         var setOperation = new
         {
             operationId = Guid.NewGuid(), entityType = "Workout", action = "SaveSet",
             baseVersion = 1,
             payload = new
             {
-                workoutId, workoutExerciseId, setId = Guid.NewGuid(), order = 0,
+                workoutId, workoutExerciseId, setId, order = 0,
                 weightKg = "70", assistedKg = (string?)null, reps = 8,
                 completedAt = Utc(8).AddMinutes(1)
             }
         };
         await PushAsync(account.Token, setOperation);
         await PushAsync(account.Token, setOperation);
+        var effortOperation = new
+        {
+            operationId = Guid.NewGuid(),
+            entityType = "Workout",
+            action = "RecordSetEffort",
+            baseVersion = 2,
+            payload = new
+            {
+                workoutId,
+                workoutExerciseId,
+                setId,
+                effort = (int)SetEffortRating.Productive,
+                recordedAt = Utc(8).AddMinutes(2)
+            }
+        };
+        await PushAsync(account.Token, effortOperation);
+        await PushAsync(account.Token, effortOperation);
 
         var first = await PullAsync(account.Token, null, 1);
         var replay = await PullAsync(account.Token, null, 1);
         var second = await PullAsync(account.Token, first.NextCursor, 1);
+        var third = await PullAsync(account.Token, second.NextCursor, 1);
 
         var change = Assert.Single(first.Changes);
         Assert.Equal(workoutId, change.EntityId);
         Assert.Equal(1, change.ServerVersion);
         Assert.Empty(change.Workout.Exercises[0].Sets);
         Assert.True(first.HasMore);
-        Assert.Single(Assert.Single(second.Changes).Workout.Exercises[0].Sets);
+        var savedSet = Assert.Single(Assert.Single(second.Changes).Workout.Exercises[0].Sets);
+        var ratedSet = Assert.Single(Assert.Single(third.Changes).Workout.Exercises[0].Sets);
+        Assert.Null(savedSet.Effort);
+        Assert.Equal(SetEffortRating.Productive, ratedSet.Effort);
+        Assert.Equal(savedSet.WeightKg, ratedSet.WeightKg);
+        Assert.Equal(savedSet.Reps, ratedSet.Reps);
         Assert.Equal(2, second.Changes[0].ServerVersion);
+        Assert.Equal(3, third.Changes[0].ServerVersion);
         Assert.Equal(JsonSerializer.Serialize(first), JsonSerializer.Serialize(replay));
         Assert.NotNull(first.NextCursor);
         await using var scope = _factory!.Services.CreateAsyncScope();
         var database = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         Assert.Equal(1, await database.SyncChanges.CountAsync(item => item.OperationId == operation.operationId));
         Assert.Equal(1, await database.SyncChanges.CountAsync(item => item.OperationId == setOperation.operationId));
+        Assert.Equal(1, await database.SyncChanges.CountAsync(
+            item => item.OperationId == effortOperation.operationId));
     }
 
     [Fact]

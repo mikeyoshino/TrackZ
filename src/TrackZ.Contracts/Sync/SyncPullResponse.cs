@@ -1,3 +1,5 @@
+using TrackZ.Domain.Workouts;
+
 namespace TrackZ.Contracts.Sync;
 
 public sealed record SyncPullResponse(
@@ -41,4 +43,5 @@ public sealed record SyncSetDto(
     DateTimeOffset CompletedAt,
     DateTimeOffset? UpdatedAt,
     DateTimeOffset? DeletedAt,
-    long Version);
+    long Version,
+    SetEffortRating? Effort = null);

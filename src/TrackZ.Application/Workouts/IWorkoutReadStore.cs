@@ -48,4 +48,5 @@ public sealed record WorkoutSetReadRow(
     decimal? AssistedKg,
     int Reps,
     DateTimeOffset CompletedAt,
-    DateTimeOffset? UpdatedAt);
+    DateTimeOffset? UpdatedAt,
+    SetEffortRating? Effort = null);

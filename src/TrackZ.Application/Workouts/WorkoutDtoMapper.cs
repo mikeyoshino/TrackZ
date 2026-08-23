@@ -28,5 +28,6 @@ internal static class WorkoutDtoMapper
         set.AssistedKg,
         set.Reps,
         set.CompletedAt,
-        set.UpdatedAt);
+        set.UpdatedAt,
+        set.Effort);
 }

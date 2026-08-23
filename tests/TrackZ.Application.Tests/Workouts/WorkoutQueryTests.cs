@@ -1,3 +1,4 @@
+using System.Text.Json;
 using TrackZ.Application.Common.Exceptions;
 using TrackZ.Application.Exercises.GetHistory;
 using TrackZ.Application.Exercises.ListExercises;
@@ -5,6 +6,8 @@ using TrackZ.Application.Workouts;
 using TrackZ.Application.Workouts.GetWorkout;
 using TrackZ.Application.Workouts.ListHistory;
 using TrackZ.Contracts.Errors;
+using TrackZ.Contracts.Sync;
+using TrackZ.Contracts.Workouts;
 using TrackZ.Domain.Exercises;
 using TrackZ.Domain.Workouts;
 
@@ -82,7 +85,9 @@ public sealed class WorkoutQueryTests
         {
             Workout = Session(workoutId, DateTimeOffset.UtcNow,
                 Exercise(TrackingMode.Assisted, 2, Set(0, null, 30m, 8)),
-                Exercise(TrackingMode.Weighted, 0, Set(1, 60m, null, 7), Set(0, 65m, null, 5)),
+                Exercise(TrackingMode.Weighted, 0,
+                    Set(1, 60m, null, 7),
+                    Set(0, 65m, null, 5, SetEffortRating.Productive)),
                 Exercise(TrackingMode.Bodyweight, 1, Set(0, null, null, 12)))
         };
         var handler = new GetWorkoutHandler(store, new FakeCurrentUser(_ownerId));
@@ -92,6 +97,27 @@ public sealed class WorkoutQueryTests
         Assert.Equal([TrackingMode.Weighted, TrackingMode.Bodyweight, TrackingMode.Assisted],
             detail.Exercises.Select(exercise => exercise.TrackingMode));
         Assert.Equal([65m, 60m], detail.Exercises[0].Sets.Select(set => set.WeightKg));
+        Assert.Equal(SetEffortRating.Productive, detail.Exercises[0].Sets[0].Effort);
+    }
+
+    [Fact]
+    public void Legacy_set_json_without_effort_deserializes_as_unrated()
+    {
+        const string workoutSet = """
+            {"id":"11111111-1111-1111-1111-111111111111","order":0,
+             "weightKg":70,"assistedKg":null,"reps":10,
+             "completedAt":"2026-08-22T09:00:00+00:00","updatedAt":null}
+            """;
+        const string syncSet = """
+            {"id":"22222222-2222-2222-2222-222222222222","order":0,
+             "weightKg":"70","assistedKg":null,"reps":10,
+             "completedAt":"2026-08-22T09:00:00+00:00","updatedAt":null,
+             "deletedAt":null,"version":1}
+            """;
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+
+        Assert.Null(JsonSerializer.Deserialize<WorkoutSetDto>(workoutSet, options)!.Effort);
+        Assert.Null(JsonSerializer.Deserialize<SyncSetDto>(syncSet, options)!.Effort);
     }
 
     [Fact]
@@ -130,9 +156,14 @@ public sealed class WorkoutQueryTests
     private WorkoutExerciseReadRow Exercise(TrackingMode mode, int order, params WorkoutSetReadRow[] sets) =>
         new(Guid.NewGuid(), _exerciseId, $"Exercise {mode}", mode, order, sets);
 
-    private static WorkoutSetReadRow Set(int order, decimal? weightKg, decimal? assistedKg, int reps) =>
+    private static WorkoutSetReadRow Set(
+        int order,
+        decimal? weightKg,
+        decimal? assistedKg,
+        int reps,
+        SetEffortRating? effort = null) =>
         new(Guid.NewGuid(), order, weightKg, assistedKg, reps,
-            new DateTimeOffset(2026, 8, 15, 9, 0, 0, TimeSpan.Zero), null);
+            new DateTimeOffset(2026, 8, 15, 9, 0, 0, TimeSpan.Zero), null, effort);
 
     private sealed record FakeCurrentUser(Guid UserId) : ICurrentUser;
 

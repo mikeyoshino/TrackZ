@@ -149,6 +149,10 @@ public sealed class PushSyncHandler(
                     baseVersion,
                     operation.Payload.Deserialize<EditSetSyncPayload>(JsonOptions)
                         ?? throw new JsonException()), cancellationToken),
+                "RecordSetEffort" => await sender.Send(new RecordSetEffortSyncCommand(
+                    baseVersion,
+                    operation.Payload.Deserialize<RecordSetEffortSyncPayload>(JsonOptions)
+                        ?? throw new JsonException()), cancellationToken),
                 "DeleteSet" => await sender.Send(new DeleteSetSyncCommand(
                     baseVersion,
                     operation.Payload.Deserialize<DeleteSetSyncPayload>(JsonOptions)
@@ -212,7 +216,8 @@ public sealed class PushSyncHandler(
                     set.CompletedAt,
                     set.UpdatedAt,
                     set.DeletedAt,
-                    set.Version)).ToArray())).ToArray());
+                    set.Version,
+                    set.Effort)).ToArray())).ToArray());
 
     private sealed record DispatchResult(SyncOperationResultDto Result, SyncMutationResult? Mutation);
 
@@ -258,6 +263,8 @@ public sealed class PushSyncHandler(
         "EditSet" => HasProperties(
             payload, "workoutId", "workoutExerciseId", "setId",
             "weightKg", "assistedKg", "reps", "updatedAt"),
+        "RecordSetEffort" => HasProperties(
+            payload, "workoutId", "workoutExerciseId", "setId", "effort", "recordedAt"),
         "DeleteSet" => HasProperties(
             payload, "workoutId", "workoutExerciseId", "setId", "deletedAt"),
         "DeleteWorkout" => HasProperties(payload, "workoutId", "deletedAt"),
@@ -599,6 +606,52 @@ internal sealed class EditSetSyncHandler(
     }
 
     private static decimal? ParseDecimal(string? value) => DecimalParser.Parse(value);
+}
+
+internal sealed class RecordSetEffortSyncHandler(
+    ISyncPushStore store,
+    ICurrentUser currentUser)
+    : IRequestHandler<RecordSetEffortSyncCommand, SyncMutationResult>
+{
+    public async Task<SyncMutationResult> Handle(
+        RecordSetEffortSyncCommand request,
+        CancellationToken cancellationToken)
+    {
+        var payload = request.Payload;
+        if (payload.WorkoutId == Guid.Empty
+            || payload.WorkoutExerciseId == Guid.Empty
+            || payload.SetId == Guid.Empty
+            || payload.RecordedAt == default
+            || !Enum.IsDefined((SetEffortRating)payload.Effort))
+            return SyncMutationResult.Rejected();
+
+        await store.AcquireWorkoutLockAsync(payload.WorkoutId, cancellationToken);
+        var workout = await store.FindOwnedWorkoutAsync(
+            currentUser.UserId, payload.WorkoutId, cancellationToken);
+        if (workout is null)
+            return SyncMutationResult.Rejected(BusinessErrorCode.WorkoutNotFound);
+        if (workout.Version != request.BaseVersion)
+            return SyncMutationResult.Conflict(workout.Version);
+
+        try
+        {
+            workout.RecordSetEffort(
+                payload.WorkoutExerciseId,
+                payload.SetId,
+                (SetEffortRating)payload.Effort,
+                payload.RecordedAt);
+            return SyncMutationResult.Applied(workout);
+        }
+        catch (WorkoutRuleException exception)
+        {
+            return SyncMutationFailures.From(exception);
+        }
+        catch (Exception exception) when (
+            exception is ArgumentException or InvalidOperationException)
+        {
+            return SyncMutationResult.Rejected();
+        }
+    }
 }
 
 internal sealed class DeleteSetSyncHandler(

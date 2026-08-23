@@ -82,7 +82,7 @@ public sealed class WorkoutEndpointTests : IAsyncLifetime
         var owner = await AuthenticateAsync($"detail-owner-{Guid.NewGuid():N}@example.com");
         var other = await AuthenticateAsync($"detail-other-{Guid.NewGuid():N}@example.com");
         var exercise = ExerciseDefinition.CreateSystem("Exact Press", BodyPart.Chest, TrackingMode.Weighted);
-        var workout = CompletedWorkout(owner.UserId, exercise, DateTimeOffset.UtcNow,
+        var workout = CompletedWorkoutWithRatedFirstSet(owner.UserId, exercise, DateTimeOffset.UtcNow,
             (60m, 10), (62.5m, 8), (65m, 6));
         await SeedAsync(exercise, workout);
 
@@ -95,6 +95,10 @@ public sealed class WorkoutEndpointTests : IAsyncLifetime
 
         Assert.Equal(HttpStatusCode.OK, detail.StatusCode);
         Assert.Equal([60m, 62.5m, 65m], json!.RootElement.GetProperty("exercises")[0].GetProperty("sets").EnumerateArray().Select(set => set.GetProperty("weightKg").GetDecimal()));
+        Assert.Equal(
+            (int)SetEffortRating.Productive,
+            json.RootElement.GetProperty("exercises")[0].GetProperty("sets")[0]
+                .GetProperty("effort").GetInt32());
         Assert.Equal(HttpStatusCode.NotFound, foreign.StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, unknown.StatusCode);
         Assert.Equal(BusinessErrorCode.WorkoutNotFound, foreignProblem!.ErrorCode);
@@ -266,6 +270,36 @@ public sealed class WorkoutEndpointTests : IAsyncLifetime
         workout.AddExercise(itemId, definition.Id, TrackingMode.Weighted, 0);
         for (var index = 0; index < sets.Length; index++)
             workout.CompleteSet(itemId, Guid.NewGuid(), new SetMeasurement(sets[index].WeightKg, null, sets[index].Reps), completedAt.AddMinutes(-sets.Length + index));
+        workout.Complete(completedAt);
+        return workout;
+    }
+
+    private static WorkoutSession CompletedWorkoutWithRatedFirstSet(
+        Guid ownerId,
+        ExerciseDefinition definition,
+        DateTimeOffset completedAt,
+        params (decimal WeightKg, int Reps)[] sets)
+    {
+        var workout = WorkoutSession.Start(
+            ownerId, Guid.NewGuid(), completedAt.AddMinutes(-10));
+        var itemId = Guid.NewGuid();
+        workout.AddExercise(itemId, definition.Id, TrackingMode.Weighted, 0);
+        for (var index = 0; index < sets.Length; index++)
+        {
+            var setId = Guid.NewGuid();
+            var setCompletedAt = completedAt.AddMinutes(-sets.Length + index);
+            workout.CompleteSet(
+                itemId,
+                setId,
+                new SetMeasurement(sets[index].WeightKg, null, sets[index].Reps),
+                setCompletedAt);
+            if (index == 0)
+                workout.RecordSetEffort(
+                    itemId,
+                    setId,
+                    SetEffortRating.Productive,
+                    setCompletedAt.AddTicks(1));
+        }
         workout.Complete(completedAt);
         return workout;
     }

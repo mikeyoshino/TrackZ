@@ -714,7 +714,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
                             set.AssistedKg,
                             set.Reps,
                             set.CompletedAt,
-                            set.UpdatedAt))
+                            set.UpdatedAt,
+                            set.Effort))
                         .ToList()))
                 .ToList()))
             .ToList();

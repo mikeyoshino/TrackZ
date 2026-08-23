@@ -10,6 +10,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Testcontainers.PostgreSql;
 using TrackZ.Domain.Exercises;
+using TrackZ.Domain.Workouts;
 using TrackZ.Infrastructure.Persistence;
 using Xunit.Sdk;
 
@@ -779,6 +780,133 @@ public sealed class SyncPushTests : IAsyncLifetime
             completedAt = startedAt.AddMinutes(3)
         }));
         AssertResult(completed, 0, "Rejected", null, 30002);
+    }
+
+    [Fact]
+    public async Task Effort_operation_is_idempotent_validated_and_survives_legacy_edit()
+    {
+        var authentication = await AuthenticateAsync();
+        var exercise = ExerciseDefinition.CreateSystem(
+            $"Effort Sync Press {Guid.NewGuid():N}",
+            BodyPart.Chest,
+            TrackingMode.Weighted);
+        await SeedAsync(exercise);
+        var ids = SyncIds.Create();
+        var startedAt = Utc(10);
+        var setId = Guid.NewGuid();
+        await AssertAppliedAsync(
+            authentication.Token,
+            StartOperation(ids, exercise.Id, startedAt),
+            1);
+        await AssertAppliedAsync(
+            authentication.Token,
+            SaveSetOperation(
+                ids, Guid.NewGuid(), setId, 1, 0, "70", 12,
+                startedAt.AddMinutes(1)),
+            2);
+
+        var effortOperationId = Guid.NewGuid();
+        var effort = Operation(effortOperationId, "RecordSetEffort", 2, new
+        {
+            workoutId = ids.WorkoutId,
+            workoutExerciseId = ids.WorkoutExerciseId,
+            setId,
+            effort = (int)SetEffortRating.Productive,
+            recordedAt = startedAt.AddMinutes(2)
+        });
+        var first = await PushDocumentAsync(authentication.Token, effort);
+        var replay = await PushDocumentAsync(authentication.Token, effort);
+        AssertResult(first, 0, "Applied", 3, null);
+        Assert.Equal(Result(first, 0).GetRawText(), Result(replay, 0).GetRawText());
+
+        var sameValueNewOperation = await PushDocumentAsync(
+            authentication.Token,
+            Operation(Guid.NewGuid(), "RecordSetEffort", 3, new
+            {
+                workoutId = ids.WorkoutId,
+                workoutExerciseId = ids.WorkoutExerciseId,
+                setId,
+                effort = (int)SetEffortRating.Productive,
+                recordedAt = startedAt
+            }));
+        AssertResult(sameValueNewOperation, 0, "Applied", 3, null);
+
+        var invalid = await PushDocumentAsync(
+            authentication.Token,
+            Operation(Guid.NewGuid(), "RecordSetEffort", 3, new
+            {
+                workoutId = ids.WorkoutId,
+                workoutExerciseId = ids.WorkoutExerciseId,
+                setId,
+                effort = 0,
+                recordedAt = startedAt.AddMinutes(3)
+            }),
+            Operation(Guid.NewGuid(), "RecordSetEffort", 3, new
+            {
+                workoutId = ids.WorkoutId,
+                workoutExerciseId = ids.WorkoutExerciseId,
+                setId,
+                effort = 4,
+                recordedAt = startedAt.AddMinutes(3)
+            }),
+            Operation(Guid.NewGuid(), "RecordSetEffort", 3, new
+            {
+                workoutId = ids.WorkoutId,
+                workoutExerciseId = ids.WorkoutExerciseId,
+                setId = Guid.NewGuid(),
+                effort = 1,
+                recordedAt = startedAt.AddMinutes(3)
+            }),
+            Operation(Guid.NewGuid(), "RecordSetEffort", 3, new
+            {
+                workoutId = ids.WorkoutId,
+                workoutExerciseId = ids.WorkoutExerciseId,
+                setId,
+                effort = 1,
+                recordedAt = startedAt
+            }));
+        for (var index = 0; index < 4; index++)
+            AssertResult(invalid, index, "Rejected", null, 10009);
+
+        var legacyEdit = Operation(Guid.NewGuid(), "EditSet", 3, new
+        {
+            workoutId = ids.WorkoutId,
+            workoutExerciseId = ids.WorkoutExerciseId,
+            setId,
+            weightKg = "72.5",
+            assistedKg = (string?)null,
+            reps = 9,
+            updatedAt = startedAt.AddMinutes(3)
+        });
+        await AssertAppliedAsync(authentication.Token, legacyEdit, 4);
+
+        await AssertAppliedAsync(
+            authentication.Token,
+            Operation(Guid.NewGuid(), "CompleteWorkout", 4, new
+            {
+                workoutId = ids.WorkoutId,
+                completedAt = startedAt.AddMinutes(4)
+            }),
+            5);
+        var afterCompletion = await PushDocumentAsync(
+            authentication.Token,
+            Operation(Guid.NewGuid(), "RecordSetEffort", 5, new
+            {
+                workoutId = ids.WorkoutId,
+                workoutExerciseId = ids.WorkoutExerciseId,
+                setId,
+                effort = (int)SetEffortRating.Easy,
+                recordedAt = startedAt.AddMinutes(5)
+            }));
+        AssertResult(afterCompletion, 0, "Rejected", null, 30002);
+
+        await using var scope = _factory!.Services.CreateAsyncScope();
+        var database = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var stored = await database.SetEntries.AsNoTracking()
+            .SingleAsync(set => set.Id == setId);
+        Assert.Equal(SetEffortRating.Productive, stored.Effort);
+        Assert.Equal(72.5m, stored.WeightKg);
+        Assert.Equal(9, stored.Reps);
     }
 
     private static object Operation(Guid operationId, string action, long baseVersion, object payload) => new
