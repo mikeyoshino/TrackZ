@@ -70,6 +70,7 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged, IDisposable
         Text = text;
         HeroActionCommand = new AsyncCommand(_ => ExecuteHeroActionAsync(), _ => CanMutate);
         TrainAgainCommand = new AsyncCommand(_ => ExecuteTrainAgainAsync(), _ => CanMutate && ShowTrainAgain);
+        OpenProgressCommand = new AsyncCommand(_ => ExecuteOpenProgressAsync(), _ => CanMutate && RecentMomentum is not null);
         RetryCommand = new AsyncCommand(_ => LoadAsync(), _ => HasLoadRetry && !IsBusy);
         _boundary.SessionReset += OnSessionReset;
         if (_connectivity is not null) _connectivity.ConnectivityChanged += OnConnectivityChanged;
@@ -78,6 +79,7 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged, IDisposable
     public WorkoutTextSet Text { get; }
     public AsyncCommand HeroActionCommand { get; }
     public AsyncCommand TrainAgainCommand { get; }
+    public AsyncCommand OpenProgressCommand { get; }
     public AsyncCommand RetryCommand { get; }
     public bool HasActiveWorkout => ActiveWorkout is not null;
     public bool ShowStartHero => _isDashboardKnown && !HasActiveWorkout;
@@ -198,6 +200,7 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged, IDisposable
             OnPropertyChanged(nameof(LatestPerformanceTitle));
             OnPropertyChanged(nameof(LatestPerformanceValue));
             OnPropertyChanged(nameof(BestPerformanceValue));
+            RefreshCommandState();
         }
     }
     public bool HasRecentMomentum => RecentMomentum is not null;
@@ -509,6 +512,17 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+    private Task ExecuteOpenProgressAsync()
+    {
+        var generation = _boundary.Capture();
+        var exerciseId = RecentMomentum?.Source.ExerciseId;
+        if (!CanMutate || exerciseId is null || _boundary.IsCancellationRequested(generation))
+            return Task.CompletedTask;
+
+        return NavigateAsync(generation, (navigator, token) =>
+            navigator.OpenProgressAsync(exerciseId.Value, token));
+    }
+
     private async Task OpenActiveWorkoutWithRecoveryAsync(
         AccountSessionGeneration generation,
         CancellationToken cancellationToken = default)
@@ -570,6 +584,7 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged, IDisposable
     {
         HeroActionCommand.RaiseCanExecuteChanged();
         TrainAgainCommand.RaiseCanExecuteChanged();
+        OpenProgressCommand.RaiseCanExecuteChanged();
     }
 
     private void OnConnectivityChanged(object? sender, EventArgs eventArgs) =>

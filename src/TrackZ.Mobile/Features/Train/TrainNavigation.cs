@@ -46,6 +46,13 @@ public sealed class MauiTrainNavigator : ITrainNavigator
         return _host.GoToAsync("active-workout", cancellationToken);
     }
 
+    public Task OpenProgressAsync(Guid exerciseId, CancellationToken cancellationToken = default)
+    {
+        ArgumentOutOfRangeException.ThrowIfEqual(exerciseId, Guid.Empty);
+        cancellationToken.ThrowIfCancellationRequested();
+        return _host.GoToAsync($"//progress?exerciseId={exerciseId:D}", cancellationToken);
+    }
+
     private sealed class MauiTrainNavigationHost : ITrainNavigationHost
     {
         private static Shell CurrentShell =>

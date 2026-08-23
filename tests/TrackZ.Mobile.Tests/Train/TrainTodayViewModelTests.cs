@@ -40,6 +40,27 @@ public sealed class TrainTodayViewModelTests
     }
 
     [Fact]
+    public async Task View_all_progress_routes_only_when_recent_performance_exists()
+    {
+        var navigator = new RecordingTrainNavigator();
+        var viewModel = new TrainTodayViewModel(
+            new RecordingTrainDashboardSource(new TrainDashboardSnapshot(null, null)),
+            new AccountSessionBoundary(),
+            WorkoutResources.English,
+            new CachedProgressSource(Snapshot(3, 1, 4, 8, 640)),
+            new FixedConnectivity(false),
+            new MutableWeightPreference(),
+            GamificationResources.English,
+            navigator: navigator);
+        await viewModel.LoadAsync();
+
+        Assert.True(viewModel.OpenProgressCommand.CanExecute(null));
+        await viewModel.OpenProgressCommand.ExecuteAsync();
+
+        Assert.Equal(["progress:77777777-7777-7777-7777-777777777777"], navigator.Events);
+    }
+
+    [Fact]
     public async Task Train_again_is_available_only_after_a_ready_snapshot_commits()
     {
         var source = new GatedTrainDashboardSource();
@@ -1035,6 +1056,12 @@ public sealed class TrainTodayViewModelTests
         public Task OpenActiveWorkoutAsync(CancellationToken cancellationToken = default)
         {
             Events.Add("active-workout");
+            return Task.CompletedTask;
+        }
+
+        public Task OpenProgressAsync(Guid exerciseId, CancellationToken cancellationToken = default)
+        {
+            Events.Add($"progress:{exerciseId:D}");
             return Task.CompletedTask;
         }
     }

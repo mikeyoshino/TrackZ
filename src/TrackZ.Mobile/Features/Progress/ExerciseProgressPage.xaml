@@ -11,7 +11,7 @@
     SafeAreaEdges="All"
     Shell.NavBarIsVisible="False"
     Title="{Binding Text.ProgressTitle}">
-    <ScrollView>
+    <ScrollView x:Name="ExerciseProgressScroll">
         <VerticalStackLayout Padding="{DynamicResource TrackZPageContentPadding}" Spacing="{DynamicResource TrackZSpace16}">
             <Label Style="{DynamicResource TrackZPageTitleStyle}" Text="{Binding Text.ProgressTitle}" />
             <VerticalStackLayout x:Name="ProgressSnapshotContent" IsVisible="{Binding HasAuthoritativeProgressData}" Spacing="{DynamicResource TrackZSpace16}">
@@ -20,7 +20,10 @@
                 </Border>
                 <components:WeeklyStreakView AccessibilityText="{Binding Text.StreakAccessibilityText}" CompletedText="{Binding WeeklyProgressText}" CurrentWeeks="{Binding CurrentStreakWeeks}" Progress="{Binding WeeklyProgress}" Title="{Binding Text.WeeklyGoal}" />
                 <Label Style="{DynamicResource TrackZSectionTitleStyle}" Text="{Binding Text.PersonalRecords}" />
-                <VerticalStackLayout BindableLayout.ItemsSource="{Binding Exercises}" Spacing="{DynamicResource TrackZSpace12}">
+                <VerticalStackLayout
+                    x:Name="ExerciseProgressRows"
+                    BindableLayout.ItemsSource="{Binding Exercises}"
+                    Spacing="{DynamicResource TrackZSpace12}">
                     <BindableLayout.ItemTemplate>
                         <DataTemplate x:DataType="gamification:ExerciseProgressItem">
                             <Border Style="{DynamicResource TrackZCardStyle}">

@@ -59,11 +59,15 @@ public sealed class MomentumHomePresentationTests
         var page = context.Page;
         var viewModel = context.ViewModel;
         var primary = Assert.IsType<Button>(page.FindByName("HeroActionButton"));
+        var viewAllProgress = Assert.IsType<Button>(page.FindByName("ViewAllProgressAction"));
         var contextLabel = Assert.IsType<Label>(page.FindByName("HomeContextLabel"));
 
         Assert.Equal("Today · Week 34", contextLabel.Text);
         Assert.True(primary.MinimumHeightRequest >= 44);
         Assert.Same(viewModel.HeroActionCommand, primary.Command);
+        Assert.True(viewAllProgress.MinimumHeightRequest >= 44);
+        Assert.Same(viewModel.OpenProgressCommand, viewAllProgress.Command);
+        Assert.Equal(viewModel.Text.HomeViewAllData, viewAllProgress.Text);
         Assert.Single(
             Descendants(page).OfType<Button>(),
             button => ReferenceEquals(button.Style, context.Application.Resources["TrackZPrimaryButtonStyle"]));
@@ -410,6 +414,9 @@ public sealed class MomentumHomePresentationTests
             Task.CompletedTask;
 
         public Task OpenActiveWorkoutAsync(CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+
+        public Task OpenProgressAsync(Guid exerciseId, CancellationToken cancellationToken = default) =>
             Task.CompletedTask;
     }
 

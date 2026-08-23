@@ -157,7 +157,16 @@
                 x:Name="LatestPerformanceSection"
                 IsVisible="{Binding HasRecentMomentum}"
                 Spacing="{DynamicResource TrackZSpace8}">
-                <Label Style="{DynamicResource TrackZSectionTitleStyle}" Text="{Binding Text.HomeLatestPerformance}" />
+                <Grid ColumnDefinitions="*,Auto">
+                    <Label Style="{DynamicResource TrackZSectionTitleStyle}" Text="{Binding Text.HomeLatestPerformance}" />
+                    <Button
+                        x:Name="ViewAllProgressAction"
+                        Grid.Column="1"
+                        Command="{Binding OpenProgressCommand}"
+                        SemanticProperties.Description="{Binding Text.HomeViewAllData}"
+                        Style="{DynamicResource TrackZQuietButtonStyle}"
+                        Text="{Binding Text.HomeViewAllData}" />
+                </Grid>
                 <Border
                     x:Name="LatestPerformanceCard"
                     IsVisible="{Binding HasRecentMomentum}"

@@ -369,6 +369,9 @@ public sealed class TrainAgainWorkoutTests : IDisposable
             OpenActiveWorkoutCount++;
             return Task.CompletedTask;
         }
+
+        public Task OpenProgressAsync(Guid exerciseId, CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
     }
 
     private sealed class ThrowOnceTrainNavigator : ITrainNavigator
@@ -389,6 +392,9 @@ public sealed class TrainAgainWorkoutTests : IDisposable
             SuccessfulOpenActiveWorkoutCount++;
             return Task.CompletedTask;
         }
+
+        public Task OpenProgressAsync(Guid exerciseId, CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
     }
 
     private sealed class FixedClock : IClock

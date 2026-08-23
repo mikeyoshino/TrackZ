@@ -13,9 +13,11 @@ public sealed class TrainNavigationTests
 
         await navigator.OpenActiveWorkoutAsync();
         await navigator.OpenWorkoutPickerAsync();
+        await navigator.OpenProgressAsync(
+            Guid.Parse("77777777-7777-7777-7777-777777777777"));
 
         Assert.Equal(
-            ["active-workout", "ExercisePickerPage?bodyPart=2"],
+            ["active-workout", "ExercisePickerPage?bodyPart=2", "//progress?exerciseId=77777777-7777-7777-7777-777777777777"],
             host.Routes);
     }
 

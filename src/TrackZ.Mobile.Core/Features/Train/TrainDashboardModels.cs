@@ -42,4 +42,5 @@ public interface ITrainNavigator
 {
     Task OpenWorkoutPickerAsync(CancellationToken cancellationToken = default);
     Task OpenActiveWorkoutAsync(CancellationToken cancellationToken = default);
+    Task OpenProgressAsync(Guid exerciseId, CancellationToken cancellationToken = default);
 }
