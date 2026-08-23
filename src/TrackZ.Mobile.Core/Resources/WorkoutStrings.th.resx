@@ -100,6 +100,9 @@
   <data name="RetryArtwork" xml:space="preserve"><value>ลองโหลดภาพอีกครั้ง</value></data>
   <data name="SelectExerciseFormat" xml:space="preserve"><value>เลือก {0}</value></data>
   <data name="ArtworkForExerciseFormat" xml:space="preserve"><value>ภาพแสดงการเคลื่อนไหวของท่า {0}</value></data>
+  <data name="SetCountSingularFormat" xml:space="preserve"><value>{0} เซ็ต</value></data>
+  <data name="SetCountPluralFormat" xml:space="preserve"><value>{0} เซ็ต</value></data>
+  <data name="OpenSetLoggerAccessibilityFormat" xml:space="preserve"><value>{0}, {1} เปิดหน้าบันทึกเซ็ต</value></data>
   <data name="SetsLoggedFormat" xml:space="preserve"><value>บันทึกแล้ว {0} เซ็ต</value></data>
   <data name="LogNextSet" xml:space="preserve"><value>+ เพิ่มเซ็ต</value></data>
   <data name="SaveSet" xml:space="preserve"><value>บันทึกเซ็ต</value></data>

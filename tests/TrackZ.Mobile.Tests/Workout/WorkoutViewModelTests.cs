@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Data.Sqlite;
 using TrackZ.Contracts.Exercises;
 using TrackZ.Domain.Exercises;
@@ -35,9 +36,36 @@ public sealed class WorkoutViewModelTests
         await viewModel.RestoreAsync();
 
         Assert.Equal([2, 0], viewModel.Exercises.Select(item => item.LoggedSetCount));
+        Assert.Equal(["2 sets", "0 sets"], viewModel.Exercises.Select(item => item.LoggedSetText));
         Assert.Equal("2 exercises · 2 sets logged", viewModel.WorkoutContextText);
+        Assert.Equal(
+            ["Press, 2 sets. Open set logger.",
+             "Pull-up, 0 sets. Open set logger."],
+            viewModel.Exercises.Select(item => item.AccessibilitySummary));
         Assert.All(viewModel.Exercises, item =>
-            Assert.DoesNotContain(" of ", item.AccessibilitySummary, StringComparison.OrdinalIgnoreCase));
+        {
+            Assert.DoesNotContain(" of ", item.AccessibilitySummary, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("LAST", item.AccessibilitySummary, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("Weight", item.AccessibilitySummary, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("Open set logger", item.AccessibilitySummary, StringComparison.Ordinal);
+        });
+    }
+
+    [Fact]
+    public void Set_count_and_open_action_copy_are_localized_in_english_and_thai()
+    {
+        var english = WorkoutResources.ForCulture(CultureInfo.GetCultureInfo("en-US"));
+        var thai = WorkoutResources.ForCulture(CultureInfo.GetCultureInfo("th-TH"));
+
+        Assert.Equal("1 set", string.Format(english.SetCountSingularFormat, 1));
+        Assert.Equal("2 sets", string.Format(english.SetCountPluralFormat, 2));
+        Assert.Equal("1 เซ็ต", string.Format(thai.SetCountSingularFormat, 1));
+        Assert.Equal("2 เซ็ต", string.Format(thai.SetCountPluralFormat, 2));
+        Assert.Equal("Press, 2 sets. Open set logger.", string.Format(
+            english.OpenSetLoggerAccessibilityFormat, "Press", "2 sets"));
+        Assert.Equal("Press, 2 เซ็ต เปิดหน้าบันทึกเซ็ต", string.Format(
+            thai.OpenSetLoggerAccessibilityFormat, "Press", "2 เซ็ต"));
+        Assert.Equal("2 sets logged", string.Format(english.SetsLoggedFormat, 2));
     }
 
     [Fact]

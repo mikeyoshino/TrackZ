@@ -61,11 +61,15 @@ public sealed class NativeIosExperienceAcceptanceTests
         var row = new WorkoutExerciseDraftItem(
             Guid.NewGuid(), "Machine Shoulder Press", TrackingMode.Weighted, "Weight",
             "/bounded-cache/shoulder-press.jpg", LoggedSetCount: 2,
-            LoggedSetText: "2 sets logged", LastText: "LAST 45 kg × 8",
-            AccessibilitySummary: "Machine Shoulder Press, 2 sets logged");
+            LoggedSetText: "2 sets", LastText: "LAST 45 kg × 8",
+            AccessibilitySummary: "Machine Shoulder Press, 2 sets. Open set logger.");
         Assert.True(row.HasArtwork);
         Assert.Equal(2, row.LoggedSetCount);
         Assert.DoesNotContain("of", row.LoggedSetText, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("logged", row.LoggedSetText, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("LAST", row.AccessibilitySummary, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Weight", row.AccessibilitySummary, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Open set logger", row.AccessibilitySummary, StringComparison.Ordinal);
         Assert.NotNull(typeof(ProgressReveal));
     }
 

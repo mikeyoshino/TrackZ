@@ -100,6 +100,9 @@
   <data name="RetryArtwork" xml:space="preserve"><value>Retry image</value></data>
   <data name="SelectExerciseFormat" xml:space="preserve"><value>Select {0}</value></data>
   <data name="ArtworkForExerciseFormat" xml:space="preserve"><value>Movement artwork for {0}</value></data>
+  <data name="SetCountSingularFormat" xml:space="preserve"><value>{0} set</value></data>
+  <data name="SetCountPluralFormat" xml:space="preserve"><value>{0} sets</value></data>
+  <data name="OpenSetLoggerAccessibilityFormat" xml:space="preserve"><value>{0}, {1}. Open set logger.</value></data>
   <data name="SetsLoggedFormat" xml:space="preserve"><value>{0} sets logged</value></data>
   <data name="LogNextSet" xml:space="preserve"><value>+ Add set</value></data>
   <data name="SaveSet" xml:space="preserve"><value>Save set</value></data>

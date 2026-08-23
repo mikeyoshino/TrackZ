@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Collections.Concurrent;
 using System.ComponentModel;
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
 using TrackZ.Domain.Exercises;
@@ -394,7 +395,9 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged, IDisposable
         var last = cached is null
             ? string.Format(_text.PerformanceLastFormat, "—")
             : new ExercisePickerItem(cached, _text, _unitPreference).LastText;
-        var logged = string.Format(_text.SetsLoggedFormat, loggedSetCount);
+        var logged = string.Format(
+            loggedSetCount == 1 ? _text.SetCountSingularFormat : _text.SetCountPluralFormat,
+            loggedSetCount);
         return new WorkoutExerciseDraftItem(
             exerciseDefinitionId,
             name,
@@ -405,7 +408,11 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged, IDisposable
             loggedSetCount,
             logged,
             last,
-            string.Join(", ", name, mode, logged, last));
+            string.Format(
+                CultureInfo.CurrentCulture,
+                _text.OpenSetLoggerAccessibilityFormat,
+                name,
+                logged));
     }
 
     private void OnWeightUnitChanged(object? sender, EventArgs eventArgs)
