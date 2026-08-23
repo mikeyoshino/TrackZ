@@ -797,18 +797,21 @@ public sealed class SyncCoordinator(
                         connection, transaction, change.EntityId, innerToken);
                     if (conflicts.Count > 0)
                     {
-                        foreach (var operation in conflicts.Where(operation =>
-                                     change.ServerVersion > operation.BaseVersion))
-                            await StoreServerConflictAsync(
+                        var conflictChainStarted = false;
+                        var soleEffortAuthorityStored = false;
+                        foreach (var operation in conflicts)
+                        {
+                            conflictChainStarted |= operation.State == OutboxOperationState.Conflicted
+                                || change.ServerVersion > operation.BaseVersion;
+                            if (!conflictChainStarted) continue;
+                            var stored = await StoreServerConflictAsync(
                                 connection, transaction, operation.OperationId,
                                 change.ServerVersion, serverPayload, innerToken);
-                        if (conflicts is
-                            [
-                                {
-                                    Type: OutboxOperationType.RecordSetEffort,
-                                    State: OutboxOperationState.Conflicted
-                                }
-                            ])
+                            soleEffortAuthorityStored |= conflicts.Count == 1
+                                && operation.Type == OutboxOperationType.RecordSetEffort
+                                && stored;
+                        }
+                        if (soleEffortAuthorityStored)
                             await ApplyGraphAsync(
                                 connection, transaction, change.Workout, innerToken);
                     }
@@ -1148,7 +1151,7 @@ public sealed class SyncCoordinator(
         return replacement;
     }
 
-    private static async Task StoreServerConflictAsync(
+    private static async Task<bool> StoreServerConflictAsync(
         SqliteConnection connection,
         SqliteTransaction transaction,
         Guid operationId,
@@ -1168,7 +1171,7 @@ public sealed class SyncCoordinator(
         Add(command, "$version", serverVersion);
         Add(command, "$payload", serverPayload);
         Add(command, "$id", Id(operationId));
-        _ = await command.ExecuteNonQueryAsync(cancellationToken);
+        return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
     }
 
     private static async Task<IReadOnlyList<OutboxOperation>> ReadActiveOperationsAsync(
