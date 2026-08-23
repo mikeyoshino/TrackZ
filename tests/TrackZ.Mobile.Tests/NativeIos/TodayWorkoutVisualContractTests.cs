@@ -94,6 +94,23 @@ public sealed class TodayWorkoutVisualContractTests
         Assert.DoesNotContain("class=\"mode\"", html, StringComparison.Ordinal);
         Assert.DoesNotContain("class=\"performance\"", html, StringComparison.Ordinal);
         Assert.DoesNotContain("LAST", html, StringComparison.Ordinal);
+
+        Assert.Contains(
+            "<article class=\"card\"><img class=\"art\" src=\"../../assets/exercises/images/assisted-pull-up.png\" alt=\"Assisted Pull-Up movement artwork\"><div class=\"name\">Assisted Pull-Up</div><div class=\"set-count\">2 sets</div><span class=\"chevron\">›</span></article>",
+            html,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "<article class=\"card\"><img class=\"art\" src=\"../../assets/exercises/images/barbell-row.png\" alt=\"Barbell Row movement artwork\"><div class=\"name\">Barbell Row</div><div class=\"set-count\">1 set</div><span class=\"chevron\">›</span></article>",
+            html,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "<article class=\"card\"><img class=\"art\" src=\"../../assets/exercises/images/cable-fly.png\" alt=\"Cable Fly movement artwork\"><div class=\"name\">Cable Fly</div><div class=\"set-count\">0 sets</div><span class=\"chevron\">›</span></article>",
+            html,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "<article class=\"card\"><img class=\"art\" src=\"../../assets/exercises/images/close-grip-bench-press.png\" alt=\"Close-Grip Bench Press movement artwork\"><div class=\"name\">Close-Grip Bench Press</div><div class=\"set-count\">0 sets</div><span class=\"chevron\">›</span></article>",
+            html,
+            StringComparison.Ordinal);
     }
 
     private static string? Name(XElement element) => element.Attribute(X + "Name")?.Value;
