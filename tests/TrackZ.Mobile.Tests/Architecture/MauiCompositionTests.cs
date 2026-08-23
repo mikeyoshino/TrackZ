@@ -705,83 +705,6 @@ public sealed class MauiCompositionTests
     }
 
     [Fact]
-    public async Task Set_logger_deactivation_wins_publication_race_and_contains_lifetime_disposal_failure()
-    {
-        var root = Path.Combine(
-            Path.GetTempPath(), $"trackz-effort-lifetime-race-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(root);
-        var originalDispatcherProvider = DispatcherProvider.Current;
-        DispatcherProvider.SetCurrent(new HeadlessDispatcherProvider());
-        var app = MauiProgram.CreateMauiApp(services =>
-        {
-            ConfigureAuthenticatedServices(services);
-            services.AddSingleton(new ExerciseHistoryCache(Path.Combine(root, "history.db")));
-            services.AddSingleton(new ExerciseCache(Path.Combine(root, "exercises.db")));
-            services.AddSingleton(new TrackZLocalDatabase(Path.Combine(root, "workouts.db")));
-            services.AddSingleton<IConnectivityService>(new HeadlessConnectivity());
-            services.AddSingleton<IUiDispatcher>(new InlineUiDispatcher());
-            services.AddSingleton<IExerciseThumbnailCache>(new HeadlessThumbnailCache());
-            services.AddSingleton<IWorkoutPreferenceStore>(new HeadlessPreferences());
-            services.AddSingleton<IWeightUnitPreference, WeightUnitPreference>();
-            services.RemoveAll<MauiSetSavedFeedback>();
-            services.AddSingleton(new MauiSetSavedFeedback(() => false));
-            services.RemoveAll<ISetSavedFeedback>();
-            services.AddSingleton<ISetSavedFeedback>(services =>
-                services.GetRequiredService<MauiSetSavedFeedback>());
-        }, new FixedLanguageStore(AppLanguage.English));
-        var effortSheet = new RecordingEffortSheet();
-        var pageBoundary = new GatedCaptureSessionBoundary();
-
-        try
-        {
-            var exerciseId = Guid.NewGuid();
-            await app.Services.GetRequiredService<ActiveWorkoutCoordinator>().StartAsync([
-                new WorkoutExerciseSelection(exerciseId, TrackingMode.Weighted)
-            ]);
-            var logger = app.Services.GetRequiredService<SetLoggerViewModel>();
-            await logger.LoadAsync(exerciseId, "Race Press");
-            var transition = new GatedInlineSetEditorTransition();
-            var pulse = new CompletablePulseDriver();
-            pulse.Complete.TrySetResult();
-            var page = new TestSetLoggerPage(
-                logger,
-                app.Services.GetRequiredService<MauiSetSavedFeedback>(),
-                pulse,
-                transition,
-                effortSheet,
-                pageBoundary);
-            page.Appear();
-            logger.BeginSetCommand.Execute(null);
-            var reveal = await transition.NextAttemptAsync();
-            reveal.Release.TrySetResult();
-            await reveal.Exited.Task.WaitAsync(TimeSpan.FromSeconds(1));
-            logger.WeightKg = 70m;
-            logger.Reps = 8;
-
-            var saving = Task.Run(async () =>
-                await logger.SaveDraftSetCommand.ExecuteAsync());
-            await pageBoundary.CaptureStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
-            page.Deactivate();
-            pageBoundary.ReleaseCapture.TrySetResult();
-            await saving.WaitAsync(TimeSpan.FromSeconds(2));
-            await pageBoundary.DisposalAttempted.Task.WaitAsync(TimeSpan.FromSeconds(1));
-            var presentCountAfterDeactivation = effortSheet.PresentCount;
-            effortSheet.Release.TrySetResult();
-
-            Assert.Equal(0, presentCountAfterDeactivation);
-        }
-        finally
-        {
-            pageBoundary.ReleaseCapture.TrySetResult();
-            effortSheet.Release.TrySetResult();
-            app.Dispose();
-            DispatcherProvider.SetCurrent(originalDispatcherProvider);
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
-            Directory.Delete(root, recursive: true);
-        }
-    }
-
-    [Fact]
     public async Task Momentum_home_provider_keeps_one_page_and_view_model_while_loading_local_and_cached_state()
     {
         var root = Path.Combine(Path.GetTempPath(), $"trackz-momentum-composition-{Guid.NewGuid():N}");
@@ -1056,12 +979,9 @@ public sealed class MauiCompositionTests
 
         pulse.Complete.TrySetResult();
         await saving.WaitAsync(TimeSpan.FromSeconds(1));
-        await effortSheet.Presented.Task.WaitAsync(TimeSpan.FromSeconds(1));
-        Assert.Equal(1, effortSheet.PresentCount);
-        Assert.Equal(Assert.Single(logger.TodaySets).Id, effortSheet.Request!.SavedSet.Id);
-        Assert.NotEqual(Guid.Empty, effortSheet.Request.EffortOperationId);
+        Assert.Equal(0, effortSheet.PresentCount);
+        Assert.Null(effortSheet.Request);
         Assert.True(saving.IsCompletedSuccessfully);
-        Assert.False(effortSheet.Release.Task.IsCompleted);
         var saveRestore = await transition.NextRestoredTargetAsync();
 
         Assert.False(logger.IsBusy);
@@ -1077,8 +997,6 @@ public sealed class MauiCompositionTests
         logger.BeginSetCommand.Execute(null);
         var deactivatedReveal = await transition.NextAttemptAsync();
         await pageBoundary.ResetAsync(_ => Task.CompletedTask);
-        await effortSheet.Cancelled.Task.WaitAsync(TimeSpan.FromSeconds(1));
-        Assert.False(effortSheet.Release.Task.IsCompleted);
         page.Deactivate();
         await deactivatedReveal.Exited.Task.WaitAsync(TimeSpan.FromSeconds(1));
 
@@ -1187,98 +1105,18 @@ public sealed class MauiCompositionTests
 
     private sealed class RecordingEffortSheet : ISetEffortSheet
     {
-        public TaskCompletionSource Presented { get; } =
-            new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public TaskCompletionSource Release { get; } =
-            new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public TaskCompletionSource Cancelled { get; } =
-            new(TaskCreationOptions.RunContinuationsAsynchronously);
         public SetEffortPromptRequest? Request { get; private set; }
         public int PresentCount { get; private set; }
 
-        public async Task PresentAsync(
+        public Task PresentAsync(
             SetEffortPromptRequest request,
             Func<HypertrophyGuidanceResult, bool> applyToDraft,
             CancellationToken cancellationToken = default)
         {
             Request = request;
             PresentCount++;
-            Presented.TrySetResult();
-            try
-            {
-                await Release.Task.WaitAsync(cancellationToken);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                Cancelled.TrySetResult();
-                throw;
-            }
+            return Task.CompletedTask;
         }
-    }
-
-    private sealed class GatedCaptureSessionBoundary : IAccountSessionBoundary
-    {
-        private readonly AccountSessionBoundary _inner = new();
-
-        public TaskCompletionSource CaptureStarted { get; } =
-            new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public TaskCompletionSource ReleaseCapture { get; } =
-            new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public TaskCompletionSource DisposalAttempted { get; } =
-            new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        public AccountSessionGeneration Capture()
-        {
-            CaptureStarted.TrySetResult();
-            ReleaseCapture.Task.GetAwaiter().GetResult();
-            return _inner.Capture();
-        }
-
-        public bool IsCancellationRequested(AccountSessionGeneration generation) =>
-            _inner.IsCancellationRequested(generation);
-
-        public AccountSessionCancellationLease CreateCancellationLease(
-            AccountSessionGeneration generation,
-            CancellationToken cancellationToken = default)
-        {
-            var linked = CancellationTokenSource.CreateLinkedTokenSource(
-                cancellationToken);
-            return new AccountSessionCancellationLease(linked, () =>
-            {
-                DisposalAttempted.TrySetResult();
-                throw new InvalidOperationException(
-                    "Injected effort lifetime disposal failure.");
-            });
-        }
-
-        public bool TryStartSessionPhase(
-            AccountSessionGeneration generation,
-            Action phase,
-            CancellationToken cancellationToken = default) =>
-            _inner.TryStartSessionPhase(generation, phase, cancellationToken);
-
-        public event EventHandler? SessionReset
-        {
-            add => _inner.SessionReset += value;
-            remove => _inner.SessionReset -= value;
-        }
-
-        public Task<bool> TryCommitAsync(
-            AccountSessionGeneration generation,
-            Func<CancellationToken, Task> mutation,
-            CancellationToken cancellationToken = default) =>
-            _inner.TryCommitAsync(generation, mutation, cancellationToken);
-
-        public Task ResetAsync(
-            Func<CancellationToken, Task> reset,
-            CancellationToken cancellationToken = default) =>
-            _inner.ResetAsync(reset, cancellationToken);
-
-        public Task<bool> TryResetAsync(
-            AccountSessionGeneration generation,
-            Func<CancellationToken, Task> reset,
-            CancellationToken cancellationToken = default) =>
-            _inner.TryResetAsync(generation, reset, cancellationToken);
     }
 
     private sealed class GatedInlineSetEditorTransition : IInlineSetEditorTransition

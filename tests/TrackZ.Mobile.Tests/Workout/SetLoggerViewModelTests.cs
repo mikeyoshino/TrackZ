@@ -76,7 +76,7 @@ public sealed class SetLoggerViewModelTests : IDisposable
     }
 
     [Fact]
-    public async Task Effort_prompt_is_raised_once_only_after_durable_save_and_feedback()
+    public async Task Durable_save_returns_to_logger_without_requesting_a_post_set_prompt()
     {
         var fixture = await CreateFixtureAsync(TrackingMode.Weighted);
         var sequence = new List<string>();
@@ -90,39 +90,22 @@ public sealed class SetLoggerViewModelTests : IDisposable
         sut.BeginSetCommand.Execute(null);
         sut.WeightKg = 70m;
         sut.Reps = 10;
-        SetEffortPromptRequest? request = null;
-        sut.EffortPromptRequested += (_, eventArgs) =>
+        var promptCount = 0;
+        sut.EffortPromptRequested += (_, _) =>
         {
             sequence.Add("prompt");
-            request = eventArgs.Request;
+            promptCount++;
         };
 
         await sut.SaveDraftSetCommand.ExecuteAsync();
 
-        Assert.Equal(["feedback", "prompt"], sequence);
-        Assert.NotNull(request);
-        Assert.Equal(Assert.Single(sut.TodaySets).Id, request!.SavedSet.Id);
-        Assert.NotNull(await fixture.Repository.GetOperationAsync(request.SavedSet.OperationId, default));
-        Assert.NotEqual(Guid.Empty, request.EffortOperationId);
-    }
-
-    [Fact]
-    public async Task Failed_save_and_reload_never_raise_effort_prompt()
-    {
-        var fixture = await CreateFixtureAsync(TrackingMode.Weighted);
-        await CreateSaveFailureTriggerAsync();
-        var sut = fixture.CreateLogger(null);
-        var count = 0;
-        sut.EffortPromptRequested += (_, _) => count++;
-        await sut.LoadAsync(ExerciseId, "Bench Press");
-        sut.BeginSetCommand.Execute(null);
-        sut.WeightKg = 70m;
-        sut.Reps = 10;
-
-        await sut.SaveDraftSetCommand.ExecuteAsync();
-        await sut.LoadAsync(ExerciseId, "Bench Press");
-
-        Assert.Equal(0, count);
+        Assert.Equal(["feedback"], sequence);
+        Assert.Equal(0, promptCount);
+        Assert.Single(sut.TodaySets);
+        var persisted = Assert.Single(
+            Assert.Single((await fixture.Repository.GetActiveAsync())!.Exercises).Sets);
+        Assert.NotNull(await fixture.Repository.GetOperationAsync(persisted.OperationId, default));
+        Assert.False(sut.HasDraftSet);
     }
 
     [Fact]
@@ -203,38 +186,7 @@ public sealed class SetLoggerViewModelTests : IDisposable
     }
 
     [Fact]
-    public async Task Reset_during_feedback_suppresses_prompt_and_subscriber_failure_cannot_fail_save()
-    {
-        var resetFixture = await CreateFixtureAsync(TrackingMode.Weighted);
-        resetFixture.Feedback.Block = true;
-        var resetSut = resetFixture.CreateLogger(null);
-        await resetSut.LoadAsync(ExerciseId, "Bench Press");
-        resetSut.BeginSetCommand.Execute(null);
-        resetSut.WeightKg = 70m;
-        resetSut.Reps = 10;
-        var promptCount = 0;
-        resetSut.EffortPromptRequested += (_, _) => promptCount++;
-        var save = resetSut.SaveDraftSetCommand.ExecuteAsync();
-        await resetFixture.Feedback.Entered.Task;
-        var reset = resetFixture.Boundary.ResetAsync(resetFixture.Coordinator.ClearPrivateDataAsync);
-        resetFixture.Feedback.Release.TrySetResult();
-        await Task.WhenAll(save, reset);
-        Assert.Equal(0, promptCount);
-
-        var throwFixture = await CreateFixtureAsync(TrackingMode.Weighted);
-        var throwSut = throwFixture.CreateLogger(null);
-        await throwSut.LoadAsync(ExerciseId, "Bench Press");
-        throwSut.BeginSetCommand.Execute(null);
-        throwSut.WeightKg = 70m;
-        throwSut.Reps = 10;
-        throwSut.EffortPromptRequested += (_, _) => throw new InvalidOperationException("presentation failed");
-        await throwSut.SaveDraftSetCommand.ExecuteAsync();
-        Assert.Single(throwSut.TodaySets);
-        Assert.Null(throwSut.ErrorMessage);
-    }
-
-    [Fact]
-    public async Task Remote_refresh_updates_future_prompt_snapshot()
+    public async Task Remote_refresh_updates_the_visible_previous_reference()
     {
         var fixture = await CreateFixtureAsync(TrackingMode.Weighted);
         var cached = Previous(
@@ -262,60 +214,10 @@ public sealed class SetLoggerViewModelTests : IDisposable
         history.ReleaseRemote.TrySetResult();
         await sut.HistoryRefreshCompletion.WaitAsync(TimeSpan.FromSeconds(1));
         Assert.Equal("70 kg", sut.PreviousReferenceLoad);
-
-        SetEffortPromptRequest? request = null;
-        sut.EffortPromptRequested += (_, eventArgs) => request = eventArgs.Request;
-        sut.BeginSetCommand.Execute(null);
-        sut.WeightKg = 70m;
-        sut.Reps = 10;
-        await sut.SaveDraftSetCommand.ExecuteAsync();
-
-        Assert.NotNull(request);
-        Assert.Same(refreshed, request!.PreviousSession);
     }
 
     [Fact]
-    public async Task Reset_starting_after_prompt_eligibility_check_suppresses_the_prompt()
-    {
-        var database = new TrackZLocalDatabase(_databasePath);
-        var repository = new LocalWorkoutRepository(database);
-        var boundary = new CheckUseRaceBoundary();
-        var coordinator = new ActiveWorkoutCoordinator(repository, boundary, new FixedClock());
-        await coordinator.StartAsync([
-            new WorkoutExerciseSelection(ExerciseId, TrackingMode.Weighted)
-        ]);
-        var feedback = new RecordingFeedback();
-        feedback.OnSaved = () =>
-        {
-            boundary.ArmReset(coordinator.ClearPrivateDataAsync);
-            return Task.CompletedTask;
-        };
-        var sut = new SetLoggerViewModel(
-            coordinator,
-            new StubHistory(null),
-            feedback,
-            boundary,
-            new StubConnectivity(true),
-            new OutboxRepository(database),
-            WorkoutResources.English);
-        await sut.LoadAsync(ExerciseId, "Bench Press");
-        sut.BeginSetCommand.Execute(null);
-        sut.WeightKg = 70m;
-        sut.Reps = 10;
-        var promptCount = 0;
-        sut.EffortPromptRequested += (_, _) => promptCount++;
-
-        var exception = await Record.ExceptionAsync(() => sut.SaveDraftSetCommand.ExecuteAsync());
-        await boundary.ResetCompletion;
-
-        Assert.Null(exception);
-        Assert.Equal(0, promptCount);
-        Assert.Null(await repository.GetActiveAsync());
-        Assert.Null(sut.ErrorMessage);
-    }
-
-    [Fact]
-    public async Task Reload_during_feedback_suppresses_prompt_for_the_superseded_logger_context()
+    public async Task Reload_during_feedback_preserves_the_saved_set_in_its_original_exercise()
     {
         var database = new TrackZLocalDatabase(_databasePath);
         var repository = new LocalWorkoutRepository(database);
@@ -348,9 +250,6 @@ public sealed class SetLoggerViewModelTests : IDisposable
         sut.BeginSetCommand.Execute(null);
         sut.WeightKg = 70m;
         sut.Reps = 10;
-        SetEffortPromptRequest? request = null;
-        sut.EffortPromptRequested += (_, eventArgs) => request = eventArgs.Request;
-
         var save = sut.SaveDraftSetCommand.ExecuteAsync();
         await feedback.Entered.Task;
         await sut.LoadAsync(OtherExerciseId, "Pull-Up");
@@ -358,7 +257,6 @@ public sealed class SetLoggerViewModelTests : IDisposable
         feedback.Release.TrySetResult();
         await save;
 
-        Assert.Null(request);
         var active = await repository.GetActiveAsync();
         Assert.NotNull(active);
         Assert.Single(active!.Exercises.Single(exercise =>

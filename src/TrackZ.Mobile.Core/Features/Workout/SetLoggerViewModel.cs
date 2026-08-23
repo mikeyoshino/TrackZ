@@ -107,6 +107,8 @@ public sealed record SetDisplayRow(
 
 public sealed class SetLoggerViewModel : INotifyPropertyChanged
 {
+    private static readonly bool PostSetPromptEnabled = false;
+
     private const decimal PoundsPerKilogram = 2.204622621848775807m;
     private readonly ActiveWorkoutCoordinator _coordinator;
     private readonly IExerciseHistorySource _history;
@@ -780,6 +782,7 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
             if (_disposed || _boundary.IsCancellationRequested(generation)) return;
             if (_syncRunner is not null && _connectivity.IsOnline)
                 SyncCompletion = SynchronizeBestEffortAsync(generation);
+            if (!PostSetPromptEnabled) return;
             _boundary.TryStartSessionPhase(generation, () =>
             {
                 if (_disposed || loadGeneration != Volatile.Read(ref _loadGeneration)) return;
