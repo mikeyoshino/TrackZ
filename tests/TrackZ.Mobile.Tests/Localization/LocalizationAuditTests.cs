@@ -58,7 +58,7 @@ public sealed class LocalizationAuditTests
 
         Assert.Equal("Previous workout reference", english.PreviousWorkoutReference);
         Assert.Equal("Heaviest set in the 8–12 rep range", english.HeaviestSetInRepRange);
-        Assert.Equal("ข้อมูลอ้างอิงจากครั้งก่อน", thai.PreviousWorkoutReference);
+        Assert.Equal("นน. ครั้งก่อน", thai.PreviousWorkoutReference);
         Assert.Equal("เซ็ตที่หนักที่สุดในช่วง 8–12 ครั้ง", thai.HeaviestSetInRepRange);
     }
 
