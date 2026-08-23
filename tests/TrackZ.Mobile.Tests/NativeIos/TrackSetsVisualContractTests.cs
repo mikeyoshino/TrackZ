@@ -78,19 +78,25 @@ public sealed class TrackSetsVisualContractTests
             Name(element) == "DraftWeightInput");
         var repsInput = controls.Descendants().Single(element =>
             Name(element) == "DraftRepsInput");
+        var weightContainer = Assert.IsType<XElement>(weightInput.Parent);
+        var weightCaption = controls.Descendants().Single(element =>
+            Name(element) == "DraftWeightCaption");
+        var repsCaption = controls.Descendants().Single(element =>
+            Name(element) == "DraftRepsCaption");
 
         Assert.Equal("{Binding WeightUnitLabel}",
             weightInput.Attribute("Placeholder")?.Value);
         Assert.Equal("{Binding Text.Reps}",
             repsInput.Attribute("Placeholder")?.Value);
-        Assert.Equal("Border", weightInput.Parent?.Name.LocalName);
+        Assert.Equal("{Binding WeightFieldLabel}",
+            weightCaption.Attribute("Text")?.Value);
+        Assert.Equal("{Binding Text.RepsFieldLabel}",
+            repsCaption.Attribute("Text")?.Value);
+        Assert.Equal("Border", weightContainer.Name.LocalName);
         Assert.All(new[] { weightInput, repsInput }, input =>
             Assert.Equal("0", input.Parent?.Attribute("Padding")?.Value));
-        Assert.DoesNotContain(controls.Descendants(), element =>
-            element.Name.LocalName == "Label"
-            && element.Attribute("Text")?.Value is
-                "{Binding WeightCaption}" or "{Binding Text.Reps}" or
-                "{Binding WeightUnitLabel}");
+        Assert.DoesNotContain(weightContainer.Descendants(), element =>
+            element.Name.LocalName == "Label");
     }
 
     [Fact]

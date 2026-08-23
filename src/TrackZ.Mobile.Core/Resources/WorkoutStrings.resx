@@ -30,6 +30,7 @@
   <data name="Weight" xml:space="preserve"><value>Weight</value></data>
   <data name="Assistance" xml:space="preserve"><value>Assistance</value></data>
   <data name="Reps" xml:space="preserve"><value>Reps</value></data>
+  <data name="RepsFieldLabel" xml:space="preserve"><value>Reps</value></data>
   <data name="Kilograms" xml:space="preserve"><value>kg</value></data>
   <data name="Pounds" xml:space="preserve"><value>lb</value></data>
   <data name="Bodyweight" xml:space="preserve"><value>BODYWEIGHT</value></data>

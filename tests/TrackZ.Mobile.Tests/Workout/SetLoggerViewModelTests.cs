@@ -1480,6 +1480,38 @@ public sealed class SetLoggerViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task Persistent_draft_labels_use_plain_language_and_follow_unit_changes()
+    {
+        var weightedFixture = await CreateFixtureAsync(TrackingMode.Weighted);
+        var weighted = weightedFixture.CreateLogger(null);
+        await weighted.LoadAsync(ExerciseId, "Cable Fly");
+        Assert.Equal("Weight (kg)", weighted.WeightFieldLabel);
+        Assert.Equal("Reps", weighted.Text.RepsFieldLabel);
+
+        await weightedFixture.Boundary.ResetAsync(
+            weightedFixture.Coordinator.ClearPrivateDataAsync);
+        await weightedFixture.Coordinator.StartAsync([
+            new WorkoutExerciseSelection(ExerciseId, TrackingMode.Assisted)
+        ]);
+        var assisted = weightedFixture.CreateLogger(
+            null,
+            culture: CultureInfo.GetCultureInfo("th-TH"));
+        var changed = new List<string?>();
+        assisted.PropertyChanged += (_, eventArgs) => changed.Add(eventArgs.PropertyName);
+        await assisted.LoadAsync(ExerciseId, "Assisted Pull-up");
+
+        Assert.Equal("น้ำหนักช่วย (กก.)", assisted.WeightFieldLabel);
+        Assert.Equal("จำนวนครั้ง", assisted.Text.RepsFieldLabel);
+        Assert.Contains("WeightFieldLabel", changed);
+
+        changed.Clear();
+        assisted.DisplayUnit = WeightDisplayUnit.Pounds;
+
+        Assert.Equal("น้ำหนักช่วย (ปอนด์)", assisted.WeightFieldLabel);
+        Assert.Contains("WeightFieldLabel", changed);
+    }
+
+    [Fact]
     public async Task Stepper_accessibility_descriptions_are_localized_action_and_mode_specific()
     {
         var weightedFixture = await CreateFixtureAsync(TrackingMode.Weighted);

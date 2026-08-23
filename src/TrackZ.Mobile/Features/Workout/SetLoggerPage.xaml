@@ -58,6 +58,7 @@
 
                         <Grid x:Name="DraftControlGrid" ColumnDefinitions="*,*" ColumnSpacing="{DynamicResource TrackZSpace12}">
                             <VerticalStackLayout IsVisible="{Binding UsesWeight}" Spacing="{DynamicResource TrackZSpace8}">
+                                <Label x:Name="DraftWeightCaption" HorizontalTextAlignment="Center" Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding WeightFieldLabel}" />
                                 <Grid ColumnDefinitions="44,*,44" ColumnSpacing="{DynamicResource TrackZSpace4}">
                                     <Button Command="{Binding DecrementWeightCommand}" MinimumHeightRequest="44" MinimumWidthRequest="44" SemanticProperties.Description="{Binding DecrementWeightDescription}" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="−" />
                                     <Border Grid.Column="1" Padding="0" Style="{DynamicResource TrackZFieldContainerStyle}">
@@ -68,6 +69,7 @@
                             </VerticalStackLayout>
 
                             <VerticalStackLayout Grid.Column="1" Spacing="{DynamicResource TrackZSpace8}">
+                                <Label x:Name="DraftRepsCaption" HorizontalTextAlignment="Center" Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Text.RepsFieldLabel}" />
                                 <Grid ColumnDefinitions="44,*,44" ColumnSpacing="{DynamicResource TrackZSpace4}">
                                     <Button Command="{Binding DecrementRepsCommand}" MinimumHeightRequest="44" MinimumWidthRequest="44" SemanticProperties.Description="{Binding DecrementRepsDescription}" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="−" />
                                     <Border Grid.Column="1" Padding="0" Style="{DynamicResource TrackZFieldContainerStyle}">

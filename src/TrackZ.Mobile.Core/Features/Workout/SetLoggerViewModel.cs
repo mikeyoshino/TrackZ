@@ -290,6 +290,7 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(IsBodyweight));
             OnPropertyChanged(nameof(IsAssisted));
             OnPropertyChanged(nameof(WeightCaption));
+            OnPropertyChanged(nameof(WeightFieldLabel));
             OnPropertyChanged(nameof(TrackingModeLabel));
             OnPropertyChanged(nameof(DecrementWeightDescription));
             OnPropertyChanged(nameof(IncrementWeightDescription));
@@ -300,6 +301,7 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
     public bool IsBodyweight => TrackingMode == TrackingMode.Bodyweight;
     public bool IsAssisted => TrackingMode == TrackingMode.Assisted;
     public string WeightCaption => TrackingMode == TrackingMode.Assisted ? _text.Assistance : _text.Weight;
+    public string WeightFieldLabel => $"{WeightCaption} ({WeightUnitLabel})";
     public string DecrementWeightDescription => TrackingMode == TrackingMode.Assisted
         ? _text.DecreaseAssistance
         : _text.DecreaseWeight;
@@ -409,6 +411,7 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(DisplayWeight));
             RefreshWeightInputText();
             OnPropertyChanged(nameof(WeightUnitLabel));
+            OnPropertyChanged(nameof(WeightFieldLabel));
             OnPropertyChanged(nameof(WeightStep));
             OnPropertyChanged(nameof(IsKilograms));
             OnPropertyChanged(nameof(IsPounds));
