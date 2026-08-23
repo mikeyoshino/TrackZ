@@ -15,6 +15,7 @@ public sealed class ProgressExerciseFocusTests
     [Fact]
     public async Task Requested_exercise_is_matched_once_after_progress_load()
     {
+        using var dispatcher = new DispatcherScope();
         var requestedExerciseId = Guid.Parse("77777777-7777-7777-7777-777777777777");
         var viewModel = CreateViewModel();
         var page = new ExerciseProgressPage(viewModel);
@@ -29,11 +30,51 @@ public sealed class ProgressExerciseFocusTests
         Assert.Null(page.ConsumeRequestedExercise());
     }
 
+    [Fact]
+    public async Task Focus_waits_for_the_mapped_generated_row_to_receive_layout_before_nonanimated_scroll()
+    {
+        using var dispatcher = new DispatcherScope();
+        var requestedExerciseId = Guid.Parse("77777777-7777-7777-7777-777777777777");
+        var scrollRequest = new TaskCompletionSource<ScrollRequest>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var viewModel = CreateViewModel();
+        var page = new ExerciseProgressPage(
+            viewModel,
+            (scroll, x, y, animated) =>
+            {
+                scrollRequest.TrySetResult(new ScrollRequest(scroll, x, y, animated));
+                return Task.CompletedTask;
+            });
+        page.ApplyQueryAttributes(new Dictionary<string, object>
+        {
+            ["exerciseId"] = requestedExerciseId.ToString("D", CultureInfo.InvariantCulture)
+        });
+        await viewModel.LoadAsync();
+
+        var rows = page.FindByName<VerticalStackLayout>("ExerciseProgressRows");
+        var requestedRow = Assert.IsAssignableFrom<VisualElement>(rows.Children[1]);
+        Assert.True(requestedRow.Width <= 0 || requestedRow.Height <= 0);
+        using var cancellation = new CancellationTokenSource();
+
+        var focus = page.FocusRequestedExerciseAsync(cancellation.Token);
+
+        Assert.False(scrollRequest.Task.IsCompleted);
+        requestedRow.Arrange(new Rect(0, 240, 390, 120));
+
+        var request = await scrollRequest.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        await focus;
+        Assert.Same(page.FindByName<ScrollView>("ExerciseProgressScroll"), request.Scroll);
+        Assert.Equal(0, request.X);
+        Assert.Equal(240, request.Y);
+        Assert.False(request.Animated);
+    }
+
     [Theory]
     [InlineData("not-a-guid")]
     [InlineData("")]
     public async Task Invalid_requested_exercise_is_not_consumed(string exerciseId)
     {
+        using var dispatcher = new DispatcherScope();
         var page = new ExerciseProgressPage(CreateViewModel());
 
         page.ApplyQueryAttributes(new Dictionary<string, object> { ["exerciseId"] = exerciseId });
@@ -44,6 +85,7 @@ public sealed class ProgressExerciseFocusTests
     [Fact]
     public void Missing_requested_exercise_is_not_consumed()
     {
+        using var dispatcher = new DispatcherScope();
         var page = new ExerciseProgressPage(CreateViewModel());
 
         page.ApplyQueryAttributes(new Dictionary<string, object>());
@@ -104,5 +146,39 @@ public sealed class ProgressExerciseFocusTests
         public WeightDisplayUnit Current => WeightDisplayUnit.Kilograms;
         public event EventHandler? Changed { add { } remove { } }
         public void Set(WeightDisplayUnit unit) { }
+    }
+
+    private sealed record ScrollRequest(ScrollView Scroll, double X, double Y, bool Animated);
+
+    private sealed class DispatcherScope : IDisposable
+    {
+        private readonly IDispatcherProvider _original = DispatcherProvider.Current;
+
+        public DispatcherScope() => DispatcherProvider.SetCurrent(new InlineDispatcherProvider());
+
+        public void Dispose() => DispatcherProvider.SetCurrent(_original);
+    }
+
+    private sealed class InlineDispatcherProvider : IDispatcherProvider
+    {
+        public IDispatcher GetForCurrentThread() => new InlineDispatcher();
+    }
+
+    private sealed class InlineDispatcher : IDispatcher
+    {
+        public bool IsDispatchRequired => false;
+        public bool Dispatch(Action action) { action(); return true; }
+        public bool DispatchDelayed(TimeSpan delay, Action action) { action(); return true; }
+        public IDispatcherTimer CreateTimer() => new InlineTimer();
+    }
+
+    private sealed class InlineTimer : IDispatcherTimer
+    {
+        public TimeSpan Interval { get; set; }
+        public bool IsRepeating { get; set; }
+        public bool IsRunning { get; private set; }
+        public event EventHandler? Tick { add { } remove { } }
+        public void Start() => IsRunning = true;
+        public void Stop() => IsRunning = false;
     }
 }

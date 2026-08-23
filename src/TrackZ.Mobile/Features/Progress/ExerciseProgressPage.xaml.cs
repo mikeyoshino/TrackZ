@@ -6,12 +6,22 @@ namespace TrackZ.Mobile.Features.Progress;
 public partial class ExerciseProgressPage : ContentPage, IQueryAttributable
 {
     private readonly ProgressDashboardViewModel _viewModel;
+    private readonly Func<ScrollView, double, double, bool, Task> _scrollTo;
     private Guid? _requestedExerciseId;
+    private CancellationTokenSource? _focusCancellation;
 
     public ExerciseProgressPage(ProgressDashboardViewModel viewModel)
+        : this(viewModel, static (scroll, x, y, animated) => scroll.ScrollToAsync(x, y, animated))
+    {
+    }
+
+    internal ExerciseProgressPage(
+        ProgressDashboardViewModel viewModel,
+        Func<ScrollView, double, double, bool, Task> scrollTo)
     {
         InitializeComponent();
         BindingContext = _viewModel = viewModel;
+        _scrollTo = scrollTo;
     }
 
     public void ApplyQueryAttributes(IDictionary<string, object> query)
@@ -25,16 +35,46 @@ public partial class ExerciseProgressPage : ContentPage, IQueryAttributable
     protected override async void OnAppearing()
     {
         base.OnAppearing();
-        await _viewModel.LoadAsync();
+        _focusCancellation?.Cancel();
+        _focusCancellation?.Dispose();
+        var cancellation = _focusCancellation = new CancellationTokenSource();
+        try
+        {
+            await _viewModel.LoadAsync();
+            await FocusRequestedExerciseAsync(cancellation.Token);
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+        }
+        finally
+        {
+            if (ReferenceEquals(_focusCancellation, cancellation))
+            {
+                _focusCancellation = null;
+                cancellation.Dispose();
+            }
+        }
+    }
+
+    protected override void OnDisappearing()
+    {
+        _focusCancellation?.Cancel();
+        base.OnDisappearing();
+    }
+
+    internal async Task FocusRequestedExerciseAsync(CancellationToken cancellationToken = default)
+    {
         var item = ConsumeRequestedExercise();
         if (item is null) return;
 
         var index = _viewModel.Exercises.IndexOf(item);
-        if (index >= 0 && index < ExerciseProgressRows.Children.Count)
-        {
-            var row = ExerciseProgressRows.Children[index];
-            await ExerciseProgressScroll.ScrollToAsync(0, row.Frame.Y, animated: false);
-        }
+        if (index < 0 || index >= ExerciseProgressRows.Children.Count) return;
+
+        var row = ExerciseProgressRows.Children[index] as VisualElement;
+        if (row is null) return;
+        await WaitForPositiveLayoutAsync(row, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        await _scrollTo(ExerciseProgressScroll, 0, row.Frame.Y, false);
     }
 
     internal ExerciseProgressItem? ConsumeRequestedExercise()
@@ -45,4 +85,34 @@ public partial class ExerciseProgressPage : ContentPage, IQueryAttributable
             ? _viewModel.Exercises.SingleOrDefault(candidate => candidate.ExerciseId == id)
             : null;
     }
+
+    private static async Task WaitForPositiveLayoutAsync(
+        VisualElement row,
+        CancellationToken cancellationToken)
+    {
+        if (HasPositiveLayout(row)) return;
+
+        var completion = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        EventHandler? sizeChanged = null;
+        sizeChanged = (_, _) =>
+        {
+            if (HasPositiveLayout(row)) completion.TrySetResult();
+        };
+        row.SizeChanged += sizeChanged;
+        using var registration = cancellationToken.Register(
+            () => completion.TrySetCanceled(cancellationToken));
+        try
+        {
+            if (HasPositiveLayout(row)) completion.TrySetResult();
+            await completion.Task;
+        }
+        finally
+        {
+            row.SizeChanged -= sizeChanged;
+        }
+    }
+
+    private static bool HasPositiveLayout(VisualElement row) =>
+        row.Width > 0 && row.Height > 0;
 }
