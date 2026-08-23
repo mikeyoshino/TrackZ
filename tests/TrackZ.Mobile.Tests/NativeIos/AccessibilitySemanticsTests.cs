@@ -86,6 +86,7 @@ public sealed class AccessibilitySemanticsTests
             ("EffortFailureNotNowAction", "TrackZQuietButtonStyle"),
             ("EffortUnavailableCloseAction", "TrackZQuietButtonStyle"),
             ("GuidanceSaveIncrementAction", "TrackZPrimaryButtonStyle"),
+            ("GuidanceIncrementNotNowAction", "TrackZQuietButtonStyle"),
             ("GuidanceUseAction", "TrackZPrimaryButtonStyle"),
             ("GuidanceEditIncrementAction", "TrackZQuietButtonStyle"),
             ("GuidanceNotNowAction", "TrackZSecondaryButtonStyle")
@@ -105,6 +106,22 @@ public sealed class AccessibilitySemanticsTests
             document.Descendants().Single(element =>
                 Name(element) == "GuidanceUseAction")
                 .Attribute("IsVisible")?.Value);
+
+        var incrementState = document.Descendants().Single(element =>
+            Name(element) == "EffortIncrementState");
+        var incrementFinalActions = incrementState.Elements()
+            .Where(element => element.Name.LocalName == "Button")
+            .ToArray();
+        Assert.Equal(
+            ["GuidanceSaveIncrementAction", "GuidanceIncrementNotNowAction"],
+            incrementFinalActions.Select(Name));
+        Assert.Equal("{Binding NotNowCommand}",
+            incrementFinalActions[1].Attribute("Command")?.Value);
+        Assert.Equal("{Binding Text.NotNow}",
+            incrementFinalActions[1]
+                .Attribute("SemanticProperties.Description")?.Value);
+        Assert.Equal("{Binding Text.NotNow}",
+            incrementFinalActions[1].Attribute("Text")?.Value);
 
         var incrementInput = document.Descendants().Single(element =>
             Name(element) == "GuidanceIncrementInput");

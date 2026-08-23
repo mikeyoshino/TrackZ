@@ -130,6 +130,12 @@
                     SemanticProperties.Description="{Binding Text.GuidanceSaveIncrement}"
                     Style="{DynamicResource TrackZPrimaryButtonStyle}"
                     Text="{Binding Text.GuidanceSaveIncrement}" />
+                <Button
+                    x:Name="GuidanceIncrementNotNowAction"
+                    Command="{Binding NotNowCommand}"
+                    SemanticProperties.Description="{Binding Text.NotNow}"
+                    Style="{DynamicResource TrackZQuietButtonStyle}"
+                    Text="{Binding Text.NotNow}" />
             </VerticalStackLayout>
 
             <VerticalStackLayout

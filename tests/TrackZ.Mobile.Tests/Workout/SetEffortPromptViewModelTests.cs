@@ -331,6 +331,46 @@ public sealed class SetEffortPromptViewModelTests
     }
 
     [Fact]
+    public async Task Reset_cannot_clear_then_allow_old_generation_increment_write()
+    {
+        var boundary = new PhaseBarrierBoundary();
+        var raw = new BlockingWorkoutPreferenceStore();
+        await using var fixture = await Fixture.CreateAsync(
+            current: CurrentSet(70m, 12),
+            previous: PreviousSet(70m, 12, SetEffortRating.Easy),
+            preferenceStore: raw,
+            boundary: boundary);
+        var sut = fixture.CreateViewModel();
+        var dismissed = 0;
+        sut.DismissRequested += (_, _) => dismissed++;
+        sut.Initialize(fixture.Request, _ => true);
+        await sut.ChooseEffortAsync(SetEffortRating.Productive);
+        sut.IncrementInput = "2.5";
+        raw.BlockNextGuidanceWrite();
+
+        var save = Task.Run(sut.SaveIncrementAsync);
+        await raw.GuidanceWriteStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        var reset = boundary.ResetAsync(_ =>
+        {
+            fixture.Preferences.Clear();
+            return Task.CompletedTask;
+        });
+        await boundary.ResetReady.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        boundary.AllowReset.TrySetResult();
+        var ordering = await Task.WhenAny(
+            boundary.ResetBlockedBySessionPhase.Task,
+            boundary.ResetCompleted.Task).WaitAsync(TimeSpan.FromSeconds(1));
+
+        raw.ReleaseGuidanceWrite.TrySetResult();
+        await Task.WhenAll(save, reset).WaitAsync(TimeSpan.FromSeconds(1));
+
+        Assert.Same(boundary.ResetBlockedBySessionPhase.Task, ordering);
+        Assert.Null(fixture.Preferences.GetIncrementKg(fixture.ExerciseId));
+        Assert.False(sut.NotNowCommand.CanExecute(null));
+        Assert.Equal(1, dismissed);
+    }
+
+    [Fact]
     public async Task Deactivate_invalidates_and_disables_all_commands()
     {
         await using var fixture = await Fixture.CreateAsync(current: CurrentSet(70m, 10));
@@ -548,7 +588,7 @@ public sealed class SetEffortPromptViewModelTests
     {
         private Fixture(
             Guid exerciseId,
-            AccountSessionBoundary boundary,
+            IAccountSessionBoundary boundary,
             FakeSetEffortRecorder recorder,
             IExerciseGuidancePreferenceStore preferences,
             IWeightUnitPreference unitPreference,
@@ -563,7 +603,7 @@ public sealed class SetEffortPromptViewModelTests
         }
 
         public Guid ExerciseId { get; }
-        public AccountSessionBoundary Boundary { get; }
+        public IAccountSessionBoundary Boundary { get; }
         public FakeSetEffortRecorder Recorder { get; }
         public IExerciseGuidancePreferenceStore Preferences { get; }
         public IWeightUnitPreference UnitPreference { get; }
@@ -578,7 +618,9 @@ public sealed class SetEffortPromptViewModelTests
             bool finishAfterSuccessfulEffortWrite = false,
             bool pauseEffortWriteUntilCanceled = false,
             WeightDisplayUnit displayUnit = WeightDisplayUnit.Kilograms,
-            TrackingMode? mode = null)
+            TrackingMode? mode = null,
+            IWorkoutPreferenceStore? preferenceStore = null,
+            IAccountSessionBoundary? boundary = null)
         {
             var trackingMode = mode ?? current.Mode;
             Assert.Equal(trackingMode, current.Mode);
@@ -599,7 +641,7 @@ public sealed class SetEffortPromptViewModelTests
             var recorder = new FakeSetEffortRecorder(
                 workout, failFirstEffortWrite, finishAfterSuccessfulEffortWrite,
                 pauseEffortWriteUntilCanceled);
-            var raw = new MemoryWorkoutPreferenceStore();
+            var raw = preferenceStore ?? new MemoryWorkoutPreferenceStore();
             var preferences = new ExerciseGuidancePreferenceStore(raw);
             if (incrementKg is { } increment)
                 preferences.SetIncrementKg(exerciseId, increment);
@@ -610,7 +652,7 @@ public sealed class SetEffortPromptViewModelTests
             var request = new SetEffortPromptRequest(
                 exerciseId, trackingMode, saved, previousSession, Guid.NewGuid());
             return Task.FromResult(new Fixture(
-                exerciseId, new AccountSessionBoundary(), recorder,
+                exerciseId, boundary ?? new AccountSessionBoundary(), recorder,
                 preferences, unitPreference, request));
         }
 
@@ -718,6 +760,120 @@ public sealed class SetEffortPromptViewModelTests
             return Task.FromResult<LocalWorkout?>(
                 Workout.Status == LocalWorkoutStatus.Active ? Workout : null);
         }
+    }
+
+    private sealed class BlockingWorkoutPreferenceStore : IWorkoutPreferenceStore
+    {
+        private readonly object _sync = new();
+        private readonly Dictionary<string, string> _values = [];
+        private int _blockNextGuidanceWrite;
+
+        public TaskCompletionSource GuidanceWriteStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseGuidanceWrite { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public void BlockNextGuidanceWrite() =>
+            Interlocked.Exchange(ref _blockNextGuidanceWrite, 1);
+
+        public string? Get(string key)
+        {
+            lock (_sync) return _values.GetValueOrDefault(key);
+        }
+
+        public void Set(string key, string value)
+        {
+            if (key == ExerciseGuidancePreferenceStore.PreferenceKey
+                && value != "{}"
+                && Interlocked.Exchange(ref _blockNextGuidanceWrite, 0) == 1)
+            {
+                GuidanceWriteStarted.TrySetResult();
+                ReleaseGuidanceWrite.Task.GetAwaiter().GetResult();
+            }
+            lock (_sync) _values[key] = value;
+        }
+    }
+
+    private sealed class PhaseBarrierBoundary : IAccountSessionBoundary
+    {
+        private readonly AccountSessionBoundary _inner = new();
+        private readonly SemaphoreSlim _sessionPhaseGate = new(1, 1);
+
+        public TaskCompletionSource ResetReady { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource AllowReset { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ResetBlockedBySessionPhase { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ResetCompleted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public event EventHandler? SessionReset
+        {
+            add => _inner.SessionReset += value;
+            remove => _inner.SessionReset -= value;
+        }
+
+        public AccountSessionGeneration Capture() => _inner.Capture();
+
+        public bool IsCancellationRequested(AccountSessionGeneration generation) =>
+            _inner.IsCancellationRequested(generation);
+
+        public AccountSessionCancellationLease CreateCancellationLease(
+            AccountSessionGeneration generation,
+            CancellationToken cancellationToken = default) =>
+            _inner.CreateCancellationLease(generation, cancellationToken);
+
+        public bool TryStartSessionPhase(
+            AccountSessionGeneration generation,
+            Action phase,
+            CancellationToken cancellationToken = default)
+        {
+            _sessionPhaseGate.Wait(cancellationToken);
+            try
+            {
+                return _inner.TryStartSessionPhase(
+                    generation, phase, cancellationToken);
+            }
+            finally
+            {
+                _sessionPhaseGate.Release();
+            }
+        }
+
+        public Task<bool> TryCommitAsync(
+            AccountSessionGeneration generation,
+            Func<CancellationToken, Task> mutation,
+            CancellationToken cancellationToken = default) =>
+            _inner.TryCommitAsync(generation, mutation, cancellationToken);
+
+        public async Task ResetAsync(
+            Func<CancellationToken, Task> reset,
+            CancellationToken cancellationToken = default)
+        {
+            ResetReady.TrySetResult();
+            await AllowReset.Task.WaitAsync(cancellationToken);
+            if (!await _sessionPhaseGate.WaitAsync(0, cancellationToken))
+            {
+                ResetBlockedBySessionPhase.TrySetResult();
+                await _sessionPhaseGate.WaitAsync(cancellationToken);
+            }
+            try
+            {
+                await _inner.ResetAsync(reset, cancellationToken);
+                ResetCompleted.TrySetResult();
+            }
+            finally
+            {
+                _sessionPhaseGate.Release();
+            }
+        }
+
+        public Task<bool> TryResetAsync(
+            AccountSessionGeneration generation,
+            Func<CancellationToken, Task> reset,
+            CancellationToken cancellationToken = default) =>
+            _inner.TryResetAsync(generation, reset, cancellationToken);
     }
 
     private sealed class MemoryWorkoutPreferenceStore : IWorkoutPreferenceStore

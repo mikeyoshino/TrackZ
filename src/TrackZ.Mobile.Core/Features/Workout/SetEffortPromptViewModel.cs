@@ -225,7 +225,7 @@ public sealed class SetEffortPromptViewModel : INotifyPropertyChanged
 
     public async Task SaveIncrementAsync()
     {
-        if (!NeedsIncrement || _request is null || _ratedSet is null) return;
+        if (!NeedsIncrement || _request is not { } request || _ratedSet is null) return;
         if (!decimal.TryParse(
                 IncrementInput,
                 NumberStyles.Number,
@@ -241,17 +241,31 @@ public sealed class SetEffortPromptViewModel : INotifyPropertyChanged
         {
             var canonical = WeightUnitConversion.ToKilograms(
                 displayValue, _unitPreference.Current);
-            _preferences.SetIncrementKg(_request.ExerciseDefinitionId, canonical);
-            _hasStoredIncrement = true;
-            EvaluateCached(canonical);
+            var token = _sessionLease?.Token
+                ?? new CancellationToken(canceled: true);
+            var started = _boundary.TryStartSessionPhase(
+                _generation,
+                () =>
+                {
+                    _preferences.SetIncrementKg(
+                        request.ExerciseDefinitionId, canonical);
+                    _hasStoredIncrement = true;
+                    EvaluateCached(canonical);
+                },
+                token);
+            if (!started) DeactivateAndDismiss();
         }
         catch (ArgumentOutOfRangeException)
         {
-            ShowIncrementValidation();
+            if (IsCurrent(request)) ShowIncrementValidation();
         }
         catch (OverflowException)
         {
-            ShowIncrementValidation();
+            if (IsCurrent(request)) ShowIncrementValidation();
+        }
+        catch (OperationCanceledException)
+        {
+            DeactivateAndDismiss();
         }
 
         await Task.CompletedTask;
@@ -676,7 +690,14 @@ public sealed class SetEffortPromptViewModel : INotifyPropertyChanged
     private bool IsActive =>
         _request is not null
         && _lifetime is not null
-        && _sessionLease is not null;
+        && _sessionLease is not null
+        && !_boundary.IsCancellationRequested(_generation);
+
+    private void DeactivateAndDismiss()
+    {
+        Deactivate();
+        RequestDismiss();
+    }
 
     private void RequestDismiss()
     {

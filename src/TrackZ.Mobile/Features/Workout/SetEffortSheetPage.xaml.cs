@@ -11,6 +11,7 @@ public partial class SetEffortSheetPage : ContentPage, ISetEffortSheet
     private readonly SemaphoreSlim _presentationGate = new(1, 1);
     private readonly object _dismissalSync = new();
     private TaskCompletionSource? _dismissed;
+    private TaskCompletionSource? _showSettled;
     private Task? _dismissalTask;
     private bool _savedAnnouncementMade;
     private SetEffortPromptState? _announcedState;
@@ -56,7 +57,12 @@ public partial class SetEffortSheetPage : ContentPage, ISetEffortSheet
                     "The effort sheet presentation gate is inconsistent.");
             _dismissed = new TaskCompletionSource(
                 TaskCreationOptions.RunContinuationsAsynchronously);
-            lock (_dismissalSync) _dismissalTask = null;
+            lock (_dismissalSync)
+            {
+                _showSettled = new TaskCompletionSource(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+                _dismissalTask = null;
+            }
             _savedAnnouncementMade = false;
             _announcedState = null;
             LastAnnouncementForTest = null;
@@ -68,13 +74,33 @@ public partial class SetEffortSheetPage : ContentPage, ISetEffortSheet
                 _viewModel.DismissRequested += OnDismissRequested;
                 _viewModel.PropertyChanged += OnViewModelPropertyChanged;
                 BindingContext = _viewModel;
-                await _presenter.ShowAsync(
-                    this, NativeSheetDetent.Medium, cancellationToken);
+                try
+                {
+                    await _presenter.ShowAsync(
+                        this, NativeSheetDetent.Medium, cancellationToken);
+                }
+                finally
+                {
+                    lock (_dismissalSync)
+                        _showSettled?.TrySetResult();
+                }
                 await _dismissed.Task.WaitAsync(cancellationToken);
                 await AwaitDismissalCompletionAsync();
             }
             catch (OperationCanceledException)
                 when (cancellationToken.IsCancellationRequested)
+            {
+                try
+                {
+                    await DismissCoreAsync();
+                }
+                catch
+                {
+                    _dismissed?.TrySetResult();
+                }
+                throw;
+            }
+            catch
             {
                 try
                 {
@@ -107,11 +133,52 @@ public partial class SetEffortSheetPage : ContentPage, ISetEffortSheet
     {
         try
         {
-            await _presenter.DismissAsync(this, CancellationToken.None);
+            Task showSettled;
+            lock (_dismissalSync)
+                showSettled = _showSettled?.Task ?? Task.CompletedTask;
+            await showSettled;
+            await DismissOnDispatcherAsync();
         }
         finally
         {
             _dismissed?.TrySetResult();
+        }
+    }
+
+    private Task DismissOnDispatcherAsync()
+    {
+        if (!Dispatcher.IsDispatchRequired)
+            return _presenter.DismissAsync(this, CancellationToken.None);
+
+        var completion = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        try
+        {
+            if (!Dispatcher.Dispatch(() =>
+                _ = CompleteDismissalOnDispatcherAsync(completion)))
+            {
+                completion.TrySetException(new InvalidOperationException(
+                    "The effort sheet dismissal could not be dispatched."));
+            }
+        }
+        catch (Exception exception)
+        {
+            completion.TrySetException(exception);
+        }
+        return completion.Task;
+    }
+
+    private async Task CompleteDismissalOnDispatcherAsync(
+        TaskCompletionSource completion)
+    {
+        try
+        {
+            await _presenter.DismissAsync(this, CancellationToken.None);
+            completion.TrySetResult();
+        }
+        catch (Exception exception)
+        {
+            completion.TrySetException(exception);
         }
     }
 
@@ -226,7 +293,11 @@ public partial class SetEffortSheetPage : ContentPage, ISetEffortSheet
         _viewModel.Deactivate();
         BindingContext = null;
         Interlocked.Exchange(ref _dismissed, null);
-        lock (_dismissalSync) _dismissalTask = null;
+        lock (_dismissalSync)
+        {
+            _showSettled = null;
+            _dismissalTask = null;
+        }
     }
 
     internal Task DismissAsyncForTest() => DismissCoreAsync();

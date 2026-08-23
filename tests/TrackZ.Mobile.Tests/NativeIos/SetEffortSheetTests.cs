@@ -67,6 +67,35 @@ public sealed class SetEffortSheetTests
     }
 
     [Fact]
+    public async Task Account_reset_during_native_push_eventually_pops_before_replacement_opens()
+    {
+        await using var fixture = await SheetFixture.CreateAsync();
+        var presenter = new DelayedShowSheetPresenter();
+        var page = fixture.CreatePage(presenter);
+        var first = page.PresentAsync(fixture.Request, _ => true);
+        await presenter.FirstShowStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        await fixture.Boundary.ResetAsync(_ => Task.CompletedTask);
+        var replacement = page.PresentAsync(
+            fixture.Request with { EffortOperationId = Guid.NewGuid() },
+            _ => true);
+        Assert.Equal(1, presenter.ShowCount);
+
+        presenter.ReleaseFirstShow.TrySetResult();
+        await first.WaitAsync(TimeSpan.FromSeconds(1));
+        await presenter.SecondShowStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        Assert.Equal(1, presenter.PopCount);
+        Assert.Single(presenter.ModalStack);
+        Assert.Same(page, presenter.ModalStack[0]);
+
+        await page.DismissAsyncForTest();
+        await replacement.WaitAsync(TimeSpan.FromSeconds(1));
+        Assert.Equal(2, presenter.PopCount);
+        Assert.Empty(presenter.ModalStack);
+    }
+
+    [Fact]
     public async Task Replacement_waits_for_cancelled_presentation_cleanup_then_opens()
     {
         await using var fixture = await SheetFixture.CreateAsync();
@@ -265,6 +294,56 @@ public sealed class SetEffortSheetTests
             await AllowDisappearing.Task;
             Assert.IsType<SetEffortSheetPage>(page).SimulateDisappearingForTest();
             await ReleaseDismissal.Task;
+        }
+    }
+
+    private sealed class DelayedShowSheetPresenter : INativeSheetPresenter
+    {
+        private readonly List<ContentPage> _modalStack = [];
+
+        public TaskCompletionSource FirstShowStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseFirstShow { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource SecondShowStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public IReadOnlyList<ContentPage> ModalStack => _modalStack;
+        public int ShowCount { get; private set; }
+        public int PopCount { get; private set; }
+
+        public async Task ShowAsync(
+            ContentPage page,
+            NativeSheetDetent detent,
+            CancellationToken cancellationToken = default)
+        {
+            ShowCount++;
+            if (ShowCount == 1)
+            {
+                FirstShowStarted.TrySetResult();
+                await ReleaseFirstShow.Task.WaitAsync(cancellationToken);
+            }
+            else
+            {
+                SecondShowStarted.TrySetResult();
+            }
+
+            if (_modalStack.Contains(page))
+                throw new InvalidOperationException(
+                    "A replacement cannot push while the prior sheet is still modal.");
+            _modalStack.Add(page);
+        }
+
+        public Task DismissAsync(
+            ContentPage page,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (ReferenceEquals(_modalStack.LastOrDefault(), page))
+            {
+                _modalStack.RemoveAt(_modalStack.Count - 1);
+                PopCount++;
+            }
+            return Task.CompletedTask;
         }
     }
 

@@ -185,8 +185,14 @@ public sealed class TrackSetsVisualContractTests
 
         var needsIncrement = specimens.Single(element =>
             (string?)element.Attribute("data-effort-sheet") == "needs-increment");
-        Assert.Single(needsIncrement.Descendants(), element =>
+        var incrementControls = needsIncrement.Descendants().Single(element =>
             (string?)element.Attribute("data-increment-controls") == "true");
+        var incrementFinalActions = incrementControls.Elements("button").ToArray();
+        Assert.Equal(
+            ["Use this increment", "Not now"],
+            incrementFinalActions.Select(element => element.Value.Trim()));
+        Assert.All(incrementFinalActions, action =>
+            Assert.Same(incrementControls, action.Parent));
 
         var unavailable = specimens.Single(element =>
             (string?)element.Attribute("data-effort-sheet") == "unavailable");
