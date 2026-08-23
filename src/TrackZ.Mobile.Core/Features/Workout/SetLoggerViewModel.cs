@@ -712,6 +712,9 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
         var token = lifetime.Token;
         var generation = _boundary.Capture();
+        var loadGeneration = Volatile.Read(ref _loadGeneration);
+        var exerciseId = _exerciseId;
+        var trackingMode = TrackingMode;
         IsBusy = true;
         ErrorMessage = null;
         try
@@ -719,14 +722,14 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
             LocalSet saved;
             try
             {
-                var set = TrackingMode switch
+                var set = trackingMode switch
                 {
                     TrackingMode.Weighted => new LocalSet(WeightKg, null, Reps),
                     TrackingMode.Assisted => new LocalSet(null, AssistedKg, Reps),
                     TrackingMode.Bodyweight => new LocalSet(null, null, Reps),
                     _ => throw new InvalidOperationException("Tracking mode is invalid.")
                 };
-                saved = await _coordinator.SaveSetAsync(_exerciseId, set, token);
+                saved = await _coordinator.SaveSetAsync(exerciseId, set, token);
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested
                 || _boundary.IsCancellationRequested(generation))
@@ -774,20 +777,26 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
             if (_disposed || _boundary.IsCancellationRequested(generation)) return;
             if (_syncRunner is not null && _connectivity.IsOnline)
                 SyncCompletion = SynchronizeBestEffortAsync(generation);
-            var request = new SetEffortPromptRequest(
-                _exerciseId,
-                TrackingMode,
-                saved,
-                _previousSession,
-                Guid.NewGuid());
-            try
+            _boundary.TryStartSessionPhase(generation, () =>
             {
-                EffortPromptRequested?.Invoke(this, new(request));
-            }
-            catch
-            {
-                // A presentation subscriber cannot invalidate the durable set save.
-            }
+                if (_disposed || loadGeneration != Volatile.Read(ref _loadGeneration)) return;
+                var previousSession = _previousSession;
+                if (loadGeneration != Volatile.Read(ref _loadGeneration)) return;
+                var request = new SetEffortPromptRequest(
+                    exerciseId,
+                    trackingMode,
+                    saved,
+                    previousSession,
+                    Guid.NewGuid());
+                try
+                {
+                    EffortPromptRequested?.Invoke(this, new(request));
+                }
+                catch
+                {
+                    // A presentation subscriber cannot invalidate the durable set save.
+                }
+            });
         }
         finally
         {
