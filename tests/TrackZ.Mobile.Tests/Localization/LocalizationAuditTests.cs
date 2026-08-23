@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Reflection;
+using System.Text;
 using System.Xml;
 using System.Xml.Linq;
 using Microsoft.Extensions.DependencyInjection;
@@ -50,27 +51,41 @@ public sealed class LocalizationAuditTests
             "JPEG, PNG, WebP"
         };
 
+    private static readonly IReadOnlyDictionary<string, (string English, string Thai)> ExpectedInsightFirstHomeCopy =
+        new Dictionary<string, (string English, string Thai)>(StringComparer.Ordinal)
+        {
+            [nameof(WorkoutTextSet.HomeWeeklyGoalFormat)] =
+                ("This week you completed {0} of {1} workouts", "สัปดาห์นี้ฝึกแล้ว {0} จากเป้าหมาย {1} ครั้ง"),
+            [nameof(WorkoutTextSet.HomeWeeklyStreakFormat)] =
+                ("Goal met {0} weeks in a row", "ทำถึงเป้า {0} สัปดาห์ติด"),
+            [nameof(WorkoutTextSet.HomeLatestPerformance)] =
+                ("Latest performance", "ผลงานท่าล่าสุด"),
+            [nameof(WorkoutTextSet.HomeLatestLabel)] = ("Latest", "ครั้งล่าสุด"),
+            [nameof(WorkoutTextSet.HomeBestLabel)] = ("Best", "สถิติสูงสุด"),
+            [nameof(WorkoutTextSet.HomeViewAllData)] = ("View all data", "ดูข้อมูลทั้งหมด"),
+            [nameof(WorkoutTextSet.Open)] = ("Open", "เปิด")
+        };
+
+    private static readonly Rune[] ForbiddenInsightFirstHomeStatusGlyphs =
+        [new(0x1F4C8), new(0x1F4AA), new(0x1F525), new(0x26A0), new(0x1F3C6), new(0x2191), new(0x2193), new(0x2192), new(0x2197)];
+
     [Fact]
-    public void Insight_first_home_copy_is_exact_in_English_and_Thai()
+    public void Insight_first_home_copy_audit_rejects_changed_translations_or_status_glyphs()
     {
         var en = WorkoutResources.ForCulture(CultureInfo.GetCultureInfo("en-US"));
         var th = WorkoutResources.ForCulture(CultureInfo.GetCultureInfo("th-TH"));
 
-        Assert.Equal("This week you completed {0} of {1} workouts", en.HomeWeeklyGoalFormat);
-        Assert.Equal("Goal met {0} weeks in a row", en.HomeWeeklyStreakFormat);
-        Assert.Equal("Latest performance", en.HomeLatestPerformance);
-        Assert.Equal("Latest", en.HomeLatestLabel);
-        Assert.Equal("Best", en.HomeBestLabel);
-        Assert.Equal("View all data", en.HomeViewAllData);
-        Assert.Equal("Open", en.Open);
+        foreach (var (propertyName, expected) in ExpectedInsightFirstHomeCopy)
+        {
+            var property = typeof(WorkoutTextSet).GetProperty(propertyName)!;
+            var english = Assert.IsType<string>(property.GetValue(en));
+            var thai = Assert.IsType<string>(property.GetValue(th));
 
-        Assert.Equal("สัปดาห์นี้ฝึกแล้ว {0} จากเป้าหมาย {1} ครั้ง", th.HomeWeeklyGoalFormat);
-        Assert.Equal("ทำถึงเป้า {0} สัปดาห์ติด", th.HomeWeeklyStreakFormat);
-        Assert.Equal("ผลงานท่าล่าสุด", th.HomeLatestPerformance);
-        Assert.Equal("ครั้งล่าสุด", th.HomeLatestLabel);
-        Assert.Equal("สถิติสูงสุด", th.HomeBestLabel);
-        Assert.Equal("ดูข้อมูลทั้งหมด", th.HomeViewAllData);
-        Assert.Equal("เปิด", th.Open);
+            Assert.Equal(expected.English, english);
+            Assert.Equal(expected.Thai, thai);
+            Assert.DoesNotContain(english.EnumerateRunes(), ForbiddenInsightFirstHomeStatusGlyphs.Contains);
+            Assert.DoesNotContain(thai.EnumerateRunes(), ForbiddenInsightFirstHomeStatusGlyphs.Contains);
+        }
     }
 
     [Fact]

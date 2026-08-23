@@ -132,7 +132,23 @@ Capture the same states on the smallest supported iPhone and an available Pro Ma
 Record device/runtime names and screenshot paths in the verification notes. Do not claim the
 walkthrough complete when the account session or published API artwork prerequisite is absent.
 
-## Momentum Home acceptance walkthrough
+## Phase 1 acceptance matrix: Insight-first Home
+
+Use this matrix for the approved Phase 1 scope. Keep Docker, API services, and the Simulator off
+until the user explicitly asks for the live walkthrough.
+
+| Scenario | Required check |
+| --- | --- |
+| Ready | Start is the only lime action; Train again is second; weekly sentence is third. |
+| Active | Continue is the only lime action; Train again is hidden. |
+| No profile authority | no weekly zero or empty ratio appears. |
+| Weighted/assisted/bodyweight | latest and best labels remain factual. |
+| Thai/English | no truncation and no emoji/icon/status arrow. |
+| kg/lb | Home values change without app restart. |
+| View all data | Progress opens and the latest exercise is brought into view. |
+| Dynamic Type/VoiceOver | text wraps and every action remains at least 44 points. |
+
+## Momentum Home simulator walkthrough
 
 Do not run this section until the user explicitly asks to start the test stack. At that point, run
 `./scripts/trackz-dev start` once and record the exact device/runtime and screenshot paths below.

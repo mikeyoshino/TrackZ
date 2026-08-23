@@ -85,6 +85,16 @@ public sealed class AppWideVisualConsistencyTests
                     ["{Binding HasUseAction}", "{Binding NeedsIncrement}"]
             };
 
+    private static readonly IReadOnlyDictionary<string, string> ExpectedMomentumHomeVisibilityBindings =
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["TrainAgainSection"] = "{Binding ShowTrainAgain}",
+            ["TrainAgainCard"] = "{Binding ShowTrainAgain}",
+            ["WeeklyGoalCard"] = "{Binding HasAuthoritativeProgress}",
+            ["LatestPerformanceSection"] = "{Binding HasRecentMomentum}",
+            ["LatestPerformanceCard"] = "{Binding HasRecentMomentum}"
+        };
+
     private static readonly IReadOnlyDictionary<string, ArtworkContract[]> ArtworkContracts =
         new Dictionary<string, ArtworkContract[]>(StringComparer.Ordinal)
         {
@@ -365,7 +375,7 @@ public sealed class AppWideVisualConsistencyTests
     }
 
     [Fact]
-    public void Momentum_home_audit_rejects_action_first_section_order_mutations()
+    public void Momentum_home_audit_rejects_action_order_active_train_again_and_unauthorized_insight_mutations()
     {
         const string trainPath = "Features/Train/TrainPage.xaml";
         var train = XDocument.Load(Path.Combine(MobileDirectory(), trainPath));
@@ -375,6 +385,18 @@ public sealed class AppWideVisualConsistencyTests
         Assert.Contains(
             AuditPage(trainPath, train),
             error => error.Contains("action-first order", StringComparison.Ordinal));
+
+        var activeTrainAgain = XDocument.Load(Path.Combine(MobileDirectory(), trainPath));
+        Named(activeTrainAgain, "TrainAgainSection").SetAttributeValue("IsVisible", "{Binding HasActiveWorkout}");
+        Assert.Contains(
+            AuditPage(trainPath, activeTrainAgain),
+            error => error.Contains("TrainAgainSection", StringComparison.Ordinal));
+
+        var unauthorizedInsight = XDocument.Load(Path.Combine(MobileDirectory(), trainPath));
+        Named(unauthorizedInsight, "WeeklyGoalCard").SetAttributeValue("IsVisible", "True");
+        Assert.Contains(
+            AuditPage(trainPath, unauthorizedInsight),
+            error => error.Contains("WeeklyGoalCard", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -657,6 +679,13 @@ public sealed class AppWideVisualConsistencyTests
                 !orderedElements.Select(element => descendants.IndexOf(element!)).SequenceEqual(
                     orderedElements.Select(element => descendants.IndexOf(element!)).Order()))
                 yield return "Momentum Home hierarchy must keep the approved action-first order after the hero.";
+
+            foreach (var (name, expectedBinding) in ExpectedMomentumHomeVisibilityBindings)
+            {
+                var element = descendants.SingleOrDefault(candidate => ElementName(candidate) == name);
+                if (element?.Attribute("IsVisible")?.Value != expectedBinding)
+                    yield return $"Momentum Home '{name}' must retain IsVisible=\"{expectedBinding}\".";
+            }
         }
 
         if (BottomActionPages.Contains(relativePath, StringComparer.Ordinal))
