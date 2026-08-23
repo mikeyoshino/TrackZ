@@ -8,14 +8,17 @@ public partial class ExercisePickerPage : ContentPage, IQueryAttributable
 {
     private readonly ExercisePickerViewModel _viewModel;
     private readonly IExercisePickerNavigator _navigator;
+    private readonly IExercisePickerWarning _warning;
     private TrackZ.Domain.Exercises.BodyPart? _requestedBodyPart;
 
     public ExercisePickerPage(
         ExercisePickerViewModel viewModel,
-        IExercisePickerNavigator navigator)
+        IExercisePickerNavigator navigator,
+        IExercisePickerWarning warning)
     {
         _viewModel = viewModel;
         _navigator = navigator;
+        _warning = warning;
         EditCustomCommand = new Command<CachedExercise>(EditCustomExercise);
         DoneCommand = new AsyncCommand(_ => CompleteSelectionAsync());
         InitializeComponent();
@@ -50,6 +53,15 @@ public partial class ExercisePickerPage : ContentPage, IQueryAttributable
     private async Task CompleteSelectionAsync()
     {
         var selected = _viewModel.SelectedExerciseIds.ToArray();
+        if (selected.Length == 0)
+        {
+            await _warning.ShowAsync(
+                this,
+                _viewModel.Text.ExerciseSelectionRequiredTitle,
+                _viewModel.Text.ExerciseSelectionRequiredMessage,
+                _viewModel.Text.Okay);
+            return;
+        }
         var callbacks = SelectionCompleted?.GetInvocationList()
             .Cast<Func<IReadOnlyCollection<Guid>, Task>>()
             .ToArray() ?? [];

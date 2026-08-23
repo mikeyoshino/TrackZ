@@ -207,6 +207,7 @@ public static class MauiProgram
 			services.GetRequiredService<BodyAreaSheetPage>));
 		builder.Services.AddSingleton<ITrainNavigator, MauiTrainNavigator>();
 		builder.Services.AddSingleton<IExercisePickerNavigator, MauiExercisePickerNavigator>();
+		builder.Services.AddSingleton<IExercisePickerWarning, MauiExercisePickerWarning>();
 		builder.Services.AddScoped<ExercisePickerPage>();
 		builder.Services.AddTransient<CustomExercisePage>();
 		builder.Services.AddScoped<WorkoutPage>();

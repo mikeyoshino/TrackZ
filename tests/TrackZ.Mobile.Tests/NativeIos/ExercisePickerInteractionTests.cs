@@ -7,6 +7,7 @@ using TrackZ.Mobile.Features.Exercises;
 using TrackZ.Mobile.Features.Exercises.Data;
 using TrackZ.Mobile.Features.Exercises.Services;
 using TrackZ.Mobile.Features.Gamification;
+using TrackZ.Mobile.Features.Localization;
 using TrackZ.Mobile.Features.Workout;
 
 namespace TrackZ.Mobile.Tests.NativeIos;
@@ -18,6 +19,7 @@ public sealed class ExercisePickerInteractionTests : IDisposable
     private readonly IDispatcherProvider _originalDispatcher = DispatcherProvider.Current;
     private readonly MauiApp _app;
     private readonly RecordingExercisePickerNavigator _navigator = new();
+    private readonly RecordingExercisePickerWarning _warning = new();
 
     public ExercisePickerInteractionTests()
     {
@@ -34,7 +36,8 @@ public sealed class ExercisePickerInteractionTests : IDisposable
             services.AddSingleton<IUiDispatcher, InlineUiDispatcher>();
             services.AddSingleton<IWorkoutPreferenceStore, MemoryPreferences>();
             services.AddSingleton<IExercisePickerNavigator>(_navigator);
-        });
+            services.AddSingleton<IExercisePickerWarning>(_warning);
+        }, new FixedLanguageStore(AppLanguage.English));
         _ = _app.Services.GetRequiredService<App>();
     }
 
@@ -122,6 +125,27 @@ public sealed class ExercisePickerInteractionTests : IDisposable
         Assert.Null(picker.SelectedBodyPart);
         Assert.True(all.IsSelected);
         Assert.Equal([chestId, backId], picker.Exercises.Select(item => item.Id).Order());
+    }
+
+    [Fact]
+    public async Task Done_with_no_exercises_warns_without_committing_or_leaving_the_picker()
+    {
+        var page = _app.Services.GetRequiredService<ExercisePickerPage>();
+        var completionCount = 0;
+        page.SelectionCompleted += _ =>
+        {
+            completionCount++;
+            return Task.CompletedTask;
+        };
+
+        await page.DoneCommand.ExecuteAsync();
+
+        var shown = Assert.Single(_warning.Shown);
+        Assert.Equal("No exercises selected", shown.Title);
+        Assert.Equal("Choose at least 1 exercise before creating your workout.", shown.Message);
+        Assert.Equal("OK", shown.Dismiss);
+        Assert.Equal(0, completionCount);
+        Assert.Equal(0, _navigator.ReturnCount);
     }
 
     [Fact]
@@ -214,6 +238,12 @@ public sealed class ExercisePickerInteractionTests : IDisposable
         public void Set(string key, string value) => _values[key] = value;
     }
 
+    private sealed class FixedLanguageStore(AppLanguage language) : IAppLanguageStore
+    {
+        public AppLanguage Read() => language;
+        public void Write(AppLanguage value) => language = value;
+    }
+
     private sealed class InlineDispatcherProvider : IDispatcherProvider
     {
         public IDispatcher GetForCurrentThread() => new InlineDispatcher();
@@ -243,6 +273,22 @@ public sealed class ExercisePickerInteractionTests : IDisposable
         public Task ReturnToWorkoutAsync(CancellationToken cancellationToken = default)
         {
             ReturnCount++;
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class RecordingExercisePickerWarning : IExercisePickerWarning
+    {
+        public List<(string Title, string Message, string Dismiss)> Shown { get; } = [];
+
+        public Task ShowAsync(
+            Page page,
+            string title,
+            string message,
+            string dismiss,
+            CancellationToken cancellationToken = default)
+        {
+            Shown.Add((title, message, dismiss));
             return Task.CompletedTask;
         }
     }
