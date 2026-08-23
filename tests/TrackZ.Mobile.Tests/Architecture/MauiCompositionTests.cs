@@ -608,6 +608,8 @@ public sealed class MauiCompositionTests
             var interfaceStatus = app.Services.GetRequiredService<IWorkoutOutboxStatusSource>();
             var firstHistoryPage = app.Services.GetRequiredService<WorkoutHistoryPage>();
             var secondHistoryPage = app.Services.GetRequiredService<WorkoutHistoryPage>();
+            var firstPrompt = app.Services.GetRequiredService<SetEffortPromptViewModel>();
+            var secondPrompt = app.Services.GetRequiredService<SetEffortPromptViewModel>();
             var firstGuidance = app.Services.GetRequiredService<IExerciseGuidancePreferenceStore>();
             var secondGuidance = app.Services.GetRequiredService<IExerciseGuidancePreferenceStore>();
             var guidanceExerciseId = Guid.NewGuid();
@@ -633,6 +635,10 @@ public sealed class MauiCompositionTests
             Assert.IsType<WorkoutHistoryViewModel>(secondHistoryPage.BindingContext);
             Assert.NotSame(firstHistoryPage, secondHistoryPage);
             Assert.NotSame(firstHistoryPage.BindingContext, secondHistoryPage.BindingContext);
+            Assert.NotSame(firstPrompt, secondPrompt);
+            Assert.Same(
+                app.Services.GetRequiredService<ActiveWorkoutCoordinator>(),
+                app.Services.GetRequiredService<ISetEffortRecorder>());
             Assert.Same(concreteStatus, app.Services.GetRequiredService<IHistoryOutboxStatusSource>());
             Assert.Same(firstGuidance, secondGuidance);
             firstGuidance.SetIncrementKg(guidanceExerciseId, 2.5m);

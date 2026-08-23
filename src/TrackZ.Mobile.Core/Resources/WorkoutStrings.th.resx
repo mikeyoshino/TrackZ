@@ -149,4 +149,48 @@
   <data name="ConflictExercisePluralFormat" xml:space="preserve"><value>{0} ท่า</value></data>
   <data name="ConflictSetSingularFormat" xml:space="preserve"><value>{0} เซ็ต</value></data>
   <data name="ConflictSetPluralFormat" xml:space="preserve"><value>{0} เซ็ต</value></data>
+  <data name="EffortSheetTitle" xml:space="preserve"><value>ความรู้สึกของเซ็ต</value></data>
+  <data name="EffortSetSaved" xml:space="preserve"><value>บันทึกเซ็ตแล้ว</value></data>
+  <data name="EffortQuestion" xml:space="preserve"><value>เซ็ตนี้รู้สึกเป็นอย่างไร?</value></data>
+  <data name="EffortGoodFormHelper" xml:space="preserve"><value>ตอบจากจำนวนครั้งที่ยังทำต่อได้โดยรักษาฟอร์มเดิม</value></data>
+  <data name="EffortEasyOption" xml:space="preserve"><value>เบาไป — ยังไหวอีกหลายครั้ง</value></data>
+  <data name="EffortProductiveOption" xml:space="preserve"><value>กำลังดี — ช่วงท้ายเริ่มหนัก แต่ฟอร์มยังดี</value></data>
+  <data name="EffortTooHeavyOption" xml:space="preserve"><value>หนักเกินไป — ทำไม่ถึงเป้าหรือฟอร์มเริ่มเสีย</value></data>
+  <data name="EffortSkip" xml:space="preserve"><value>ไม่แน่ใจ · ข้ามครั้งนี้</value></data>
+  <data name="EffortPainSafety" xml:space="preserve"><value>ถ้ารู้สึกเจ็บหรือรักษาฟอร์มไม่ได้ ให้หยุดท่านี้</value></data>
+  <data name="EffortSaving" xml:space="preserve"><value>กำลังบันทึกความรู้สึก…</value></data>
+  <data name="EffortSaveFailed" xml:space="preserve"><value>บันทึกความรู้สึกของเซ็ตไม่สำเร็จ</value></data>
+  <data name="EffortUnavailable" xml:space="preserve"><value>ไม่สามารถบันทึกความรู้สึกของเซ็ตนี้ได้แล้ว แต่เซ็ตเดิมของคุณบันทึกไว้แล้ว</value></data>
+  <data name="EffortOriginalSetSafe" xml:space="preserve"><value>เซ็ตเดิมบันทึกไว้แล้ว</value></data>
+  <data name="Retry" xml:space="preserve"><value>ลองอีกครั้ง</value></data>
+  <data name="NotNow" xml:space="preserve"><value>ไว้ก่อน</value></data>
+  <data name="GuidanceIncrementTitle" xml:space="preserve"><value>อุปกรณ์นี้ปรับน้ำหนักทีละเท่าไร?</value></data>
+  <data name="GuidanceIncrementHelper" xml:space="preserve"><value>เราจะจำค่านี้สำหรับท่านี้บนอุปกรณ์เครื่องนี้</value></data>
+  <data name="GuidanceIncrementPlaceholder" xml:space="preserve"><value>เช่น 2.5</value></data>
+  <data name="GuidanceSaveIncrement" xml:space="preserve"><value>ใช้ค่านี้</value></data>
+  <data name="GuidanceEditIncrement" xml:space="preserve"><value>เปลี่ยนค่าน้ำหนักที่อุปกรณ์ปรับได้</value></data>
+  <data name="GuidanceIncrementInvalid" xml:space="preserve"><value>ใส่ค่าน้ำหนักที่อุปกรณ์ปรับเพิ่มหรือลดได้จริง</value></data>
+  <data name="GuidanceAlmostReady" xml:space="preserve"><value>ใกล้พร้อมเพิ่มน้ำหนักแล้ว</value></data>
+  <data name="GuidanceNeedAnotherReason" xml:space="preserve"><value>ทำให้ได้อีกหนึ่งเซ็ตที่น้ำหนักเดิมเพื่อยืนยัน</value></data>
+  <data name="GuidanceKeepLoadFormat" xml:space="preserve"><value>คงน้ำหนัก {0} {1}</value></data>
+  <data name="GuidanceTryRepsFormat" xml:space="preserve"><value>ลอง {0} ครั้ง</value></data>
+  <data name="GuidanceTryWeightNextSetFormat" xml:space="preserve"><value>เซ็ตถัดไปลอง {0} {1}</value></data>
+  <data name="GuidanceTryAssistanceNextSetFormat" xml:space="preserve"><value>เซ็ตถัดไปลองแรงช่วย {0} {1}</value></data>
+  <data name="GuidanceTwoSetsReason" xml:space="preserve"><value>สองเซ็ตที่เทียบกันได้ทำอย่างน้อย 12 ครั้งด้วยฟอร์มที่ดี</value></data>
+  <data name="GuidanceKeepReason" xml:space="preserve"><value>น้ำหนักนี้อยู่ในช่วง 8–12 ครั้งที่กำลังดี</value></data>
+  <data name="GuidanceReduceReason" xml:space="preserve"><value>ลดความยากลงเล็กน้อยเพื่อรักษาฟอร์มที่ดี</value></data>
+  <data name="GuidanceLessAssistanceReason" xml:space="preserve"><value>แรงช่วยน้อยลงทำให้ท่านี้ยากขึ้น</value></data>
+  <data name="GuidanceMoreAssistanceReason" xml:space="preserve"><value>แรงช่วยมากขึ้นช่วยให้รักษาฟอร์มได้ง่ายขึ้น</value></data>
+  <data name="GuidanceBelowRangeReason" xml:space="preserve"><value>เซ็ตนี้ทำได้น้อยกว่าเป้าหมาย 8 ครั้ง</value></data>
+  <data name="GuidanceReduceDifficulty" xml:space="preserve"><value>ลดความยากในเซ็ตถัดไป</value></data>
+  <data name="GuidanceBodyweightComplete" xml:space="preserve"><value>คุณทำครบช่วง 8–12 ครั้งด้วยฟอร์มที่ดีแล้ว</value></data>
+  <data name="GuidanceNoSuggestion" xml:space="preserve"><value>คงเซ็ตนี้ตามที่บันทึกไว้</value></data>
+  <data name="GuidanceNoSuggestionReason" xml:space="preserve"><value>ยังคำนวณคำแนะนำสำหรับเซ็ตถัดไปจากเซ็ตนี้ได้ไม่มั่นใจ</value></data>
+  <data name="GuidanceKeepCurrentLoad" xml:space="preserve"><value>คงน้ำหนักปัจจุบันไว้</value></data>
+  <data name="GuidanceHigherLoadUnavailable" xml:space="preserve"><value>ยังไม่สามารถแนะนำน้ำหนักที่สูงขึ้นและรองรับได้</value></data>
+  <data name="GuidanceKeepCurrentAssistance" xml:space="preserve"><value>คงแรงช่วยปัจจุบันไว้</value></data>
+  <data name="GuidanceLowerAssistanceUnavailable" xml:space="preserve"><value>ยังไม่สามารถแนะนำแรงช่วยที่น้อยลงและรองรับได้</value></data>
+  <data name="GuidanceUseWeightFormat" xml:space="preserve"><value>ใช้ {0} {1} ในเซ็ตถัดไป</value></data>
+  <data name="GuidanceUseAssistanceFormat" xml:space="preserve"><value>ใช้แรงช่วย {0} {1} ในเซ็ตถัดไป</value></data>
+  <data name="GuidanceUseRepsFormat" xml:space="preserve"><value>ใช้เป้าหมาย {0} ครั้งในเซ็ตถัดไป</value></data>
 </root>

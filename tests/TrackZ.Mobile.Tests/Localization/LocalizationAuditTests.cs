@@ -62,6 +62,35 @@ public sealed class LocalizationAuditTests
     }
 
     [Fact]
+    public void Effort_and_guidance_copy_preserves_English_and_Thai_meaning()
+    {
+        var english = WorkoutResources.ForCulture(CultureInfo.GetCultureInfo("en-US"));
+        var thai = WorkoutResources.ForCulture(CultureInfo.GetCultureInfo("th-TH"));
+
+        Assert.Equal("Too easy — many reps left", english.EffortEasyOption);
+        Assert.Equal("About right — the final reps were hard, with good form", english.EffortProductiveOption);
+        Assert.Equal("Too heavy — missed the range or form began to break", english.EffortTooHeavyOption);
+        Assert.Equal("If you feel pain or cannot keep good form, stop this exercise.", english.EffortPainSafety);
+        Assert.Equal("This set can no longer be rated. Your original set is saved.", english.EffortUnavailable);
+        Assert.Equal("Less assistance makes the exercise harder.", english.GuidanceLessAssistanceReason);
+        Assert.Equal("More assistance makes it easier to keep good form.", english.GuidanceMoreAssistanceReason);
+        Assert.Equal("Keep this set as recorded", english.GuidanceNoSuggestion);
+        Assert.Equal("A higher supported load could not be suggested.", english.GuidanceHigherLoadUnavailable);
+        Assert.Equal("Less supported assistance could not be suggested.", english.GuidanceLowerAssistanceUnavailable);
+
+        Assert.Equal("เบาไป — ยังไหวอีกหลายครั้ง", thai.EffortEasyOption);
+        Assert.Equal("กำลังดี — ช่วงท้ายเริ่มหนัก แต่ฟอร์มยังดี", thai.EffortProductiveOption);
+        Assert.Equal("หนักเกินไป — ทำไม่ถึงเป้าหรือฟอร์มเริ่มเสีย", thai.EffortTooHeavyOption);
+        Assert.Equal("ถ้ารู้สึกเจ็บหรือรักษาฟอร์มไม่ได้ ให้หยุดท่านี้", thai.EffortPainSafety);
+        Assert.Equal("ไม่สามารถบันทึกความรู้สึกของเซ็ตนี้ได้แล้ว แต่เซ็ตเดิมของคุณบันทึกไว้แล้ว", thai.EffortUnavailable);
+        Assert.Equal("แรงช่วยน้อยลงทำให้ท่านี้ยากขึ้น", thai.GuidanceLessAssistanceReason);
+        Assert.Equal("แรงช่วยมากขึ้นช่วยให้รักษาฟอร์มได้ง่ายขึ้น", thai.GuidanceMoreAssistanceReason);
+        Assert.Equal("คงเซ็ตนี้ตามที่บันทึกไว้", thai.GuidanceNoSuggestion);
+        Assert.Equal("ยังไม่สามารถแนะนำน้ำหนักที่สูงขึ้นและรองรับได้", thai.GuidanceHigherLoadUnavailable);
+        Assert.Equal("ยังไม่สามารถแนะนำแรงช่วยที่น้อยลงและรองรับได้", thai.GuidanceLowerAssistanceUnavailable);
+    }
+
+    [Fact]
     public void Every_shipped_page_and_user_facing_component_uses_bound_or_resource_copy()
     {
         var mobile = MobileDirectory();

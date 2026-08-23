@@ -149,4 +149,48 @@
   <data name="ConflictExercisePluralFormat" xml:space="preserve"><value>{0} exercises</value></data>
   <data name="ConflictSetSingularFormat" xml:space="preserve"><value>{0} set</value></data>
   <data name="ConflictSetPluralFormat" xml:space="preserve"><value>{0} sets</value></data>
+  <data name="EffortSheetTitle" xml:space="preserve"><value>Set effort</value></data>
+  <data name="EffortSetSaved" xml:space="preserve"><value>Set saved</value></data>
+  <data name="EffortQuestion" xml:space="preserve"><value>How did this set feel?</value></data>
+  <data name="EffortGoodFormHelper" xml:space="preserve"><value>Answer based on the reps you could do with the same good form.</value></data>
+  <data name="EffortEasyOption" xml:space="preserve"><value>Too easy — many reps left</value></data>
+  <data name="EffortProductiveOption" xml:space="preserve"><value>About right — the final reps were hard, with good form</value></data>
+  <data name="EffortTooHeavyOption" xml:space="preserve"><value>Too heavy — missed the range or form began to break</value></data>
+  <data name="EffortSkip" xml:space="preserve"><value>Not sure · skip this time</value></data>
+  <data name="EffortPainSafety" xml:space="preserve"><value>If you feel pain or cannot keep good form, stop this exercise.</value></data>
+  <data name="EffortSaving" xml:space="preserve"><value>Saving effort…</value></data>
+  <data name="EffortSaveFailed" xml:space="preserve"><value>Could not save how this set felt</value></data>
+  <data name="EffortUnavailable" xml:space="preserve"><value>This set can no longer be rated. Your original set is saved.</value></data>
+  <data name="EffortOriginalSetSafe" xml:space="preserve"><value>Your original set is already saved.</value></data>
+  <data name="Retry" xml:space="preserve"><value>Try again</value></data>
+  <data name="NotNow" xml:space="preserve"><value>Not now</value></data>
+  <data name="GuidanceIncrementTitle" xml:space="preserve"><value>What is the smallest load change available?</value></data>
+  <data name="GuidanceIncrementHelper" xml:space="preserve"><value>We’ll remember it for this exercise on this device.</value></data>
+  <data name="GuidanceIncrementPlaceholder" xml:space="preserve"><value>For example, 2.5</value></data>
+  <data name="GuidanceSaveIncrement" xml:space="preserve"><value>Use this increment</value></data>
+  <data name="GuidanceEditIncrement" xml:space="preserve"><value>Change equipment increment</value></data>
+  <data name="GuidanceIncrementInvalid" xml:space="preserve"><value>Enter a positive increment supported by your equipment.</value></data>
+  <data name="GuidanceAlmostReady" xml:space="preserve"><value>Almost ready to increase</value></data>
+  <data name="GuidanceNeedAnotherReason" xml:space="preserve"><value>Confirm with one more comparable set at this load.</value></data>
+  <data name="GuidanceKeepLoadFormat" xml:space="preserve"><value>Keep {0} {1}</value></data>
+  <data name="GuidanceTryRepsFormat" xml:space="preserve"><value>Try {0} reps</value></data>
+  <data name="GuidanceTryWeightNextSetFormat" xml:space="preserve"><value>Try {0} {1} next set</value></data>
+  <data name="GuidanceTryAssistanceNextSetFormat" xml:space="preserve"><value>Try {0} {1} assistance next set</value></data>
+  <data name="GuidanceTwoSetsReason" xml:space="preserve"><value>Two comparable sets reached at least 12 reps with good form.</value></data>
+  <data name="GuidanceKeepReason" xml:space="preserve"><value>This load is in a productive 8–12 rep range.</value></data>
+  <data name="GuidanceReduceReason" xml:space="preserve"><value>Use a little less difficulty so you can keep good form.</value></data>
+  <data name="GuidanceLessAssistanceReason" xml:space="preserve"><value>Less assistance makes the exercise harder.</value></data>
+  <data name="GuidanceMoreAssistanceReason" xml:space="preserve"><value>More assistance makes it easier to keep good form.</value></data>
+  <data name="GuidanceBelowRangeReason" xml:space="preserve"><value>This set was below the 8-rep target.</value></data>
+  <data name="GuidanceReduceDifficulty" xml:space="preserve"><value>Reduce the difficulty next set</value></data>
+  <data name="GuidanceBodyweightComplete" xml:space="preserve"><value>You completed the 8–12 rep range with good form.</value></data>
+  <data name="GuidanceNoSuggestion" xml:space="preserve"><value>Keep this set as recorded</value></data>
+  <data name="GuidanceNoSuggestionReason" xml:space="preserve"><value>We could not calculate a reliable next-set suggestion from this set.</value></data>
+  <data name="GuidanceKeepCurrentLoad" xml:space="preserve"><value>Keep your current load</value></data>
+  <data name="GuidanceHigherLoadUnavailable" xml:space="preserve"><value>A higher supported load could not be suggested.</value></data>
+  <data name="GuidanceKeepCurrentAssistance" xml:space="preserve"><value>Keep your current assistance</value></data>
+  <data name="GuidanceLowerAssistanceUnavailable" xml:space="preserve"><value>Less supported assistance could not be suggested.</value></data>
+  <data name="GuidanceUseWeightFormat" xml:space="preserve"><value>Use {0} {1} for the next set</value></data>
+  <data name="GuidanceUseAssistanceFormat" xml:space="preserve"><value>Use {0} {1} assistance for the next set</value></data>
+  <data name="GuidanceUseRepsFormat" xml:space="preserve"><value>Use {0} reps for the next set</value></data>
 </root>

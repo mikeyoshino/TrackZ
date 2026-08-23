@@ -147,6 +147,8 @@ public static class MauiProgram
 		builder.Services.AddSingleton<IHistoryOutboxStatusSource>(services =>
 			services.GetRequiredService<OutboxRepository>());
 		builder.Services.AddSingleton<ActiveWorkoutCoordinator>();
+		builder.Services.AddSingleton<ISetEffortRecorder>(services =>
+			services.GetRequiredService<ActiveWorkoutCoordinator>());
 		builder.Services.AddSingleton<WorkoutHistoryCoordinator>();
 		builder.Services.AddSingleton<IExerciseHistorySource, CachedExerciseHistorySource>();
 		builder.Services.AddSingleton<IWorkoutSyncRunner, WorkoutSyncRunner>();
@@ -179,6 +181,7 @@ public static class MauiProgram
 		builder.Services.AddTransient<CustomExerciseViewModel>();
 		builder.Services.AddScoped<WorkoutViewModel>();
 		builder.Services.AddTransient<SetLoggerViewModel>();
+		builder.Services.AddTransient<SetEffortPromptViewModel>();
 		builder.Services.AddSingleton<IInlineSetEditorTransition, MauiInlineSetEditorTransition>();
 		builder.Services.AddTransient<WorkoutHistoryViewModel>();
 		builder.Services.AddTransient<WorkoutHistoryDetailViewModel>();
