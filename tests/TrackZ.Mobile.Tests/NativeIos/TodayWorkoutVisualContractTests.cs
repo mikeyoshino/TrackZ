@@ -87,9 +87,24 @@ public sealed class TodayWorkoutVisualContractTests
         Assert.Contains("4 exercises · 3 sets logged", html, StringComparison.Ordinal);
         Assert.Contains("data-actions-navbar-gap=\"12\"", html, StringComparison.Ordinal);
         Assert.DoesNotContain("<h2>Today's workout</h2>", html, StringComparison.Ordinal);
+        Assert.Equal(4, Count(html, "class=\"set-count\""));
+        Assert.Contains(">2 sets<", html, StringComparison.Ordinal);
+        Assert.Contains(">1 set<", html, StringComparison.Ordinal);
+        Assert.Contains(">0 sets<", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("class=\"mode\"", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("class=\"performance\"", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("LAST", html, StringComparison.Ordinal);
     }
 
     private static string? Name(XElement element) => element.Attribute(X + "Name")?.Value;
+
+    private static int Count(string source, string value)
+    {
+        var count = 0;
+        for (var index = 0; (index = source.IndexOf(value, index, StringComparison.Ordinal)) >= 0; index += value.Length)
+            count++;
+        return count;
+    }
 
     private static string Root()
     {
