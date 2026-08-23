@@ -84,6 +84,8 @@ public sealed class TrackSetsVisualContractTests
         Assert.Equal("{Binding Text.Reps}",
             repsInput.Attribute("Placeholder")?.Value);
         Assert.Equal("Border", weightInput.Parent?.Name.LocalName);
+        Assert.All(new[] { weightInput, repsInput }, input =>
+            Assert.Equal("0", input.Parent?.Attribute("Padding")?.Value));
         Assert.DoesNotContain(controls.Descendants(), element =>
             element.Name.LocalName == "Label"
             && element.Attribute("Text")?.Value is

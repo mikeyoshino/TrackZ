@@ -60,7 +60,7 @@
                             <VerticalStackLayout IsVisible="{Binding UsesWeight}" Spacing="{DynamicResource TrackZSpace8}">
                                 <Grid ColumnDefinitions="44,*,44" ColumnSpacing="{DynamicResource TrackZSpace4}">
                                     <Button Command="{Binding DecrementWeightCommand}" MinimumHeightRequest="44" MinimumWidthRequest="44" SemanticProperties.Description="{Binding DecrementWeightDescription}" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="−" />
-                                    <Border Grid.Column="1" Style="{DynamicResource TrackZFieldContainerStyle}">
+                                    <Border Grid.Column="1" Padding="0" Style="{DynamicResource TrackZFieldContainerStyle}">
                                         <Entry x:Name="DraftWeightInput" FontAttributes="Bold" HorizontalTextAlignment="Center" Keyboard="Numeric" Placeholder="{Binding WeightUnitLabel}" SemanticProperties.Description="{Binding WeightCaption}" Style="{DynamicResource TrackZFieldStyle}" Text="{Binding WeightInputText, Mode=TwoWay}" />
                                     </Border>
                                     <Button Grid.Column="2" Command="{Binding IncrementWeightCommand}" MinimumHeightRequest="44" MinimumWidthRequest="44" SemanticProperties.Description="{Binding IncrementWeightDescription}" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="+" />
@@ -70,7 +70,7 @@
                             <VerticalStackLayout Grid.Column="1" Spacing="{DynamicResource TrackZSpace8}">
                                 <Grid ColumnDefinitions="44,*,44" ColumnSpacing="{DynamicResource TrackZSpace4}">
                                     <Button Command="{Binding DecrementRepsCommand}" MinimumHeightRequest="44" MinimumWidthRequest="44" SemanticProperties.Description="{Binding DecrementRepsDescription}" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="−" />
-                                    <Border Grid.Column="1" Style="{DynamicResource TrackZFieldContainerStyle}">
+                                    <Border Grid.Column="1" Padding="0" Style="{DynamicResource TrackZFieldContainerStyle}">
                                         <Entry x:Name="DraftRepsInput" FontAttributes="Bold" HorizontalTextAlignment="Center" Keyboard="Numeric" MaxLength="3" Placeholder="{Binding Text.Reps}" SemanticProperties.Description="{Binding Text.Reps}" Style="{DynamicResource TrackZFieldStyle}" Text="{Binding Reps, Mode=TwoWay}" />
                                     </Border>
                                     <Button Grid.Column="2" Command="{Binding IncrementRepsCommand}" MinimumHeightRequest="44" MinimumWidthRequest="44" SemanticProperties.Description="{Binding IncrementRepsDescription}" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="+" />
