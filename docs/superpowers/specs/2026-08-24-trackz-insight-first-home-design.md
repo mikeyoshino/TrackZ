@@ -1,7 +1,7 @@
 # TrackZ Insight-First Home Design
 
 Date: 2026-08-24
-Status: Chat-approved; written review pending
+Status: Approved
 Replaces the Home-specific presentation decisions in `2026-08-22-trackz-momentum-home-design.md` where the two documents conflict.
 
 ## Purpose
@@ -271,12 +271,13 @@ Select at most one watch item, preferring the longest current lower streak, then
 
 ### Weekly headline
 
-Choose one deterministic neutral headline:
+Choose one deterministic neutral headline with this precedence:
 
-- Improved is the largest comparable group: `สัปดาห์นี้คุณทำได้ดีขึ้นในหลายท่า`.
-- Stable is tied for or is the largest group: `สัปดาห์นี้ผลงานส่วนใหญ่ใกล้เคียงเดิม`.
-- Lower is largest with no watch item: `สัปดาห์นี้มีบางวันที่คุณทำได้น้อยลง`.
-- A watch item exists: `มีบางท่าที่ควรติดตามต่อ`.
+1. No comparable exercises: use the matching cold/sparse-state copy below.
+2. A watch item exists: `มีบางท่าที่ควรติดตามต่อ`.
+3. Improved is strictly the largest comparable group: `สัปดาห์นี้คุณทำได้ดีขึ้นในหลายท่า`.
+4. Stable is tied for or is the largest group: `สัปดาห์นี้ผลงานส่วนใหญ่ใกล้เคียงเดิม`.
+5. Otherwise lower is largest: `สัปดาห์นี้มีบางวันที่คุณทำได้น้อยลง`.
 
 New-record copy appears in a highlight and does not override these count-based headline rules.
 
@@ -339,6 +340,16 @@ WeeklyInsightSummaryDto
   ComparableExerciseCount
   Highlights[0..2], WatchItems[0..1]
   ComputedThrough, RulesVersion
+
+ExerciseInsightDetailDto
+  ExerciseId, ExerciseName, BodyPart, TrackingMode
+  CurrentComparison
+  Sessions[] ordered newest first
+  RulesVersion
+
+ExerciseInsightSessionDto
+  WorkoutId, CompletedAt
+  Sets[] in recorded order
 ```
 
 Measurements remain structured decimal/integer values. The API does not return localized narrative strings.
@@ -352,6 +363,14 @@ GET /api/v1/progress/insights/weekly
 ```
 
 This is not a Home-specific endpoint. Home and Progress consume the same insight contract.
+
+Exercise Detail uses the same user-scoped read model through:
+
+```text
+GET /api/v1/progress/insights/exercises/{exerciseId}
+```
+
+The endpoint returns `404` when the authenticated user has no live completed history for the exercise. It never reveals whether another account has history for that identifier.
 
 ### Mobile source and cache
 
