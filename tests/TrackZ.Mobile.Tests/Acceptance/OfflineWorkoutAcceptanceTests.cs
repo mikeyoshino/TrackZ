@@ -1,5 +1,9 @@
+using System.Text.Json;
+using Microsoft.Data.Sqlite;
 using TrackZ.Contracts.Sync;
+using TrackZ.Contracts.Workouts;
 using TrackZ.Domain.Exercises;
+using TrackZ.Domain.Workouts;
 using TrackZ.Mobile.Data;
 using TrackZ.Mobile.Data.Models;
 using TrackZ.Mobile.Features.Exercises;
@@ -104,6 +108,73 @@ public sealed class OfflineWorkoutPersistenceTests : IAsyncDisposable
             {
                 var path = cachePath + suffix;
                 if (File.Exists(path)) File.Delete(path);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task Exercise_history_cache_round_trips_effort_and_accepts_legacy_json()
+    {
+        var path = Path.Combine(
+            Path.GetTempPath(), $"trackz-effort-cache-{Guid.NewGuid():N}.db");
+        try
+        {
+            var exerciseId = Guid.NewGuid();
+            var now = new DateTimeOffset(2026, 8, 22, 9, 0, 0, TimeSpan.Zero);
+            var cache = new ExerciseHistoryCache(path);
+            var session = new ExerciseHistorySessionDto(
+                Guid.NewGuid(),
+                now,
+                TrackingMode.Weighted,
+                700m,
+                [new WorkoutSetDto(
+                    Guid.NewGuid(), 0, 70m, null, 10, now, null,
+                    SetEffortRating.Easy)]);
+            await cache.ReplaceAsync(exerciseId, session);
+            Assert.Equal(
+                SetEffortRating.Easy,
+                Assert.Single((await cache.GetMostRecentAsync(exerciseId))!.Sets).Effort);
+
+            var legacy = JsonSerializer.Serialize(new
+            {
+                workoutId = session.WorkoutId,
+                completedAt = session.CompletedAt,
+                trackingMode = session.TrackingMode,
+                weightedVolumeKg = session.WeightedVolumeKg,
+                sets = session.Sets.Select(set => new
+                {
+                    id = set.Id,
+                    order = set.Order,
+                    weightKg = set.WeightKg,
+                    assistedKg = set.AssistedKg,
+                    reps = set.Reps,
+                    completedAt = set.CompletedAt,
+                    updatedAt = set.UpdatedAt
+                })
+            }, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            await using var connection = new SqliteConnection(
+                $"Data Source={path};Pooling=False");
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText = """
+                UPDATE PreviousExerciseSession
+                SET Payload = $payload
+                WHERE ExerciseDefinitionId = $id;
+                """;
+            command.Parameters.AddWithValue("$payload", legacy);
+            command.Parameters.AddWithValue("$id", exerciseId.ToString("D"));
+            await command.ExecuteNonQueryAsync();
+
+            Assert.Null(
+                Assert.Single((await cache.GetMostRecentAsync(exerciseId))!.Sets).Effort);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            foreach (var suffix in new[] { string.Empty, "-wal", "-shm" })
+            {
+                var candidate = path + suffix;
+                if (File.Exists(candidate)) File.Delete(candidate);
             }
         }
     }

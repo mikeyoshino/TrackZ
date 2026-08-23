@@ -14,7 +14,8 @@ public enum OutboxOperationType
     ReorderExercises = 7,
     AddExercise = 8,
     RemoveExercise = 9,
-    DeleteWorkoutExercise = 10
+    DeleteWorkoutExercise = 10,
+    RecordSetEffort = 11
 }
 
 public enum OutboxOperationState
@@ -89,6 +90,13 @@ public sealed record SaveSetOutboxPayload(
     string? AssistedKg,
     int Reps,
     DateTimeOffset CompletedAt);
+
+public sealed record RecordSetEffortOutboxPayload(
+    Guid WorkoutId,
+    Guid WorkoutExerciseId,
+    Guid SetId,
+    int Effort,
+    DateTimeOffset RecordedAt);
 
 public sealed record CompleteWorkoutOutboxPayload(
     Guid WorkoutId,

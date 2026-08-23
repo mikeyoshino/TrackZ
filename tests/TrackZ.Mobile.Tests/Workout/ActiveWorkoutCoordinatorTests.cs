@@ -817,6 +817,96 @@ public sealed class ActiveWorkoutCoordinatorTests : IDisposable
         Assert.Equal(deletedAt, restoredSets.Single(item => item.Id == insertedSet.Id).DeletedAt);
     }
 
+    [Fact]
+    public async Task Record_effort_updates_only_saved_set_and_queues_after_save_set()
+    {
+        var fixture = CreateFixture();
+        await fixture.Coordinator.StartAsync([
+            new WorkoutExerciseSelection(_exerciseId, TrackingMode.Weighted)
+        ]);
+        var saved = await fixture.Coordinator.SaveSetAsync(
+            _exerciseId, new LocalSet(70m, null, 12));
+        var effortOperationId = Guid.NewGuid();
+
+        var rated = await fixture.Coordinator.RecordSetEffortAsync(
+            _exerciseId,
+            saved.Id,
+            SetEffortRating.Productive,
+            effortOperationId);
+
+        Assert.Equal(SetEffortRating.Productive, rated.Effort);
+        Assert.Equal(saved.WeightKg, rated.WeightKg);
+        Assert.Equal(saved.Reps, rated.Reps);
+        var pending = await fixture.Outbox.PendingAsync();
+        var saveIndex = Array.FindIndex(pending.ToArray(), operation => operation.OperationId == saved.OperationId);
+        var effortIndex = Array.FindIndex(pending.ToArray(), operation => operation.OperationId == effortOperationId);
+        Assert.True(saveIndex >= 0 && effortIndex > saveIndex);
+        var payload = pending[effortIndex].DeserializePayload<RecordSetEffortOutboxPayload>();
+        Assert.Equal(saved.Id, payload.SetId);
+        Assert.Equal((int)SetEffortRating.Productive, payload.Effort);
+    }
+
+    [Fact]
+    public async Task Record_effort_replay_with_same_operation_is_idempotent_and_mismatch_is_rejected()
+    {
+        var fixture = CreateFixture();
+        await fixture.Coordinator.StartAsync([
+            new WorkoutExerciseSelection(_exerciseId, TrackingMode.Weighted)
+        ]);
+        var saved = await fixture.Coordinator.SaveSetAsync(
+            _exerciseId, new LocalSet(70m, null, 12));
+        var operationId = Guid.NewGuid();
+        var first = await fixture.Coordinator.RecordSetEffortAsync(
+            _exerciseId, saved.Id, SetEffortRating.Easy, operationId);
+        var replay = await fixture.Coordinator.RecordSetEffortAsync(
+            _exerciseId, saved.Id, SetEffortRating.Easy, operationId);
+
+        Assert.Equal(first, replay);
+
+        var graphBeforeNoOp = (await fixture.Coordinator.RestoreActiveAsync())!;
+        var pendingBeforeNoOp = await fixture.Outbox.PendingAsync();
+        var sameValueNewOperationId = Guid.NewGuid();
+        var sameValue = await fixture.Coordinator.RecordSetEffortAsync(
+            _exerciseId, saved.Id, SetEffortRating.Easy, sameValueNewOperationId);
+        var graphAfterNoOp = (await fixture.Coordinator.RestoreActiveAsync())!;
+
+        Assert.Equal(first, sameValue);
+        Assert.Equal(graphBeforeNoOp.Version, graphAfterNoOp.Version);
+        Assert.Equal(
+            graphBeforeNoOp.Exercises.Single().Version,
+            graphAfterNoOp.Exercises.Single().Version);
+        Assert.Equal(pendingBeforeNoOp.Count, (await fixture.Outbox.PendingAsync()).Count);
+        Assert.DoesNotContain(
+            await fixture.Outbox.PendingAsync(),
+            operation => operation.OperationId == sameValueNewOperationId);
+
+        await Assert.ThrowsAsync<InvalidDataException>(() =>
+            fixture.Coordinator.RecordSetEffortAsync(
+                _exerciseId, saved.Id, SetEffortRating.TooHeavy, operationId));
+    }
+
+    [Fact]
+    public async Task Record_effort_after_workout_finish_is_non_retryable_and_queues_nothing()
+    {
+        var fixture = CreateFixture();
+        await fixture.Coordinator.StartAsync([
+            new WorkoutExerciseSelection(_exerciseId, TrackingMode.Weighted)
+        ]);
+        var saved = await fixture.Coordinator.SaveSetAsync(
+            _exerciseId, new LocalSet(70m, null, 12));
+        await fixture.Coordinator.FinishAsync();
+        var pendingBefore = await fixture.Outbox.PendingAsync();
+
+        await Assert.ThrowsAsync<SetEffortRecordingUnavailableException>(() =>
+            fixture.Coordinator.RecordSetEffortAsync(
+                _exerciseId,
+                saved.Id,
+                SetEffortRating.Productive,
+                Guid.NewGuid()));
+
+        Assert.Equal(pendingBefore.Count, (await fixture.Outbox.PendingAsync()).Count);
+    }
+
     private Fixture CreateFixture(DateTimeOffset? clockNow = null)
     {
         var database = new TrackZLocalDatabase(_databasePath);

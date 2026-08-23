@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using TrackZ.Contracts.Workouts;
 using TrackZ.Domain.Exercises;
+using TrackZ.Domain.Workouts;
 using TrackZ.Mobile.Data;
 using TrackZ.Mobile.Data.Models;
 using TrackZ.Mobile.Features.Exercises;
@@ -142,6 +143,8 @@ public sealed class ExerciseHistoryCache
                 _ => false
             };
             if (!validShape) throw new InvalidDataException("Exercise history set shape is invalid.");
+            if (set.Effort is { } effort && !Enum.IsDefined(effort))
+                throw new InvalidDataException("Cached set effort is invalid.");
         }
     }
 
@@ -240,7 +243,8 @@ public sealed class CachedExerciseHistorySource(
                     set.AssistedKg,
                     set.Reps,
                     set.CompletedAt,
-                    set.UpdatedAt))
+                    set.UpdatedAt,
+                    set.Effort))
                 .ToArray();
             if (sets.Length == 0) continue;
             return new ExerciseHistorySessionDto(

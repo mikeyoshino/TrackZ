@@ -1,5 +1,6 @@
 using System.Globalization;
 using TrackZ.Domain.Exercises;
+using TrackZ.Domain.Workouts;
 using TrackZ.Mobile.Data;
 using TrackZ.Mobile.Data.Models;
 using TrackZ.Mobile.Features.Exercises;
@@ -12,7 +13,7 @@ public sealed class ActiveWorkoutCoordinator(
     ILocalWorkoutRepository workouts,
     IAccountSessionBoundary sessionBoundary,
     IClock clock,
-    IWorkoutSyncTrigger? syncTrigger = null)
+    IWorkoutSyncTrigger? syncTrigger = null) : ISetEffortRecorder
 {
     private readonly SemaphoreSlim _mutationGate = new(1, 1);
 
@@ -217,6 +218,116 @@ public sealed class ActiveWorkoutCoordinator(
             EnsureCurrent(committed, generation, cancellationToken);
             syncTrigger?.NotifyMutation();
             return saved ?? throw new InvalidOperationException("The set was not saved.");
+        }
+        finally
+        {
+            _mutationGate.Release();
+        }
+    }
+
+    public async Task<LocalSet> RecordSetEffortAsync(
+        Guid exerciseDefinitionId,
+        Guid setId,
+        SetEffortRating effort,
+        Guid operationId,
+        CancellationToken cancellationToken = default)
+    {
+        if (exerciseDefinitionId == Guid.Empty)
+            throw new ArgumentException("Exercise ID cannot be empty.", nameof(exerciseDefinitionId));
+        if (setId == Guid.Empty)
+            throw new ArgumentException("Set ID cannot be empty.", nameof(setId));
+        if (operationId == Guid.Empty)
+            throw new ArgumentException("Operation ID cannot be empty.", nameof(operationId));
+        if (!Enum.IsDefined(effort))
+            throw new ArgumentOutOfRangeException(nameof(effort));
+
+        var generation = sessionBoundary.Capture();
+        await _mutationGate.WaitAsync(cancellationToken);
+        try
+        {
+            LocalSet? rated = null;
+            var enqueued = false;
+            var committed = await sessionBoundary.TryCommitAsync(generation, async token =>
+            {
+                var active = await workouts.GetActiveAsync(token)
+                    ?? throw new SetEffortRecordingUnavailableException();
+                var exercise = active.Exercises.SingleOrDefault(item =>
+                    item.DeletedAt is null
+                    && item.ExerciseDefinitionId == exerciseDefinitionId)
+                    ?? throw new SetEffortRecordingUnavailableException();
+                var set = exercise.Sets.SingleOrDefault(item =>
+                    item.DeletedAt is null && item.Id == setId)
+                    ?? throw new SetEffortRecordingUnavailableException();
+
+                if (await workouts.GetOperationAsync(operationId, token) is { } replay)
+                {
+                    var replayPayload = replay.Type == OutboxOperationType.RecordSetEffort
+                        ? replay.DeserializePayload<RecordSetEffortOutboxPayload>()
+                        : null;
+                    if (replay.EntityId != active.Id
+                        || replay.NeutralizedAt is not null
+                        || replayPayload is null
+                        || replayPayload.WorkoutId != active.Id
+                        || replayPayload.WorkoutExerciseId != exercise.Id
+                        || replayPayload.SetId != set.Id
+                        || replayPayload.Effort != (int)effort
+                        || set.Effort != effort)
+                        throw new InvalidDataException(
+                            "The effort operation is bound to another intent.");
+                    rated = set;
+                    return;
+                }
+
+                if (set.Effort == effort)
+                {
+                    rated = set;
+                    return;
+                }
+
+                var recordedAt = await NextMutationAtAsync(active, token);
+                var updatedSet = set with
+                {
+                    Effort = effort,
+                    UpdatedAt = recordedAt,
+                    Version = set.Version + 1
+                };
+                rated = updatedSet;
+                var updatedExercise = exercise with
+                {
+                    Sets = exercise.Sets
+                        .Select(item => item.Id == set.Id ? updatedSet : item)
+                        .ToArray(),
+                    Version = exercise.Version + 1
+                };
+                var updatedWorkout = active with
+                {
+                    Exercises = active.Exercises
+                        .Select(item => item.Id == exercise.Id ? updatedExercise : item)
+                        .ToArray(),
+                    Version = active.Version + 1
+                };
+                var payload = new RecordSetEffortOutboxPayload(
+                    active.Id,
+                    exercise.Id,
+                    set.Id,
+                    (int)effort,
+                    recordedAt);
+                var operation = OutboxOperation.Create(
+                    operationId,
+                    active.Id,
+                    OutboxOperationType.RecordSetEffort,
+                    payload,
+                    active.Version,
+                    recordedAt);
+                await workouts.SaveWorkoutAndEnqueueAsync(
+                    updatedWorkout, operation, token);
+                enqueued = true;
+            }, cancellationToken);
+
+            EnsureCurrent(committed, generation, cancellationToken);
+            if (enqueued) syncTrigger?.NotifyMutation();
+            return rated ?? throw new InvalidOperationException(
+                "The effort rating was not saved.");
         }
         finally
         {

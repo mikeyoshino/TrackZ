@@ -1375,6 +1375,228 @@ public sealed class SyncCoordinatorTests
         Assert.Null(await context.Workouts.GetActiveAsync());
     }
 
+    [Fact]
+    public async Task Restart_keeps_save_before_effort_and_transient_failure_keeps_both_facts()
+    {
+        await using var context = await SyncContext.CreateAsync();
+        var active = await context.StartAsync();
+        var coordinator = new ActiveWorkoutCoordinator(
+            context.Workouts, context.Boundary, context.Clock);
+        context.Clock.UtcNow = context.Clock.UtcNow.AddMinutes(1);
+        var saved = await coordinator.SaveSetAsync(
+            active.Exercises[0].ExerciseDefinitionId,
+            new LocalSet(70m, null, 12));
+        context.Clock.UtcNow = context.Clock.UtcNow.AddMinutes(1);
+        await coordinator.RecordSetEffortAsync(
+            active.Exercises[0].ExerciseDefinitionId,
+            saved.Id,
+            SetEffortRating.Productive,
+            Guid.NewGuid());
+
+        var restartedDatabase = new TrackZLocalDatabase(context.Path);
+        await restartedDatabase.InitializeAsync();
+        var pending = await new OutboxRepository(restartedDatabase).PendingAsync();
+        Assert.Equal(
+            [OutboxOperationType.StartWorkout, OutboxOperationType.SaveSet,
+                OutboxOperationType.RecordSetEffort],
+            pending.Select(operation => operation.Type));
+
+        context.Api.PushException = new HttpRequestException("offline");
+        Assert.Equal(SyncRunStatus.Offline, await context.Coordinator.RunOnceAsync());
+        var restored = Assert.Single(Assert.Single(
+            (await context.Workouts.GetActiveAsync())!.Exercises).Sets);
+        Assert.Equal(SetEffortRating.Productive, restored.Effort);
+        Assert.Equal(3, (await context.Outbox.PendingAsync()).Count);
+    }
+
+    [Fact]
+    public async Task Applied_push_and_pull_keep_effort_and_measurement_together()
+    {
+        await using var context = await SyncContext.CreateAsync();
+        var active = await context.StartAsync();
+        var coordinator = new ActiveWorkoutCoordinator(
+            context.Workouts, context.Boundary, context.Clock);
+        var saved = await coordinator.SaveSetAsync(
+            active.Exercises[0].ExerciseDefinitionId,
+            new LocalSet(70m, null, 12));
+        await coordinator.RecordSetEffortAsync(
+            active.Exercises[0].ExerciseDefinitionId,
+            saved.Id,
+            SetEffortRating.Productive,
+            Guid.NewGuid());
+        var rated = (await context.Workouts.GetActiveAsync())!;
+        var pending = await context.Outbox.PendingAsync();
+        context.Api.PushResponses.Enqueue(new SyncPushResponse([
+            new(pending[0].OperationId, SyncOperationStatus.Applied, 1, null)]));
+        context.Api.PushResponses.Enqueue(new SyncPushResponse([
+            new(pending[1].OperationId, SyncOperationStatus.Applied, 2, null)]));
+        context.Api.PushResponses.Enqueue(new SyncPushResponse([
+            new(pending[2].OperationId, SyncOperationStatus.Applied, 3, null)]));
+        context.Api.PullResponses.Enqueue(new SyncPullResponse([
+            Change(ServerGraph(rated, 3), 1)
+        ], "effort-cursor", false));
+
+        Assert.Equal(SyncRunStatus.Completed, await context.Coordinator.RunOnceAsync());
+        var restored = Assert.Single(Assert.Single(
+            (await context.Workouts.GetActiveAsync())!.Exercises).Sets);
+        Assert.Equal(SetEffortRating.Productive, restored.Effort);
+        Assert.Equal(70m, restored.WeightKg);
+        Assert.Equal(12, restored.Reps);
+    }
+
+    [Fact]
+    public async Task Permanent_effort_rejection_uses_server_effort_without_touching_measurement()
+    {
+        await using var context = await SyncContext.CreateAsync();
+        var active = await context.StartAsync();
+        var coordinator = new ActiveWorkoutCoordinator(
+            context.Workouts, context.Boundary, context.Clock);
+        var saved = await coordinator.SaveSetAsync(
+            active.Exercises[0].ExerciseDefinitionId,
+            new LocalSet(70m, null, 12));
+        await coordinator.RecordSetEffortAsync(
+            active.Exercises[0].ExerciseDefinitionId,
+            saved.Id,
+            SetEffortRating.Productive,
+            Guid.NewGuid());
+        var local = (await context.Workouts.GetActiveAsync())!;
+        var pending = await context.Outbox.PendingAsync();
+        context.Api.PushResponses.Enqueue(new SyncPushResponse([
+            new(pending[0].OperationId, SyncOperationStatus.Applied, 1, null)]));
+        context.Api.PushResponses.Enqueue(new SyncPushResponse([
+            new(pending[1].OperationId, SyncOperationStatus.Applied, 2, null)]));
+        context.Api.PushResponses.Enqueue(new SyncPushResponse([
+            new(pending[2].OperationId, SyncOperationStatus.Rejected, null,
+                BusinessErrorCode.InvalidRequest)]));
+        var authority = ServerGraph(local, 2);
+        authority = authority with
+        {
+            Exercises = authority.Exercises.Select(exercise => exercise with
+            {
+                Version = 2,
+                Sets = exercise.Sets.Select(set => set with
+                {
+                    Effort = null,
+                    UpdatedAt = null,
+                    Version = 1
+                }).ToArray()
+            }).ToArray()
+        };
+        context.Api.PullResponses.Enqueue(new SyncPullResponse([
+            Change(authority, 1)
+        ], "rejected-effort-cursor", false));
+
+        Assert.Equal(
+            SyncRunStatus.PermanentFailure,
+            await context.Coordinator.RunOnceAsync());
+        var restored = Assert.Single(Assert.Single(
+            (await context.Workouts.GetActiveAsync())!.Exercises).Sets);
+        Assert.Null(restored.Effort);
+        Assert.Equal(70m, restored.WeightKg);
+        Assert.Equal(12, restored.Reps);
+    }
+
+    [Fact]
+    public async Task Effort_conflict_rebase_changes_only_base_version_and_recorded_time()
+    {
+        await using var context = await SyncContext.CreateAsync();
+        var active = await context.StartAsync();
+        var coordinator = new ActiveWorkoutCoordinator(
+            context.Workouts, context.Boundary, context.Clock);
+        var saved = await coordinator.SaveSetAsync(
+            active.Exercises[0].ExerciseDefinitionId,
+            new LocalSet(70m, null, 12));
+        await coordinator.RecordSetEffortAsync(
+            active.Exercises[0].ExerciseDefinitionId,
+            saved.Id,
+            SetEffortRating.Productive,
+            Guid.NewGuid());
+        var local = (await context.Workouts.GetActiveAsync())!;
+        var pending = await context.Outbox.PendingAsync();
+        context.Api.PushResponses.Enqueue(new SyncPushResponse([
+            new(pending[0].OperationId, SyncOperationStatus.Applied, 1, null)]));
+        context.Api.PushResponses.Enqueue(new SyncPushResponse([
+            new(pending[1].OperationId, SyncOperationStatus.Applied, 2, null)]));
+        context.Api.PushResponses.Enqueue(new SyncPushResponse([
+            new(pending[2].OperationId, SyncOperationStatus.Conflict, 4,
+                BusinessErrorCode.VersionConflict)]));
+        var authority = ServerGraph(local, 4);
+        authority = authority with
+        {
+            Exercises = authority.Exercises.Select(exercise => exercise with
+            {
+                Sets = exercise.Sets.Select(set => set with
+                {
+                    Effort = SetEffortRating.Easy
+                }).ToArray()
+            }).ToArray()
+        };
+        context.Api.PullResponses.Enqueue(new SyncPullResponse([
+            Change(authority, 1)
+        ], "effort-conflict-cursor", false));
+        await context.Coordinator.RunOnceAsync();
+        var conflict = Assert.Single(await context.Outbox.ConflictedAsync());
+        var original = conflict.DeserializePayload<RecordSetEffortOutboxPayload>();
+        var pulled = Assert.Single(Assert.Single(
+            (await context.Workouts.GetActiveAsync())!.Exercises).Sets);
+        Assert.Equal(SetEffortRating.Easy, pulled.Effort);
+
+        var replacement = await new ConflictResolution(context.Coordinator)
+            .ApplyLocalAgainstVersionAsync(conflict.OperationId, 4);
+        var rebased = replacement.DeserializePayload<RecordSetEffortOutboxPayload>();
+        Assert.Equal(conflict.OperationId, replacement.ReplacesOperationId);
+        Assert.Equal(4, replacement.BaseVersion);
+        Assert.True(rebased.RecordedAt > original.RecordedAt);
+        Assert.Equal(original.WorkoutId, rebased.WorkoutId);
+        Assert.Equal(original.WorkoutExerciseId, rebased.WorkoutExerciseId);
+        Assert.Equal(original.SetId, rebased.SetId);
+        Assert.Equal(original.Effort, rebased.Effort);
+        Assert.Equal((int)SetEffortRating.Productive, rebased.Effort);
+        var authorityAfterRebase = Assert.Single(Assert.Single(
+            (await context.Workouts.GetActiveAsync())!.Exercises).Sets);
+        Assert.Equal(SetEffortRating.Easy, authorityAfterRebase.Effort);
+    }
+
+    [Fact]
+    public async Task Effort_conflict_cannot_rebase_against_a_completed_workout()
+    {
+        await using var context = await SyncContext.CreateAsync();
+        var active = await context.StartAsync();
+        var coordinator = new ActiveWorkoutCoordinator(
+            context.Workouts, context.Boundary, context.Clock);
+        var saved = await coordinator.SaveSetAsync(
+            active.Exercises[0].ExerciseDefinitionId,
+            new LocalSet(70m, null, 12));
+        await coordinator.RecordSetEffortAsync(
+            active.Exercises[0].ExerciseDefinitionId,
+            saved.Id,
+            SetEffortRating.Productive,
+            Guid.NewGuid());
+        var local = (await context.Workouts.GetActiveAsync())!;
+        var pending = await context.Outbox.PendingAsync();
+        context.Api.PushResponses.Enqueue(new SyncPushResponse([
+            new(pending[0].OperationId, SyncOperationStatus.Applied, 1, null)]));
+        context.Api.PushResponses.Enqueue(new SyncPushResponse([
+            new(pending[1].OperationId, SyncOperationStatus.Applied, 2, null)]));
+        context.Api.PushResponses.Enqueue(new SyncPushResponse([
+            new(pending[2].OperationId, SyncOperationStatus.Conflict, 4,
+                BusinessErrorCode.VersionConflict)]));
+        var completedAuthority = ServerGraph(local, 4) with
+        {
+            Status = (int)WorkoutStatus.Completed,
+            CompletedAt = context.Clock.UtcNow.AddMinutes(1)
+        };
+        context.Api.PullResponses.Enqueue(new SyncPullResponse([
+            Change(completedAuthority, 1)
+        ], "completed-effort-conflict-cursor", false));
+        await context.Coordinator.RunOnceAsync();
+        var conflict = Assert.Single(await context.Outbox.ConflictedAsync());
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            new ConflictResolution(context.Coordinator)
+                .ApplyLocalAgainstVersionAsync(conflict.OperationId, 4));
+    }
+
     private static SyncChangeDto Change(SyncWorkoutDto graph, long sequence) => new(
         sequence, "Workout", graph.Id, graph.Version, graph.DeletedAt is not null,
         new DateTimeOffset(2026, 8, 16, 12, 0, 0, TimeSpan.Zero), graph);

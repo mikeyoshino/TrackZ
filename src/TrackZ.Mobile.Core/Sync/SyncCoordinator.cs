@@ -366,6 +366,8 @@ public sealed class SyncCoordinator(
         OutboxOperationType.ReorderExercises => RebaseReorderExercises(original, server, mutationAt),
         OutboxOperationType.DeleteWorkoutExercise =>
             RebaseDeleteWorkoutExercise(original, server, mutationAt),
+        OutboxOperationType.RecordSetEffort =>
+            RebaseRecordSetEffort(original, server, mutationAt),
         _ => throw new InvalidOperationException("This operation cannot be rebased safely.")
     };
 
@@ -491,6 +493,26 @@ public sealed class SyncCoordinator(
                 set.Id == payload.SetId && set.DeletedAt is null)
             ?? throw new InvalidOperationException("The server set can no longer be edited.");
         return payload with { UpdatedAt = mutationAt };
+    }
+
+    private static RecordSetEffortOutboxPayload RebaseRecordSetEffort(
+        OutboxOperation original,
+        SyncWorkoutDto server,
+        DateTimeOffset mutationAt)
+    {
+        var payload = original.DeserializePayload<RecordSetEffortOutboxPayload>();
+        if (payload.WorkoutId != server.Id
+            || server.Status != (int)WorkoutStatus.Active
+            || server.DeletedAt is not null
+            || !Enum.IsDefined((SetEffortRating)payload.Effort))
+            throw new InvalidOperationException(
+                "The server workout cannot accept this effort rating.");
+        var exercise = RequiredActiveExercise(server, payload.WorkoutExerciseId);
+        _ = exercise.Sets.SingleOrDefault(set =>
+                set.Id == payload.SetId && set.DeletedAt is null)
+            ?? throw new InvalidOperationException(
+                "The server set can no longer record effort.");
+        return payload with { RecordedAt = mutationAt };
     }
 
     private static DeleteSetOutboxPayload RebaseDeleteSet(
@@ -780,6 +802,15 @@ public sealed class SyncCoordinator(
                             await StoreServerConflictAsync(
                                 connection, transaction, operation.OperationId,
                                 change.ServerVersion, serverPayload, innerToken);
+                        if (conflicts is
+                            [
+                                {
+                                    Type: OutboxOperationType.RecordSetEffort,
+                                    State: OutboxOperationState.Conflicted
+                                }
+                            ])
+                            await ApplyGraphAsync(
+                                connection, transaction, change.Workout, innerToken);
                     }
                     else
                     {
