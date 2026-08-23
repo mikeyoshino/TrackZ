@@ -330,6 +330,185 @@ public sealed class SetEffortPromptViewModelTests
         Assert.Null(fixture.Preferences.GetIncrementKg(fixture.ExerciseId));
     }
 
+    [Fact]
+    public async Task Deactivate_invalidates_and_disables_all_commands()
+    {
+        await using var fixture = await Fixture.CreateAsync(current: CurrentSet(70m, 10));
+        var sut = fixture.CreateViewModel();
+        sut.Initialize(fixture.Request, _ => true);
+        Assert.True(sut.ChooseEasyCommand.CanExecute(null));
+        Assert.True(sut.ChooseProductiveCommand.CanExecute(null));
+        Assert.True(sut.ChooseTooHeavyCommand.CanExecute(null));
+        Assert.True(sut.SkipCommand.CanExecute(null));
+        Assert.True(sut.NotNowCommand.CanExecute(null));
+        var invalidations = AllCommands(sut).ToDictionary(item => item.Command, _ => 0);
+        foreach (var item in AllCommands(sut))
+            item.Command.CanExecuteChanged += (_, _) => invalidations[item.Command]++;
+
+        sut.Deactivate();
+
+        AssertAllCommandsDisabled(sut);
+        Assert.All(invalidations.Values, count => Assert.True(count > 0));
+    }
+
+    [Fact]
+    public async Task Deactivate_disables_commands_advertised_by_each_prompt_state()
+    {
+        await using var incrementFixture = await Fixture.CreateAsync(
+            current: CurrentSet(70m, 12),
+            previous: PreviousSet(70m, 12, SetEffortRating.Easy));
+        var increment = incrementFixture.CreateViewModel();
+        increment.Initialize(incrementFixture.Request, _ => true);
+        await increment.ChooseEffortAsync(SetEffortRating.Productive);
+        Assert.True(increment.SelectIncrementCommand.CanExecute(2.5m));
+        Assert.True(increment.SaveIncrementCommand.CanExecute(null));
+        Assert.True(increment.NotNowCommand.CanExecute(null));
+        increment.Deactivate();
+        AssertAllCommandsDisabled(increment);
+
+        await using var recommendationFixture = await Fixture.CreateAsync(
+            current: CurrentSet(70m, 10),
+            incrementKg: 2.5m);
+        var recommendation = recommendationFixture.CreateViewModel();
+        recommendation.Initialize(recommendationFixture.Request, _ => true);
+        await recommendation.ChooseEffortAsync(SetEffortRating.Productive);
+        Assert.True(recommendation.EditIncrementCommand.CanExecute(null));
+        Assert.True(recommendation.UseSuggestionCommand.CanExecute(null));
+        Assert.True(recommendation.NotNowCommand.CanExecute(null));
+        recommendation.Deactivate();
+        AssertAllCommandsDisabled(recommendation);
+
+        await using var failureFixture = await Fixture.CreateAsync(
+            current: CurrentSet(70m, 10),
+            failFirstEffortWrite: true);
+        var failure = failureFixture.CreateViewModel();
+        failure.Initialize(failureFixture.Request, _ => true);
+        await failure.ChooseEffortAsync(SetEffortRating.Productive);
+        Assert.True(failure.RetryCommand.CanExecute(null));
+        Assert.True(failure.NotNowCommand.CanExecute(null));
+        failure.Deactivate();
+        AssertAllCommandsDisabled(failure);
+    }
+
+    [Fact]
+    public async Task Queued_commands_after_deactivate_cannot_throw_mutate_or_dismiss()
+    {
+        await using var fixture = await Fixture.CreateAsync(current: CurrentSet(70m, 10));
+        var sut = fixture.CreateViewModel();
+        var dismissed = 0;
+        sut.DismissRequested += (_, _) => dismissed++;
+        sut.Initialize(fixture.Request, _ => true);
+        var queued = AllCommands(sut);
+
+        sut.Deactivate();
+        foreach (var item in queued)
+            await item.Command.ExecuteAsync(item.Parameter);
+
+        Assert.Empty(fixture.Recorder.Calls);
+        Assert.Null(fixture.Preferences.GetIncrementKg(fixture.ExerciseId));
+        Assert.Null(sut.Guidance);
+        Assert.Equal(0, dismissed);
+    }
+
+    [Fact]
+    public async Task Queued_commands_after_account_reset_cannot_throw_or_repeat_dismissal()
+    {
+        await using var fixture = await Fixture.CreateAsync(current: CurrentSet(70m, 10));
+        var sut = fixture.CreateViewModel();
+        var dismissed = 0;
+        sut.DismissRequested += (_, _) => dismissed++;
+        sut.Initialize(fixture.Request, _ => true);
+        var queued = AllCommands(sut);
+
+        await fixture.Boundary.ResetAsync(_ => Task.CompletedTask);
+        AssertAllCommandsDisabled(sut);
+        foreach (var item in queued)
+            await item.Command.ExecuteAsync(item.Parameter);
+
+        Assert.Empty(fixture.Recorder.Calls);
+        Assert.Null(sut.Guidance);
+        Assert.Equal(1, dismissed);
+    }
+
+    [Fact]
+    public async Task Account_reset_cancels_in_flight_command_without_publishing_guidance()
+    {
+        await using var fixture = await Fixture.CreateAsync(
+            current: CurrentSet(70m, 10),
+            pauseEffortWriteUntilCanceled: true);
+        var sut = fixture.CreateViewModel();
+        var dismissed = 0;
+        sut.DismissRequested += (_, _) => dismissed++;
+        sut.Initialize(fixture.Request, _ => true);
+
+        var execution = sut.ChooseProductiveCommand.ExecuteAsync();
+        await fixture.Recorder.EffortWriteStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        await fixture.Boundary.ResetAsync(_ => Task.CompletedTask);
+        await execution.WaitAsync(TimeSpan.FromSeconds(1));
+
+        Assert.Single(fixture.Recorder.Calls);
+        Assert.Equal(0, fixture.Recorder.SuccessfulWrites);
+        Assert.Null(sut.Guidance);
+        AssertAllCommandsDisabled(sut);
+        Assert.Equal(1, dismissed);
+    }
+
+    [Fact]
+    public async Task Reinitialize_after_deactivate_readvertises_asking_commands()
+    {
+        await using var fixture = await Fixture.CreateAsync(current: CurrentSet(70m, 10));
+        var sut = fixture.CreateViewModel();
+        sut.Initialize(fixture.Request, _ => true);
+        sut.Deactivate();
+        Assert.False(sut.ChooseEasyCommand.CanExecute(null));
+        var invalidated = 0;
+        sut.ChooseEasyCommand.CanExecuteChanged += (_, _) => invalidated++;
+
+        sut.Initialize(fixture.Request, _ => true);
+
+        Assert.True(sut.ChooseEasyCommand.CanExecute(null));
+        Assert.True(invalidated > 0);
+    }
+
+    [Fact]
+    public async Task Unit_change_clears_uncommitted_increment_input_instead_of_reinterpreting_it()
+    {
+        await using var fixture = await Fixture.CreateAsync(
+            current: CurrentSet(70m, 12),
+            previous: PreviousSet(70m, 12, SetEffortRating.Easy));
+        var sut = fixture.CreateViewModel();
+        sut.Initialize(fixture.Request, _ => true);
+        await sut.ChooseEffortAsync(SetEffortRating.Productive);
+        sut.IncrementInput = "5";
+
+        fixture.UnitPreference.Set(WeightDisplayUnit.Pounds);
+
+        Assert.Empty(sut.IncrementInput);
+        Assert.Equal(["2.50 lb", "5.00 lb", "10.00 lb"],
+            sut.IncrementOptions.Select(option => option.Label));
+        Assert.Null(fixture.Preferences.GetIncrementKg(fixture.ExerciseId));
+        Assert.Equal(SetEffortPromptState.NeedsIncrement, sut.State);
+    }
+
+    private static IReadOnlyList<(IAsyncCommand Command, object? Parameter)> AllCommands(
+        SetEffortPromptViewModel sut) =>
+    [
+        (sut.ChooseEasyCommand, null),
+        (sut.ChooseProductiveCommand, null),
+        (sut.ChooseTooHeavyCommand, null),
+        (sut.SelectIncrementCommand, 2.5m),
+        (sut.EditIncrementCommand, null),
+        (sut.SaveIncrementCommand, null),
+        (sut.RetryCommand, null),
+        (sut.UseSuggestionCommand, null),
+        (sut.SkipCommand, null),
+        (sut.NotNowCommand, null)
+    ];
+
+    private static void AssertAllCommandsDisabled(SetEffortPromptViewModel sut) =>
+        Assert.All(AllCommands(sut), item =>
+            Assert.False(item.Command.CanExecute(item.Parameter)));
+
     private sealed record CurrentSeed(
         TrackingMode Mode,
         decimal? WeightKg,
@@ -397,6 +576,7 @@ public sealed class SetEffortPromptViewModelTests
             decimal? incrementKg = null,
             bool failFirstEffortWrite = false,
             bool finishAfterSuccessfulEffortWrite = false,
+            bool pauseEffortWriteUntilCanceled = false,
             WeightDisplayUnit displayUnit = WeightDisplayUnit.Kilograms,
             TrackingMode? mode = null)
         {
@@ -417,7 +597,8 @@ public sealed class SetEffortPromptViewModelTests
                 workoutId, LocalWorkoutStatus.Active, now.AddMinutes(-5),
                 null, null, 2, 1, [exercise]);
             var recorder = new FakeSetEffortRecorder(
-                workout, failFirstEffortWrite, finishAfterSuccessfulEffortWrite);
+                workout, failFirstEffortWrite, finishAfterSuccessfulEffortWrite,
+                pauseEffortWriteUntilCanceled);
             var raw = new MemoryWorkoutPreferenceStore();
             var preferences = new ExerciseGuidancePreferenceStore(raw);
             if (incrementKg is { } increment)
@@ -455,11 +636,14 @@ public sealed class SetEffortPromptViewModelTests
     private sealed class FakeSetEffortRecorder(
         LocalWorkout workout,
         bool failFirstWrite,
-        bool finishAfterSuccessfulWrite) : ISetEffortRecorder
+        bool finishAfterSuccessfulWrite,
+        bool pauseEffortWriteUntilCanceled) : ISetEffortRecorder
     {
         public LocalWorkout Workout { get; private set; } = workout;
         public List<EffortRecorderCall> Calls { get; } = [];
         public int SuccessfulWrites { get; private set; }
+        public TaskCompletionSource EffortWriteStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public void FinishWorkout() => Workout = Workout with
         {
@@ -482,7 +666,7 @@ public sealed class SetEffortPromptViewModelTests
             };
         }
 
-        public Task<LocalSet> RecordSetEffortAsync(
+        public async Task<LocalSet> RecordSetEffortAsync(
             Guid exerciseDefinitionId,
             Guid setId,
             SetEffortRating effort,
@@ -491,6 +675,9 @@ public sealed class SetEffortPromptViewModelTests
         {
             cancellationToken.ThrowIfCancellationRequested();
             Calls.Add(new(exerciseDefinitionId, setId, effort, operationId));
+            EffortWriteStarted.TrySetResult();
+            if (pauseEffortWriteUntilCanceled)
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
             if (Workout.Status != LocalWorkoutStatus.Active)
                 throw new SetEffortRecordingUnavailableException();
             if (failFirstWrite && Calls.Count == 1)
@@ -521,7 +708,7 @@ public sealed class SetEffortPromptViewModelTests
             };
             SuccessfulWrites++;
             if (finishAfterSuccessfulWrite) FinishWorkout();
-            return Task.FromResult(updated);
+            return updated;
         }
 
         public Task<LocalWorkout?> RestoreActiveAsync(

@@ -71,27 +71,32 @@ public sealed class SetEffortPromptViewModel : INotifyPropertyChanged
         _boundary = boundary;
         Text = text;
         _chooseEasyCommand = new AsyncCommand(
-            _ => ChooseEffortAsync(SetEffortRating.Easy), _ => IsAsking);
+            _ => ChooseEffortAsync(SetEffortRating.Easy),
+            _ => IsActive && IsAsking);
         _chooseProductiveCommand = new AsyncCommand(
-            _ => ChooseEffortAsync(SetEffortRating.Productive), _ => IsAsking);
+            _ => ChooseEffortAsync(SetEffortRating.Productive),
+            _ => IsActive && IsAsking);
         _chooseTooHeavyCommand = new AsyncCommand(
-            _ => ChooseEffortAsync(SetEffortRating.TooHeavy), _ => IsAsking);
+            _ => ChooseEffortAsync(SetEffortRating.TooHeavy),
+            _ => IsActive && IsAsking);
         _selectIncrementCommand = new AsyncCommand(
-            SelectIncrementFromCommandAsync, _ => NeedsIncrement);
+            SelectIncrementFromCommandAsync, _ => IsActive && NeedsIncrement);
         _editIncrementCommand = new AsyncCommand(
             _ => { EditIncrement(); return Task.CompletedTask; },
-            _ => CanEditIncrement);
+            _ => IsActive && CanEditIncrement);
         _saveIncrementCommand = new AsyncCommand(
-            _ => SaveIncrementAsync(), _ => NeedsIncrement);
+            _ => SaveIncrementAsync(), _ => IsActive && NeedsIncrement);
         _retryCommand = new AsyncCommand(
-            _ => RetryAsync(), _ => HasSaveError);
+            _ => RetryAsync(), _ => IsActive && HasSaveError);
         _useSuggestionCommand = new AsyncCommand(
             _ => { UseSuggestion(); return Task.CompletedTask; },
-            _ => HasUseAction);
+            _ => IsActive && HasUseAction);
         _skipCommand = new AsyncCommand(
-            _ => { Skip(); return Task.CompletedTask; }, _ => IsAsking);
+            _ => { Skip(); return Task.CompletedTask; },
+            _ => IsActive && IsAsking);
         _notNowCommand = new AsyncCommand(
-            _ => { NotNow(); return Task.CompletedTask; });
+            _ => { NotNow(); return Task.CompletedTask; },
+            _ => IsActive);
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -130,7 +135,8 @@ public sealed class SetEffortPromptViewModel : INotifyPropertyChanged
     public bool HasUnavailable => State == SetEffortPromptState.Unavailable;
     public bool IsBusy => IsSavingEffort;
     public bool ConfirmsOriginalSetSaved => _confirmsOriginalSetSaved;
-    public bool HasUseAction => ShowsRecommendation
+    public bool HasUseAction => IsActive
+        && ShowsRecommendation
         && _applyToDraft is not null
         && Guidance is
         {
@@ -142,7 +148,8 @@ public sealed class SetEffortPromptViewModel : INotifyPropertyChanged
         {
             SuggestedReps: not null
         };
-    public bool CanEditIncrement => ShowsRecommendation
+    public bool CanEditIncrement => IsActive
+        && ShowsRecommendation
         && _hasStoredIncrement
         && _request?.TrackingMode is TrackingMode.Weighted or TrackingMode.Assisted;
 
@@ -191,6 +198,7 @@ public sealed class SetEffortPromptViewModel : INotifyPropertyChanged
         RefreshIncrementOptions();
         SetState(SetEffortPromptState.Asking);
         PublishAllPresentation();
+        RaiseCommandStates();
     }
 
     public async Task ChooseEffortAsync(SetEffortRating effort)
@@ -307,6 +315,7 @@ public sealed class SetEffortPromptViewModel : INotifyPropertyChanged
         _ratedSet = null;
         _priorCandidates = [];
         _guidance = null;
+        RaiseCommandStates();
     }
 
     private async Task SelectIncrementFromCommandAsync(object? parameter)
@@ -641,11 +650,14 @@ public sealed class SetEffortPromptViewModel : INotifyPropertyChanged
     private void OnUnitPreferenceChanged(object? sender, EventArgs eventArgs)
     {
         RefreshIncrementOptions();
-        if (_request is { } request
-            && _preferences.GetIncrementKg(request.ExerciseDefinitionId) is { } canonical
-            && NeedsIncrement)
-            IncrementInput = FormatDisplayValue(
-                WeightUnitConversion.FromKilograms(canonical, _unitPreference.Current));
+        if (_request is { } request && NeedsIncrement)
+        {
+            var canonical = _preferences.GetIncrementKg(request.ExerciseDefinitionId);
+            IncrementInput = canonical is { } stored
+                ? FormatDisplayValue(WeightUnitConversion.FromKilograms(
+                    stored, _unitPreference.Current))
+                : string.Empty;
+        }
         if (Guidance is { } guidance && ShowsRecommendation)
             MapRecommendation(guidance);
     }
@@ -660,6 +672,11 @@ public sealed class SetEffortPromptViewModel : INotifyPropertyChanged
     private bool IsCurrent(SetEffortPromptRequest request) =>
         ReferenceEquals(_request, request)
         && !_boundary.IsCancellationRequested(_generation);
+
+    private bool IsActive =>
+        _request is not null
+        && _lifetime is not null
+        && _sessionLease is not null;
 
     private void RequestDismiss()
     {
