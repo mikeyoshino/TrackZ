@@ -93,6 +93,19 @@ public sealed class WorkoutExercise
         return changed;
     }
 
+    internal bool RecordSetEffort(Guid setId, SetEffortRating effort, DateTimeOffset recordedAt)
+    {
+        EnsureNotDeleted();
+        var set = FindSet(setId);
+        if (!set.RecordEffort(effort, recordedAt))
+        {
+            return false;
+        }
+
+        Version++;
+        return true;
+    }
+
     internal bool DeleteSet(Guid setId, DateTimeOffset deletedAt)
     {
         EnsureNotDeleted();

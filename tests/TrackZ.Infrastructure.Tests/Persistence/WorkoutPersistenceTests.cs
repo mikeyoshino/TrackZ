@@ -419,6 +419,84 @@ public sealed class WorkoutPersistenceTests
             .SingleAsync());
     }
 
+    [Fact]
+    public async Task Effort_round_trips_and_database_constraint_rejects_unknown_values()
+    {
+        await using var database = await PostgreSqlFixture.StartAsync();
+        var owner = User.Create($"effort-{Guid.NewGuid():N}@example.com", "hash");
+        var definition = ExerciseDefinition.CreateSystem(
+            "Effort Press", BodyPart.Chest, TrackingMode.Weighted);
+        var now = new DateTimeOffset(2026, 8, 23, 9, 0, 0, TimeSpan.Zero);
+        var workout = WorkoutSession.Start(owner.Id, Guid.NewGuid(), now);
+        var itemId = Guid.NewGuid();
+        var setId = Guid.NewGuid();
+        workout.AddExercise(itemId, definition.Id, TrackingMode.Weighted, 0);
+        workout.CompleteSet(
+            itemId, setId, new SetMeasurement(70m, null, 10), now.AddMinutes(1));
+        await database.Db.Users.AddAsync(owner);
+        await database.Db.Exercises.AddAsync(definition);
+        await database.Db.WorkoutSessions.AddAsync(workout);
+        await database.Db.SaveChangesAsync();
+        Assert.Null(workout.Exercises.Single().Sets.Single().Effort);
+
+        workout.RecordSetEffort(
+            itemId, setId, SetEffortRating.Productive, now.AddMinutes(2));
+        await database.Db.SaveChangesAsync();
+        database.Db.ChangeTracker.Clear();
+
+        var reloaded = await database.Db.SetEntries.AsNoTracking()
+            .SingleAsync(set => set.Id == setId);
+        Assert.Equal(SetEffortRating.Productive, reloaded.Effort);
+        Assert.Equal(70m, reloaded.WeightKg);
+        Assert.Equal(10, reloaded.Reps);
+
+        var failure = await Assert.ThrowsAsync<Npgsql.PostgresException>(() =>
+            database.Db.Database.ExecuteSqlInterpolatedAsync(
+                $"UPDATE set_entries SET \"Effort\" = {99} WHERE \"Id\" = {setId}"));
+        Assert.Equal("CK_set_entries_effort", failure.ConstraintName);
+    }
+
+    [Fact]
+    public async Task Pre_effort_database_with_an_existing_set_migrates_to_null_effort()
+    {
+        await using var database = await PostgreSqlFixture.StartAsync();
+        var owner = User.Create($"effort-upgrade-{Guid.NewGuid():N}@example.com", "hash");
+        var definition = ExerciseDefinition.CreateSystem(
+            "Effort Upgrade Press", BodyPart.Chest, TrackingMode.Weighted);
+        var now = new DateTimeOffset(2026, 8, 23, 10, 0, 0, TimeSpan.Zero);
+        var workout = WorkoutSession.Start(owner.Id, Guid.NewGuid(), now);
+        var itemId = Guid.NewGuid();
+        var setId = Guid.NewGuid();
+        workout.AddExercise(itemId, definition.Id, TrackingMode.Weighted, 0);
+        workout.CompleteSet(
+            itemId, setId, new SetMeasurement(65m, null, 11), now.AddMinutes(1));
+        await database.Db.Users.AddAsync(owner);
+        await database.Db.Exercises.AddAsync(definition);
+        await database.Db.WorkoutSessions.AddAsync(workout);
+        await database.Db.SaveChangesAsync();
+
+        var migrator = database.Db.GetService<IMigrator>();
+        await migrator.MigrateAsync("20260820061814_AddBadges");
+        var columnsBefore = await database.Db.Database.SqlQueryRaw<int>(
+            """
+            SELECT COUNT(*)::int AS "Value"
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'set_entries'
+              AND column_name = 'Effort'
+            """).SingleAsync();
+        Assert.Equal(0, columnsBefore);
+
+        await migrator.MigrateAsync();
+        database.Db.ChangeTracker.Clear();
+        var restored = await database.Db.SetEntries.AsNoTracking()
+            .SingleAsync(set => set.Id == setId);
+
+        Assert.Null(restored.Effort);
+        Assert.Equal(65m, restored.WeightKg);
+        Assert.Equal(11, restored.Reps);
+    }
+
     private static IReadOnlyList<string> DescribeRelationalModel(IReadOnlyModel model)
     {
         var modelPrefix = $"model|default-schema={model.GetDefaultSchema()}|{DescribeAnnotations(model)}";

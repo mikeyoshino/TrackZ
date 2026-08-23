@@ -13,6 +13,9 @@ public sealed class SetEntryConfiguration : IEntityTypeConfiguration<SetEntry>
             table.HasCheckConstraint("CK_set_entries_reps", "\"Reps\" BETWEEN 1 AND 999");
             table.HasCheckConstraint("CK_set_entries_order", "\"Order\" >= 0");
             table.HasCheckConstraint(
+                "CK_set_entries_effort",
+                "\"Effort\" IS NULL OR \"Effort\" IN (1, 2, 3)");
+            table.HasCheckConstraint(
                 "CK_set_entries_mode_measurement",
                 "(\"TrackingMode\" = 1 AND \"WeightKg\" > 0 AND \"AssistedKg\" IS NULL) OR " +
                 "(\"TrackingMode\" = 2 AND \"WeightKg\" IS NULL AND \"AssistedKg\" IS NULL) OR " +
@@ -28,6 +31,7 @@ public sealed class SetEntryConfiguration : IEntityTypeConfiguration<SetEntry>
         builder.Property(set => set.WeightKg).HasColumnType("numeric(8,3)");
         builder.Property(set => set.AssistedKg).HasColumnType("numeric(8,3)");
         builder.Property(set => set.Reps).IsRequired();
+        builder.Property(set => set.Effort);
         builder.Property(set => set.CompletedAt).IsRequired();
         builder.Property(set => set.UpdatedAt);
         builder.Property(set => set.DeletedAt);

@@ -232,6 +232,73 @@ public sealed class WorkoutSessionTests
     }
 
     [Fact]
+    public void Record_set_effort_changes_only_effort_and_versions_each_aggregate_once()
+    {
+        var workout = StartWorkout();
+        workout.AddExercise(_itemId, _exerciseId, TrackingMode.Weighted, 0);
+        workout.CompleteSet(_itemId, _setId, new SetMeasurement(70m, null, 10), _startedAt.AddMinutes(1));
+        var beforeWorkout = workout.Version;
+        var exercise = workout.Exercises.Single();
+        var beforeExercise = exercise.Version;
+        var set = exercise.Sets.Single();
+        var beforeSet = set.Version;
+
+        workout.RecordSetEffort(_itemId, _setId, SetEffortRating.Productive, _startedAt.AddMinutes(2));
+
+        Assert.Equal(SetEffortRating.Productive, set.Effort);
+        Assert.Equal(70m, set.WeightKg);
+        Assert.Equal(10, set.Reps);
+        Assert.Equal(beforeSet + 1, set.Version);
+        Assert.Equal(beforeExercise + 1, exercise.Version);
+        Assert.Equal(beforeWorkout + 1, workout.Version);
+    }
+
+    [Fact]
+    public void Measurement_edit_preserves_recorded_effort()
+    {
+        var workout = StartWorkout();
+        workout.AddExercise(_itemId, _exerciseId, TrackingMode.Weighted, 0);
+        workout.CompleteSet(_itemId, _setId, new SetMeasurement(70m, null, 10), _startedAt.AddMinutes(1));
+        workout.RecordSetEffort(_itemId, _setId, SetEffortRating.Easy, _startedAt.AddMinutes(2));
+
+        workout.EditSet(_itemId, _setId, new SetMeasurement(72.5m, null, 9), _startedAt.AddMinutes(3));
+
+        var set = workout.Exercises.Single().Sets.Single();
+        Assert.Equal(SetEffortRating.Easy, set.Effort);
+        Assert.Equal(72.5m, set.WeightKg);
+    }
+
+    [Fact]
+    public void Record_set_effort_is_idempotent_for_same_value_and_rejects_invalid_identity_or_time()
+    {
+        var workout = StartWorkout();
+        workout.AddExercise(_itemId, _exerciseId, TrackingMode.Weighted, 0);
+        workout.CompleteSet(_itemId, _setId, new SetMeasurement(70m, null, 10), _startedAt.AddMinutes(1));
+        workout.RecordSetEffort(_itemId, _setId, SetEffortRating.Productive, _startedAt.AddMinutes(2));
+        var exercise = workout.Exercises.Single();
+        var set = exercise.Sets.Single();
+        var workoutVersion = workout.Version;
+        var exerciseVersion = exercise.Version;
+        var setVersion = set.Version;
+        var updatedAt = set.UpdatedAt;
+
+        workout.RecordSetEffort(_itemId, _setId, SetEffortRating.Productive, _startedAt.AddMinutes(3));
+        workout.RecordSetEffort(_itemId, _setId, SetEffortRating.Productive, _startedAt);
+
+        Assert.Equal(workoutVersion, workout.Version);
+        Assert.Equal(exerciseVersion, exercise.Version);
+        Assert.Equal(setVersion, set.Version);
+        Assert.Equal(updatedAt, set.UpdatedAt);
+        Assert.Throws<ArgumentException>(() => workout.RecordSetEffort(_itemId, Guid.NewGuid(), SetEffortRating.Easy, _startedAt.AddMinutes(4)));
+        Assert.Throws<ArgumentOutOfRangeException>(() => workout.RecordSetEffort(_itemId, _setId, (SetEffortRating)99, _startedAt.AddMinutes(4)));
+        Assert.Throws<ArgumentException>(() => workout.RecordSetEffort(_itemId, _setId, SetEffortRating.Easy, _startedAt));
+
+        workout.Complete(_startedAt.AddMinutes(5));
+        Assert.Throws<WorkoutRuleException>(() => workout.RecordSetEffort(
+            _itemId, _setId, SetEffortRating.Easy, _startedAt.AddMinutes(6)));
+    }
+
+    [Fact]
     public void Set_collections_are_read_only_views()
     {
         var workout = StartWorkout();

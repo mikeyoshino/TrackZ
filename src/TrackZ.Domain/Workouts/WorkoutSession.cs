@@ -161,6 +161,30 @@ public sealed class WorkoutSession
         }
     }
 
+    public void RecordSetEffort(
+        Guid workoutExerciseId,
+        Guid setId,
+        SetEffortRating effort,
+        DateTimeOffset recordedAt)
+    {
+        EnsureActive();
+        EnsureNotEmpty(workoutExerciseId, nameof(workoutExerciseId));
+        EnsureNotEmpty(setId, nameof(setId));
+        if (!Enum.IsDefined(effort))
+        {
+            throw new ArgumentOutOfRangeException(nameof(effort));
+        }
+
+        var exercise = FindActiveExercise(workoutExerciseId);
+        var normalized = NormalizeTimestamp(recordedAt, nameof(recordedAt));
+        EnsureNotBeforeStart(normalized, nameof(recordedAt));
+        EnsureNotBeforeCompletion(normalized, nameof(recordedAt));
+        if (exercise.RecordSetEffort(setId, effort, normalized))
+        {
+            Version++;
+        }
+    }
+
     public void DeleteSet(Guid workoutExerciseId, Guid setId, DateTimeOffset deletedAt)
     {
         EnsureNotDeleted();

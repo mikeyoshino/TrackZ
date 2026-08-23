@@ -22,6 +22,8 @@ public sealed class SetEntry
 
     public int Reps { get; private set; }
 
+    public SetEffortRating? Effort { get; private set; }
+
     public DateTimeOffset CompletedAt { get; private set; }
 
     public DateTimeOffset? UpdatedAt { get; private set; }
@@ -98,6 +100,36 @@ public sealed class SetEntry
         AssistedKg = measurement.AssistedKg;
         Reps = measurement.Reps;
         UpdatedAt = updatedAt;
+        Version++;
+        return true;
+    }
+
+    internal bool RecordEffort(SetEffortRating effort, DateTimeOffset recordedAt)
+    {
+        if (IsDeleted)
+        {
+            throw new InvalidOperationException("A deleted set cannot record effort.");
+        }
+
+        if (!Enum.IsDefined(effort))
+        {
+            throw new ArgumentOutOfRangeException(nameof(effort));
+        }
+
+        if (Effort == effort)
+        {
+            return false;
+        }
+
+        if (recordedAt < LastMutationAt)
+        {
+            throw new ArgumentException(
+                "The effort timestamp cannot precede an earlier set mutation.",
+                nameof(recordedAt));
+        }
+
+        Effort = effort;
+        UpdatedAt = recordedAt;
         Version++;
         return true;
     }
