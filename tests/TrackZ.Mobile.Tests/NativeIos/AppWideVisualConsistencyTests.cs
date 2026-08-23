@@ -16,6 +16,7 @@ public sealed class AppWideVisualConsistencyTests
         "Features/Exercises/CustomExercisePage.xaml",
         "Features/Workout/WorkoutPage.xaml",
         "Features/Workout/SetLoggerPage.xaml",
+        "Features/Workout/SetEffortSheetPage.xaml",
         "Features/Workout/SetEntrySheetPage.xaml",
         "Features/History/WorkoutHistoryPage.xaml",
         "Features/History/WorkoutHistoryDetailPage.xaml",
@@ -38,6 +39,7 @@ public sealed class AppWideVisualConsistencyTests
             ["Features/Exercises/CustomExercisePage.xaml"] = ["0.0=TrackZPageHorizontalPadding"],
             ["Features/Workout/WorkoutPage.xaml"] = ["0=TrackZPageHorizontalPadding", "1=TrackZPageHorizontalPadding"],
             ["Features/Workout/SetLoggerPage.xaml"] = ["0.0=TrackZPageBottomContentPadding"],
+            ["Features/Workout/SetEffortSheetPage.xaml"] = ["0=TrackZPageContentPadding"],
             ["Features/Workout/SetEntrySheetPage.xaml"] = ["0=TrackZPageHorizontalPadding", "1.0=TrackZPageHorizontalPadding"],
             ["Features/History/WorkoutHistoryPage.xaml"] = ["$=TrackZPageContentPadding"],
             ["Features/History/WorkoutHistoryDetailPage.xaml"] = ["0.0=TrackZPageBottomContentPadding"],
@@ -60,6 +62,7 @@ public sealed class AppWideVisualConsistencyTests
             ["Features/Exercises/CustomExercisePage.xaml"] = 1,
             ["Features/Workout/WorkoutPage.xaml"] = 2,
             ["Features/Workout/SetLoggerPage.xaml"] = 2,
+            ["Features/Workout/SetEffortSheetPage.xaml"] = 2,
             ["Features/Workout/SetEntrySheetPage.xaml"] = 1,
             ["Features/History/WorkoutHistoryPage.xaml"] = 0,
             ["Features/History/WorkoutHistoryDetailPage.xaml"] = 0,
@@ -69,6 +72,18 @@ public sealed class AppWideVisualConsistencyTests
             ["Features/Progress/ExerciseProgressPage.xaml"] = 0,
             ["Features/Profile/ProfilePage.xaml"] = 1
         };
+
+    private static readonly IReadOnlyDictionary<string, string[]>
+        ExpectedComplementaryPrimaryVisibility =
+            new Dictionary<string, string[]>(StringComparer.Ordinal)
+            {
+                ["Features/Workout/WorkoutPage.xaml"] =
+                    ["{Binding HasStarted}", "{Binding IsDraft}"],
+                ["Features/Workout/SetLoggerPage.xaml"] =
+                    ["{Binding HasDraftSet}", "{Binding HasNoDraftSet}"],
+                ["Features/Workout/SetEffortSheetPage.xaml"] =
+                    ["{Binding HasUseAction}", "{Binding NeedsIncrement}"]
+            };
 
     private static readonly IReadOnlyDictionary<string, ArtworkContract[]> ArtworkContracts =
         new Dictionary<string, ArtworkContract[]>(StringComparer.Ordinal)
@@ -172,8 +187,8 @@ public sealed class AppWideVisualConsistencyTests
     [Fact]
     public void Explicit_shipped_page_set_cannot_silently_shrink()
     {
-        Assert.Equal(17, ShippedPages.Length);
-        Assert.Equal(17, ShippedPages.Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(18, ShippedPages.Length);
+        Assert.Equal(18, ShippedPages.Distinct(StringComparer.Ordinal).Count());
         Assert.All(ShippedPages, relativePath => Assert.True(File.Exists(Path.Combine(MobileDirectory(), relativePath)), relativePath));
     }
 
@@ -638,13 +653,12 @@ public sealed class AppWideVisualConsistencyTests
         if (actionCapablePrimaryActions.Length != expectedPrimaryCount)
             yield return $"The page must expose exactly {expectedPrimaryCount} visible/action-capable primary action(s); one visible primary action is allowed unless complementary actions are explicitly allowlisted.";
         if (expectedPrimaryCount == 2 &&
-            !primaryActions.Select(action => action.Attribute("IsVisible")?.Value).Order(StringComparer.Ordinal)
-                .SequenceEqual(
-                    (relativePath == "Features/Workout/SetLoggerPage.xaml"
-                        ? new[] { "{Binding HasDraftSet}", "{Binding HasNoDraftSet}" }
-                        : new[] { "{Binding HasStarted}", "{Binding IsDraft}" })
-                    .Order(StringComparer.Ordinal),
-                    StringComparer.Ordinal))
+            (!ExpectedComplementaryPrimaryVisibility.TryGetValue(
+                relativePath, out var expectedVisibility)
+             || !primaryActions.Select(action => action.Attribute("IsVisible")?.Value)
+                 .Order(StringComparer.Ordinal)
+                 .SequenceEqual(expectedVisibility.Order(StringComparer.Ordinal),
+                     StringComparer.Ordinal)))
             yield return "Complementary primary actions must remain mutually exclusive through their exact phase visibility bindings.";
 
         if (string.Equals(relativePath, "Features/Train/TrainPage.xaml", StringComparison.Ordinal))

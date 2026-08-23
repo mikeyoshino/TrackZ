@@ -888,11 +888,15 @@ public sealed class MauiCompositionTests
         await logger.LoadAsync(exerciseId, "Composed Press");
         var transition = new GatedInlineSetEditorTransition();
         var pulse = new CompletablePulseDriver();
+        var effortSheet = new RecordingEffortSheet();
+        var pageBoundary = new AccountSessionBoundary();
         var page = new TestSetLoggerPage(
             logger,
             services.GetRequiredService<MauiSetSavedFeedback>(),
             pulse,
-            transition);
+            transition,
+            effortSheet,
+            pageBoundary);
         page.Appear();
 
         var scroll = page.FindByName<ScrollView>("SetLoggerScroll");
@@ -975,6 +979,12 @@ public sealed class MauiCompositionTests
 
         pulse.Complete.TrySetResult();
         await saving.WaitAsync(TimeSpan.FromSeconds(1));
+        await effortSheet.Presented.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        Assert.Equal(1, effortSheet.PresentCount);
+        Assert.Equal(Assert.Single(logger.TodaySets).Id, effortSheet.Request!.SavedSet.Id);
+        Assert.NotEqual(Guid.Empty, effortSheet.Request.EffortOperationId);
+        Assert.True(saving.IsCompletedSuccessfully);
+        Assert.False(effortSheet.Release.Task.IsCompleted);
         var saveRestore = await transition.NextRestoredTargetAsync();
 
         Assert.False(logger.IsBusy);
@@ -989,6 +999,9 @@ public sealed class MauiCompositionTests
 
         logger.BeginSetCommand.Execute(null);
         var deactivatedReveal = await transition.NextAttemptAsync();
+        await pageBoundary.ResetAsync(_ => Task.CompletedTask);
+        await effortSheet.Cancelled.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        Assert.False(effortSheet.Release.Task.IsCompleted);
         page.Deactivate();
         await deactivatedReveal.Exited.Task.WaitAsync(TimeSpan.FromSeconds(1));
 
@@ -1076,7 +1089,54 @@ public sealed class MauiCompositionTests
         {
         }
 
+        public TestSetLoggerPage(
+            SetLoggerViewModel viewModel,
+            MauiSetSavedFeedback feedback,
+            ISetSavedPulseDriver pulse,
+            IInlineSetEditorTransition transition,
+            ISetEffortSheet effortSheet,
+            IAccountSessionBoundary sessionBoundary) : base(
+                viewModel,
+                feedback,
+                pulse,
+                transition,
+                effortSheet,
+                sessionBoundary)
+        {
+        }
+
         public void Appear() => base.OnAppearing();
+    }
+
+    private sealed class RecordingEffortSheet : ISetEffortSheet
+    {
+        public TaskCompletionSource Presented { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Cancelled { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public SetEffortPromptRequest? Request { get; private set; }
+        public int PresentCount { get; private set; }
+
+        public async Task PresentAsync(
+            SetEffortPromptRequest request,
+            Func<HypertrophyGuidanceResult, bool> applyToDraft,
+            CancellationToken cancellationToken = default)
+        {
+            Request = request;
+            PresentCount++;
+            Presented.TrySetResult();
+            try
+            {
+                await Release.Task.WaitAsync(cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                Cancelled.TrySetResult();
+                throw;
+            }
+        }
     }
 
     private sealed class GatedInlineSetEditorTransition : IInlineSetEditorTransition

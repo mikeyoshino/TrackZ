@@ -1,7 +1,12 @@
+using TrackZ.Mobile.Features.Workout;
+
 namespace TrackZ.Mobile.Presentation;
 
-public sealed class MauiNativeSheetPresenter : INativeSheetPresenter
+public sealed class MauiNativeSheetPresenter(
+    IReduceMotionPreference reduceMotion) : INativeSheetPresenter
 {
+    internal bool AnimationsEnabled => !reduceMotion.IsEnabled;
+
     public async Task ShowAsync(
         ContentPage page,
         NativeSheetDetent detent,
@@ -17,7 +22,7 @@ public sealed class MauiNativeSheetPresenter : INativeSheetPresenter
         page.HandlerChanged += Configure;
         try
         {
-            await navigation.PushModalAsync(page, true);
+            await navigation.PushModalAsync(page, AnimationsEnabled);
             NativeSheetConfiguration.Configure(page, detent);
         }
         finally
@@ -25,7 +30,7 @@ public sealed class MauiNativeSheetPresenter : INativeSheetPresenter
             page.HandlerChanged -= Configure;
         }
 #else
-        await navigation.PushModalAsync(page, true);
+        await navigation.PushModalAsync(page, AnimationsEnabled);
 #endif
     }
 
@@ -37,7 +42,7 @@ public sealed class MauiNativeSheetPresenter : INativeSheetPresenter
         cancellationToken.ThrowIfCancellationRequested();
         var navigation = ResolveNavigation();
         if (!ReferenceEquals(navigation.ModalStack.LastOrDefault(), page)) return;
-        await navigation.PopModalAsync(true);
+        await navigation.PopModalAsync(AnimationsEnabled);
     }
 
     private static INavigation ResolveNavigation() =>

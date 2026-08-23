@@ -52,6 +52,19 @@ public sealed class ReduceMotionTests
         Assert.True((bool)pulse.GetValue(AutomationProperties.ExcludedWithChildrenProperty));
     }
 
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public void Native_sheet_animation_policy_respects_reduce_motion(
+        bool reduceMotion,
+        bool expectedAnimationsEnabled)
+    {
+        var presenter = new MauiNativeSheetPresenter(
+            new FixedReduceMotionPreference(reduceMotion));
+
+        Assert.Equal(expectedAnimationsEnabled, presenter.AnimationsEnabled);
+    }
+
     private sealed class FixedReduceMotionPreference(bool isEnabled) : IReduceMotionPreference
     {
         public bool IsEnabled { get; } = isEnabled;

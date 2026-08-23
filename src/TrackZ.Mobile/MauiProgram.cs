@@ -211,6 +211,9 @@ public static class MauiProgram
 		builder.Services.AddTransient<CustomExercisePage>();
 		builder.Services.AddScoped<WorkoutPage>();
 		builder.Services.AddTransient<SetLoggerPage>();
+		builder.Services.AddTransient<SetEffortSheetPage>();
+		builder.Services.AddTransient<ISetEffortSheet>(services =>
+			services.GetRequiredService<SetEffortSheetPage>());
 		builder.Services.AddTransient<SetEntrySheetPage>();
 		builder.Services.AddTransient<WorkoutHistoryPage>();
 		builder.Services.AddTransient<WorkoutHistoryDetailPage>();

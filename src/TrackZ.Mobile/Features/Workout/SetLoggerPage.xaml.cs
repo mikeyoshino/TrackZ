@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using TrackZ.Mobile.Identity;
 
 namespace TrackZ.Mobile.Features.Workout;
 
@@ -8,23 +9,31 @@ public partial class SetLoggerPage : ContentPage, IQueryAttributable
     private readonly MauiSetSavedFeedback _feedback;
     private readonly ISetSavedPulseDriver _pulse;
     private readonly IInlineSetEditorTransition _inlineTransition;
+    private readonly ISetEffortSheet _effortSheet;
+    private readonly IAccountSessionBoundary _sessionBoundary;
     private bool _wasParented;
     private bool _deactivated;
     private bool _feedbackSubscribed;
     private bool _draftTransitionSubscribed;
+    private bool _effortPromptSubscribed;
     private bool _draftWasVisible;
     private bool _restoreAddFocusWhenReady;
     private CancellationTokenSource? _draftTransitionCancellation;
+    private EffortSheetLifetime? _effortSheetLifetime;
 
     public SetLoggerPage(
         SetLoggerViewModel viewModel,
         MauiSetSavedFeedback feedback,
         Presentation.ITrackZMotion motion,
-        IInlineSetEditorTransition inlineTransition)
+        IInlineSetEditorTransition inlineTransition,
+        ISetEffortSheet effortSheet,
+        IAccountSessionBoundary sessionBoundary)
     {
         _viewModel = viewModel;
         _feedback = feedback;
         _inlineTransition = inlineTransition;
+        _effortSheet = effortSheet;
+        _sessionBoundary = sessionBoundary;
         InitializeComponent();
         _pulse = new MauiSetSavedPulseDriver(SavedPulse, motion: motion);
         BindingContext = _viewModel;
@@ -37,7 +46,9 @@ public partial class SetLoggerPage : ContentPage, IQueryAttributable
             viewModel,
             feedback,
             pulse,
-            new MauiInlineSetEditorTransition())
+            new MauiInlineSetEditorTransition(),
+            NullSetEffortSheet.Instance,
+            new AccountSessionBoundary())
     {
     }
 
@@ -45,12 +56,30 @@ public partial class SetLoggerPage : ContentPage, IQueryAttributable
         SetLoggerViewModel viewModel,
         MauiSetSavedFeedback feedback,
         ISetSavedPulseDriver pulse,
-        IInlineSetEditorTransition inlineTransition)
+        IInlineSetEditorTransition inlineTransition) : this(
+            viewModel,
+            feedback,
+            pulse,
+            inlineTransition,
+            NullSetEffortSheet.Instance,
+            new AccountSessionBoundary())
+    {
+    }
+
+    protected SetLoggerPage(
+        SetLoggerViewModel viewModel,
+        MauiSetSavedFeedback feedback,
+        ISetSavedPulseDriver pulse,
+        IInlineSetEditorTransition inlineTransition,
+        ISetEffortSheet effortSheet,
+        IAccountSessionBoundary sessionBoundary)
     {
         _viewModel = viewModel;
         _feedback = feedback;
         _pulse = pulse;
         _inlineTransition = inlineTransition;
+        _effortSheet = effortSheet;
+        _sessionBoundary = sessionBoundary;
         InitializeComponent();
         BindingContext = _viewModel;
     }
@@ -60,12 +89,14 @@ public partial class SetLoggerPage : ContentPage, IQueryAttributable
         base.OnAppearing();
         SubscribeFeedback();
         SubscribeDraftTransition();
+        SubscribeEffortPrompt();
     }
 
     protected override void OnDisappearing()
     {
         UnsubscribeFeedback();
         UnsubscribeDraftTransition();
+        UnsubscribeEffortPrompt();
         base.OnDisappearing();
     }
 
@@ -86,6 +117,8 @@ public partial class SetLoggerPage : ContentPage, IQueryAttributable
         _deactivated = true;
         UnsubscribeFeedback();
         UnsubscribeDraftTransition();
+        UnsubscribeEffortPrompt();
+        Interlocked.Exchange(ref _effortSheetLifetime, null)?.Dispose();
         _viewModel.Deactivate();
         BindingContext = null;
     }
@@ -119,6 +152,48 @@ public partial class SetLoggerPage : ContentPage, IQueryAttributable
         if (!_feedbackSubscribed) return;
         _feedback.Saved -= OnSetSavedAsync;
         _feedbackSubscribed = false;
+    }
+
+    private void SubscribeEffortPrompt()
+    {
+        if (_deactivated || _effortPromptSubscribed) return;
+        _viewModel.EffortPromptRequested += OnEffortPromptRequested;
+        _effortPromptSubscribed = true;
+    }
+
+    private void UnsubscribeEffortPrompt()
+    {
+        if (!_effortPromptSubscribed) return;
+        _viewModel.EffortPromptRequested -= OnEffortPromptRequested;
+        _effortPromptSubscribed = false;
+    }
+
+    private async void OnEffortPromptRequested(
+        object? sender,
+        SetEffortPromptRequestedEventArgs eventArgs)
+    {
+        if (_deactivated) return;
+        var lifetime = new EffortSheetLifetime(_sessionBoundary);
+        var previous = Interlocked.Exchange(ref _effortSheetLifetime, lifetime);
+        previous?.Dispose();
+        try
+        {
+            await _effortSheet.PresentAsync(
+                eventArgs.Request,
+                _viewModel.TryApplyGuidanceToNextDraft,
+                lifetime.Token);
+        }
+        catch (OperationCanceledException) when (lifetime.Token.IsCancellationRequested) { }
+        catch
+        {
+            // The set is already durable; modal presentation is best effort.
+        }
+        finally
+        {
+            if (ReferenceEquals(Interlocked.CompareExchange(
+                    ref _effortSheetLifetime, null, lifetime), lifetime))
+                lifetime.Dispose();
+        }
     }
 
     private void SubscribeDraftTransition()
@@ -233,5 +308,52 @@ public partial class SetLoggerPage : ContentPage, IQueryAttributable
             await running!;
             session.CancellationToken.ThrowIfCancellationRequested();
         });
+    }
+
+    private sealed class NullSetEffortSheet : ISetEffortSheet
+    {
+        public static NullSetEffortSheet Instance { get; } = new();
+
+        public Task PresentAsync(
+            SetEffortPromptRequest request,
+            Func<HypertrophyGuidanceResult, bool> applyToDraft,
+            CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
+    private sealed class EffortSheetLifetime : IDisposable
+    {
+        private CancellationTokenSource? _ownerCancellation;
+        private AccountSessionCancellationLease? _sessionLease;
+
+        public EffortSheetLifetime(IAccountSessionBoundary boundary)
+        {
+            _ownerCancellation = new CancellationTokenSource();
+            _sessionLease = boundary.CreateCancellationLease(
+                boundary.Capture(), _ownerCancellation.Token);
+            Token = _sessionLease.Token;
+        }
+
+        public CancellationToken Token { get; }
+
+        public void Dispose()
+        {
+            var owner = Interlocked.Exchange(ref _ownerCancellation, null);
+            var lease = Interlocked.Exchange(ref _sessionLease, null);
+            if (owner is null)
+            {
+                lease?.Dispose();
+                return;
+            }
+            try
+            {
+                try { owner.Cancel(); }
+                catch { /* Cancellation callbacks are best effort here. */ }
+                lease?.Dispose();
+            }
+            finally
+            {
+                owner.Dispose();
+            }
+        }
     }
 }

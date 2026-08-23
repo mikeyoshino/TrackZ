@@ -1,0 +1,210 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage
+    x:Class="TrackZ.Mobile.Features.Workout.SetEffortSheetPage"
+    x:Name="Page"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:workout="clr-namespace:TrackZ.Mobile.Features.Workout;assembly=TrackZ.Mobile.Core"
+    x:DataType="workout:SetEffortPromptViewModel"
+    BackgroundColor="{DynamicResource TrackZSurface}"
+    SafeAreaEdges="All"
+    Shell.NavBarIsVisible="False">
+    <ScrollView>
+        <VerticalStackLayout
+            Padding="{DynamicResource TrackZPageContentPadding}"
+            Spacing="{DynamicResource TrackZSpace16}">
+            <Label
+                x:Name="EffortSheetHeading"
+                SemanticProperties.HeadingLevel="Level2"
+                Style="{DynamicResource TrackZSectionTitleStyle}"
+                Text="{Binding Text.EffortSheetTitle}" />
+            <Label
+                Style="{DynamicResource TrackZPerformanceNumberStyle}"
+                Text="{Binding Text.EffortSetSaved}" />
+
+            <VerticalStackLayout
+                x:Name="EffortQuestionState"
+                IsVisible="{Binding IsAsking}"
+                Spacing="{DynamicResource TrackZSpace12}">
+                <Label
+                    Style="{DynamicResource TrackZNavigationTitleStyle}"
+                    Text="{Binding Text.EffortQuestion}" />
+                <Label
+                    Style="{DynamicResource TrackZSecondaryStyle}"
+                    Text="{Binding Text.EffortGoodFormHelper}" />
+                <Button
+                    x:Name="EffortEasyAction"
+                    Command="{Binding ChooseEasyCommand}"
+                    SemanticProperties.Description="{Binding Text.EffortEasyOption}"
+                    Style="{DynamicResource TrackZSecondaryButtonStyle}"
+                    Text="{Binding Text.EffortEasyOption}" />
+                <Button
+                    x:Name="EffortProductiveAction"
+                    Command="{Binding ChooseProductiveCommand}"
+                    SemanticProperties.Description="{Binding Text.EffortProductiveOption}"
+                    Style="{DynamicResource TrackZSecondaryButtonStyle}"
+                    Text="{Binding Text.EffortProductiveOption}" />
+                <Button
+                    x:Name="EffortTooHeavyAction"
+                    Command="{Binding ChooseTooHeavyCommand}"
+                    SemanticProperties.Description="{Binding Text.EffortTooHeavyOption}"
+                    Style="{DynamicResource TrackZSecondaryButtonStyle}"
+                    Text="{Binding Text.EffortTooHeavyOption}" />
+                <Button
+                    x:Name="EffortSkipAction"
+                    Command="{Binding SkipCommand}"
+                    SemanticProperties.Description="{Binding Text.EffortSkip}"
+                    Style="{DynamicResource TrackZQuietButtonStyle}"
+                    Text="{Binding Text.EffortSkip}" />
+                <Label
+                    Style="{DynamicResource TrackZSecondaryStyle}"
+                    Text="{Binding Text.EffortPainSafety}" />
+            </VerticalStackLayout>
+
+            <VerticalStackLayout
+                x:Name="EffortSavingState"
+                IsVisible="{Binding IsSavingEffort}"
+                Spacing="{DynamicResource TrackZSpace12}">
+                <ActivityIndicator
+                    IsRunning="{Binding IsSavingEffort}"
+                    SemanticProperties.Description="{Binding Text.EffortSaving}" />
+                <Label
+                    Style="{DynamicResource TrackZSecondaryStyle}"
+                    Text="{Binding Text.EffortSaving}" />
+            </VerticalStackLayout>
+
+            <VerticalStackLayout
+                x:Name="EffortIncrementState"
+                IsVisible="{Binding NeedsIncrement}"
+                Spacing="{DynamicResource TrackZSpace12}">
+                <Label
+                    SemanticProperties.HeadingLevel="Level3"
+                    Style="{DynamicResource TrackZNavigationTitleStyle}"
+                    Text="{Binding Text.GuidanceIncrementTitle}" />
+                <Label
+                    Style="{DynamicResource TrackZSecondaryStyle}"
+                    Text="{Binding Text.GuidanceIncrementHelper}" />
+                <FlexLayout
+                    x:Name="CommonIncrementOptions"
+                    BindableLayout.ItemsSource="{Binding IncrementOptions}"
+                    Direction="Row"
+                    Wrap="Wrap">
+                    <BindableLayout.ItemTemplate>
+                        <DataTemplate x:DataType="workout:ProgressionIncrementOption">
+                            <Button
+                                Command="{Binding Source={x:Reference Page}, Path=BindingContext.SelectIncrementCommand}"
+                                CommandParameter="{Binding DisplayValue}"
+                                MinimumHeightRequest="44"
+                                MinimumWidthRequest="44"
+                                SemanticProperties.Description="{Binding Label}"
+                                Style="{DynamicResource TrackZSecondaryButtonStyle}"
+                                Text="{Binding Label}" />
+                        </DataTemplate>
+                    </BindableLayout.ItemTemplate>
+                </FlexLayout>
+                <Grid
+                    ColumnDefinitions="*,Auto"
+                    ColumnSpacing="{DynamicResource TrackZSpace8}">
+                    <Entry
+                        x:Name="GuidanceIncrementInput"
+                        Grid.Column="0"
+                        Keyboard="Numeric"
+                        Placeholder="{Binding Text.GuidanceIncrementPlaceholder}"
+                        SemanticProperties.Description="{Binding Text.GuidanceIncrementTitle}"
+                        Style="{DynamicResource TrackZFieldStyle}"
+                        Text="{Binding IncrementInput, Mode=TwoWay}" />
+                    <Label
+                        Grid.Column="1"
+                        Style="{DynamicResource TrackZSecondaryStyle}"
+                        Text="{Binding IncrementUnitLabel}"
+                        VerticalOptions="Center" />
+                </Grid>
+                <Label
+                    IsVisible="{Binding HasIncrementValidation}"
+                    Style="{DynamicResource TrackZInlineErrorStyle}"
+                    Text="{Binding IncrementValidationMessage}" />
+                <Button
+                    x:Name="GuidanceSaveIncrementAction"
+                    Command="{Binding SaveIncrementCommand}"
+                    IsVisible="{Binding NeedsIncrement}"
+                    SemanticProperties.Description="{Binding Text.GuidanceSaveIncrement}"
+                    Style="{DynamicResource TrackZPrimaryButtonStyle}"
+                    Text="{Binding Text.GuidanceSaveIncrement}" />
+            </VerticalStackLayout>
+
+            <VerticalStackLayout
+                x:Name="EffortRecommendationState"
+                IsVisible="{Binding ShowsRecommendation}"
+                Spacing="{DynamicResource TrackZSpace12}">
+                <Label
+                    SemanticProperties.HeadingLevel="Level3"
+                    Style="{DynamicResource TrackZNavigationTitleStyle}"
+                    Text="{Binding RecommendationTitle}" />
+                <Label
+                    Style="{DynamicResource TrackZSecondaryStyle}"
+                    Text="{Binding RecommendationReason}" />
+                <Button
+                    x:Name="GuidanceUseAction"
+                    Command="{Binding UseSuggestionCommand}"
+                    IsVisible="{Binding HasUseAction}"
+                    SemanticProperties.Description="{Binding UseActionText}"
+                    Style="{DynamicResource TrackZPrimaryButtonStyle}"
+                    Text="{Binding UseActionText}" />
+                <Button
+                    x:Name="GuidanceEditIncrementAction"
+                    Command="{Binding EditIncrementCommand}"
+                    IsVisible="{Binding CanEditIncrement}"
+                    SemanticProperties.Description="{Binding Text.GuidanceEditIncrement}"
+                    Style="{DynamicResource TrackZQuietButtonStyle}"
+                    Text="{Binding Text.GuidanceEditIncrement}" />
+                <Button
+                    x:Name="GuidanceNotNowAction"
+                    Command="{Binding NotNowCommand}"
+                    SemanticProperties.Description="{Binding Text.NotNow}"
+                    Style="{DynamicResource TrackZSecondaryButtonStyle}"
+                    Text="{Binding Text.NotNow}" />
+            </VerticalStackLayout>
+
+            <VerticalStackLayout
+                x:Name="EffortSaveFailedState"
+                IsVisible="{Binding HasSaveError}"
+                Spacing="{DynamicResource TrackZSpace12}">
+                <Label
+                    SemanticProperties.HeadingLevel="Level3"
+                    Style="{DynamicResource TrackZNavigationTitleStyle}"
+                    Text="{Binding Text.EffortSaveFailed}" />
+                <Label
+                    Style="{DynamicResource TrackZSecondaryStyle}"
+                    Text="{Binding Text.EffortOriginalSetSafe}" />
+                <Button
+                    x:Name="EffortRetryAction"
+                    Command="{Binding RetryCommand}"
+                    SemanticProperties.Description="{Binding Text.Retry}"
+                    Style="{DynamicResource TrackZSecondaryButtonStyle}"
+                    Text="{Binding Text.Retry}" />
+                <Button
+                    x:Name="EffortFailureNotNowAction"
+                    Command="{Binding NotNowCommand}"
+                    SemanticProperties.Description="{Binding Text.NotNow}"
+                    Style="{DynamicResource TrackZQuietButtonStyle}"
+                    Text="{Binding Text.NotNow}" />
+            </VerticalStackLayout>
+
+            <VerticalStackLayout
+                x:Name="EffortUnavailableState"
+                IsVisible="{Binding HasUnavailable}"
+                Spacing="{DynamicResource TrackZSpace12}">
+                <Label
+                    SemanticProperties.HeadingLevel="Level3"
+                    Style="{DynamicResource TrackZNavigationTitleStyle}"
+                    Text="{Binding Text.EffortUnavailable}" />
+                <Button
+                    x:Name="EffortUnavailableCloseAction"
+                    Command="{Binding NotNowCommand}"
+                    SemanticProperties.Description="{Binding Text.NotNow}"
+                    Style="{DynamicResource TrackZQuietButtonStyle}"
+                    Text="{Binding Text.NotNow}" />
+            </VerticalStackLayout>
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>

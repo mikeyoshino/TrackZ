@@ -1,5 +1,8 @@
 using Microsoft.Extensions.DependencyInjection;
+using TrackZ.Domain.Workouts;
+using TrackZ.Mobile.Data.Models;
 using TrackZ.Mobile.Features.Exercises.Services;
+using TrackZ.Mobile.Features.Workout;
 using TrackZ.Mobile.Identity;
 using TrackZ.Mobile.Presentation;
 using TrackZ.Mobile.Components;
@@ -13,6 +16,26 @@ public sealed class NativePresentationCompositionTests
     {
         using var app = MauiProgram.CreateMauiApp();
 
+        Assert.Same(
+            app.Services.GetRequiredService<INativeSheetPresenter>(),
+            app.Services.GetRequiredService<INativeSheetPresenter>());
+    }
+
+    [Fact]
+    public void Effort_sheet_page_and_view_model_are_transient_while_presenter_stays_singleton()
+    {
+        using var app = MauiProgram.CreateMauiApp(services =>
+            services.AddSingleton<ISetEffortRecorder, StubEffortRecorder>());
+
+        Assert.NotSame(
+            app.Services.GetRequiredService<SetEffortSheetPage>(),
+            app.Services.GetRequiredService<SetEffortSheetPage>());
+        Assert.NotSame(
+            app.Services.GetRequiredService<ISetEffortSheet>(),
+            app.Services.GetRequiredService<ISetEffortSheet>());
+        Assert.NotSame(
+            app.Services.GetRequiredService<SetEffortPromptViewModel>(),
+            app.Services.GetRequiredService<SetEffortPromptViewModel>());
         Assert.Same(
             app.Services.GetRequiredService<INativeSheetPresenter>(),
             app.Services.GetRequiredService<INativeSheetPresenter>());
@@ -81,6 +104,21 @@ public sealed class NativePresentationCompositionTests
         public Task RequireSignInAsync(
             AccountSessionGeneration expectedGeneration,
             CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
+    private sealed class StubEffortRecorder : ISetEffortRecorder
+    {
+        public Task<LocalSet> RecordSetEffortAsync(
+            Guid exerciseDefinitionId,
+            Guid setId,
+            SetEffortRating effort,
+            Guid operationId,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<LocalWorkout?> RestoreActiveAsync(
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
     }
 
     private static string FindSolutionDirectory()

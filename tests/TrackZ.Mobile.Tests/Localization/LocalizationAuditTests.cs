@@ -32,6 +32,7 @@ public sealed class LocalizationAuditTests
         "Features/Exercises/CustomExercisePage.xaml",
         "Features/Workout/WorkoutPage.xaml",
         "Features/Workout/SetLoggerPage.xaml",
+        "Features/Workout/SetEffortSheetPage.xaml",
         "Features/Workout/SetEntrySheetPage.xaml",
         "Features/History/WorkoutHistoryPage.xaml",
         "Features/History/WorkoutHistoryDetailPage.xaml",
