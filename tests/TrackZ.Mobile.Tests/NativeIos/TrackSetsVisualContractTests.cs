@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using System.Xml.Linq;
 
 namespace TrackZ.Mobile.Tests.NativeIos;
@@ -102,7 +103,125 @@ public sealed class TrackSetsVisualContractTests
         Assert.DoesNotContain("data-effort-unavailable-action=\"retry\"", html, StringComparison.Ordinal);
         Assert.DoesNotContain("data-effort-unavailable-action=\"use\"", html, StringComparison.Ordinal);
         Assert.DoesNotContain("RIR", html, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("score", html, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("4+", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Persistent_html_reference_keeps_one_ordered_logger_and_one_exclusive_medium_sheet()
+    {
+        var document = HtmlReference();
+        var logger = document.Descendants("main").Single(element =>
+            (string?)element.Attribute("data-unit") == "kg");
+        var loggerSections = logger.Elements()
+            .Where(element => element.Attribute("data-set-logger-section") is not null)
+            .ToArray();
+
+        Assert.Equal(
+            ["exercise", "previous-reference", "editor", "today", "last"],
+            loggerSections.Select(element =>
+                (string)element.Attribute("data-set-logger-section")!));
+        var previous = loggerSections.Single(element =>
+            (string?)element.Attribute("data-set-logger-section") == "previous-reference");
+        Assert.Equal("true", (string?)previous.Attribute("data-previous-reference"));
+
+        var frame = document.Descendants().Single(element =>
+            (string?)element.Attribute("data-effort-sheet-frame") == "true");
+        Assert.Equal("medium", (string?)frame.Attribute("data-detent"));
+        var stateContainer = frame.Descendants().Single(element =>
+            (string?)element.Attribute("data-effort-sheet-states") == "exclusive");
+        var specimens = stateContainer.Elements()
+            .Where(element => element.Attribute("data-effort-sheet") is not null)
+            .ToArray();
+        Assert.Equal(
+            ["asking", "recommendation", "needs-increment", "unavailable"],
+            specimens.Select(element => (string)element.Attribute("data-effort-sheet")!));
+        Assert.Equal(
+            specimens,
+            document.Descendants()
+                .Where(element => element.Attribute("data-effort-sheet") is not null));
+        Assert.All(specimens, specimen =>
+        {
+            Assert.Same(stateContainer, specimen.Parent);
+            Assert.DoesNotContain(specimen.Descendants(), element =>
+                element.Attribute("data-effort-sheet") is not null);
+        });
+
+        var asking = specimens.Single(element =>
+            (string?)element.Attribute("data-effort-sheet") == "asking");
+        Assert.Equal(
+            "Set saved",
+            asking.Descendants().Single(element =>
+                (string?)element.Attribute("data-saved-pulse") == "true").Value.Trim());
+        Assert.Contains(asking.Descendants("p"), element => element.Value.Trim() ==
+            "If you feel pain or cannot keep good form, stop this exercise.");
+        Assert.Equal(
+            [
+                "Too easy — many reps left",
+                "About right — the final reps were hard, with good form",
+                "Too heavy — missed the range or form began to break",
+                "Not sure · skip this time"
+            ],
+            asking.Descendants("button").Select(element => element.Value.Trim()));
+
+        var recommendation = specimens.Single(element =>
+            (string?)element.Attribute("data-effort-sheet") == "recommendation");
+        Assert.Equal(
+            "Try 72.5 kg next set",
+            recommendation.Descendants().Single(element =>
+                (string?)element.Attribute("data-recommendation-content") == "title").Value.Trim());
+        Assert.Equal(
+            "Two comparable sets reached at least 12 reps with good form.",
+            recommendation.Descendants().Single(element =>
+                (string?)element.Attribute("data-recommendation-content") == "reason").Value.Trim());
+        Assert.Equal(
+            "Use for next set",
+            recommendation.Descendants("button").Single(element =>
+                (string?)element.Attribute("data-guidance-action") == "use").Value.Trim());
+        Assert.Equal(
+            "Not now",
+            recommendation.Descendants("button").Single(element =>
+                (string?)element.Attribute("data-guidance-action") == "dismiss").Value.Trim());
+
+        var needsIncrement = specimens.Single(element =>
+            (string?)element.Attribute("data-effort-sheet") == "needs-increment");
+        Assert.Single(needsIncrement.Descendants(), element =>
+            (string?)element.Attribute("data-increment-controls") == "true");
+
+        var unavailable = specimens.Single(element =>
+            (string?)element.Attribute("data-effort-sheet") == "unavailable");
+        var unavailableAction = Assert.Single(unavailable.Descendants("button"));
+        Assert.Same(
+            unavailableAction,
+            Assert.Single(unavailable.Descendants(), element =>
+                element.Name.LocalName is "button" or "input" or "select" or "textarea"));
+        Assert.Equal("dismiss",
+            (string?)unavailableAction.Attribute("data-effort-unavailable-action"));
+        Assert.Equal("Not now", unavailableAction.Value.Trim());
+        Assert.DoesNotContain(unavailable.Descendants(), element =>
+            element.Attribute("data-guidance-action") is not null
+            || element.Attribute("data-increment-controls") is not null
+            || element.Attribute("data-recommendation-content") is not null);
+        Assert.DoesNotContain(unavailable.Descendants("button"), element =>
+            element.Value.Contains("retry", StringComparison.OrdinalIgnoreCase)
+            || element.Value.Contains("use", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static XDocument HtmlReference()
+    {
+        var html = File.ReadAllText(Path.Combine(Root(), "docs/design/track-sets-reference.html"));
+        html = html.Replace("<!doctype html>", "<!DOCTYPE html>", StringComparison.Ordinal);
+        html = Regex.Replace(
+            html,
+            @"<(meta|input)(\b[^>]*?)(?<!/)>",
+            "<$1$2 />",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        html = Regex.Replace(
+            html,
+            @"\shidden(?=[\s>])",
+            " hidden=\"hidden\"",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        return XDocument.Parse(html, LoadOptions.PreserveWhitespace);
     }
 
     private static int Occurrences(string source, string value)

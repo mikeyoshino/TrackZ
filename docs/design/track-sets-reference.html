@@ -18,21 +18,21 @@
 <body>
   <main data-unit="kg" data-last-workout="collapsed">
     <h1>Track sets</h1>
-    <section class="exercise"><div class="art">🏋️</div><div><strong>Bench Press</strong><div class="muted">Chest · Barbell</div></div></section>
-    <section class="previous-reference" data-previous-reference="true" aria-labelledby="previous-reference-title">
+    <section class="exercise" data-set-logger-section="exercise"><div class="art">🏋️</div><div><strong>Bench Press</strong><div class="muted">Chest · Barbell</div></div></section>
+    <section class="previous-reference" data-set-logger-section="previous-reference" data-previous-reference="true" aria-labelledby="previous-reference-title">
       <div class="eyebrow" id="previous-reference-title">Previous workout reference</div>
       <div class="previous-measurement" aria-label="70 kg × 10 reps"><strong class="performance-number" aria-hidden="true">70 kg</strong><span aria-hidden="true">×</span><span class="secondary" aria-hidden="true">10 reps</span></div>
       <div class="secondary reference-reason">Heaviest set in the 8–12 rep range</div>
     </section>
-    <section class="editor"><h2>Set 3</h2><div class="controls"><div class="control"><span class="muted">Weight</span><div class="step"><button aria-label="Decrease weight">−</button><label class="entry"><input class="value-input" inputmode="decimal" value="70" aria-label="Weight"><span class="unit">kg</span></label><button aria-label="Increase weight">+</button></div></div><div class="control"><span class="muted">Reps</span><div class="step"><button aria-label="Decrease reps">−</button><label class="entry"><input class="value-input" inputmode="numeric" value="12" aria-label="Reps"></label><button aria-label="Increase reps">+</button></div></div></div><button class="save">Save set 3</button></section>
-    <section class="section"><div class="eyebrow">TODAY</div><div class="row"><span>#1</span><strong>70 kg × 12</strong></div><div class="row"><span>#2</span><strong>70 kg × 12</strong></div></section>
-    <details data-last-workout="expanded"><summary>Last workout · 2 sets</summary><div class="row"><span>#1</span><span>70 kg × 10</span></div><div class="row"><span>#2</span><span>67.5 kg × 12</span></div></details>
+    <section class="editor" data-set-logger-section="editor"><h2>Set 3</h2><div class="controls"><div class="control"><span class="muted">Weight</span><div class="step"><button aria-label="Decrease weight">−</button><label class="entry"><input class="value-input" inputmode="decimal" value="70" aria-label="Weight"><span class="unit">kg</span></label><button aria-label="Increase weight">+</button></div></div><div class="control"><span class="muted">Reps</span><div class="step"><button aria-label="Decrease reps">−</button><label class="entry"><input class="value-input" inputmode="numeric" value="12" aria-label="Reps"></label><button aria-label="Increase reps">+</button></div></div></div><button class="save">Save set 3</button></section>
+    <section class="section" data-set-logger-section="today"><div class="eyebrow">TODAY</div><div class="row"><span>#1</span><strong>70 kg × 12</strong></div><div class="row"><span>#2</span><strong>70 kg × 12</strong></div></section>
+    <details data-set-logger-section="last" data-last-workout="expanded"><summary>Last workout · 2 sets</summary><div class="row"><span>#1</span><span>70 kg × 10</span></div><div class="row"><span>#2</span><span>67.5 kg × 12</span></div></details>
     <span hidden data-unit="lb" data-tracking-mode="assisted">Assistance · 33.07 lb × 8</span>
   </main>
-  <section class="sheet-reference" data-detent="medium" aria-labelledby="sheet-reference-title">
+  <section class="sheet-reference" data-effort-sheet-frame="true" data-detent="medium" aria-labelledby="sheet-reference-title">
     <div class="sheet-handle" aria-hidden="true"></div>
     <header class="sheet-reference-header"><h2 id="sheet-reference-title">Set effort · medium sheet</h2><span class="secondary">Mutually exclusive runtime states</span></header>
-    <div class="sheet-states">
+    <div class="sheet-states" data-effort-sheet-states="exclusive">
       <article class="sheet-state" data-effort-sheet="asking">
         <span class="state-label">Asking</span>
         <p class="saved" data-saved-pulse="true">Set saved</p>
@@ -46,20 +46,22 @@
       </article>
       <article class="sheet-state" data-effort-sheet="recommendation">
         <span class="state-label">Recommendation</span>
-        <h3>Try 72.5 kg next set</h3>
-        <p class="secondary">Two comparable sets reached at least 12 reps with good form.</p>
-        <button class="primary">Use for next set</button>
+        <h3 data-recommendation-content="title">Try 72.5 kg next set</h3>
+        <p class="secondary" data-recommendation-content="reason">Two comparable sets reached at least 12 reps with good form.</p>
+        <button class="primary" data-guidance-action="use">Use for next set</button>
         <p class="secondary">Fills the unsaved next-set draft only. Save it when you’re ready.</p>
-        <button class="quiet">Not now</button>
+        <button class="quiet" data-guidance-action="dismiss">Not now</button>
       </article>
       <article class="sheet-state" data-effort-sheet="needs-increment">
         <span class="state-label">Equipment setup</span>
         <h3>What is the smallest load change available?</h3>
         <p class="secondary">We’ll remember it for this exercise on this device.</p>
-        <div class="increment-options"><button>1.25 kg</button><button>2.5 kg</button><button>5 kg</button></div>
-        <label class="increment-field"><input inputmode="decimal" placeholder="For example, 2.5" aria-label="Smallest load change"><span class="unit">kg</span></label>
-        <button class="primary">Use this increment</button>
-        <button class="quiet">Not now</button>
+        <div data-increment-controls="true">
+          <div class="increment-options"><button>1.25 kg</button><button>2.5 kg</button><button>5 kg</button></div>
+          <label class="increment-field"><input inputmode="decimal" placeholder="For example, 2.5" aria-label="Smallest load change"><span class="unit">kg</span></label>
+          <button class="primary">Use this increment</button>
+          <button class="quiet">Not now</button>
+        </div>
       </article>
       <article class="sheet-state" data-effort-sheet="unavailable">
         <span class="state-label">Unavailable</span>

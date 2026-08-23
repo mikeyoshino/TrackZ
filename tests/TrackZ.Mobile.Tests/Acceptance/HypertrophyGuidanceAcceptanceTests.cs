@@ -104,6 +104,9 @@ public sealed class HypertrophyGuidanceAcceptanceTests : IAsyncDisposable
         Assert.Equal(72.5m, prompt.Guidance.SuggestedWeightKg);
         Assert.False(logger.HasDraftSet);
         var pendingBeforeUse = await outbox.PendingAsync();
+        var graphBeforeUse = (await repository.GetActiveAsync())!;
+        var exerciseBeforeUse = Assert.Single(graphBeforeUse.Exercises);
+        var setBeforeUse = Assert.Single(exerciseBeforeUse.Sets);
 
         prompt.UseSuggestion();
 
@@ -114,6 +117,26 @@ public sealed class HypertrophyGuidanceAcceptanceTests : IAsyncDisposable
             pendingBeforeUse.Select(operation => operation.OperationId),
             (await outbox.PendingAsync()).Select(operation => operation.OperationId));
         Assert.Single(logger.TodaySets);
+
+        var recreatedDatabase = new TrackZLocalDatabase(_path);
+        var recreatedRepository = new LocalWorkoutRepository(recreatedDatabase);
+        var recreatedCoordinator = new ActiveWorkoutCoordinator(
+            recreatedRepository, boundary, clock);
+        var recreated = (await recreatedCoordinator.RestoreActiveAsync())!;
+        var recreatedExercise = Assert.Single(recreated.Exercises);
+        var recreatedSet = Assert.Single(recreatedExercise.Sets);
+        var pendingAfterRestart = await new OutboxRepository(recreatedDatabase).PendingAsync();
+
+        Assert.Equal(graphBeforeUse.Version, recreated.Version);
+        Assert.Equal(exerciseBeforeUse.Version, recreatedExercise.Version);
+        Assert.Equal(setBeforeUse.Version, recreatedSet.Version);
+        Assert.Equal(saved.Id, recreatedSet.Id);
+        Assert.Equal(70m, recreatedSet.WeightKg);
+        Assert.Equal(12, recreatedSet.Reps);
+        Assert.Equal(SetEffortRating.Productive, recreatedSet.Effort);
+        Assert.Equal(
+            pendingBeforeUse.Select(operation => operation.OperationId),
+            pendingAfterRestart.Select(operation => operation.OperationId));
     }
 
     [Fact]
@@ -141,10 +164,27 @@ public sealed class HypertrophyGuidanceAcceptanceTests : IAsyncDisposable
         var history = new ExerciseHistoryCache(_historyPath);
         await history.ReplaceAsync(exerciseId, previous);
         var local = (await repository.GetActiveAsync())!;
-        var before = GuidanceFrom(local, previous, 2.5m);
         var outbox = new OutboxRepository(database);
         var expected = await outbox.PendingAsync();
-        var authority = ToSyncWorkout(local);
+        var localGraph = ToSyncWorkout(local);
+        var localExercise = Assert.Single(localGraph.Exercises);
+        var localSet = Assert.Single(localExercise.Sets);
+        var authority = localGraph with
+        {
+            Version = 9,
+            Exercises = [localExercise with
+            {
+                Version = 8,
+                Sets = [localSet with
+                {
+                    WeightKg = "75",
+                    Reps = 10,
+                    UpdatedAt = clock.UtcNow.AddMinutes(1),
+                    Version = 7,
+                    Effort = SetEffortRating.TooHeavy
+                }]
+            }]
+        };
         var api = new RecordingSyncApi(expected, authority);
 
         Assert.Equal(
@@ -158,10 +198,25 @@ public sealed class HypertrophyGuidanceAcceptanceTests : IAsyncDisposable
         var restored = (await recreatedRepository.GetActiveAsync())!;
         var restoredPrevious = (await recreatedHistory.GetMostRecentAsync(exerciseId))!;
         var after = GuidanceFrom(restored, restoredPrevious, 2.5m);
+        var restoredSet = Assert.Single(Assert.Single(restored.Exercises).Sets);
 
-        Assert.Equal(before, after);
-        Assert.Equal(HypertrophyGuidanceAction.Increase, after.Action);
+        Assert.Equal(9, restored.Version);
+        Assert.Equal(75m, restoredSet.WeightKg);
+        Assert.Equal(10, restoredSet.Reps);
+        Assert.Equal(SetEffortRating.TooHeavy, restoredSet.Effort);
+        Assert.Equal(HypertrophyGuidanceAction.Reduce, after.Action);
         Assert.Equal(72.5m, after.SuggestedWeightKg);
+        Assert.Equal(3, api.Received.Count);
+        Assert.Equal(
+            ["StartWorkout", "SaveSet", "RecordSetEffort"],
+            api.Received.Select(item => item.Action));
+        Assert.Equal([0L, 1L, 2L], api.Received.Select(item => item.BaseVersion));
+        Assert.Equal(
+            expected.Select(operation => operation.OperationId),
+            api.Received.Select(item => item.Id));
+        Assert.Equal([null], api.PullRequests);
+        Assert.Equal("guidance-cursor-1", await ReadWorkoutCursorAsync(_path));
+        Assert.Empty(await new OutboxRepository(recreatedDatabase).PendingAsync());
         var serializedAuthority = JsonSerializer.Serialize(authority);
         Assert.DoesNotContain("guidance", serializedAuthority,
             StringComparison.OrdinalIgnoreCase);
@@ -275,6 +330,7 @@ public sealed class HypertrophyGuidanceAcceptanceTests : IAsyncDisposable
         private int _pushIndex;
         private bool _pulled;
         public List<(Guid Id, string Action, long? BaseVersion)> Received { get; } = [];
+        public List<string?> PullRequests { get; } = [];
 
         public Task<SyncPushResponse> PushAsync(
             SyncPushRequest request,
@@ -296,6 +352,7 @@ public sealed class HypertrophyGuidanceAcceptanceTests : IAsyncDisposable
             string? cursor,
             CancellationToken cancellationToken = default)
         {
+            PullRequests.Add(cursor);
             if (_pulled) return Task.FromResult(new SyncPullResponse([], cursor, false));
             _pulled = true;
             return Task.FromResult(new SyncPullResponse([
@@ -303,6 +360,16 @@ public sealed class HypertrophyGuidanceAcceptanceTests : IAsyncDisposable
                     authoritative.DeletedAt is not null, authoritative.StartedAt, authoritative)
             ], "guidance-cursor-1", false));
         }
+    }
+
+    private static async Task<string?> ReadWorkoutCursorAsync(string path)
+    {
+        await using var connection = new Microsoft.Data.Sqlite.SqliteConnection(
+            $"Data Source={path};Pooling=False");
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT Cursor FROM SyncCursor WHERE Scope = 'workouts';";
+        return (string?)await command.ExecuteScalarAsync();
     }
 
     private static ExerciseHistorySessionDto PreviousSession(
