@@ -4,7 +4,7 @@ namespace TrackZ.Mobile.Data;
 
 public sealed class TrackZLocalDatabase
 {
-    public const int CurrentSchemaVersion = 5;
+    public const int CurrentSchemaVersion = 6;
     private const int BusyTimeoutMilliseconds = 5_000;
     private readonly string _connectionString;
     private readonly SemaphoreSlim _schemaGate = new(1, 1);
@@ -45,20 +45,28 @@ public sealed class TrackZLocalDatabase
                 _initialized = true;
                 return;
             }
-            if (version is not (0 or 1 or 2 or 3 or 4))
+            if (version is not (0 or 1 or 2 or 3 or 4 or 5))
             {
                 throw new InvalidDataException(
                     $"Workout database schema {version} is not supported; expected {CurrentSchemaVersion}.");
             }
 
             var syncStateUpgrade = version is 1 or 2 or 3 or 4
-                ? await BuildSyncStateUpgradeAsync(connection, cancellationToken)
+                ? await BuildSyncStateUpgradeAsync(
+                    connection,
+                    addEffortColumn: version is 2 or 3 or 4,
+                    cancellationToken)
+                : string.Empty;
+            var guidanceUpgrade = version == 5
+                ? BuildGuidanceUpgrade()
                 : string.Empty;
             await using var transaction = connection.BeginTransaction(deferred: false);
             await using var schema = connection.CreateCommand();
             schema.Transaction = transaction;
             schema.CommandText = version is 2 or 3 or 4
                 ? syncStateUpgrade
+                : version == 5
+                ? guidanceUpgrade
                 : version == 1
                 ? $$"""
                     DROP INDEX IF EXISTS UX_LocalSet_ActiveOrder;
@@ -72,6 +80,7 @@ public sealed class TrackZLocalDatabase
                         WeightKg TEXT NULL CHECK (WeightKg IS NULL OR typeof(WeightKg) = 'text'),
                         AssistedKg TEXT NULL CHECK (AssistedKg IS NULL OR typeof(AssistedKg) = 'text'),
                         Reps INTEGER NOT NULL CHECK (Reps BETWEEN 1 AND 999),
+                        Effort INTEGER NULL CHECK (Effort IS NULL OR Effort IN (1, 2, 3)),
                         CompletedAt TEXT NOT NULL,
                         UpdatedAt TEXT NULL,
                         DeletedAt TEXT NULL,
@@ -83,7 +92,7 @@ public sealed class TrackZLocalDatabase
 
                     INSERT INTO LocalSet
                         (Id, OperationId, WorkoutExerciseId, SortOrder, WeightKg, AssistedKg, Reps,
-                         CompletedAt, UpdatedAt, DeletedAt, Version, BaseVersion)
+                         Effort, CompletedAt, UpdatedAt, DeletedAt, Version, BaseVersion)
                     SELECT legacy.Id,
                            COALESCE(
                                (SELECT operation.OperationId
@@ -97,7 +106,7 @@ public sealed class TrackZLocalDatabase
                                 LIMIT 1),
                                legacy.Id),
                            legacy.WorkoutExerciseId, legacy.SortOrder, legacy.WeightKg,
-                           legacy.AssistedKg, legacy.Reps, legacy.CompletedAt, legacy.UpdatedAt,
+                           legacy.AssistedKg, legacy.Reps, NULL, legacy.CompletedAt, legacy.UpdatedAt,
                            legacy.DeletedAt, legacy.Version, legacy.BaseVersion
                     FROM LocalSetV1 AS legacy;
 
@@ -150,6 +159,7 @@ public sealed class TrackZLocalDatabase
                     WeightKg TEXT NULL CHECK (WeightKg IS NULL OR typeof(WeightKg) = 'text'),
                     AssistedKg TEXT NULL CHECK (AssistedKg IS NULL OR typeof(AssistedKg) = 'text'),
                     Reps INTEGER NOT NULL CHECK (Reps BETWEEN 1 AND 999),
+                    Effort INTEGER NULL CHECK (Effort IS NULL OR Effort IN (1, 2, 3)),
                     CompletedAt TEXT NOT NULL,
                     UpdatedAt TEXT NULL,
                     DeletedAt TEXT NULL,
@@ -166,7 +176,7 @@ public sealed class TrackZLocalDatabase
                 CREATE TABLE IF NOT EXISTS OutboxOperation (
                     OperationId TEXT PRIMARY KEY NOT NULL,
                     EntityId TEXT NOT NULL,
-                    OperationType INTEGER NOT NULL CHECK (OperationType BETWEEN 1 AND 10),
+                    OperationType INTEGER NOT NULL CHECK (OperationType BETWEEN 1 AND 11),
                     Payload TEXT NOT NULL CHECK (length(Payload) > 0),
                     BaseVersion INTEGER NOT NULL CHECK (BaseVersion >= 0),
                     CreatedAt TEXT NOT NULL,
@@ -202,7 +212,7 @@ public sealed class TrackZLocalDatabase
                     Version INTEGER NOT NULL CHECK (Version >= 0)
                 );
 
-                PRAGMA user_version = 5;
+                PRAGMA user_version = 6;
                 """;
             await schema.ExecuteNonQueryAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
@@ -305,6 +315,7 @@ public sealed class TrackZLocalDatabase
 
     private static async Task<string> BuildSyncStateUpgradeAsync(
         SqliteConnection connection,
+        bool addEffortColumn,
         CancellationToken cancellationToken)
     {
         var columns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -316,6 +327,14 @@ public sealed class TrackZLocalDatabase
         }
 
         var statements = new List<string>();
+        if (addEffortColumn)
+        {
+            statements.Add("""
+                ALTER TABLE LocalSet
+                    ADD COLUMN Effort INTEGER NULL
+                    CHECK (Effort IS NULL OR Effort IN (1, 2, 3));
+                """);
+        }
         Add("ServerVersion", "INTEGER NULL CHECK (ServerVersion IS NULL OR ServerVersion >= 0)");
         Add("RetryCount", "INTEGER NOT NULL DEFAULT 0 CHECK (RetryCount >= 0)");
         Add("NextAttemptAt", "TEXT NULL");
@@ -339,7 +358,7 @@ public sealed class TrackZLocalDatabase
             CREATE TABLE OutboxOperation (
                 OperationId TEXT PRIMARY KEY NOT NULL,
                 EntityId TEXT NOT NULL,
-                OperationType INTEGER NOT NULL CHECK (OperationType BETWEEN 1 AND 10),
+                OperationType INTEGER NOT NULL CHECK (OperationType BETWEEN 1 AND 11),
                 Payload TEXT NOT NULL CHECK (length(Payload) > 0),
                 BaseVersion INTEGER NOT NULL CHECK (BaseVersion >= 0),
                 CreatedAt TEXT NOT NULL,
@@ -377,7 +396,7 @@ public sealed class TrackZLocalDatabase
             SELECT OperationId, SnapshotJson, CreatedAt FROM HistoryUndoV4;
             DROP TABLE HistoryUndoV4;
             DROP TABLE OutboxOperationV4;
-            PRAGMA user_version = 5;
+            PRAGMA user_version = 6;
             """);
         return string.Join(Environment.NewLine, statements);
 
@@ -387,4 +406,55 @@ public sealed class TrackZLocalDatabase
                 statements.Add($"ALTER TABLE OutboxOperation ADD COLUMN {name} {definition};");
         }
     }
+
+    private static string BuildGuidanceUpgrade() => """
+        ALTER TABLE LocalSet
+            ADD COLUMN Effort INTEGER NULL
+            CHECK (Effort IS NULL OR Effort IN (1, 2, 3));
+        DROP INDEX IF EXISTS IX_OutboxOperation_Pending;
+        ALTER TABLE HistoryUndo RENAME TO HistoryUndoV5;
+        ALTER TABLE OutboxOperation RENAME TO OutboxOperationV5;
+        CREATE TABLE OutboxOperation (
+            OperationId TEXT PRIMARY KEY NOT NULL,
+            EntityId TEXT NOT NULL,
+            OperationType INTEGER NOT NULL CHECK (OperationType BETWEEN 1 AND 11),
+            Payload TEXT NOT NULL CHECK (length(Payload) > 0),
+            BaseVersion INTEGER NOT NULL CHECK (BaseVersion >= 0),
+            CreatedAt TEXT NOT NULL,
+            State INTEGER NOT NULL CHECK (State IN (1, 2, 3, 4)),
+            DeletedAt TEXT NULL,
+            Version INTEGER NOT NULL CHECK (Version >= 1),
+            ServerVersion INTEGER NULL CHECK (ServerVersion IS NULL OR ServerVersion >= 0),
+            RetryCount INTEGER NOT NULL DEFAULT 0 CHECK (RetryCount >= 0),
+            NextAttemptAt TEXT NULL,
+            ServerPayload TEXT NULL CHECK (ServerPayload IS NULL OR json_valid(ServerPayload)),
+            ReplacesOperationId TEXT NULL,
+            SendStartedAt TEXT NULL,
+            NeutralizedAt TEXT NULL,
+            FailureCode INTEGER NULL,
+            FOREIGN KEY (EntityId) REFERENCES LocalWorkout(Id) ON DELETE RESTRICT
+        );
+        INSERT INTO OutboxOperation
+            (OperationId, EntityId, OperationType, Payload, BaseVersion, CreatedAt,
+             State, DeletedAt, Version, ServerVersion, RetryCount, NextAttemptAt,
+             ServerPayload, ReplacesOperationId, SendStartedAt, NeutralizedAt, FailureCode)
+        SELECT OperationId, EntityId, OperationType, Payload, BaseVersion, CreatedAt,
+               State, DeletedAt, Version, ServerVersion, RetryCount, NextAttemptAt,
+               ServerPayload, ReplacesOperationId, SendStartedAt, NeutralizedAt, FailureCode
+        FROM OutboxOperationV5;
+        CREATE INDEX IX_OutboxOperation_Pending
+            ON OutboxOperation(State, CreatedAt, OperationId)
+            WHERE State = 1 AND DeletedAt IS NULL;
+        CREATE TABLE HistoryUndo (
+            OperationId TEXT PRIMARY KEY NOT NULL,
+            SnapshotJson TEXT NOT NULL CHECK (json_valid(SnapshotJson)),
+            CreatedAt TEXT NOT NULL,
+            FOREIGN KEY (OperationId) REFERENCES OutboxOperation(OperationId) ON DELETE CASCADE
+        );
+        INSERT INTO HistoryUndo (OperationId, SnapshotJson, CreatedAt)
+        SELECT OperationId, SnapshotJson, CreatedAt FROM HistoryUndoV5;
+        DROP TABLE HistoryUndoV5;
+        DROP TABLE OutboxOperationV5;
+        PRAGMA user_version = 6;
+        """;
 }

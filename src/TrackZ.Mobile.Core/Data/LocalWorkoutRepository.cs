@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using TrackZ.Domain.Exercises;
+using TrackZ.Domain.Workouts;
 using TrackZ.Mobile.Data.Models;
 using TrackZ.Mobile.Sync;
 
@@ -446,7 +447,7 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
                 command.Transaction = transaction;
                 command.CommandText = """
                     SELECT Id, OperationId, WorkoutExerciseId, SortOrder, WeightKg, AssistedKg, Reps,
-                           CompletedAt, UpdatedAt, DeletedAt, Version, BaseVersion
+                           Effort, CompletedAt, UpdatedAt, DeletedAt, Version, BaseVersion
                     FROM LocalSet
                     WHERE WorkoutExerciseId = $exerciseId
                     ORDER BY SortOrder, Id;
@@ -462,12 +463,15 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
                         DecimalValue(reader, 4),
                         DecimalValue(reader, 5),
                         PositiveInt32(reader, 6),
-                        Timestamp(reader, 7)!.Value,
-                        Timestamp(reader, 8),
+                        Timestamp(reader, 8)!.Value,
                         Timestamp(reader, 9),
-                        NonNegativeInt64(reader, 10),
+                        Timestamp(reader, 10),
                         NonNegativeInt64(reader, 11),
-                        GuidValue(reader, 1)));
+                        NonNegativeInt64(reader, 12),
+                        GuidValue(reader, 1),
+                        reader.IsDBNull(7)
+                            ? null
+                            : EnumValue<SetEffortRating>(reader, 7)));
                 }
                 hydrated.Add(exercise with { Sets = sets });
             }
@@ -563,7 +567,7 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
                 command.Transaction = transaction;
                 command.CommandText = """
                     SELECT Id, OperationId, WorkoutExerciseId, SortOrder, WeightKg, AssistedKg, Reps,
-                           CompletedAt, UpdatedAt, DeletedAt, Version, BaseVersion
+                           Effort, CompletedAt, UpdatedAt, DeletedAt, Version, BaseVersion
                     FROM LocalSet
                     WHERE WorkoutExerciseId = $exerciseId AND (
                         DeletedAt IS NULL OR EXISTS (
@@ -591,12 +595,15 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
                         DecimalValue(reader, 4),
                         DecimalValue(reader, 5),
                         PositiveInt32(reader, 6),
-                        Timestamp(reader, 7)!.Value,
-                        Timestamp(reader, 8),
+                        Timestamp(reader, 8)!.Value,
                         Timestamp(reader, 9),
-                        NonNegativeInt64(reader, 10),
+                        Timestamp(reader, 10),
                         NonNegativeInt64(reader, 11),
-                        GuidValue(reader, 1)));
+                        NonNegativeInt64(reader, 12),
+                        GuidValue(reader, 1),
+                        reader.IsDBNull(7)
+                            ? null
+                            : EnumValue<SetEffortRating>(reader, 7)));
                 }
                 hydratedExercises.Add(exercise with { Sets = sets });
             }
@@ -689,10 +696,10 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
         command.CommandText = """
             INSERT INTO LocalSet
                 (Id, OperationId, WorkoutExerciseId, SortOrder, WeightKg, AssistedKg, Reps,
-                 CompletedAt, UpdatedAt, DeletedAt, Version, BaseVersion)
+                 Effort, CompletedAt, UpdatedAt, DeletedAt, Version, BaseVersion)
             VALUES
                 ($id, $operationId, $exerciseId, $order, $weight, $assisted, $reps,
-                 $completedAt, $updatedAt, $deletedAt, $version, $baseVersion)
+                 $effort, $completedAt, $updatedAt, $deletedAt, $version, $baseVersion)
             ON CONFLICT(Id) DO UPDATE SET
                 OperationId = excluded.OperationId,
                 WorkoutExerciseId = excluded.WorkoutExerciseId,
@@ -700,6 +707,7 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
                 WeightKg = excluded.WeightKg,
                 AssistedKg = excluded.AssistedKg,
                 Reps = excluded.Reps,
+                Effort = excluded.Effort,
                 CompletedAt = excluded.CompletedAt,
                 UpdatedAt = excluded.UpdatedAt,
                 DeletedAt = excluded.DeletedAt,
@@ -714,6 +722,7 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
         Add(command, "$weight", DecimalText(set.WeightKg));
         Add(command, "$assisted", DecimalText(set.AssistedKg));
         Add(command, "$reps", set.Reps);
+        Add(command, "$effort", set.Effort is null ? null : (int)set.Effort.Value);
         Add(command, "$completedAt", Timestamp(set.CompletedAt));
         Add(command, "$updatedAt", Timestamp(set.UpdatedAt));
         Add(command, "$deletedAt", Timestamp(set.DeletedAt));
@@ -781,7 +790,7 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
         command.Transaction = transaction;
         command.CommandText = """
             SELECT OperationId, WorkoutExerciseId, SortOrder, WeightKg, AssistedKg, Reps,
-                   CompletedAt, UpdatedAt, DeletedAt, Version, BaseVersion
+                   Effort, CompletedAt, UpdatedAt, DeletedAt, Version, BaseVersion
             FROM LocalSet WHERE Id = $id;
             """;
         Add(command, "$id", Id(set.Id));
@@ -793,11 +802,14 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
             && NullableString(reader, 3) == DecimalText(set.WeightKg)
             && NullableString(reader, 4) == DecimalText(set.AssistedKg)
             && reader.GetInt32(5) == set.Reps
-            && reader.GetString(6) == Timestamp(set.CompletedAt)
-            && NullableString(reader, 7) == Timestamp(set.UpdatedAt)
-            && NullableString(reader, 8) == Timestamp(set.DeletedAt)
-            && reader.GetInt64(9) == set.Version
-            && reader.GetInt64(10) == set.BaseVersion;
+            && (reader.IsDBNull(6)
+                ? set.Effort is null
+                : EnumValue<SetEffortRating>(reader, 6) == set.Effort)
+            && reader.GetString(7) == Timestamp(set.CompletedAt)
+            && NullableString(reader, 8) == Timestamp(set.UpdatedAt)
+            && NullableString(reader, 9) == Timestamp(set.DeletedAt)
+            && reader.GetInt64(10) == set.Version
+            && reader.GetInt64(11) == set.BaseVersion;
     }
 
     private static async Task ValidateCoverageAndStageOrdersAsync(
@@ -850,7 +862,7 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
             command.CommandText = """
                 SELECT localSet.Id, localSet.OperationId, localSet.WorkoutExerciseId,
                        localSet.SortOrder, localSet.WeightKg, localSet.AssistedKg, localSet.Reps,
-                       localSet.CompletedAt, localSet.UpdatedAt, localSet.DeletedAt,
+                       localSet.Effort, localSet.CompletedAt, localSet.UpdatedAt, localSet.DeletedAt,
                        localSet.Version, localSet.BaseVersion
                 FROM LocalSet AS localSet
                 INNER JOIN LocalWorkoutExercise AS exercise
@@ -867,17 +879,20 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
                 if (GuidValue(reader, 1) != incoming.OperationId
                     || GuidValue(reader, 2) != incoming.WorkoutExerciseId)
                     throw new InvalidDataException("A persisted set identity cannot be changed.");
-                var existingVersion = NonNegativeInt64(reader, 10);
+                var existingVersion = NonNegativeInt64(reader, 11);
                 if (incoming.Version < existingVersion
                     || incoming.Version == existingVersion
                     && (incoming.Order != NonNegativeInt32(reader, 3)
                         || DecimalText(incoming.WeightKg) != NullableString(reader, 4)
                         || DecimalText(incoming.AssistedKg) != NullableString(reader, 5)
                         || incoming.Reps != PositiveInt32(reader, 6)
-                        || Timestamp(incoming.CompletedAt) != reader.GetString(7)
-                        || Timestamp(incoming.UpdatedAt) != NullableString(reader, 8)
-                        || Timestamp(incoming.DeletedAt) != NullableString(reader, 9)
-                        || incoming.BaseVersion != NonNegativeInt64(reader, 11)))
+                        || (reader.IsDBNull(7)
+                            ? incoming.Effort is not null
+                            : EnumValue<SetEffortRating>(reader, 7) != incoming.Effort)
+                        || Timestamp(incoming.CompletedAt) != reader.GetString(8)
+                        || Timestamp(incoming.UpdatedAt) != NullableString(reader, 9)
+                        || Timestamp(incoming.DeletedAt) != NullableString(reader, 10)
+                        || incoming.BaseVersion != NonNegativeInt64(reader, 12)))
                     throw new InvalidDataException("A set change requires a newer local version.");
             }
         }
@@ -1033,7 +1048,7 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
                 updateSet.CommandText = """
                     UPDATE LocalSet
                     SET SortOrder = $order, WeightKg = $weight, AssistedKg = $assisted,
-                        Reps = $reps, CompletedAt = $completedAt, UpdatedAt = $updatedAt,
+                        Reps = $reps, Effort = $effort, CompletedAt = $completedAt, UpdatedAt = $updatedAt,
                         DeletedAt = $deletedAt, Version = $version, BaseVersion = $baseVersion
                     WHERE Id = $id AND OperationId = $operationId
                       AND WorkoutExerciseId = $exerciseId;
@@ -1045,6 +1060,7 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
                 Add(updateSet, "$weight", DecimalText(set.WeightKg));
                 Add(updateSet, "$assisted", DecimalText(set.AssistedKg));
                 Add(updateSet, "$reps", set.Reps);
+                Add(updateSet, "$effort", set.Effort is null ? null : (int)set.Effort.Value);
                 Add(updateSet, "$completedAt", Timestamp(set.CompletedAt));
                 Add(updateSet, "$updatedAt", Timestamp(set.UpdatedAt));
                 Add(updateSet, "$deletedAt", Timestamp(set.DeletedAt));
@@ -1177,6 +1193,8 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
                 RequireTimestamp(set.CompletedAt, nameof(set.CompletedAt));
                 OptionalTimestamp(set.UpdatedAt, nameof(set.UpdatedAt));
                 OptionalTimestamp(set.DeletedAt, nameof(set.DeletedAt));
+                if (set.Effort is { } effort && !Enum.IsDefined(effort))
+                    throw new ArgumentOutOfRangeException(nameof(workout));
                 if (set.Reps is < 1 or > 999 || !ValidMeasurement(exercise.TrackingMode, set))
                     throw new ArgumentException("Set measurement is invalid for its tracking mode.", nameof(workout));
             }
@@ -1356,7 +1374,8 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
                 set.DeletedAt,
                 set.Version,
                 set.BaseVersion,
-                set.OperationId)).ToArray())).ToArray());
+                set.OperationId,
+                set.Effort)).ToArray())).ToArray());
 
     private static LocalWorkout FromUndoSnapshot(HistoryUndoWorkout workout) => new(
         workout.Id,
@@ -1387,7 +1406,8 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
                 set.DeletedAt,
                 set.Version,
                 set.BaseVersion,
-                set.OperationId)).ToArray())).ToArray());
+                set.OperationId,
+                set.Effort)).ToArray())).ToArray());
 
     private sealed record HistoryUndoWorkout(
         Guid Id,
@@ -1422,5 +1442,6 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
         DateTimeOffset? DeletedAt,
         long Version,
         long BaseVersion,
-        Guid OperationId);
+        Guid OperationId,
+        SetEffortRating? Effort = null);
 }

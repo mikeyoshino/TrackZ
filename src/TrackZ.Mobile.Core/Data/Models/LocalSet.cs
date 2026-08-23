@@ -1,3 +1,5 @@
+using TrackZ.Domain.Workouts;
+
 namespace TrackZ.Mobile.Data.Models;
 
 public sealed record LocalSet(
@@ -12,7 +14,8 @@ public sealed record LocalSet(
     DateTimeOffset? DeletedAt,
     long Version,
     long BaseVersion,
-    Guid OperationId)
+    Guid OperationId,
+    SetEffortRating? Effort = null)
 {
     public LocalSet(decimal? weightKg, decimal? assistedKg, int reps)
         : this(
@@ -27,7 +30,8 @@ public sealed record LocalSet(
             null,
             1,
             0,
-            Guid.NewGuid())
+            Guid.NewGuid(),
+            null)
     {
     }
 }

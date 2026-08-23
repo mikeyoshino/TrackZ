@@ -1,6 +1,7 @@
 using System.Globalization;
 using Microsoft.Data.Sqlite;
 using TrackZ.Domain.Exercises;
+using TrackZ.Domain.Workouts;
 using TrackZ.Mobile.Data;
 using TrackZ.Mobile.Data.Models;
 using TrackZ.Mobile.Features.Exercises;
@@ -511,6 +512,54 @@ public sealed class ActiveWorkoutCoordinatorTests : IDisposable
     }
 
     [Fact]
+    public async Task Schema_v5_upgrades_to_v6_with_null_effort_and_accepts_operation_type_11()
+    {
+        var fixture = CreateFixture();
+        await fixture.Coordinator.StartAsync([
+            new WorkoutExerciseSelection(_exerciseId, TrackingMode.Weighted)
+        ]);
+        var saved = await fixture.Coordinator.SaveSetAsync(
+            _exerciseId, new LocalSet(72.5m, null, 10));
+        await DowngradeGuidanceSchemaToV5Async();
+
+        var upgraded = new TrackZLocalDatabase(_databasePath);
+        await upgraded.InitializeAsync();
+        var repository = new LocalWorkoutRepository(upgraded);
+        var restored = Assert.Single(Assert.Single(
+            (await repository.GetActiveAsync(default))!.Exercises).Sets);
+
+        Assert.Equal(saved.Id, restored.Id);
+        Assert.Null(restored.Effort);
+        await using var connection = await OpenRawAsync();
+        await using var version = connection.CreateCommand();
+        version.CommandText = "PRAGMA user_version;";
+        Assert.Equal(6, Convert.ToInt32(await version.ExecuteScalarAsync()));
+        await using var schema = connection.CreateCommand();
+        schema.CommandText = "SELECT sql FROM sqlite_master WHERE type='table' AND name='OutboxOperation';";
+        Assert.Contains("BETWEEN 1 AND 11", (string)(await schema.ExecuteScalarAsync())!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Save_set_rejects_prepopulated_effort_without_graph_or_outbox_change()
+    {
+        var fixture = CreateFixture();
+        await fixture.Coordinator.StartAsync([
+            new WorkoutExerciseSelection(_exerciseId, TrackingMode.Weighted)
+        ]);
+        var pendingBefore = await fixture.Outbox.PendingAsync();
+        var set = new LocalSet(
+            Guid.NewGuid(), Guid.Empty, 0, 70m, null, 10,
+            default, null, null, 0, 0, Guid.NewGuid(), SetEffortRating.Easy);
+
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            fixture.Coordinator.SaveSetAsync(_exerciseId, set));
+
+        Assert.Equal(pendingBefore, await fixture.Outbox.PendingAsync());
+        Assert.Empty(Assert.Single(
+            (await fixture.Coordinator.RestoreActiveAsync())!.Exercises).Sets);
+    }
+
+    [Fact]
     public async Task Pending_outbox_is_ordered_by_created_at_then_operation_id_and_retains_payload()
     {
         var fixture = CreateFixture();
@@ -878,6 +927,64 @@ public sealed class ActiveWorkoutCoordinatorTests : IDisposable
         await using var markLegacy = connection.CreateCommand();
         markLegacy.CommandText = "PRAGMA user_version = 1;";
         await markLegacy.ExecuteNonQueryAsync();
+    }
+
+    private async Task DowngradeGuidanceSchemaToV5Async()
+    {
+        await using var connection = await OpenRawAsync();
+        await using var transaction = await connection.BeginTransactionAsync();
+        await using var downgrade = connection.CreateCommand();
+        downgrade.Transaction = (SqliteTransaction)transaction;
+        downgrade.CommandText = """
+            DROP INDEX IF EXISTS IX_OutboxOperation_Pending;
+            ALTER TABLE HistoryUndo RENAME TO HistoryUndoV6;
+            ALTER TABLE OutboxOperation RENAME TO OutboxOperationV6;
+            CREATE TABLE OutboxOperation (
+                OperationId TEXT PRIMARY KEY NOT NULL,
+                EntityId TEXT NOT NULL,
+                OperationType INTEGER NOT NULL CHECK (OperationType BETWEEN 1 AND 10),
+                Payload TEXT NOT NULL CHECK (length(Payload) > 0),
+                BaseVersion INTEGER NOT NULL CHECK (BaseVersion >= 0),
+                CreatedAt TEXT NOT NULL,
+                State INTEGER NOT NULL CHECK (State IN (1, 2, 3, 4)),
+                DeletedAt TEXT NULL,
+                Version INTEGER NOT NULL CHECK (Version >= 1),
+                ServerVersion INTEGER NULL CHECK (ServerVersion IS NULL OR ServerVersion >= 0),
+                RetryCount INTEGER NOT NULL DEFAULT 0 CHECK (RetryCount >= 0),
+                NextAttemptAt TEXT NULL,
+                ServerPayload TEXT NULL CHECK (ServerPayload IS NULL OR json_valid(ServerPayload)),
+                ReplacesOperationId TEXT NULL,
+                SendStartedAt TEXT NULL,
+                NeutralizedAt TEXT NULL,
+                FailureCode INTEGER NULL,
+                FOREIGN KEY (EntityId) REFERENCES LocalWorkout(Id) ON DELETE RESTRICT
+            );
+            INSERT INTO OutboxOperation
+                (OperationId, EntityId, OperationType, Payload, BaseVersion, CreatedAt,
+                 State, DeletedAt, Version, ServerVersion, RetryCount, NextAttemptAt,
+                 ServerPayload, ReplacesOperationId, SendStartedAt, NeutralizedAt, FailureCode)
+            SELECT OperationId, EntityId, OperationType, Payload, BaseVersion, CreatedAt,
+                   State, DeletedAt, Version, ServerVersion, RetryCount, NextAttemptAt,
+                   ServerPayload, ReplacesOperationId, SendStartedAt, NeutralizedAt, FailureCode
+            FROM OutboxOperationV6;
+            CREATE INDEX IX_OutboxOperation_Pending
+                ON OutboxOperation(State, CreatedAt, OperationId)
+                WHERE State = 1 AND DeletedAt IS NULL;
+            CREATE TABLE HistoryUndo (
+                OperationId TEXT PRIMARY KEY NOT NULL,
+                SnapshotJson TEXT NOT NULL CHECK (json_valid(SnapshotJson)),
+                CreatedAt TEXT NOT NULL,
+                FOREIGN KEY (OperationId) REFERENCES OutboxOperation(OperationId) ON DELETE CASCADE
+            );
+            INSERT INTO HistoryUndo (OperationId, SnapshotJson, CreatedAt)
+            SELECT OperationId, SnapshotJson, CreatedAt FROM HistoryUndoV6;
+            DROP TABLE HistoryUndoV6;
+            DROP TABLE OutboxOperationV6;
+            ALTER TABLE LocalSet DROP COLUMN Effort;
+            PRAGMA user_version = 5;
+            """;
+        await downgrade.ExecuteNonQueryAsync();
+        await transaction.CommitAsync();
     }
 
     private async Task<SqliteConnection> OpenRawAsync()

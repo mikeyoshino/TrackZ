@@ -118,6 +118,9 @@ public sealed class ActiveWorkoutCoordinator(
         ArgumentNullException.ThrowIfNull(set);
         if (set.Id == Guid.Empty || set.OperationId == Guid.Empty)
             throw new ArgumentException("Set and operation IDs must be stable non-empty values.", nameof(set));
+        if (set.Effort is not null)
+            throw new ArgumentException(
+                "A new set must be saved before effort is recorded.", nameof(set));
 
         var generation = sessionBoundary.Capture();
         await _mutationGate.WaitAsync(cancellationToken);

@@ -3,6 +3,7 @@ using Microsoft.Data.Sqlite;
 using TrackZ.Contracts.Errors;
 using TrackZ.Contracts.Sync;
 using TrackZ.Domain.Exercises;
+using TrackZ.Domain.Workouts;
 using TrackZ.Mobile.Data;
 using TrackZ.Mobile.Data.Models;
 using TrackZ.Mobile.Features.Exercises;
@@ -73,6 +74,7 @@ public sealed class SyncCoordinatorTests
                 CREATE INDEX IX_OutboxOperation_Pending
                     ON OutboxOperation(State, CreatedAt, OperationId)
                     WHERE State = 1 AND DeletedAt IS NULL;
+                ALTER TABLE LocalSet DROP COLUMN Effort;
                 PRAGMA user_version = 2;
                 """;
             await command.ExecuteNonQueryAsync();
@@ -134,6 +136,7 @@ public sealed class SyncCoordinatorTests
                 CREATE INDEX IX_OutboxOperation_Pending
                     ON OutboxOperation(State, CreatedAt, OperationId)
                     WHERE State = 1 AND DeletedAt IS NULL;
+                ALTER TABLE LocalSet DROP COLUMN Effort;
                 PRAGMA user_version = 3;
                 """;
             await command.ExecuteNonQueryAsync();
@@ -176,6 +179,7 @@ public sealed class SyncCoordinatorTests
                 await using var create = connection.CreateCommand();
                 create.CommandText = """
                     CREATE TABLE LocalWorkout (Id TEXT PRIMARY KEY NOT NULL);
+                    CREATE TABLE LocalSet (Id TEXT PRIMARY KEY NOT NULL);
                     CREATE TABLE OutboxOperation (
                         OperationId TEXT PRIMARY KEY NOT NULL,
                         EntityId TEXT NOT NULL,
@@ -795,6 +799,50 @@ public sealed class SyncCoordinatorTests
     }
 
     [Fact]
+    public async Task Pull_authoritative_graph_round_trips_and_replaces_set_effort()
+    {
+        await using var context = await SyncContext.CreateAsync();
+        var graph = CompletedServerGraph(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), 1);
+        graph = graph with
+        {
+            Exercises = [graph.Exercises[0] with
+            {
+                Sets = [graph.Exercises[0].Sets[0] with { Effort = SetEffortRating.Easy }]
+            }]
+        };
+        context.Api.PullResponses.Enqueue(new SyncPullResponse([
+            Change(graph, 1)
+        ], "cursor-effort-1", false));
+
+        Assert.Equal(SyncRunStatus.Completed, await context.Coordinator.RunOnceAsync());
+        var inserted = Assert.Single(Assert.Single(
+            (await context.Workouts.GetHistoryAsync()).Single().Exercises).Sets);
+        Assert.Equal(SetEffortRating.Easy, inserted.Effort);
+
+        var replacement = graph with
+        {
+            Version = 2,
+            Exercises = [graph.Exercises[0] with
+            {
+                Version = 2,
+                Sets = [graph.Exercises[0].Sets[0] with
+                {
+                    Version = 2,
+                    Effort = SetEffortRating.TooHeavy
+                }]
+            }]
+        };
+        context.Api.PullResponses.Enqueue(new SyncPullResponse([
+            Change(replacement, 2)
+        ], "cursor-effort-2", false));
+
+        Assert.Equal(SyncRunStatus.Completed, await context.Coordinator.RunOnceAsync());
+        var replaced = Assert.Single(Assert.Single(
+            (await context.Workouts.GetHistoryAsync()).Single().Exercises).Sets);
+        Assert.Equal(SetEffortRating.TooHeavy, replaced.Effort);
+    }
+
+    [Fact]
     public async Task Pull_rejects_exercise_id_collision_with_another_cached_workout()
     {
         await using var context = await SyncContext.CreateAsync();
@@ -1339,7 +1387,8 @@ public sealed class SyncCoordinatorTests
             exercise.Sets.Select(set => new SyncSetDto(
                 set.Id, set.Order, set.WeightKg?.ToString(System.Globalization.CultureInfo.InvariantCulture),
                 set.AssistedKg?.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                set.Reps, set.CompletedAt, set.UpdatedAt, set.DeletedAt, set.Version)).ToArray())).ToArray());
+                set.Reps, set.CompletedAt, set.UpdatedAt, set.DeletedAt, set.Version,
+                set.Effort)).ToArray())).ToArray());
 
     private static SyncWorkoutDto ServerGraphWithRemoteSet(LocalWorkout local, long version)
     {

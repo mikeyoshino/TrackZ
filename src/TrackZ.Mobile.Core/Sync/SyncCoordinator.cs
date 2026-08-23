@@ -6,6 +6,7 @@ using Microsoft.Data.Sqlite;
 using TrackZ.Contracts.Errors;
 using TrackZ.Contracts.Sync;
 using TrackZ.Domain.Exercises;
+using TrackZ.Domain.Workouts;
 using TrackZ.Mobile.Data;
 using TrackZ.Mobile.Features.Exercises;
 using TrackZ.Mobile.Identity;
@@ -1213,18 +1214,20 @@ public sealed class SyncCoordinator(
                 await ExecuteAsync(connection, transaction, """
                     INSERT INTO LocalSet
                         (Id, OperationId, WorkoutExerciseId, SortOrder, WeightKg, AssistedKg,
-                         Reps, CompletedAt, UpdatedAt, DeletedAt, Version, BaseVersion)
+                         Reps, Effort, CompletedAt, UpdatedAt, DeletedAt, Version, BaseVersion)
                     VALUES ($id, $id, $exerciseId, $order, $weight, $assisted,
-                            $reps, $completedAt, $updatedAt, $deletedAt, $version, $version)
+                            $reps, $effort, $completedAt, $updatedAt, $deletedAt, $version, $version)
                     ON CONFLICT(Id) DO UPDATE SET
                         SortOrder = excluded.SortOrder, WeightKg = excluded.WeightKg,
                         AssistedKg = excluded.AssistedKg, Reps = excluded.Reps,
+                        Effort = excluded.Effort,
                         CompletedAt = excluded.CompletedAt, UpdatedAt = excluded.UpdatedAt,
                         DeletedAt = excluded.DeletedAt, Version = excluded.Version,
                         BaseVersion = excluded.BaseVersion;
                     """, cancellationToken,
                     ("$id", Id(set.Id)), ("$exerciseId", Id(exercise.Id)), ("$order", set.Order),
                     ("$weight", set.WeightKg), ("$assisted", set.AssistedKg), ("$reps", set.Reps),
+                    ("$effort", set.Effort is null ? null : (int)set.Effort.Value),
                     ("$completedAt", Timestamp(set.CompletedAt)), ("$updatedAt", Timestamp(set.UpdatedAt)),
                     ("$deletedAt", Timestamp(set.DeletedAt)), ("$version", set.Version));
             }
@@ -1369,6 +1372,7 @@ public sealed class SyncCoordinator(
                     || set.Version < 1
                     || set.Order < 0
                     || set.Reps is < 1 or > 999
+                    || set.Effort is { } effort && !Enum.IsDefined(effort)
                     || !Utc(set.CompletedAt)
                     || set.CompletedAt < graph.StartedAt
                     || set.UpdatedAt is { } updated

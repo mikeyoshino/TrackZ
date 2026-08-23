@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using TrackZ.Contracts.Sync;
 using TrackZ.Domain.Exercises;
+using TrackZ.Domain.Workouts;
 using TrackZ.Mobile.Data;
 using TrackZ.Mobile.Data.Models;
 using TrackZ.Mobile.Features.Exercises;
@@ -19,6 +20,83 @@ public sealed class WorkoutHistoryCoordinatorTests : IAsyncDisposable
     private readonly MutableClock _clock = new(
         new DateTimeOffset(2026, 8, 16, 8, 0, 0, TimeSpan.Zero));
     private readonly AccountSessionBoundary _boundary = new();
+
+    [Fact]
+    public async Task Rated_set_round_trips_through_repository_edit_and_undo_snapshot()
+    {
+        var repository = new LocalWorkoutRepository(Database());
+        var workoutId = Guid.NewGuid();
+        var workoutExerciseId = Guid.NewGuid();
+        var exerciseDefinitionId = Guid.NewGuid();
+        var setId = Guid.NewGuid();
+        var saveOperationId = Guid.NewGuid();
+        var editOperationId = Guid.NewGuid();
+        var startedAt = new DateTimeOffset(2026, 8, 23, 8, 0, 0, TimeSpan.Zero);
+        var setCompletedAt = startedAt.AddMinutes(1);
+        var completedAt = startedAt.AddMinutes(2);
+        var editedAt = startedAt.AddMinutes(3);
+        var rated = new LocalSet(
+            setId, workoutExerciseId, 0, 70m, null, 10,
+            setCompletedAt, setCompletedAt.AddTicks(1), null,
+            2, 1, saveOperationId, SetEffortRating.Easy);
+        var previous = new LocalWorkout(
+            workoutId, LocalWorkoutStatus.Completed, startedAt, completedAt,
+            null, 3, 0,
+            [new LocalWorkoutExercise(
+                workoutExerciseId, workoutId, exerciseDefinitionId,
+                TrackingMode.Weighted, 0, null, 2, 0, [rated])]);
+        var seedOperation = OutboxOperation.Create(
+            saveOperationId,
+            workoutId,
+            OutboxOperationType.SaveSet,
+            new SaveSetOutboxPayload(
+                workoutId, workoutExerciseId, setId, 0,
+                "70", null, 10, setCompletedAt),
+            2,
+            setCompletedAt);
+        await repository.SaveWorkoutAndEnqueueAsync(previous, seedOperation);
+
+        var editedSet = rated with
+        {
+            WeightKg = 72.5m,
+            Reps = 9,
+            UpdatedAt = editedAt,
+            Version = rated.Version + 1
+        };
+        var edited = previous with
+        {
+            Version = previous.Version + 1,
+            Exercises = [previous.Exercises[0] with
+            {
+                Version = previous.Exercises[0].Version + 1,
+                Sets = [editedSet]
+            }]
+        };
+        var editOperation = OutboxOperation.Create(
+            editOperationId,
+            workoutId,
+            OutboxOperationType.EditSet,
+            new EditSetOutboxPayload(
+                workoutId, workoutExerciseId, setId,
+                "72.5", null, 9, editedAt),
+            previous.Version,
+            editedAt);
+        await repository.SaveHistoryMutationAndEnqueueAsync(
+            previous, edited, editOperation);
+
+        var reloaded = Assert.Single(await repository.GetHistoryAsync());
+        var reloadedSet = Assert.Single(Assert.Single(reloaded.Exercises).Sets);
+        Assert.Equal(SetEffortRating.Easy, reloadedSet.Effort);
+        Assert.Equal(72.5m, reloadedSet.WeightKg);
+        Assert.Equal(9, reloadedSet.Reps);
+
+        var restored = await repository.UndoHistoryMutationAsync(
+            editOperationId, editedAt.AddMinutes(1));
+        var restoredSet = Assert.Single(Assert.Single(restored.Exercises).Sets);
+        Assert.Equal(SetEffortRating.Easy, restoredSet.Effort);
+        Assert.Equal(70m, restoredSet.WeightKg);
+        Assert.Equal(10, restoredSet.Reps);
+    }
 
     [Fact]
     public async Task Completion_persists_undo_before_mutation_and_can_restore_active_workout_before_send()
@@ -645,7 +723,8 @@ public sealed class WorkoutHistoryCoordinatorTests : IAsyncDisposable
                 set.Id, set.Order,
                 set.WeightKg?.ToString(System.Globalization.CultureInfo.InvariantCulture),
                 set.AssistedKg?.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                set.Reps, set.CompletedAt, set.UpdatedAt, set.DeletedAt, set.Version)).ToArray()
+                set.Reps, set.CompletedAt, set.UpdatedAt, set.DeletedAt, set.Version,
+                set.Effort)).ToArray()
         )).ToArray());
 
     private static SyncWorkoutDto EditedGraph(
