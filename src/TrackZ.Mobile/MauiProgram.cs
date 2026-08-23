@@ -156,6 +156,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<LocalizedUiScopeManager>();
 		builder.Services.AddSingleton<IWorkoutPreferenceStore, MauiWorkoutPreferenceStore>();
 		builder.Services.AddSingleton<IWeightUnitPreference, WeightUnitPreference>();
+		builder.Services.AddSingleton<IExerciseGuidancePreferenceStore, ExerciseGuidancePreferenceStore>();
 		builder.Services.AddScoped<MauiSetSavedFeedback>();
 		builder.Services.AddScoped<ISetSavedFeedback>(services => services.GetRequiredService<MauiSetSavedFeedback>());
 		builder.Services.AddSingleton<IReduceMotionPreference, MauiReduceMotionPreference>();

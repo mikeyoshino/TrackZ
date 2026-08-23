@@ -80,7 +80,8 @@ public sealed class MauiPrivateDataCleaner(
     CustomExerciseImageService exercises,
     TrackZLocalDatabase workouts,
     ExerciseHistoryCache history,
-    ProgressSnapshotCache progress) : IMobilePrivateDataCleaner
+    ProgressSnapshotCache progress,
+    IExerciseGuidancePreferenceStore guidance) : IMobilePrivateDataCleaner
 {
     public async Task ClearAsync(CancellationToken cancellationToken = default)
     {
@@ -115,6 +116,15 @@ public sealed class MauiPrivateDataCleaner(
         try
         {
             await progress.ClearAsync(cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            failures.Add(exception);
+        }
+
+        try
+        {
+            guidance.Clear();
         }
         catch (Exception exception)
         {

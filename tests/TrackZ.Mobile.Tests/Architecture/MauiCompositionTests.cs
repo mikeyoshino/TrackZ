@@ -585,11 +585,14 @@ public sealed class MauiCompositionTests
             services.AddSingleton(new ExerciseHistoryCache(Path.Combine(root, "history.db")));
             services.AddSingleton(new ExerciseCache(Path.Combine(root, "exercises.db")));
             services.AddSingleton(new TrackZLocalDatabase(Path.Combine(root, "workouts.db")));
+            services.AddSingleton(new ProgressSnapshotCache(Path.Combine(root, "progress.json")));
             services.AddSingleton<IConnectivityService>(new HeadlessConnectivity());
             services.AddSingleton<IUiDispatcher>(new InlineUiDispatcher());
             services.AddSingleton<IExerciseThumbnailCache>(new HeadlessThumbnailCache());
             services.AddSingleton<IWorkoutPreferenceStore>(preferences);
             services.AddSingleton<IWeightUnitPreference, WeightUnitPreference>();
+            services.RemoveAll<IMobilePrivateDataCleaner>();
+            services.AddSingleton<IMobilePrivateDataCleaner, MauiPrivateDataCleaner>();
             services.RemoveAll<MauiSetSavedFeedback>();
             services.AddSingleton(new MauiSetSavedFeedback(() => false));
             services.RemoveAll<ISetSavedFeedback>();
@@ -605,6 +608,9 @@ public sealed class MauiCompositionTests
             var interfaceStatus = app.Services.GetRequiredService<IWorkoutOutboxStatusSource>();
             var firstHistoryPage = app.Services.GetRequiredService<WorkoutHistoryPage>();
             var secondHistoryPage = app.Services.GetRequiredService<WorkoutHistoryPage>();
+            var firstGuidance = app.Services.GetRequiredService<IExerciseGuidancePreferenceStore>();
+            var secondGuidance = app.Services.GetRequiredService<IExerciseGuidancePreferenceStore>();
+            var guidanceExerciseId = Guid.NewGuid();
 
             Assert.IsType<SetLoggerViewModel>(firstPage.BindingContext);
             Assert.IsType<SetLoggerViewModel>(secondPage.BindingContext);
@@ -628,6 +634,8 @@ public sealed class MauiCompositionTests
             Assert.NotSame(firstHistoryPage, secondHistoryPage);
             Assert.NotSame(firstHistoryPage.BindingContext, secondHistoryPage.BindingContext);
             Assert.Same(concreteStatus, app.Services.GetRequiredService<IHistoryOutboxStatusSource>());
+            Assert.Same(firstGuidance, secondGuidance);
+            firstGuidance.SetIncrementKg(guidanceExerciseId, 2.5m);
             firstHistoryPage.Deactivate();
             secondHistoryPage.Deactivate();
 
@@ -673,6 +681,13 @@ public sealed class MauiCompositionTests
 
             await AssertPulseStartIsAtomicWithResetAsync(app.Services);
             await AssertRunningPulseIsCancelledPromptlyAsync(app.Services);
+
+            await app.Services.GetRequiredService<IMobilePrivateDataCleaner>().ClearAsync();
+
+            Assert.Null(firstGuidance.GetIncrementKg(guidanceExerciseId));
+            Assert.Equal(
+                WeightDisplayUnit.Pounds,
+                app.Services.GetRequiredService<IWeightUnitPreference>().Current);
         }
         finally
         {
