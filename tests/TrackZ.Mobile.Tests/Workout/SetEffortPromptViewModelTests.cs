@@ -874,6 +874,14 @@ public sealed class SetEffortPromptViewModelTests
             Func<CancellationToken, Task> reset,
             CancellationToken cancellationToken = default) =>
             _inner.TryResetAsync(generation, reset, cancellationToken);
+
+        public Task<bool> TryResetIfAsync(
+            AccountSessionGeneration generation,
+            Func<CancellationToken, Task<bool>> authorizeReset,
+            Func<CancellationToken, Task> reset,
+            CancellationToken cancellationToken = default) =>
+            _inner.TryResetIfAsync(
+                generation, authorizeReset, reset, cancellationToken);
     }
 
     private sealed class MemoryWorkoutPreferenceStore : IWorkoutPreferenceStore

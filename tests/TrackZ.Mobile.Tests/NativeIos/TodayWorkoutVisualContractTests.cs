@@ -34,6 +34,11 @@ public sealed class TodayWorkoutVisualContractTests
         var actions = page.Descendants().Single(element => Name(element) == "WorkoutActions");
         Assert.Equal("3", actions.Attribute("Grid.Row")?.Value);
         Assert.Equal("0,0,0,12", actions.Attribute("Margin")?.Value);
+        var discard = page.Descendants().Single(element => Name(element) == "DiscardWorkoutButton");
+        Assert.Equal("{Binding DiscardWorkoutCommand}", discard.Attribute("Command")?.Value);
+        Assert.Equal("{Binding HasWorkoutToDiscard}", discard.Attribute("IsVisible")?.Value);
+        Assert.Equal("{DynamicResource TrackZQuietDestructiveButtonStyle}", discard.Attribute("Style")?.Value);
+        Assert.Equal("{Binding Text.DiscardWorkout}", discard.Attribute("Text")?.Value);
 
         var artwork = component.Descendants().Single(element => Name(element) == "ActiveWorkoutArtwork");
         Assert.Equal("{DynamicResource TrackZExerciseArtworkSize}", artwork.Attribute("HeightRequest")?.Value);

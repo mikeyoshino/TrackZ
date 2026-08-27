@@ -207,7 +207,11 @@ public sealed record WorkoutTextSet(
     string HomeWeightedValueFormat,
     string HomeAssistedValueFormat,
     string HomeBodyweightValueFormat,
-    string Open);
+    string Open,
+    string DiscardWorkout,
+    string DiscardWorkoutTitle,
+    string DiscardWorkoutMessage,
+    string DiscardWorkoutFailed);
 
 public static class WorkoutResources
 {
@@ -352,7 +356,11 @@ public static class WorkoutResources
             Value("HomeWeightedValueFormat", culture),
             Value("HomeAssistedValueFormat", culture),
             Value("HomeBodyweightValueFormat", culture),
-            Value("Open", culture));
+            Value("Open", culture),
+            Value("DiscardWorkout", culture),
+            Value("DiscardWorkoutTitle", culture),
+            Value("DiscardWorkoutMessage", culture),
+            Value("DiscardWorkoutFailed", culture));
     }
 
     private static string Value(string key, CultureInfo culture) =>

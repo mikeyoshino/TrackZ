@@ -1,9 +1,11 @@
 using Microsoft.Maui.Controls;
+using Microsoft.Maui.Dispatching;
 using RoundRectangle = Microsoft.Maui.Controls.Shapes.RoundRectangle;
 using Microsoft.Extensions.DependencyInjection;
 using System.Globalization;
 using System.Xml.Linq;
 using TrackZ.Mobile;
+using TrackZ.Mobile.Components;
 using TrackZ.Mobile.Data;
 using TrackZ.Mobile.Features.Exercises;
 using TrackZ.Mobile.Features.Exercises.Data;
@@ -42,6 +44,13 @@ public sealed class NativeVisualTokenTests
         AssertStyle<Button>(app, "TrackZPrimaryButtonStyle", ("MinimumHeightRequest", 52d), ("CornerRadius", 15));
         AssertStyle<Button>(app, "TrackZSecondaryButtonStyle", ("MinimumHeightRequest", 44d));
         AssertStyle<Button>(app, "TrackZDestructiveButtonStyle", ("MinimumHeightRequest", 44d));
+        AssertStyle<Button>(app, "TrackZQuietDestructiveButtonStyle", ("MinimumHeightRequest", 44d));
+        Assert.Equal(
+            Resources(app)["TrackZDanger"],
+            SetterValue<Button>(app, "TrackZQuietDestructiveButtonStyle", "TextColor"));
+        Assert.Equal(
+            Colors.Transparent,
+            SetterValue<Button>(app, "TrackZQuietDestructiveButtonStyle", "BackgroundColor"));
         AssertStyle<Entry>(app, "TrackZFieldStyle", ("MinimumHeightRequest", 50d));
         AssertStyle<Border>(app, "TrackZFieldContainerStyle", ("MinimumHeightRequest", 50d));
         AssertStyle<Border>(app, "TrackZCardStyle", ("StrokeShape", "RoundRectangle 16"));
@@ -111,6 +120,47 @@ public sealed class NativeVisualTokenTests
     }
 
     [Fact]
+    public void Workout_sync_indicator_is_icon_only_and_uses_binary_accessible_states()
+    {
+        var originalDispatcher = DispatcherProvider.Current;
+        DispatcherProvider.SetCurrent(new InlineDispatcherProvider());
+        try
+        {
+            using var app = CreateApp();
+            var primary = Assert.IsType<Color>(Resources(app)["TrackZPrimary"]);
+            var secondary = Assert.IsType<Color>(Resources(app)["TrackZTextSecondary"]);
+            var indicator = new WorkoutSyncIcon
+            {
+                State = WorkoutSyncState.Pending,
+                AccessibilityText = "Waiting to sync"
+            };
+            var icon = Assert.IsType<Label>(indicator.FindByName("SyncIcon"));
+            var check = Assert.IsType<Label>(indicator.FindByName("SyncCheck"));
+
+            Assert.Equal("↻", icon.Text);
+            Assert.Equal(secondary, icon.TextColor);
+            Assert.False(check.IsVisible);
+            Assert.Equal("Waiting to sync", SemanticProperties.GetDescription(indicator));
+            Assert.False(AutomationProperties.GetIsInAccessibleTree(icon));
+            Assert.DoesNotContain(
+                indicator.GetVisualTreeDescendants().OfType<Label>(),
+                label => label.Text == "Waiting to sync");
+
+            indicator.State = WorkoutSyncState.Synced;
+            indicator.AccessibilityText = "Synced";
+
+            Assert.Equal(primary, icon.TextColor);
+            Assert.True(check.IsVisible);
+            Assert.Equal(primary, check.TextColor);
+            Assert.Equal("Synced", SemanticProperties.GetDescription(indicator));
+        }
+        finally
+        {
+            DispatcherProvider.SetCurrent(originalDispatcher);
+        }
+    }
+
+    [Fact]
     public void Disabled_implicit_control_states_use_semantic_neutral_resources_in_both_themes()
     {
         using var app = CreateApp();
@@ -130,7 +180,7 @@ public sealed class NativeVisualTokenTests
         var components = new[]
         {
             "TrackZStateView.xaml", "ExerciseListSkeleton.xaml", "ExercisePerformanceCard.xaml",
-            "ActiveWorkoutExerciseRow.xaml", "RepsStepper.xaml", "WeightStepper.xaml", "SyncStatusPill.xaml"
+            "ActiveWorkoutExerciseRow.xaml", "RepsStepper.xaml", "WeightStepper.xaml", "WorkoutSyncIcon.xaml"
         };
 
         foreach (var component in components)
@@ -175,12 +225,6 @@ public sealed class NativeVisualTokenTests
             Assert.Null(card.Attribute("StrokeShape"));
             Assert.Null(card.Attribute("CornerRadius"));
         }
-
-        var statusPadding = Assert.IsType<Thickness>(SetterValue<Border>(app, "TrackZStatusPillStyle", "Padding"));
-        Assert.Equal(12, statusPadding.Left);
-        Assert.Equal(12, statusPadding.Right);
-        Assert.Equal(4, statusPadding.Top);
-        Assert.Equal(4, statusPadding.Bottom);
     }
 
     [Fact]
@@ -189,7 +233,7 @@ public sealed class NativeVisualTokenTests
         var components = new[]
         {
             "TrackZStateView.xaml", "ExerciseListSkeleton.xaml", "ExercisePerformanceCard.xaml",
-            "ActiveWorkoutExerciseRow.xaml", "RepsStepper.xaml", "WeightStepper.xaml", "SyncStatusPill.xaml"
+            "ActiveWorkoutExerciseRow.xaml", "RepsStepper.xaml", "WeightStepper.xaml", "WorkoutSyncIcon.xaml"
         };
         var componentDirectory = Path.Combine(FindSolutionDirectory(), "src", "TrackZ.Mobile", "Components");
 
@@ -233,7 +277,7 @@ public sealed class NativeVisualTokenTests
         var componentFiles = new[]
         {
             "TrackZStateView.xaml", "ExerciseListSkeleton.xaml", "ExercisePerformanceCard.xaml",
-            "ActiveWorkoutExerciseRow.xaml", "RepsStepper.xaml", "WeightStepper.xaml", "SyncStatusPill.xaml"
+            "ActiveWorkoutExerciseRow.xaml", "RepsStepper.xaml", "WeightStepper.xaml", "WorkoutSyncIcon.xaml"
         };
 
         foreach (var document in componentFiles.Select(component => XDocument.Load(Path.Combine(componentDirectory, component))).Append(semanticStyles))
@@ -245,6 +289,10 @@ public sealed class NativeVisualTokenTests
             var document = XDocument.Load(Path.Combine(componentDirectory, component));
             foreach (var label in document.Descendants().Where(element => element.Name.LocalName == "Label"))
             {
+                var name = label.Attribute(XName.Get(
+                    "Name", "http://schemas.microsoft.com/winfx/2009/xaml"))?.Value;
+                if (component == "WorkoutSyncIcon.xaml" && name is "SyncIcon" or "SyncCheck")
+                    continue;
                 var style = ResourceKey(label.Attribute("Style")?.Value);
                 if (style is "TrackZPerformanceNumberStyle") continue;
                 var directColor = ResourceKey(label.Attribute("TextColor")?.Value);
@@ -440,6 +488,29 @@ public sealed class NativeVisualTokenTests
     {
         public bool IsOnline => false;
         public event EventHandler? ConnectivityChanged { add { } remove { } }
+    }
+
+    private sealed class InlineDispatcherProvider : IDispatcherProvider
+    {
+        public IDispatcher GetForCurrentThread() => new InlineDispatcher();
+    }
+
+    private sealed class InlineDispatcher : IDispatcher
+    {
+        public bool IsDispatchRequired => false;
+        public bool Dispatch(Action action) { action(); return true; }
+        public bool DispatchDelayed(TimeSpan delay, Action action) { action(); return true; }
+        public IDispatcherTimer CreateTimer() => new InlineTimer();
+    }
+
+    private sealed class InlineTimer : IDispatcherTimer
+    {
+        public TimeSpan Interval { get; set; }
+        public bool IsRepeating { get; set; }
+        public bool IsRunning { get; private set; }
+        public event EventHandler? Tick { add { } remove { } }
+        public void Start() => IsRunning = true;
+        public void Stop() => IsRunning = false;
     }
 
     private static string FindSolutionDirectory()

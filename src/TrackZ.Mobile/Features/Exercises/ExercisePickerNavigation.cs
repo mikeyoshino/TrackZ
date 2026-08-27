@@ -4,12 +4,14 @@ namespace TrackZ.Mobile.Features.Exercises;
 
 public interface IExercisePickerNavigator
 {
+    Task OpenCustomExerciseAsync(string suggestedName, CancellationToken cancellationToken = default);
     Task ReturnToWorkoutAsync(CancellationToken cancellationToken = default);
 }
 
 internal interface IExercisePickerNavigationHost
 {
     bool IsWorkoutImmediatelyBeforePicker { get; }
+    Task OpenCustomExerciseAsync(string route, CancellationToken cancellationToken);
     Task PopPickerAsync(CancellationToken cancellationToken);
     Task OpenWorkoutAsync(CancellationToken cancellationToken);
 }
@@ -23,6 +25,18 @@ public sealed class MauiExercisePickerNavigator : IExercisePickerNavigator
     }
 
     internal MauiExercisePickerNavigator(IExercisePickerNavigationHost host) => _host = host;
+
+    public Task OpenCustomExerciseAsync(
+        string suggestedName,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var normalizedName = suggestedName.Trim();
+        var route = nameof(CustomExercisePage);
+        if (normalizedName.Length > 0)
+            route += $"?suggestedName={Uri.EscapeDataString(normalizedName)}";
+        return _host.OpenCustomExerciseAsync(route, cancellationToken);
+    }
 
     public async Task ReturnToWorkoutAsync(CancellationToken cancellationToken = default)
     {
@@ -51,6 +65,12 @@ public sealed class MauiExercisePickerNavigator : IExercisePickerNavigator
         {
             cancellationToken.ThrowIfCancellationRequested();
             await CurrentShell.GoToAsync("..");
+        }
+
+        public async Task OpenCustomExerciseAsync(string route, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await CurrentShell.GoToAsync(route);
         }
 
         public async Task OpenWorkoutAsync(CancellationToken cancellationToken)

@@ -9,10 +9,19 @@
   <data name="EnglishLanguage" xml:space="preserve"><value>English</value></data>
   <data name="LanguageSwitchFailed" xml:space="preserve"><value>Could not change the app language.</value></data>
   <data name="CustomExerciseTitle" xml:space="preserve"><value>Custom exercise</value></data>
+  <data name="CustomExerciseFormTitle" xml:space="preserve"><value>Exercise details</value></data>
+  <data name="CustomExerciseIntro" xml:space="preserve"><value>Enter only the essentials.</value></data>
   <data name="ExerciseName" xml:space="preserve"><value>Exercise name</value></data>
   <data name="BodyPart" xml:space="preserve"><value>Body part</value></data>
   <data name="TrackingMode" xml:space="preserve"><value>Tracking mode</value></data>
-  <data name="ChooseExerciseImage" xml:space="preserve"><value>Choose JPEG, PNG, or WebP</value></data>
+  <data name="TrackingModeQuestion" xml:space="preserve"><value>How do you want to track it?</value></data>
+  <data name="OptionalExerciseImage" xml:space="preserve"><value>Exercise image (optional)</value></data>
+  <data name="ExerciseImageOptionalHelp" xml:space="preserve"><value>Add your own image or choose one from the library.</value></data>
+  <data name="AddExerciseImage" xml:space="preserve"><value>Add image</value></data>
+  <data name="HideExerciseImages" xml:space="preserve"><value>Hide</value></data>
+  <data name="ExerciseImagePlaceholder" xml:space="preserve"><value>Image</value></data>
+  <data name="ChooseExerciseImage" xml:space="preserve"><value>Choose from device</value></data>
+  <data name="ChooseFromExerciseLibrary" xml:space="preserve"><value>Choose from the image library</value></data>
   <data name="PublishedLibraryImages" xml:space="preserve"><value>Published library images</value></data>
   <data name="ExerciseImageRetentionHelp" xml:space="preserve"><value>The original file is retained for secure upload; only this preview is resized. Published library images can also be assigned when available.</value></data>
   <data name="SaveExercise" xml:space="preserve"><value>Save exercise</value></data>
@@ -27,12 +36,22 @@
   <data name="BodyPartArms" xml:space="preserve"><value>Arms</value></data>
   <data name="BodyPartLegs" xml:space="preserve"><value>Legs</value></data>
   <data name="BodyPartCore" xml:space="preserve"><value>Core</value></data>
-  <data name="TrackingWeighted" xml:space="preserve"><value>Weight</value></data>
-  <data name="TrackingAssisted" xml:space="preserve"><value>Assistance</value></data>
-  <data name="TrackingBodyweight" xml:space="preserve"><value>Bodyweight</value></data>
+  <data name="TrackingWeighted" xml:space="preserve"><value>Weight lifted + reps</value></data>
+  <data name="TrackingAssisted" xml:space="preserve"><value>Machine assistance + reps</value></data>
+  <data name="TrackingBodyweight" xml:space="preserve"><value>Reps only</value></data>
   <data name="ExerciseNameValidation" xml:space="preserve"><value>Enter an exercise name of 100 characters or fewer.</value></data>
   <data name="BodyPartValidation" xml:space="preserve"><value>Choose a body part.</value></data>
   <data name="TrackingModeValidation" xml:space="preserve"><value>Choose a tracking mode.</value></data>
   <data name="ImageSourceConflict" xml:space="preserve"><value>Choose either a library image or a local image.</value></data>
   <data name="LocalImageMissing" xml:space="preserve"><value>The local image file is missing.</value></data>
+  <data name="SignOutTitle" xml:space="preserve"><value>Sign out?</value></data>
+  <data name="SignOutMessage" xml:space="preserve"><value>You’ll need to sign in again to use TrackZ.</value></data>
+  <data name="SignOutDataTitle" xml:space="preserve"><value>Unsynced data will be deleted</value></data>
+  <data name="SignOutDataMessage" xml:space="preserve"><value>Some workout data is still stored only on this device. If you sign out now, it will be deleted and may not be recoverable.</value></data>
+  <data name="SignOutUnknownTitle" xml:space="preserve"><value>Saved data couldn’t be checked</value></data>
+  <data name="SignOutUnknownMessage" xml:space="preserve"><value>TrackZ couldn’t check whether some workout data exists only on this device. If you sign out, local data will be deleted and may not be recoverable.</value></data>
+  <data name="SignOutAndDelete" xml:space="preserve"><value>Sign out and delete</value></data>
+  <data name="StaySignedIn" xml:space="preserve"><value>Stay signed in</value></data>
+  <data name="SignOutCheckFailed" xml:space="preserve"><value>Could not check your saved workout data. Try again.</value></data>
+  <data name="SignOutFailed" xml:space="preserve"><value>Could not sign out safely. Try again.</value></data>
 </root>

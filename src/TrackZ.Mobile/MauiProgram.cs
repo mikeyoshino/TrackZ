@@ -124,6 +124,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton(TimeProvider.System);
 		builder.Services.AddSingleton<IRetryDelay, SystemRetryDelay>();
 		builder.Services.AddSingleton<IUiDispatcher, MauiUiDispatcher>();
+		builder.Services.AddSingleton<IFileSystem>(_ => FileSystem.Current);
 		builder.Services.AddSingleton<ILocalExerciseImagePicker, MauiLocalExerciseImagePicker>();
 		builder.Services.AddSingleton<IExerciseFileStore, LocalExerciseFileStore>();
 		builder.Services.AddSingleton(services => new ExerciseCache(
@@ -146,6 +147,7 @@ public static class MauiProgram
 			services.GetRequiredService<OutboxRepository>());
 		builder.Services.AddSingleton<IHistoryOutboxStatusSource>(services =>
 			services.GetRequiredService<OutboxRepository>());
+		builder.Services.AddSingleton<IProfileSignOutRiskSource, ProfileSignOutRiskSource>();
 		builder.Services.AddSingleton<ActiveWorkoutCoordinator>();
 		builder.Services.AddSingleton<ISetEffortRecorder>(services =>
 			services.GetRequiredService<ActiveWorkoutCoordinator>());
@@ -164,6 +166,8 @@ public static class MauiProgram
 		builder.Services.AddSingleton<IReduceMotionPreference, MauiReduceMotionPreference>();
 		builder.Services.AddSingleton<ITrackZMotion, MauiTrackZMotion>();
 		builder.Services.AddSingleton<SyncCoordinator>();
+		builder.Services.AddSingleton<IWorkoutSyncStatusNotifications>(services =>
+			services.GetRequiredService<SyncCoordinator>());
 		builder.Services.AddSingleton<ISyncAuthenticationRecovery, MauiSyncAuthenticationRecovery>();
 		builder.Services.AddSingleton<WorkoutSyncOrchestrator>();
 		builder.Services.AddSingleton<IWorkoutSyncTrigger>(services =>
@@ -174,6 +178,8 @@ public static class MauiProgram
 		builder.Services.AddSingleton<IConflictResolution>(services =>
 			services.GetRequiredService<ConflictResolution>());
 		builder.Services.AddSingleton<IHistoryConfirmation, MauiHistoryConfirmation>();
+		builder.Services.AddScoped<IProfileSignOutConfirmation, MauiProfileSignOutConfirmation>();
+		builder.Services.AddScoped<ProfileSignOutController>();
 		builder.Services.AddSingleton<CustomExerciseImageService>();
 		builder.Services.AddSingleton<LocalExerciseImageImporter>();
 		builder.Services.AddSingleton<LocalExerciseImageSelectionCoordinator>();

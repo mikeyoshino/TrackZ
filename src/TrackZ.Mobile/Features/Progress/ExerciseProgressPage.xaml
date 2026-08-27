@@ -40,7 +40,6 @@
                         </DataTemplate>
                     </BindableLayout.ItemTemplate>
                 </VerticalStackLayout>
-                <Label SemanticProperties.Description="{Binding SyncAccessibilityText}" Style="{DynamicResource TrackZPerformanceMetadataStyle}" Text="{Binding SyncAccessibilityText}" />
             </VerticalStackLayout>
             <Label Style="{DynamicResource TrackZInlineErrorStyle}" Text="{Binding ErrorMessage}" />
         </VerticalStackLayout>

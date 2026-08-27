@@ -341,6 +341,91 @@ public sealed class ActiveWorkoutCoordinatorTests : IDisposable
     }
 
     [Fact]
+    public async Task Discard_without_sets_tombstones_the_active_workout_and_enqueues_delete_without_completion()
+    {
+        var fixture = CreateFixture();
+        var started = await fixture.Coordinator.StartAsync([
+            new WorkoutExerciseSelection(_exerciseId, TrackingMode.Weighted)
+        ]);
+
+        var discarded = await fixture.Coordinator.DiscardAsync();
+
+        Assert.Equal(LocalWorkoutStatus.Active, discarded.Status);
+        Assert.Null(discarded.CompletedAt);
+        Assert.NotNull(discarded.DeletedAt);
+        Assert.Equal(started.Version + 1, discarded.Version);
+        Assert.Null(await fixture.Coordinator.RestoreActiveAsync());
+        var operations = await fixture.Outbox.PendingAsync();
+        Assert.Equal(
+            [OutboxOperationType.StartWorkout, OutboxOperationType.DeleteWorkout],
+            operations.Select(operation => operation.Type));
+        Assert.DoesNotContain(
+            operations,
+            operation => operation.Type == OutboxOperationType.CompleteWorkout);
+        var payload = operations[^1].DeserializePayload<DeleteWorkoutOutboxPayload>();
+        Assert.Equal(started.Id, payload.WorkoutId);
+        Assert.Equal(discarded.DeletedAt, payload.DeletedAt);
+    }
+
+    [Fact]
+    public async Task Discard_with_partial_sets_preserves_the_causal_outbox_order_after_restart()
+    {
+        var fixture = CreateFixture();
+        await fixture.Coordinator.StartAsync([
+            new WorkoutExerciseSelection(_exerciseId, TrackingMode.Weighted),
+            new WorkoutExerciseSelection(
+                Guid.Parse("22222222-2222-2222-2222-222222222222"),
+                TrackingMode.Bodyweight)
+        ]);
+        await fixture.Coordinator.SaveSetAsync(
+            _exerciseId,
+            new LocalSet(60m, null, 8));
+
+        await fixture.Coordinator.DiscardAsync();
+
+        var restarted = CreateFixture();
+        Assert.Null(await restarted.Coordinator.RestoreActiveAsync());
+        var operations = await restarted.Outbox.PendingAsync();
+        Assert.Equal(
+            [
+                OutboxOperationType.StartWorkout,
+                OutboxOperationType.SaveSet,
+                OutboxOperationType.DeleteWorkout
+            ],
+            operations.Select(operation => operation.Type));
+        Assert.Equal(
+            [0L, 2L, 3L],
+            operations.Select(operation => operation.BaseVersion));
+    }
+
+    [Fact]
+    public async Task Discard_outbox_failure_rolls_back_the_tombstone_and_keeps_the_workout_active()
+    {
+        var fixture = CreateFixture();
+        var started = await fixture.Coordinator.StartAsync([
+            new WorkoutExerciseSelection(_exerciseId, TrackingMode.Weighted)
+        ]);
+        await ExecuteRawAsync("""
+            CREATE TRIGGER FailDeleteWorkoutOutbox
+            BEFORE INSERT ON OutboxOperation
+            WHEN NEW.OperationType = 6
+            BEGIN
+                SELECT RAISE(ABORT, 'injected delete-workout outbox failure');
+            END;
+            """);
+
+        await Assert.ThrowsAsync<SqliteException>(
+            () => fixture.Coordinator.DiscardAsync());
+
+        var restored = await fixture.Coordinator.RestoreActiveAsync();
+        Assert.Equal(started.Id, restored!.Id);
+        Assert.Null(restored.DeletedAt);
+        Assert.DoesNotContain(
+            await fixture.Outbox.PendingAsync(),
+            operation => operation.Type == OutboxOperationType.DeleteWorkout);
+    }
+
+    [Fact]
     public async Task Stable_start_replay_returns_persisted_child_ids_and_rejects_contract_mismatches()
     {
         var workoutId = Guid.Parse("aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb");

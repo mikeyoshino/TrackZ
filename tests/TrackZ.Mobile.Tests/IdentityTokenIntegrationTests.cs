@@ -148,6 +148,39 @@ public sealed class IdentityTokenIntegrationTests
     }
 
     [Fact]
+    public async Task Prepared_logout_captures_revocation_without_clearing_or_replacing_the_session()
+    {
+        var sessionId = Guid.Parse("aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb");
+        var accessToken = JwtWithSession(sessionId);
+        var handler = new QueueHandler(new HttpResponseMessage(HttpStatusCode.NoContent));
+        var storage = new MemoryTokenStorage();
+        var store = new MobileTokenStore(storage);
+        await store.SaveAsync(accessToken, "refresh-one");
+        var cleaner = new RecordingPrivateDataCleaner();
+        var boundary = new AccountSessionBoundary();
+        var generation = boundary.Capture();
+        var identity = new TrackZIdentityApiClient(
+            new HttpClient(handler) { BaseAddress = new Uri("https://trackz.test") },
+            store,
+            cleaner,
+            boundary);
+
+        var prepared = await identity.PrepareLogoutAsync();
+
+        Assert.Equal(generation, boundary.Capture());
+        Assert.Equal(accessToken, await store.GetAccessTokenAsync());
+        Assert.Equal(0, cleaner.ClearCount);
+
+        await prepared.RevokeAsync();
+
+        Assert.Equal(generation, boundary.Capture());
+        Assert.Equal(accessToken, await store.GetAccessTokenAsync());
+        Assert.Equal(0, cleaner.ClearCount);
+        Assert.Contains(sessionId.ToString("D"), Assert.Single(handler.RequestBodies), StringComparison.Ordinal);
+        Assert.Equal($"Bearer {accessToken}", Assert.Single(handler.AuthorizationValues));
+    }
+
+    [Fact]
     public async Task Login_preserves_business_code_message_and_field_errors()
     {
         var handler = new QueueHandler(Problem(HttpStatusCode.BadRequest, BusinessErrorCode.InvalidCredentials,

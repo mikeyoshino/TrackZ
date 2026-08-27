@@ -183,6 +183,62 @@ public sealed class AuthGateCoordinatorTests
 
         Assert.Equal(1, fixture.Identity.RegisterCalls);
         Assert.Equal(AuthGateState.SignedOut, fixture.Coordinator.Snapshot.State);
+        Assert.Equal(1, fixture.Identity.LogoutCalls);
+        Assert.Equal(1, fixture.Cleaner.ClearCount);
+    }
+
+    [Fact]
+    public async Task Declined_sign_out_authorization_does_not_revoke_clear_or_replace_the_session()
+    {
+        var fixture = Fixture.For(SessionCase.Valid);
+        var generation = fixture.Boundary.Capture();
+
+        var signedOut = await fixture.Coordinator.TrySignOutAsync(
+            _ => Task.FromResult(false));
+
+        Assert.False(signedOut);
+        Assert.Equal(generation, fixture.Boundary.Capture());
+        Assert.Equal(0, fixture.Identity.LogoutCalls);
+        Assert.Equal(0, fixture.Cleaner.ClearCount);
+        Assert.NotNull(await fixture.Store.GetAccessTokenAsync());
+        Assert.NotNull(await fixture.Store.GetRefreshTokenAsync());
+    }
+
+    [Fact]
+    public async Task Concrete_prepared_logout_avoids_nested_reset_and_gate_cleans_once()
+    {
+        var storage = new MemoryTokenStorage();
+        var store = new MobileTokenStore(storage);
+        var boundary = new AccountSessionBoundary();
+        var now = new DateTimeOffset(2026, 8, 24, 5, 0, 0, TimeSpan.Zero);
+        await store.SaveAsync(CreateToken(now.AddMinutes(15)), "refresh-one");
+        var handler = new ResponseQueueHandler([
+            new HttpResponseMessage(HttpStatusCode.NoContent)
+        ]);
+        var identityCleaner = new RecordingCleaner();
+        var gateCleaner = new RecordingCleaner();
+        var identity = new TrackZIdentityApiClient(
+            new HttpClient(handler) { BaseAddress = new Uri("https://trackz.test") },
+            store,
+            identityCleaner,
+            boundary);
+        var gate = new AuthGateCoordinator(
+            store,
+            identity,
+            gateCleaner,
+            boundary,
+            new TestDeviceNameProvider(),
+            new OfflineConnectivity(),
+            new FixedTimeProvider(now));
+
+        await gate.SignOutAsync().WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.Equal(AuthGateState.SignedOut, gate.Snapshot.State);
+        Assert.Equal(1, handler.RequestCount);
+        Assert.Equal(0, identityCleaner.ClearCount);
+        Assert.Equal(1, gateCleaner.ClearCount);
+        Assert.Null(await store.GetAccessTokenAsync());
+        Assert.Null(await store.GetRefreshTokenAsync());
     }
 
     [Fact]
@@ -429,6 +485,13 @@ public sealed class AuthGateCoordinatorTests
             LogoutCalls++;
             return LogoutFailure is null ? Task.CompletedTask : Task.FromException(LogoutFailure);
         }
+        public Task<IPreparedIdentityLogout> PrepareLogoutAsync(
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult<IPreparedIdentityLogout>(
+                new PreparedIdentityLogout(LogoutAsync));
+        }
 
         private async Task<IdentityTransitionReceipt> InstallIdentityAsync(CancellationToken cancellationToken)
         {
@@ -461,8 +524,13 @@ public sealed class AuthGateCoordinatorTests
     private sealed class ResponseQueueHandler(IEnumerable<HttpResponseMessage> responses) : HttpMessageHandler
     {
         private readonly Queue<HttpResponseMessage> _responses = new(responses);
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
-            Task.FromResult(_responses.Dequeue());
+        private int _requestCount;
+        public int RequestCount => Volatile.Read(ref _requestCount);
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref _requestCount);
+            return Task.FromResult(_responses.Dequeue());
+        }
     }
 
     private sealed class BoundaryIgnoringIdentity : IIdentitySessionApi
@@ -483,6 +551,8 @@ public sealed class AuthGateCoordinatorTests
         }
         public Task RefreshAsync(string deviceName, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task LogoutAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task<IPreparedIdentityLogout> PrepareLogoutAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(PreparedIdentityLogout.None);
     }
 
     private sealed class StaleReceiptIdentity(MobileTokenStore store, IAccountSessionBoundary boundary) : IIdentitySessionApi
@@ -495,6 +565,8 @@ public sealed class AuthGateCoordinatorTests
         public Task RegisterAndLoginAsync(string email, string password, string deviceName, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task RefreshAsync(string deviceName, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task LogoutAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task<IPreparedIdentityLogout> PrepareLogoutAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(PreparedIdentityLogout.None);
         public Task<IdentityTransitionReceipt?> LoginWithReceiptAsync(
             string email,
             string password,

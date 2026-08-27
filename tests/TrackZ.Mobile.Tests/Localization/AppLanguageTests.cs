@@ -437,6 +437,8 @@ public sealed class AppLanguageChangerTests
         public Task RegisterAndLoginAsync(string email, string password, string deviceName, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task RefreshAsync(string deviceName, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task LogoutAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task<IPreparedIdentityLogout> PrepareLogoutAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(PreparedIdentityLogout.None);
     }
 
     private sealed class NoopPrivateDataCleaner : IMobilePrivateDataCleaner

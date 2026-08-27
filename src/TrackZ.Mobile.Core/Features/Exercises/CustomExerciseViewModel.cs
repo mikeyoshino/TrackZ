@@ -24,6 +24,7 @@ public sealed class CustomExerciseViewModel : INotifyPropertyChanged, IDisposabl
     private readonly IAccountSessionBoundary _boundary;
     private BusinessErrorCode? _lastErrorCode;
     private CachedLibraryImage? _selectedLibraryImage;
+    private string _name = string.Empty;
     private int _disposed;
 
     public CustomExerciseViewModel(
@@ -60,7 +61,16 @@ public sealed class CustomExerciseViewModel : INotifyPropertyChanged, IDisposabl
         _boundary.SessionReset += OnSessionReset;
     }
 
-    public string Name { get; set; } = string.Empty;
+    public string Name
+    {
+        get => _name;
+        set
+        {
+            if (string.Equals(_name, value, StringComparison.Ordinal)) return;
+            _name = value;
+            OnPropertyChanged();
+        }
+    }
     public BodyPart? BodyPart { get; set; }
     public TrackingMode? TrackingMode { get; set; }
     public Guid? LibraryImageId { get; set; }
@@ -223,7 +233,6 @@ public sealed class CustomExerciseViewModel : INotifyPropertyChanged, IDisposabl
         TrackingMode = exercise.TrackingMode;
         LibraryImageId = exercise.LibraryImageId;
         PreviewImagePath = exercise.ThumbnailUri;
-        OnPropertyChanged(nameof(Name));
         OnPropertyChanged(nameof(BodyPart));
         OnPropertyChanged(nameof(TrackingMode));
         OnPropertyChanged(nameof(SelectedBodyPart));
@@ -323,7 +332,6 @@ public sealed class CustomExerciseViewModel : INotifyPropertyChanged, IDisposabl
         ExistingExerciseId = null;
         ValidationErrors.Clear();
         LastErrorCode = null;
-        OnPropertyChanged(nameof(Name));
         OnPropertyChanged(nameof(BodyPart));
         OnPropertyChanged(nameof(TrackingMode));
         OnPropertyChanged(nameof(SelectedBodyPart));

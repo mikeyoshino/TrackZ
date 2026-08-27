@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentView
+    x:Class="TrackZ.Mobile.Components.WorkoutSyncIcon"
+    x:Name="Root"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    AutomationProperties.IsInAccessibleTree="True"
+    HeightRequest="24"
+    InputTransparent="True"
+    SemanticProperties.Description="{Binding AccessibilityText, Source={x:Reference Root}}"
+    WidthRequest="24">
+    <Grid AutomationProperties.IsInAccessibleTree="False">
+        <Label
+            x:Name="SyncIcon"
+            AutomationProperties.IsInAccessibleTree="False"
+            FontAttributes="Bold"
+            FontSize="21"
+            HorizontalTextAlignment="Center"
+            Text="↻"
+            TextColor="{DynamicResource TrackZTextSecondary}"
+            VerticalTextAlignment="Center" />
+        <Label
+            x:Name="SyncCheck"
+            AutomationProperties.IsInAccessibleTree="False"
+            FontAttributes="Bold"
+            FontSize="10"
+            HorizontalOptions="End"
+            IsVisible="False"
+            Text="✓"
+            TextColor="{DynamicResource TrackZPrimary}"
+            VerticalOptions="End" />
+    </Grid>
+</ContentView>

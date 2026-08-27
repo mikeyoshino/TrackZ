@@ -1,7 +1,11 @@
 using Microsoft.Extensions.DependencyInjection;
 using TrackZ.Domain.Workouts;
 using TrackZ.Mobile.Data.Models;
+using TrackZ.Mobile.Features.Exercises;
 using TrackZ.Mobile.Features.Exercises.Services;
+using TrackZ.Mobile.Features.Gamification;
+using TrackZ.Mobile.Features.Localization;
+using TrackZ.Mobile.Features.Profile;
 using TrackZ.Mobile.Features.Workout;
 using TrackZ.Mobile.Identity;
 using TrackZ.Mobile.Presentation;
@@ -11,6 +15,25 @@ namespace TrackZ.Mobile.Tests.NativeIos;
 
 public sealed class NativePresentationCompositionTests
 {
+    [Fact]
+    public void Profile_page_can_be_created_before_weight_unit_bindings_are_evaluated()
+    {
+        using var app = MauiProgram.CreateMauiApp(services =>
+        {
+            services.AddSingleton<IWeightUnitPreference, KilogramPreference>();
+            services.AddSingleton<IProgressSnapshotSource, EmptyProgressSource>();
+            services.AddSingleton<IConnectivityService, OfflineConnectivity>();
+            services.AddSingleton<IMobilePrivateDataCleaner, NoopPrivateDataCleaner>();
+            services.AddSingleton<IAppLanguageChanger, FixedLanguageChanger>();
+            services.AddSingleton<IProfileSignOutRiskSource, ClearSignOutRiskSource>();
+        });
+
+        var page = app.Services.GetRequiredService<ProfilePage>();
+
+        Assert.True(page.IsKilogramsSelected);
+        Assert.False(page.IsPoundsSelected);
+    }
+
     [Fact]
     public void Native_sheet_presenter_is_singleton_and_resolvable()
     {
@@ -104,6 +127,50 @@ public sealed class NativePresentationCompositionTests
         public Task RequireSignInAsync(
             AccountSessionGeneration expectedGeneration,
             CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
+    private sealed class KilogramPreference : IWeightUnitPreference
+    {
+        public WeightDisplayUnit Current => WeightDisplayUnit.Kilograms;
+        public event EventHandler? Changed { add { } remove { } }
+        public void Set(WeightDisplayUnit unit) { }
+    }
+
+    private sealed class EmptyProgressSource : IProgressSnapshotSource
+    {
+        public Task<ProgressSnapshot?> GetCachedAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult<ProgressSnapshot?>(null);
+        public Task<ProgressSnapshot> RefreshAsync(CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+        public Task<ProgressSnapshot> UpdateWeeklyGoalAsync(
+            int weeklyGoal,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+    }
+
+    private sealed class OfflineConnectivity : IConnectivityService
+    {
+        public bool IsOnline => false;
+        public event EventHandler? ConnectivityChanged { add { } remove { } }
+    }
+
+    private sealed class NoopPrivateDataCleaner : IMobilePrivateDataCleaner
+    {
+        public Task ClearAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
+    private sealed class ClearSignOutRiskSource : IProfileSignOutRiskSource
+    {
+        public Task<ProfileSignOutRisk> GetRiskAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(ProfileSignOutRisk.Clear);
+    }
+
+    private sealed class FixedLanguageChanger : IAppLanguageChanger
+    {
+        public AppLanguage Current => AppLanguage.Thai;
+        public bool IsChanging => false;
+        public Task ChangeAsync(AppLanguage language, CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
     }
 
     private sealed class StubEffortRecorder : ISetEffortRecorder

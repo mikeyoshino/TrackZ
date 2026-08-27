@@ -60,6 +60,9 @@
         <Setter Property="TextColor" Value="{StaticResource TrackZTextSecondary}" />
         <Setter Property="FontSize" Value="15" />
     </Style>
+    <Style x:Key="TrackZQuietDestructiveButtonStyle" TargetType="Button" BasedOn="{StaticResource TrackZQuietButtonStyle}">
+        <Setter Property="TextColor" Value="{StaticResource TrackZDanger}" />
+    </Style>
     <Style x:Key="TrackZFieldContainerStyle" TargetType="Border">
         <Setter Property="Padding" Value="12,0" />
         <Setter Property="BackgroundColor" Value="{StaticResource TrackZSurface}" />
@@ -160,11 +163,5 @@
         <Setter Property="FontSize" Value="15" />
         <Setter Property="MinimumHeightRequest" Value="{StaticResource TrackZFieldHeight}" />
         <Setter Property="MinimumWidthRequest" Value="{StaticResource TrackZMinimumTarget}" />
-    </Style>
-    <Style x:Key="TrackZStatusPillStyle" TargetType="Border">
-        <Setter Property="Padding" Value="12,4" />
-        <Setter Property="BackgroundColor" Value="{StaticResource TrackZSurfaceRaised}" />
-        <Setter Property="StrokeThickness" Value="0" />
-        <Setter Property="StrokeShape" Value="RoundRectangle 999" />
     </Style>
 </ResourceDictionary>

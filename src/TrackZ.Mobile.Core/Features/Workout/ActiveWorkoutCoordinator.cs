@@ -406,6 +406,45 @@ public sealed class ActiveWorkoutCoordinator(
         }
     }
 
+    public async Task<LocalWorkout> DiscardAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var generation = sessionBoundary.Capture();
+        await _mutationGate.WaitAsync(cancellationToken);
+        try
+        {
+            LocalWorkout? discarded = null;
+            var committed = await sessionBoundary.TryCommitAsync(generation, async token =>
+            {
+                var active = await workouts.GetActiveAsync(token)
+                    ?? throw new InvalidOperationException("No active workout exists.");
+                var discardedAt = await NextMutationAtAsync(active, token);
+                discarded = active with
+                {
+                    DeletedAt = discardedAt,
+                    Version = active.Version + 1
+                };
+                var operation = OutboxOperation.Create(
+                    Guid.NewGuid(),
+                    active.Id,
+                    OutboxOperationType.DeleteWorkout,
+                    new DeleteWorkoutOutboxPayload(active.Id, discardedAt),
+                    active.Version,
+                    discardedAt);
+                await workouts.SaveWorkoutAndEnqueueAsync(discarded, operation, token);
+            }, cancellationToken);
+
+            EnsureCurrent(committed, generation, cancellationToken);
+            syncTrigger?.NotifyMutation();
+            return discarded
+                ?? throw new InvalidOperationException("The active workout was not discarded.");
+        }
+        finally
+        {
+            _mutationGate.Release();
+        }
+    }
+
     public async Task<LocalWorkoutExercise> AddExerciseAsync(
         WorkoutExerciseSelection selection,
         Guid? workoutExerciseId = null,

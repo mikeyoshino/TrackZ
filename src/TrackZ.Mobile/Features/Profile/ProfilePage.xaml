@@ -96,9 +96,12 @@
                         <Switch x:Name="ReduceMotionSwitch" Grid.Column="1" Style="{DynamicResource TrackZSwitchStyle}" Toggled="OnReduceMotionToggled" />
                     </Grid>
                 </Border>
-                <Label SemanticProperties.Description="{Binding SyncAccessibilityText}" Style="{DynamicResource TrackZPerformanceMetadataStyle}" Text="{Binding SyncAccessibilityText}" />
                 <Label Style="{DynamicResource TrackZInlineErrorStyle}" Text="{Binding ErrorMessage}" />
-                <Button Clicked="OnSignOutClicked" Style="{DynamicResource TrackZDestructiveButtonStyle}" Text="{Binding Text.SignOut}" />
+                <Label Style="{DynamicResource TrackZInlineErrorStyle}" Text="{Binding Source={x:Reference Page}, Path=SignOut.ErrorMessage}" />
+                <Button
+                    Command="{Binding Source={x:Reference Page}, Path=SignOut.SignOutCommand}"
+                    Style="{DynamicResource TrackZDestructiveButtonStyle}"
+                    Text="{Binding Text.SignOut}" />
             </VerticalStackLayout>
         </ScrollView>
 

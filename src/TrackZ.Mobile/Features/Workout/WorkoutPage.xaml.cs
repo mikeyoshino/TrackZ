@@ -14,6 +14,7 @@ public partial class WorkoutPage : ContentPage
         BindingContext = _viewModel = viewModel;
         exercisePicker.SelectionCompleted += OnSelectionCompleted;
         _viewModel.WorkoutFinished += OnWorkoutFinished;
+        _viewModel.WorkoutDiscarded += OnWorkoutDiscarded;
         OpenLoggerCommand = new Command<WorkoutExerciseDraftItem>(OpenLogger);
     }
 
@@ -40,4 +41,7 @@ public partial class WorkoutPage : ContentPage
 
     private async void OnWorkoutFinished(object? sender, Guid workoutId) =>
         await Shell.Current.GoToAsync($"{nameof(WorkoutSummaryPage)}?workoutId={workoutId:D}");
+
+    private async void OnWorkoutDiscarded(object? sender, EventArgs eventArgs) =>
+        await Shell.Current.GoToAsync("//train");
 }

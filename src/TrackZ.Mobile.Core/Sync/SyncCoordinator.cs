@@ -123,14 +123,21 @@ public enum SyncRunStatus
     PermanentFailure = 5
 }
 
+public interface IWorkoutSyncStatusNotifications
+{
+    event EventHandler? StatusChanged;
+}
+
 public sealed class SyncCoordinator(
     TrackZLocalDatabase database,
     ISyncApi api,
     IAccountSessionBoundary sessionBoundary,
-    IClock clock)
+    IClock clock) : IWorkoutSyncStatusNotifications
 {
     private const string CursorScope = "workouts";
     private readonly SemaphoreSlim _runGate = new(1, 1);
+
+    public event EventHandler? StatusChanged;
 
     public async Task<SyncRunStatus> RunOnceAsync(CancellationToken cancellationToken = default)
     {
@@ -264,6 +271,24 @@ public sealed class SyncCoordinator(
         finally
         {
             _runGate.Release();
+            NotifyStatusChanged();
+        }
+    }
+
+    private void NotifyStatusChanged()
+    {
+        var handlers = StatusChanged;
+        if (handlers is null) return;
+        foreach (EventHandler handler in handlers.GetInvocationList())
+        {
+            try
+            {
+                handler(this, EventArgs.Empty);
+            }
+            catch
+            {
+                // A status observer cannot be allowed to fail the durable sync run.
+            }
         }
     }
 
@@ -799,6 +824,7 @@ public sealed class SyncCoordinator(
                     {
                         var conflictChainStarted = false;
                         var soleEffortAuthorityStored = false;
+                        var storedConflicts = new List<OutboxOperation>();
                         var liveOperationIds = conflicts.Select(operation => operation.OperationId)
                             .ToHashSet();
                         foreach (var operation in conflicts)
@@ -815,7 +841,13 @@ public sealed class SyncCoordinator(
                             soleEffortAuthorityStored |= conflicts.Count == 1
                                 && operation.Type == OutboxOperationType.RecordSetEffort
                                 && stored;
+                            if (stored) storedConflicts.Add(operation);
                         }
+                        foreach (var operation in storedConflicts.Where(item =>
+                                     item.Type == OutboxOperationType.DeleteWorkout))
+                            await ResolveConfirmedActiveDiscardConflictAsync(
+                                connection, transaction, operation,
+                                change.Workout, innerToken);
                         if (soleEffortAuthorityStored)
                             await ApplyGraphAsync(
                                 connection, transaction, change.Workout, innerToken);
@@ -840,6 +872,89 @@ public sealed class SyncCoordinator(
             }, token);
         }, cancellationToken);
         EnsureCurrent(committed, generation, cancellationToken);
+    }
+
+    private async Task ResolveConfirmedActiveDiscardConflictAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        OutboxOperation original,
+        SyncWorkoutDto server,
+        CancellationToken cancellationToken)
+    {
+        if (!await IsConfirmedActiveDiscardAsync(
+                connection, transaction, original, cancellationToken)
+            || await HasLiveReplacementAsync(
+                connection, transaction, original.OperationId, cancellationToken))
+            return;
+
+        if (server.DeletedAt is not null)
+        {
+            var resolvedAt = clock.UtcNow;
+            await ArchiveAsync(
+                connection, transaction, original.OperationId,
+                OutboxOperationState.Applied, resolvedAt, cancellationToken,
+                server.Version);
+            await ArchiveReplacementAncestorsAsync(
+                connection, transaction, original, resolvedAt, cancellationToken);
+            await ApplyGraphAsync(connection, transaction, server, cancellationToken);
+            return;
+        }
+
+        if (await HasUnrelatedLivePendingSuccessorAsync(
+                connection, transaction, original,
+                new HashSet<Guid> { original.OperationId }, cancellationToken))
+            return;
+
+        var latest = await ReadLatestCreatedAtAsync(
+            connection, transaction, cancellationToken);
+        var now = clock.UtcNow.ToUniversalTime();
+        var createdAt = now > latest ? now : latest.AddTicks(1);
+        var serverMutationAt = LastServerMutationAt(server);
+        if (createdAt <= serverMutationAt) createdAt = serverMutationAt.AddTicks(1);
+        var payload = RebaseDeleteWorkout(original, server, createdAt);
+        var replacement = original with
+        {
+            OperationId = Guid.NewGuid(),
+            Payload = JsonSerializer.Serialize(payload, JsonOptions),
+            BaseVersion = server.Version,
+            CreatedAt = createdAt,
+            State = OutboxOperationState.Pending,
+            DeletedAt = null,
+            Version = 1,
+            ServerVersion = null,
+            RetryCount = 0,
+            NextAttemptAt = now.AddSeconds(1),
+            ServerPayload = null,
+            ReplacesOperationId = original.OperationId,
+            SendStartedAt = null,
+            NeutralizedAt = null
+        };
+        await InsertOperationAsync(
+            connection, transaction, replacement, cancellationToken);
+    }
+
+    private static async Task<bool> IsConfirmedActiveDiscardAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        OutboxOperation operation,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT EXISTS (
+                SELECT 1
+                FROM LocalWorkout
+                WHERE Id = $workoutId AND Status = 2 AND DeletedAt IS NOT NULL
+                  AND NOT EXISTS (
+                      SELECT 1 FROM HistoryUndo WHERE OperationId = $operationId
+                  )
+            );
+            """;
+        Add(command, "$workoutId", Id(operation.EntityId));
+        Add(command, "$operationId", Id(operation.OperationId));
+        return Convert.ToInt32(
+            await command.ExecuteScalarAsync(cancellationToken)) != 0;
     }
 
     private static SyncOperationDto ToDto(OutboxOperation operation)
@@ -1560,12 +1675,14 @@ public sealed class SyncCoordinator(
                  State, DeletedAt, Version, ServerVersion, RetryCount, NextAttemptAt,
                  ServerPayload, ReplacesOperationId)
             VALUES ($id, $entityId, $type, $payload, $baseVersion, $createdAt,
-                    $state, NULL, 1, NULL, 0, NULL, NULL, $replaces);
+                    $state, NULL, 1, NULL, 0, $nextAttemptAt, NULL, $replaces);
             """, cancellationToken,
             ("$id", Id(operation.OperationId)), ("$entityId", Id(operation.EntityId)),
             ("$type", (int)operation.Type), ("$payload", operation.Payload),
             ("$baseVersion", operation.BaseVersion), ("$createdAt", Timestamp(operation.CreatedAt)),
-            ("$state", (int)operation.State), ("$replaces", Id(operation.ReplacesOperationId)));
+            ("$state", (int)operation.State),
+            ("$nextAttemptAt", Timestamp(operation.NextAttemptAt)),
+            ("$replaces", Id(operation.ReplacesOperationId)));
 
     private static async Task ExecuteAsync(
         SqliteConnection connection,

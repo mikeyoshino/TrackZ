@@ -11,7 +11,6 @@
     <Grid Padding="0,16,0,0" RowDefinitions="Auto,*,Auto" RowSpacing="{DynamicResource TrackZSpace16}">
         <VerticalStackLayout Padding="{DynamicResource TrackZPageHorizontalPadding}" Spacing="{DynamicResource TrackZSpace4}">
             <Label Style="{DynamicResource TrackZNavigationTitleStyle}" Text="{Binding Text.Conflicted}" />
-            <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Workout.SyncStatusText}" />
         </VerticalStackLayout>
         <VerticalStackLayout Grid.Row="1" Padding="{DynamicResource TrackZPageHorizontalPadding}" Spacing="{DynamicResource TrackZSpace12}">
             <Label Style="{DynamicResource TrackZSectionTitleStyle}" Text="{Binding Workout.ConflictOperationText}" />

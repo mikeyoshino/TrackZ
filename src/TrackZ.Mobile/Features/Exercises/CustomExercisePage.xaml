@@ -3,7 +3,6 @@
     x:Class="TrackZ.Mobile.Features.Exercises.CustomExercisePage"
     xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
-    xmlns:data="clr-namespace:TrackZ.Mobile.Features.Exercises.Data;assembly=TrackZ.Mobile.Core"
     xmlns:viewModels="clr-namespace:TrackZ.Mobile.Features.Exercises;assembly=TrackZ.Mobile.Core"
     x:DataType="viewModels:CustomExerciseViewModel"
     BackgroundColor="{DynamicResource TrackZBackground}"
@@ -11,33 +10,81 @@
     Title="{Binding Text.CustomExerciseTitle}">
     <Grid Padding="0,12,0,0" RowDefinitions="*,Auto" RowSpacing="{DynamicResource TrackZSpace12}">
         <ScrollView>
-            <VerticalStackLayout Padding="{DynamicResource TrackZPageHorizontalPadding}" Spacing="{DynamicResource TrackZSpace16}">
-                <Entry Placeholder="{Binding Text.ExerciseName}" Style="{DynamicResource TrackZFieldStyle}" Text="{Binding Name, Mode=TwoWay}" />
-                <Picker ItemDisplayBinding="{Binding Label}" Style="{DynamicResource TrackZPickerStyle}" Title="{Binding Text.BodyPart}" ItemsSource="{Binding BodyPartOptions}" SelectedItem="{Binding SelectedBodyPart, Mode=TwoWay}" />
-                <Picker ItemDisplayBinding="{Binding Label}" Style="{DynamicResource TrackZPickerStyle}" Title="{Binding Text.TrackingMode}" ItemsSource="{Binding TrackingModeOptions}" SelectedItem="{Binding SelectedTrackingMode, Mode=TwoWay}" />
-                <Image Aspect="AspectFit" HeightRequest="{DynamicResource TrackZExerciseCardHeight}" Source="{Binding PreviewImagePath}" />
-                <Button Clicked="OnChooseImageClicked" SemanticProperties.Description="{Binding Text.ChooseExerciseImage}" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="{Binding Text.ChooseExerciseImage}" />
-                <Label Style="{DynamicResource TrackZSectionTitleStyle}" Text="{Binding Text.PublishedLibraryImages}" />
-                <CollectionView
-                    HeightRequest="{DynamicResource TrackZExerciseCardHeight}"
-                    ItemsSource="{Binding LibraryImages}"
-                    SelectedItem="{Binding SelectedLibraryImage, Mode=TwoWay}"
-                    SelectionMode="Single">
-                    <CollectionView.ItemsLayout>
-                        <LinearItemsLayout Orientation="Horizontal" ItemSpacing="{DynamicResource TrackZSpace8}" />
-                    </CollectionView.ItemsLayout>
-                    <CollectionView.ItemTemplate>
-                        <DataTemplate x:DataType="data:CachedLibraryImage">
-                            <VerticalStackLayout WidthRequest="{DynamicResource TrackZExerciseCardHeight}" Spacing="{DynamicResource TrackZSpace4}">
-                                <Image Aspect="AspectFill" HeightRequest="{DynamicResource TrackZExerciseArtworkSize}" Source="{Binding ThumbnailUri}" />
-                                <Label LineBreakMode="TailTruncation" Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Name}" />
-                            </VerticalStackLayout>
-                        </DataTemplate>
-                    </CollectionView.ItemTemplate>
-                </CollectionView>
-                <Label
-                    Style="{DynamicResource TrackZSecondaryStyle}"
-                    Text="{Binding Text.ExerciseImageRetentionHelp}" />
+            <VerticalStackLayout
+                x:Name="CustomExerciseForm"
+                Padding="{DynamicResource TrackZPageHorizontalPadding}"
+                Spacing="{DynamicResource TrackZSpace12}">
+                <VerticalStackLayout Spacing="{DynamicResource TrackZSpace4}">
+                    <Label Style="{DynamicResource TrackZSectionTitleStyle}" Text="{Binding Text.CustomExerciseFormTitle}" />
+                    <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Text.CustomExerciseIntro}" />
+                </VerticalStackLayout>
+
+                <VerticalStackLayout Spacing="{DynamicResource TrackZSpace4}">
+                    <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Text.ExerciseName}" />
+                    <Border x:Name="CustomExerciseNameField" Style="{DynamicResource TrackZFieldContainerStyle}">
+                        <Entry Placeholder="{Binding Text.ExerciseName}" Style="{DynamicResource TrackZFieldStyle}" Text="{Binding Name, Mode=TwoWay}" />
+                    </Border>
+                </VerticalStackLayout>
+
+                <VerticalStackLayout Spacing="{DynamicResource TrackZSpace4}">
+                    <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Text.BodyPart}" />
+                    <Border x:Name="CustomExerciseBodyPartField" Style="{DynamicResource TrackZFieldContainerStyle}">
+                        <Picker
+                            BackgroundColor="Transparent"
+                            ItemDisplayBinding="{Binding Label}"
+                            ItemsSource="{Binding BodyPartOptions}"
+                            SelectedItem="{Binding SelectedBodyPart, Mode=TwoWay}"
+                            Style="{DynamicResource TrackZPickerStyle}"
+                            Title="{Binding Text.BodyPart}" />
+                    </Border>
+                </VerticalStackLayout>
+
+                <VerticalStackLayout Spacing="{DynamicResource TrackZSpace4}">
+                    <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Text.TrackingModeQuestion}" />
+                    <Border x:Name="CustomExerciseTrackingField" Style="{DynamicResource TrackZFieldContainerStyle}">
+                        <Picker
+                            BackgroundColor="Transparent"
+                            ItemDisplayBinding="{Binding Label}"
+                            ItemsSource="{Binding TrackingModeOptions}"
+                            SelectedItem="{Binding SelectedTrackingMode, Mode=TwoWay}"
+                            Style="{DynamicResource TrackZPickerStyle}"
+                            Title="{Binding Text.TrackingMode}" />
+                    </Border>
+                </VerticalStackLayout>
+
+                <Border Style="{DynamicResource TrackZCardStyle}">
+                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="{DynamicResource TrackZSpace12}">
+                        <Border
+                            HeightRequest="{DynamicResource TrackZMinimumTarget}"
+                            Style="{DynamicResource TrackZArtworkFrameStyle}"
+                            WidthRequest="{DynamicResource TrackZMinimumTarget}">
+                            <Grid>
+                                <Label
+                                    HorizontalTextAlignment="Center"
+                                    Style="{DynamicResource TrackZSecondaryStyle}"
+                                    Text="{Binding Text.ExerciseImagePlaceholder}"
+                                    VerticalTextAlignment="Center" />
+                                <Image
+                                    x:Name="CustomExerciseImagePreview"
+                                    Aspect="AspectFill"
+                                    HeightRequest="{DynamicResource TrackZMinimumTarget}"
+                                    Source="{Binding PreviewImagePath}"
+                                    WidthRequest="{DynamicResource TrackZMinimumTarget}" />
+                            </Grid>
+                        </Border>
+                        <VerticalStackLayout Grid.Column="1" Spacing="{DynamicResource TrackZSpace4}" VerticalOptions="Center">
+                            <Label Style="{DynamicResource TrackZBodyStyle}" Text="{Binding Text.OptionalExerciseImage}" />
+                            <Label LineBreakMode="WordWrap" Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Text.ExerciseImageOptionalHelp}" />
+                        </VerticalStackLayout>
+                        <Button
+                            x:Name="AddCustomExerciseImage"
+                            Grid.Column="2"
+                            Clicked="OnChooseImageClicked"
+                            SemanticProperties.Description="{Binding Text.AddExerciseImage}"
+                            Style="{DynamicResource TrackZQuietButtonStyle}"
+                            Text="{Binding Text.AddExerciseImage}" />
+                    </Grid>
+                </Border>
             </VerticalStackLayout>
         </ScrollView>
 

@@ -59,7 +59,6 @@
                     IsVisible="{Binding IsCustom}"
                     Style="{DynamicResource TrackZQuietButtonStyle}"
                     Text="{Binding EditLabel}" />
-                <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding SyncLabel}" />
             </VerticalStackLayout>
         </Grid>
     </Border>

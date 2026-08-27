@@ -51,22 +51,31 @@
             Text="{Binding NoticeMessage}" />
 
         <Border x:Name="WorkoutActions" Grid.Row="3" Margin="0,0,0,12" Style="{DynamicResource TrackZStickyActionContainerStyle}">
-            <Grid ColumnDefinitions="*,*" ColumnSpacing="{DynamicResource TrackZSpace12}">
-                <Button Clicked="OnAddExerciseClicked" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="{Binding Text.AddExercise}" />
+            <VerticalStackLayout Spacing="{DynamicResource TrackZSpace4}">
+                <Grid ColumnDefinitions="*,*" ColumnSpacing="{DynamicResource TrackZSpace12}">
+                    <Button Clicked="OnAddExerciseClicked" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="{Binding Text.AddExercise}" />
+                    <Button
+                        Grid.Column="1"
+                        Command="{Binding StartWorkoutCommand}"
+                        IsVisible="{Binding IsDraft}"
+                        Style="{DynamicResource TrackZPrimaryButtonStyle}"
+                        Text="{Binding Text.StartWorkout}" />
+                    <Button
+                        Grid.Column="1"
+                        Command="{Binding FinishWorkoutCommand}"
+                        IsVisible="{Binding HasStarted}"
+                        SemanticProperties.Description="{Binding Text.FinishWorkout}"
+                        Style="{DynamicResource TrackZPrimaryButtonStyle}"
+                        Text="{Binding Text.FinishWorkout}" />
+                </Grid>
                 <Button
-                    Grid.Column="1"
-                    Command="{Binding StartWorkoutCommand}"
-                    IsVisible="{Binding IsDraft}"
-                    Style="{DynamicResource TrackZPrimaryButtonStyle}"
-                    Text="{Binding Text.StartWorkout}" />
-                <Button
-                    Grid.Column="1"
-                    Command="{Binding FinishWorkoutCommand}"
-                    IsVisible="{Binding HasStarted}"
-                    SemanticProperties.Description="{Binding Text.FinishWorkout}"
-                    Style="{DynamicResource TrackZPrimaryButtonStyle}"
-                    Text="{Binding Text.FinishWorkout}" />
-            </Grid>
+                    x:Name="DiscardWorkoutButton"
+                    Command="{Binding DiscardWorkoutCommand}"
+                    IsVisible="{Binding HasWorkoutToDiscard}"
+                    SemanticProperties.Description="{Binding Text.DiscardWorkout}"
+                    Style="{DynamicResource TrackZQuietDestructiveButtonStyle}"
+                    Text="{Binding Text.DiscardWorkout}" />
+            </VerticalStackLayout>
         </Border>
     </Grid>
 </ContentPage>

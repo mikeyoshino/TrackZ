@@ -70,6 +70,9 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged, IDisposable
         MoveDownCommand = new AsyncCommand(item => MoveAsync(item, 1), item => CanMove(item, 1));
         StartWorkoutCommand = new AsyncCommand(_ => StartAsync(), _ => Exercises.Count != 0 && !_hasStarted && !IsBusy);
         FinishWorkoutCommand = new AsyncCommand(_ => FinishAsync(), _ => _hasStarted && !IsBusy);
+        DiscardWorkoutCommand = new AsyncCommand(
+            _ => DiscardAsync(),
+            _ => !IsBusy && HasWorkoutToDiscard);
         DismissNoticeCommand = new RelayCommand(_ => ClearNotice());
         _boundary.SessionReset += OnSessionReset;
         if (_unitPreference is not null) _unitPreference.Changed += OnWeightUnitChanged;
@@ -81,6 +84,7 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged, IDisposable
     public AsyncCommand MoveDownCommand { get; }
     public AsyncCommand StartWorkoutCommand { get; }
     public AsyncCommand FinishWorkoutCommand { get; }
+    public AsyncCommand DiscardWorkoutCommand { get; }
     public ICommand DismissNoticeCommand { get; }
     public WorkoutTextSet Text => _text;
     public Guid? CompletedWorkoutId { get; private set; }
@@ -110,6 +114,7 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged, IDisposable
     }
 
     public bool IsDraft => !HasStarted;
+    public bool HasWorkoutToDiscard => Exercises.Count != 0;
 
     public string? ErrorMessage
     {
@@ -137,6 +142,7 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged, IDisposable
 
     public event PropertyChangedEventHandler? PropertyChanged;
     public event EventHandler<Guid>? WorkoutFinished;
+    public event EventHandler? WorkoutDiscarded;
 
     public async Task RestoreAsync(CancellationToken cancellationToken = default)
     {
@@ -322,6 +328,47 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+    private async Task DiscardAsync()
+    {
+        if (!HasWorkoutToDiscard || IsBusy) return;
+        var generation = _boundary.Capture();
+        IsBusy = true;
+        ErrorMessage = null;
+        ClearNotice();
+        try
+        {
+            if (_confirmation is null
+                || !await _confirmation.ConfirmAsync(
+                    _text.DiscardWorkoutTitle,
+                    _text.DiscardWorkoutMessage,
+                    _text.DiscardWorkout,
+                    _text.ContinueWorkout)) return;
+            if (!HasWorkoutToDiscard) return;
+
+            if (HasStarted) await _coordinator.DiscardAsync();
+            if (_boundary.IsCancellationRequested(generation))
+            {
+                Clear();
+                return;
+            }
+
+            Clear();
+            WorkoutDiscarded?.Invoke(this, EventArgs.Empty);
+        }
+        catch (OperationCanceledException) when (_boundary.IsCancellationRequested(generation))
+        {
+            Clear();
+        }
+        catch (Exception)
+        {
+            SetErrorNotice(_text.DiscardWorkoutFailed);
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
     private async Task RemoveExerciseAsync(object? item)
     {
         var id = Id(item);
@@ -464,10 +511,12 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged, IDisposable
     {
         StartWorkoutCommand.RaiseCanExecuteChanged();
         FinishWorkoutCommand.RaiseCanExecuteChanged();
+        DiscardWorkoutCommand.RaiseCanExecuteChanged();
         RemoveExerciseCommand.RaiseCanExecuteChanged();
         MoveUpCommand.RaiseCanExecuteChanged();
         MoveDownCommand.RaiseCanExecuteChanged();
         OnPropertyChanged(nameof(IsDraft));
+        OnPropertyChanged(nameof(HasWorkoutToDiscard));
         OnPropertyChanged(nameof(WorkoutContextText));
     }
 

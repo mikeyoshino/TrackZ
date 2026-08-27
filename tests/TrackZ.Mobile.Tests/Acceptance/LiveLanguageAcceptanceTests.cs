@@ -93,7 +93,9 @@ public sealed class LiveLanguageAcceptanceTests
                 Assert.Equal("you", App.GetCurrentRootTabRoute(thaiShell));
                 var custom = recreated.Host.ActiveServices.GetRequiredService<CustomExerciseViewModel>();
                 Assert.Equal("หน้าอก", custom.BodyPartOptions.Single(option => option.Value == BodyPart.Chest).Label);
-                Assert.Equal("ใช้น้ำหนัก", custom.TrackingModeOptions.Single(option => option.Value == TrackingMode.Weighted).Label);
+                Assert.Equal(
+                    "น้ำหนักที่ยก + จำนวนครั้ง",
+                    custom.TrackingModeOptions.Single(option => option.Value == TrackingMode.Weighted).Label);
                 await AssertExerciseNamesAreUnchangedAsync(recreated);
             }
 
@@ -358,6 +360,8 @@ public sealed class LiveLanguageAcceptanceTests
         public Task RegisterAndLoginAsync(string email, string password, string deviceName, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task RefreshAsync(string deviceName, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task LogoutAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task<IPreparedIdentityLogout> PrepareLogoutAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(PreparedIdentityLogout.None);
     }
 
     private sealed class NoopPrivateDataCleaner : IMobilePrivateDataCleaner

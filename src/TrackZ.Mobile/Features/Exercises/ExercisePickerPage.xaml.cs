@@ -48,7 +48,7 @@ public partial class ExercisePickerPage : ContentPage, IQueryAttributable
     }
 
     private async void OnCreateCustomClicked(object? sender, EventArgs eventArgs) =>
-        await Shell.Current.GoToAsync(nameof(CustomExercisePage));
+        await _navigator.OpenCustomExerciseAsync(_viewModel.SearchText.Trim());
 
     private async Task CompleteSelectionAsync()
     {

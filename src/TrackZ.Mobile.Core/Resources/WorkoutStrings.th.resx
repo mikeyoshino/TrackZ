@@ -208,4 +208,8 @@
   <data name="HomeAssistedValueFormat" xml:space="preserve"><value>แรงช่วย {0} {1} × {2} ครั้ง</value></data>
   <data name="HomeBodyweightValueFormat" xml:space="preserve"><value>{0} ครั้ง</value></data>
   <data name="Open" xml:space="preserve"><value>เปิด</value></data>
+  <data name="DiscardWorkout" xml:space="preserve"><value>ยกเลิกการฝึก</value></data>
+  <data name="DiscardWorkoutTitle" xml:space="preserve"><value>ยกเลิกการฝึกครั้งนี้?</value></data>
+  <data name="DiscardWorkoutMessage" xml:space="preserve"><value>การฝึกครั้งนี้และเซ็ตที่บันทึกไว้จะถูกลบ และไม่สามารถย้อนกลับได้</value></data>
+  <data name="DiscardWorkoutFailed" xml:space="preserve"><value>ยกเลิกการฝึกไม่ได้ เซ็ตที่บันทึกไว้ยังอยู่ครบ</value></data>
 </root>

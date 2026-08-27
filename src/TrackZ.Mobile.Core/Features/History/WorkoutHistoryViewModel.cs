@@ -221,10 +221,13 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged, IDisposabl
     private readonly IConflictResolution _conflicts;
     private readonly IAccountSessionBoundary _boundary;
     private readonly IConnectivityService _connectivity;
+    private readonly IWorkoutSyncStatusNotifications? _syncNotifications;
+    private readonly IUiDispatcher _dispatcher;
     private readonly ExerciseCache? _exerciseCache;
     private readonly IWeightUnitPreference? _unitPreference;
     private readonly Dictionary<Guid, WorkoutSyncState> _durableStates = [];
     private readonly CancellationTokenSource _lifetime = new();
+    private readonly SemaphoreSlim _reloadGate = new(1, 1);
     private bool _isBusy;
     private bool _deactivated;
     private string? _errorMessage;
@@ -238,7 +241,9 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged, IDisposabl
         WorkoutTextSet text,
         IConflictResolution conflicts,
         ExerciseCache? exerciseCache = null,
-        IWeightUnitPreference? unitPreference = null)
+        IWeightUnitPreference? unitPreference = null,
+        IWorkoutSyncStatusNotifications? syncNotifications = null,
+        IUiDispatcher? dispatcher = null)
     {
         _history = history;
         _outbox = outbox;
@@ -246,6 +251,8 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged, IDisposabl
         _conflicts = conflicts;
         _boundary = boundary;
         _connectivity = connectivity;
+        _syncNotifications = syncNotifications;
+        _dispatcher = dispatcher ?? new InlineUiDispatcher();
         _exerciseCache = exerciseCache;
         _unitPreference = unitPreference;
         Text = text;
@@ -268,6 +275,8 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged, IDisposabl
         ApplyLocalCommand = new AsyncCommand(ApplyLocalAsync, CanResolveConflict);
         _boundary.SessionReset += OnSessionReset;
         _connectivity.ConnectivityChanged += OnConnectivityChanged;
+        if (_syncNotifications is not null)
+            _syncNotifications.StatusChanged += OnSyncStatusChanged;
         if (_unitPreference is not null) _unitPreference.Changed += OnWeightUnitChanged;
     }
 
@@ -309,7 +318,7 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged, IDisposabl
         ErrorMessage = null;
         try
         {
-            await ReloadAsync(linked.Token);
+            await ReloadSerializedAsync(linked.Token);
         }
         catch (OperationCanceledException) when (linked.IsCancellationRequested)
         {
@@ -330,6 +339,8 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged, IDisposabl
         _deactivated = true;
         _boundary.SessionReset -= OnSessionReset;
         _connectivity.ConnectivityChanged -= OnConnectivityChanged;
+        if (_syncNotifications is not null)
+            _syncNotifications.StatusChanged -= OnSyncStatusChanged;
         if (_unitPreference is not null) _unitPreference.Changed -= OnWeightUnitChanged;
         _lifetime.Cancel();
         _durableStates.Clear();
@@ -445,7 +456,7 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged, IDisposabl
         try
         {
             await mutation(linked.Token);
-            await ReloadAsync(linked.Token);
+            await ReloadSerializedAsync(linked.Token);
         }
         catch (OperationCanceledException) when (linked.IsCancellationRequested)
         {
@@ -546,6 +557,19 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged, IDisposabl
         RebuildGroups();
     }
 
+    private async Task ReloadSerializedAsync(CancellationToken cancellationToken)
+    {
+        await _reloadGate.WaitAsync(cancellationToken);
+        try
+        {
+            await ReloadAsync(cancellationToken);
+        }
+        finally
+        {
+            _reloadGate.Release();
+        }
+    }
+
     private static WorkoutSyncState DurableStatus(IReadOnlyList<OutboxOperation> operations)
     {
         if (operations.Any(operation => operation.State == OutboxOperationState.Pending
@@ -563,7 +587,8 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged, IDisposabl
     }
 
     private WorkoutSyncState DisplayStatus(WorkoutSyncState durableState) =>
-        durableState is WorkoutSyncState.PermanentFailure
+        durableState is WorkoutSyncState.Synced
+            or WorkoutSyncState.PermanentFailure
             or WorkoutSyncState.Conflicted
             or WorkoutSyncState.Reconciling
             ? durableState
@@ -627,6 +652,39 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged, IDisposabl
         RebuildGroups();
         RaiseCommands();
     }
+
+    private async void OnSyncStatusChanged(object? sender, EventArgs eventArgs)
+    {
+        if (_deactivated) return;
+        try
+        {
+            Task refresh = Task.CompletedTask;
+            await _dispatcher.InvokeAsync(() => refresh = RefreshAfterSyncAsync());
+            await refresh;
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
+        {
+        }
+        catch (Exception)
+        {
+            if (_deactivated) return;
+            try
+            {
+                await _dispatcher.InvokeAsync(() =>
+                {
+                    if (!_deactivated) ErrorMessage = Text.LoadFailed;
+                });
+            }
+            catch
+            {
+                // A failed UI dispatch cannot be surfaced safely from an event callback.
+            }
+        }
+    }
+
+    private Task RefreshAfterSyncAsync() => _deactivated
+        ? Task.CompletedTask
+        : ReloadSerializedAsync(_lifetime.Token);
 
     private void RebuildGroups()
     {

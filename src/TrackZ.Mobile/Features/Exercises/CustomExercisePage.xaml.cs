@@ -1,6 +1,7 @@
 using TrackZ.Mobile.Features.Exercises.Services;
 using TrackZ.Mobile.Features.Localization;
 using System.Globalization;
+using Microsoft.Maui.Storage;
 
 namespace TrackZ.Mobile.Features.Exercises;
 
@@ -8,28 +9,36 @@ public partial class CustomExercisePage : ContentPage, IQueryAttributable
 {
     private readonly CustomExerciseViewModel _viewModel;
     private readonly LocalExerciseImageSelectionCoordinator _imageSelection;
+    private readonly IFileSystem _fileSystem;
     private readonly MobileTextSet _text;
 
     public CustomExercisePage(
         CustomExerciseViewModel viewModel,
-        LocalExerciseImageSelectionCoordinator imageSelection)
+        LocalExerciseImageSelectionCoordinator imageSelection,
+        IFileSystem fileSystem)
     {
         InitializeComponent();
         BindingContext = _viewModel = viewModel;
         _text = viewModel.Text;
         _imageSelection = imageSelection;
+        _fileSystem = fileSystem;
     }
 
     public void ApplyQueryAttributes(IDictionary<string, object> query)
     {
         if (query.TryGetValue("exerciseId", out var value) && Guid.TryParse(value?.ToString(), out var id))
+        {
             _ = LoadForEditAsync(id);
-    }
+            return;
+        }
 
-    protected override async void OnAppearing()
-    {
-        base.OnAppearing();
-        await _viewModel.LoadLibraryImagesAsync();
+        if (query.TryGetValue("suggestedName", out var suggestedName))
+        {
+            var normalizedName = Uri.UnescapeDataString(
+                Convert.ToString(suggestedName) ?? string.Empty).Trim();
+            if (!string.IsNullOrEmpty(normalizedName))
+                _viewModel.Name = normalizedName;
+        }
     }
 
     private async void OnChooseImageClicked(object? sender, EventArgs eventArgs)
@@ -38,7 +47,7 @@ public partial class CustomExercisePage : ContentPage, IQueryAttributable
         {
             await _imageSelection.PickAndSelectAsync(
                 _text.ChooseExerciseImage,
-                Path.Combine(FileSystem.AppDataDirectory, "exercise-images"),
+                Path.Combine(_fileSystem.AppDataDirectory, "exercise-images"),
                 _viewModel.SelectLocalImage);
         }
         catch (UnsupportedExerciseImageException)

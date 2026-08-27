@@ -25,12 +25,34 @@ public sealed record IdentityTransitionReceipt(
     AccountSessionGeneration Generation,
     MobileIdentitySnapshot Identity);
 
+public interface IPreparedIdentityLogout
+{
+    Task RevokeAsync(CancellationToken cancellationToken = default);
+}
+
+public sealed class PreparedIdentityLogout(
+    Func<CancellationToken, Task> revoke) : IPreparedIdentityLogout
+{
+    public static IPreparedIdentityLogout None { get; } =
+        new PreparedIdentityLogout(_ => Task.CompletedTask);
+
+    public Task RevokeAsync(CancellationToken cancellationToken = default) =>
+        revoke(cancellationToken);
+}
+
 public interface IIdentitySessionApi
 {
     Task LoginAsync(string email, string password, string deviceName, CancellationToken cancellationToken = default);
     Task RegisterAndLoginAsync(string email, string password, string deviceName, CancellationToken cancellationToken = default);
     Task RefreshAsync(string deviceName, CancellationToken cancellationToken = default);
     Task LogoutAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Captures immutable revocation credentials without clearing local state or
+    /// entering an account reset. The returned operation performs remote revoke only.
+    /// </summary>
+    Task<IPreparedIdentityLogout> PrepareLogoutAsync(
+        CancellationToken cancellationToken = default);
 
     async Task<IdentityTransitionReceipt?> LoginWithReceiptAsync(
         string email,
@@ -200,14 +222,22 @@ public sealed class AuthGateCoordinator : IAuthEntryPoint
         await InitializeAsync(cancellationToken);
     }
 
-    public async Task SignOutAsync(CancellationToken cancellationToken = default)
+    public async Task SignOutAsync(CancellationToken cancellationToken = default) =>
+        _ = await TrySignOutAsync(_ => Task.FromResult(true), cancellationToken);
+
+    public async Task<bool> TrySignOutAsync(
+        Func<CancellationToken, Task<bool>> authorizeReset,
+        CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(authorizeReset);
         await _transitionGate.WaitAsync(cancellationToken);
         try
         {
+            var generation = _sessionBoundary.Capture();
+            IPreparedIdentityLogout preparedLogout;
             try
             {
-                await _identity.LogoutAsync(cancellationToken);
+                preparedLogout = await _identity.PrepareLogoutAsync(cancellationToken);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -215,13 +245,40 @@ public sealed class AuthGateCoordinator : IAuthEntryPoint
             }
             catch (Exception)
             {
-                // Local sign-out must complete even when server revocation cannot.
+                preparedLogout = PreparedIdentityLogout.None;
+            }
+
+            var resetStarted = false;
+            try
+            {
+                return await _sessionBoundary.TryResetIfAsync(
+                    generation,
+                    authorizeReset,
+                    async token =>
+                    {
+                        resetStarted = true;
+                        try
+                        {
+                            await preparedLogout.RevokeAsync(token);
+                        }
+                        catch (Exception)
+                        {
+                            // Local sign-out must complete even when server revocation cannot.
+                        }
+                        finally
+                        {
+                            await ClearStoredAccountAsync(token);
+                        }
+                    },
+                    cancellationToken);
             }
             finally
             {
-                await ClearAccountAsync(cancellationToken);
-                Publish(new AuthGateSnapshot(AuthGateState.SignedOut));
-                Volatile.Write(ref _initialised, 1);
+                if (resetStarted)
+                {
+                    Publish(new AuthGateSnapshot(AuthGateState.SignedOut));
+                    Volatile.Write(ref _initialised, 1);
+                }
             }
         }
         finally

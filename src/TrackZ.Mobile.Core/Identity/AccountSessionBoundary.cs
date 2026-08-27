@@ -70,6 +70,20 @@ public interface IAccountSessionBoundary
         AccountSessionGeneration generation,
         Func<CancellationToken, Task> reset,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Excludes account writes, then resets the active generation only when
+    /// <paramref name="authorizeReset"/> approves while account writes are excluded.
+    /// A declined or failed authorization preserves the generation and queued writes,
+    /// without clearing account data or publishing <see cref="SessionReset"/>.
+    /// The authorization callback runs inside this boundary's write gate and must not
+    /// call commit or reset methods on the same boundary.
+    /// </summary>
+    Task<bool> TryResetIfAsync(
+        AccountSessionGeneration generation,
+        Func<CancellationToken, Task<bool>> authorizeReset,
+        Func<CancellationToken, Task> reset,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed class AccountSessionBoundary : IAccountSessionBoundary
@@ -174,6 +188,73 @@ public sealed class AccountSessionBoundary : IAccountSessionBoundary
         return await ResetCoreAsync(generation, reset, cancellationToken);
     }
 
+    public async Task<bool> TryResetIfAsync(
+        AccountSessionGeneration generation,
+        Func<CancellationToken, Task<bool>> authorizeReset,
+        Func<CancellationToken, Task> reset,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(authorizeReset);
+        ArgumentNullException.ThrowIfNull(reset);
+        await _resetGate.WaitAsync(cancellationToken);
+        var failures = new List<Exception>();
+        GenerationCancellation? invalidated = null;
+        try
+        {
+            lock (_cancellationLock)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (generation.Value != Interlocked.Read(ref _generation))
+                    return false;
+            }
+
+            await _gate.WaitAsync(cancellationToken);
+            try
+            {
+                var authorized = await authorizeReset(cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!authorized) return false;
+
+                lock (_cancellationLock)
+                {
+                    _resetInProgress = true;
+                    invalidated = _generationCancellation;
+                }
+            }
+            finally
+            {
+                _gate.Release();
+            }
+
+            try
+            {
+                invalidated!.Cancel();
+            }
+            catch (Exception exception)
+            {
+                failures.Add(exception);
+            }
+
+            await _gate.WaitAsync(CancellationToken.None);
+            try
+            {
+                await ResetUnderGateAsync(reset, failures);
+            }
+            finally
+            {
+                _gate.Release();
+            }
+        }
+        finally
+        {
+            _resetGate.Release();
+        }
+
+        ThrowFailures(failures);
+        cancellationToken.ThrowIfCancellationRequested();
+        return true;
+    }
+
     private async Task<bool> ResetCoreAsync(
         AccountSessionGeneration? expectedGeneration,
         Func<CancellationToken, Task> reset,
@@ -226,18 +307,7 @@ public sealed class AccountSessionBoundary : IAccountSessionBoundary
         Func<CancellationToken, Task> reset,
         List<Exception> failures)
     {
-        var replacement = new GenerationCancellation();
-        GenerationCancellation invalidated;
-        lock (_cancellationLock)
-        {
-            invalidated = _generationCancellation;
-            _generationCancellation = replacement;
-            Interlocked.Increment(ref _generation);
-            _resetInProgress = false;
-        }
-
-        var disposalFailure = invalidated.Retire();
-        if (disposalFailure is not null) failures.Add(disposalFailure);
+        ReplaceGenerationUnderGate(failures);
 
         try
         {
@@ -261,6 +331,22 @@ public sealed class AccountSessionBoundary : IAccountSessionBoundary
                 failures.Add(exception);
             }
         }
+    }
+
+    private void ReplaceGenerationUnderGate(List<Exception> failures)
+    {
+        var replacement = new GenerationCancellation();
+        GenerationCancellation invalidated;
+        lock (_cancellationLock)
+        {
+            invalidated = _generationCancellation;
+            _generationCancellation = replacement;
+            Interlocked.Increment(ref _generation);
+            _resetInProgress = false;
+        }
+
+        var disposalFailure = invalidated.Retire();
+        if (disposalFailure is not null) failures.Add(disposalFailure);
     }
 
     private static void ThrowFailures(IReadOnlyList<Exception> failures)

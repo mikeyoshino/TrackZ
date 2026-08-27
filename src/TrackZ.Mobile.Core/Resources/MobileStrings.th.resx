@@ -9,10 +9,19 @@
   <data name="EnglishLanguage" xml:space="preserve"><value>English</value></data>
   <data name="LanguageSwitchFailed" xml:space="preserve"><value>เปลี่ยนภาษาแอปไม่สำเร็จ</value></data>
   <data name="CustomExerciseTitle" xml:space="preserve"><value>สร้างท่าเอง</value></data>
+  <data name="CustomExerciseFormTitle" xml:space="preserve"><value>ข้อมูลท่า</value></data>
+  <data name="CustomExerciseIntro" xml:space="preserve"><value>กรอกเฉพาะข้อมูลจำเป็น</value></data>
   <data name="ExerciseName" xml:space="preserve"><value>ชื่อท่า</value></data>
   <data name="BodyPart" xml:space="preserve"><value>ส่วนร่างกาย</value></data>
   <data name="TrackingMode" xml:space="preserve"><value>รูปแบบการบันทึก</value></data>
-  <data name="ChooseExerciseImage" xml:space="preserve"><value>เลือกรูป JPEG, PNG หรือ WebP</value></data>
+  <data name="TrackingModeQuestion" xml:space="preserve"><value>ต้องการบันทึกแบบไหน</value></data>
+  <data name="OptionalExerciseImage" xml:space="preserve"><value>รูปท่า (ไม่บังคับ)</value></data>
+  <data name="ExerciseImageOptionalHelp" xml:space="preserve"><value>เพิ่มรูปเอง หรือเลือกจากคลัง</value></data>
+  <data name="AddExerciseImage" xml:space="preserve"><value>เพิ่มรูป</value></data>
+  <data name="HideExerciseImages" xml:space="preserve"><value>ซ่อน</value></data>
+  <data name="ExerciseImagePlaceholder" xml:space="preserve"><value>รูปท่า</value></data>
+  <data name="ChooseExerciseImage" xml:space="preserve"><value>เลือกรูปจากเครื่อง</value></data>
+  <data name="ChooseFromExerciseLibrary" xml:space="preserve"><value>เลือกจากคลังรูป</value></data>
   <data name="PublishedLibraryImages" xml:space="preserve"><value>รูปจากคลังที่เผยแพร่</value></data>
   <data name="ExerciseImageRetentionHelp" xml:space="preserve"><value>แอปจะเก็บไฟล์ต้นฉบับไว้อย่างปลอดภัยเพื่ออัปโหลด และปรับขนาดเฉพาะภาพตัวอย่าง คุณยังเลือกรูปจากคลังที่เผยแพร่แล้วได้</value></data>
   <data name="SaveExercise" xml:space="preserve"><value>บันทึกท่า</value></data>
@@ -27,12 +36,22 @@
   <data name="BodyPartArms" xml:space="preserve"><value>แขน</value></data>
   <data name="BodyPartLegs" xml:space="preserve"><value>ขา</value></data>
   <data name="BodyPartCore" xml:space="preserve"><value>แกนกลางลำตัว</value></data>
-  <data name="TrackingWeighted" xml:space="preserve"><value>ใช้น้ำหนัก</value></data>
-  <data name="TrackingAssisted" xml:space="preserve"><value>ใช้น้ำหนักช่วย</value></data>
-  <data name="TrackingBodyweight" xml:space="preserve"><value>น้ำหนักตัว</value></data>
+  <data name="TrackingWeighted" xml:space="preserve"><value>น้ำหนักที่ยก + จำนวนครั้ง</value></data>
+  <data name="TrackingAssisted" xml:space="preserve"><value>น้ำหนักที่เครื่องช่วย + จำนวนครั้ง</value></data>
+  <data name="TrackingBodyweight" xml:space="preserve"><value>จำนวนครั้งเท่านั้น</value></data>
   <data name="ExerciseNameValidation" xml:space="preserve"><value>กรุณากรอกชื่อท่าไม่เกิน 100 ตัวอักษร</value></data>
   <data name="BodyPartValidation" xml:space="preserve"><value>กรุณาเลือกส่วนร่างกาย</value></data>
   <data name="TrackingModeValidation" xml:space="preserve"><value>กรุณาเลือกรูปแบบการบันทึก</value></data>
   <data name="ImageSourceConflict" xml:space="preserve"><value>กรุณาเลือกรูปจากคลังหรือรูปในเครื่องอย่างใดอย่างหนึ่ง</value></data>
   <data name="LocalImageMissing" xml:space="preserve"><value>ไม่พบไฟล์รูปในเครื่อง</value></data>
+  <data name="SignOutTitle" xml:space="preserve"><value>ออกจากระบบ?</value></data>
+  <data name="SignOutMessage" xml:space="preserve"><value>คุณจะต้องเข้าสู่ระบบอีกครั้งเพื่อใช้ TrackZ</value></data>
+  <data name="SignOutDataTitle" xml:space="preserve"><value>ข้อมูลที่ยังไม่ซิงค์จะถูกลบ</value></data>
+  <data name="SignOutDataMessage" xml:space="preserve"><value>ข้อมูลการฝึกบางส่วนยังอยู่ในเครื่องนี้เท่านั้น หากออกจากระบบตอนนี้ ข้อมูลนั้นจะถูกลบและอาจกู้คืนไม่ได้</value></data>
+  <data name="SignOutUnknownTitle" xml:space="preserve"><value>ตรวจสอบข้อมูลที่บันทึกไว้ไม่ได้</value></data>
+  <data name="SignOutUnknownMessage" xml:space="preserve"><value>TrackZ ตรวจสอบไม่ได้ว่ามีข้อมูลการฝึกที่อยู่ในเครื่องนี้เท่านั้นหรือไม่ หากออกจากระบบ ข้อมูลในเครื่องจะถูกลบและอาจกู้คืนไม่ได้</value></data>
+  <data name="SignOutAndDelete" xml:space="preserve"><value>ออกและลบข้อมูล</value></data>
+  <data name="StaySignedIn" xml:space="preserve"><value>ยังไม่ออก</value></data>
+  <data name="SignOutCheckFailed" xml:space="preserve"><value>ตรวจสอบข้อมูลการฝึกที่บันทึกไว้ไม่ได้ กรุณาลองอีกครั้ง</value></data>
+  <data name="SignOutFailed" xml:space="preserve"><value>ออกจากระบบอย่างปลอดภัยไม่ได้ กรุณาลองอีกครั้ง</value></data>
 </root>

@@ -606,6 +606,7 @@ public sealed class MauiCompositionTests
             var secondPage = app.Services.GetRequiredService<SetLoggerPage>();
             var concreteStatus = app.Services.GetRequiredService<OutboxRepository>();
             var interfaceStatus = app.Services.GetRequiredService<IWorkoutOutboxStatusSource>();
+            var syncCoordinator = app.Services.GetRequiredService<SyncCoordinator>();
             var firstHistoryPage = app.Services.GetRequiredService<WorkoutHistoryPage>();
             var secondHistoryPage = app.Services.GetRequiredService<WorkoutHistoryPage>();
             var firstPrompt = app.Services.GetRequiredService<SetEffortPromptViewModel>();
@@ -627,10 +628,12 @@ public sealed class MauiCompositionTests
                 firstLogger.SaveDraftSetCommand,
                 Assert.IsType<Button>(firstPage.FindByName("SaveDraftSetButton")).Command);
             Assert.False(Assert.IsType<Border>(firstPage.FindByName("InlineSetEditor")).IsVisible);
-            Assert.False(
-                Assert.IsType<SyncStatusPill>(firstPage.FindByName("SetLoggerSyncStatus")).IsVisible);
+            Assert.Null(firstPage.FindByName("SetLoggerSyncStatus"));
             Assert.Same(concreteStatus, interfaceStatus);
             Assert.Same(interfaceStatus, app.Services.GetRequiredService<IWorkoutOutboxStatusSource>());
+            Assert.Same(
+                syncCoordinator,
+                app.Services.GetRequiredService<IWorkoutSyncStatusNotifications>());
             Assert.IsType<WorkoutHistoryViewModel>(firstHistoryPage.BindingContext);
             Assert.IsType<WorkoutHistoryViewModel>(secondHistoryPage.BindingContext);
             Assert.NotSame(firstHistoryPage, secondHistoryPage);
@@ -906,7 +909,7 @@ public sealed class MauiCompositionTests
         var previous = page.FindByName<VerticalStackLayout>("LastWorkoutSection");
         var noHistory = Assert.IsType<Label>(page.FindByName("NoSetHistoryLabel"));
         var reference = page.FindByName<Border>("PreviousWorkoutReferenceCard");
-        var sync = Assert.IsType<SyncStatusPill>(page.FindByName("SetLoggerSyncStatus"));
+        Assert.Null(page.FindByName("SetLoggerSyncStatus"));
         var addButton = page.FindByName<Button>("AddSetButton");
         var saveButton = page.FindByName<Button>("SaveDraftSetButton");
         var weightInput = page.FindByName<Entry>("DraftWeightInput");
@@ -920,7 +923,6 @@ public sealed class MauiCompositionTests
         Assert.False(today.IsVisible);
         Assert.False(previous.IsVisible);
         Assert.Equal(logger.HasPreviousReference, reference.IsVisible);
-        Assert.False(sync.IsVisible);
 
         logger.BeginSetCommand.Execute(null);
         var cancelledReveal = await transition.NextAttemptAsync();
@@ -1380,6 +1382,13 @@ public sealed class MauiCompositionTests
             AccountSessionGeneration generation,
             Func<CancellationToken, Task> reset,
             CancellationToken cancellationToken = default) => _inner.TryResetAsync(generation, reset, cancellationToken);
+        public Task<bool> TryResetIfAsync(
+            AccountSessionGeneration generation,
+            Func<CancellationToken, Task<bool>> authorizeReset,
+            Func<CancellationToken, Task> reset,
+            CancellationToken cancellationToken = default) =>
+            _inner.TryResetIfAsync(
+                generation, authorizeReset, reset, cancellationToken);
     }
 
     private sealed class AuthenticatedTokenStorage : IMobileTokenStorage

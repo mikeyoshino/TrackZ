@@ -7,6 +7,7 @@ using TrackZ.Domain.Workouts;
 using TrackZ.Mobile.Data;
 using TrackZ.Mobile.Data.Models;
 using TrackZ.Mobile.Features.Exercises;
+using TrackZ.Mobile.Features.History;
 using TrackZ.Mobile.Features.Workout;
 using TrackZ.Mobile.Identity;
 using TrackZ.Mobile.Sync;
@@ -15,6 +16,21 @@ namespace TrackZ.Mobile.Tests.Sync;
 
 public sealed class SyncCoordinatorTests
 {
+    [Fact]
+    public async Task Completed_sync_run_notifies_status_observers()
+    {
+        await using var context = await SyncContext.CreateAsync();
+        var statusChanged = typeof(SyncCoordinator).GetEvent("StatusChanged");
+        Assert.NotNull(statusChanged);
+        var notificationCount = 0;
+        EventHandler handler = (_, _) => notificationCount++;
+        statusChanged.AddEventHandler(context.Coordinator, handler);
+
+        Assert.Equal(SyncRunStatus.Completed, await context.Coordinator.RunOnceAsync());
+
+        Assert.Equal(1, notificationCount);
+    }
+
     [Fact]
     public async Task Sync_state_schema_survives_database_restart()
     {
@@ -301,6 +317,134 @@ public sealed class SyncCoordinatorTests
         var authoritative = (await context.Workouts.GetActiveAsync())!;
         Assert.Equal(4, authoritative.Version);
         Assert.Empty(authoritative.Exercises[0].Sets);
+    }
+
+    [Fact]
+    public async Task Confirmed_active_discard_conflict_is_automatically_rebased_and_retried()
+    {
+        await using var context = await SyncContext.CreateAsync();
+        var started = await context.StartAsync();
+        await new ActiveWorkoutCoordinator(
+            context.Workouts, context.Boundary, context.Clock).DiscardAsync();
+        var pending = await context.Outbox.PendingAsync();
+        var delete = pending[1];
+        var authority = ServerGraph(started, 2);
+        context.Api.PushResponses.Enqueue(new SyncPushResponse([
+            new(pending[0].OperationId, SyncOperationStatus.Applied, 1, null)
+        ]));
+        context.Api.PushResponses.Enqueue(new SyncPushResponse([
+            new(delete.OperationId, SyncOperationStatus.Conflict, 2,
+                BusinessErrorCode.VersionConflict)
+        ]));
+        context.Api.PullResponses.Enqueue(new SyncPullResponse([
+            Change(authority, 1)
+        ], "cursor-discard-conflict", false));
+
+        Assert.Equal(SyncRunStatus.Completed, await context.Coordinator.RunOnceAsync());
+
+        var original = Assert.Single(await context.Outbox.ConflictedAsync());
+        var replacement = Assert.Single(await context.Outbox.PendingAsync());
+        Assert.Equal(OutboxOperationType.DeleteWorkout, replacement.Type);
+        Assert.Equal(original.OperationId, replacement.ReplacesOperationId);
+        Assert.Equal(authority.Version, replacement.BaseVersion);
+        Assert.NotNull(replacement.NextAttemptAt);
+        Assert.Null(await context.Workouts.GetActiveAsync());
+
+        context.Clock.UtcNow = replacement.NextAttemptAt!.Value;
+        var rebasedPayload = replacement.DeserializePayload<DeleteWorkoutOutboxPayload>();
+        var deletedAuthority = authority with
+        {
+            DeletedAt = rebasedPayload.DeletedAt,
+            Version = 3
+        };
+        context.Api.PushResponses.Enqueue(new SyncPushResponse([
+            new(replacement.OperationId, SyncOperationStatus.Applied, 3, null)
+        ]));
+        context.Api.PullResponses.Enqueue(new SyncPullResponse([
+            Change(deletedAuthority, 2)
+        ], "cursor-discard-deleted", false));
+
+        Assert.Equal(SyncRunStatus.Completed, await context.Coordinator.RunOnceAsync());
+
+        Assert.Empty(await context.Outbox.PendingAsync());
+        Assert.Empty(await context.Outbox.ConflictedAsync());
+        Assert.Empty(await context.Outbox.UnresolvedAsync());
+        Assert.Null(await context.Workouts.GetActiveAsync());
+    }
+
+    [Fact]
+    public async Task Ordinary_history_delete_conflict_is_not_automatically_rebased()
+    {
+        await using var context = await SyncContext.CreateAsync();
+        var authority = CompletedServerGraph(
+            Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), 4);
+        context.Api.PullResponses.Enqueue(new SyncPullResponse([
+            Change(authority, 1)
+        ], "cursor-history-seed", false));
+        Assert.Equal(SyncRunStatus.Completed, await context.Coordinator.RunOnceAsync());
+
+        context.Clock.UtcNow = context.Clock.UtcNow.AddMinutes(1);
+        var mutation = await new WorkoutHistoryCoordinator(
+            context.Workouts, context.Boundary, context.Clock)
+            .DeleteWorkoutAsync(authority.Id);
+        var delete = Assert.Single(await context.Outbox.PendingAsync());
+        Assert.Equal(mutation.OperationId, delete.OperationId);
+        Assert.Equal(OutboxOperationType.DeleteWorkout, delete.Type);
+
+        var newerAuthority = authority with { Version = 5 };
+        context.Api.PushResponses.Enqueue(new SyncPushResponse([
+            new(delete.OperationId, SyncOperationStatus.Conflict, 5,
+                BusinessErrorCode.VersionConflict)
+        ]));
+        context.Api.PullResponses.Enqueue(new SyncPullResponse([
+            Change(newerAuthority, 2)
+        ], "cursor-history-conflict", false));
+
+        Assert.Equal(SyncRunStatus.Completed, await context.Coordinator.RunOnceAsync());
+
+        var conflict = Assert.Single(await context.Outbox.ConflictedAsync());
+        Assert.Equal(delete.OperationId, conflict.OperationId);
+        Assert.Equal(5, conflict.ServerVersion);
+        Assert.NotNull(conflict.ServerPayload);
+        Assert.Empty(await context.Outbox.PendingAsync());
+        Assert.Equal(0, await CountReplacementsAsync(context.Path, delete.OperationId));
+    }
+
+    [Fact]
+    public async Task Confirmed_active_discard_when_server_is_already_deleted_archives_without_replacement()
+    {
+        await using var context = await SyncContext.CreateAsync();
+        var started = await context.StartAsync();
+        await new ActiveWorkoutCoordinator(
+            context.Workouts, context.Boundary, context.Clock).DiscardAsync();
+        var pending = await context.Outbox.PendingAsync();
+        var delete = pending.Single(operation =>
+            operation.Type == OutboxOperationType.DeleteWorkout);
+        var deletedAt = delete.DeserializePayload<DeleteWorkoutOutboxPayload>().DeletedAt;
+        var deletedAuthority = ServerGraph(started, 2) with { DeletedAt = deletedAt };
+        context.Api.PushResponses.Enqueue(new SyncPushResponse([
+            new(pending[0].OperationId, SyncOperationStatus.Applied, 1, null)
+        ]));
+        context.Api.PushResponses.Enqueue(new SyncPushResponse([
+            new(delete.OperationId, SyncOperationStatus.Conflict, 2,
+                BusinessErrorCode.VersionConflict)
+        ]));
+        context.Api.PullResponses.Enqueue(new SyncPullResponse([
+            Change(deletedAuthority, 1)
+        ], "cursor-discard-already-deleted", false));
+
+        Assert.Equal(SyncRunStatus.Completed, await context.Coordinator.RunOnceAsync());
+
+        var archived = Assert.IsType<OutboxOperation>(
+            await context.Workouts.GetOperationAsync(delete.OperationId));
+        Assert.Equal(OutboxOperationState.Applied, archived.State);
+        Assert.Equal(2, archived.ServerVersion);
+        Assert.NotNull(archived.DeletedAt);
+        Assert.Empty(await context.Outbox.PendingAsync());
+        Assert.Empty(await context.Outbox.ConflictedAsync());
+        Assert.Empty(await context.Outbox.UnresolvedAsync());
+        Assert.Equal(0, await CountReplacementsAsync(context.Path, delete.OperationId));
+        Assert.Null(await context.Workouts.GetActiveAsync());
     }
 
     [Fact]
@@ -2024,6 +2168,19 @@ public sealed class SyncCoordinatorTests
         command.Parameters.AddWithValue("$version", operation.Version);
         command.Parameters.AddWithValue("$replaces", operation.ReplacesOperationId!.Value.ToString("D"));
         await command.ExecuteNonQueryAsync();
+    }
+
+    private static async Task<long> CountReplacementsAsync(string path, Guid operationId)
+    {
+        await using var connection = new SqliteConnection($"Data Source={path};Pooling=False");
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT COUNT(*) FROM OutboxOperation
+            WHERE ReplacesOperationId = $operationId;
+            """;
+        command.Parameters.AddWithValue("$operationId", operationId.ToString("D"));
+        return (long)(await command.ExecuteScalarAsync())!;
     }
 
     private static void AssertWorkoutIntentEqual(LocalWorkout expected, LocalWorkout actual)

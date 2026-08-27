@@ -1,4 +1,5 @@
 using System.Globalization;
+using Microsoft.Extensions.DependencyInjection;
 using TrackZ.Contracts.Exercises;
 using TrackZ.Domain.Exercises;
 using TrackZ.Mobile.Data;
@@ -261,6 +262,59 @@ public sealed class WorkoutHistoryViewModelTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task Offline_workout_without_durable_sync_work_remains_synced()
+    {
+        _ = await CompletedWorkoutAsync(TrackingMode.Bodyweight, null, null, 10);
+        var viewModel = new WorkoutHistoryViewModel(
+            new WorkoutHistoryCoordinator(Repository(), _boundary, _clock),
+            new FixedHistoryStatusSource(),
+            new RecordingConfirmation(),
+            _boundary,
+            new MutableConnectivity(isOnline: false),
+            WorkoutResources.English,
+            new RecordingConflictResolution());
+
+        await viewModel.LoadAsync();
+
+        Assert.Equal(WorkoutSyncState.Synced, Assert.Single(viewModel.Workouts).SyncState);
+        viewModel.Deactivate();
+    }
+
+    [Fact]
+    public async Task Completed_sync_refreshes_visible_workout_without_reopening_history()
+    {
+        _ = await CompletedWorkoutAsync(TrackingMode.Bodyweight, null, null, 10);
+        var status = new MutableHistoryStatusSource(
+            (await new OutboxRepository(Database()).PendingAsync()).ToArray());
+        var notifications = new RecordingSyncStatusNotifications();
+        using var services = new ServiceCollection()
+            .AddSingleton<IWorkoutSyncStatusNotifications>(notifications)
+            .AddSingleton<IUiDispatcher, InlineUiDispatcher>()
+            .BuildServiceProvider();
+        var viewModel = ActivatorUtilities.CreateInstance<WorkoutHistoryViewModel>(
+            services,
+            new WorkoutHistoryCoordinator(Repository(), _boundary, _clock),
+            status,
+            new RecordingConfirmation(),
+            _boundary,
+            new MutableConnectivity(isOnline: true),
+            WorkoutResources.English,
+            new RecordingConflictResolution());
+
+        await viewModel.LoadAsync();
+        Assert.Equal(WorkoutSyncState.Pending, Assert.Single(viewModel.Workouts).SyncState);
+        Assert.Equal(1, notifications.SubscriptionCount);
+
+        status.Replace();
+        notifications.Raise();
+
+        await EventuallyAsync(() =>
+            Assert.Single(viewModel.Workouts).SyncState == WorkoutSyncState.Synced);
+        viewModel.Deactivate();
+        Assert.Equal(0, notifications.SubscriptionCount);
+    }
+
+    [Fact]
     public async Task Permanent_completion_failure_after_restart_disables_repeat_mutations_but_keeps_undo()
     {
         var completed = await CompletedWorkoutAsync(TrackingMode.Bodyweight, null, null, 10);
@@ -518,6 +572,35 @@ public sealed class WorkoutHistoryViewModelTests : IAsyncDisposable
                 operations.Where(item => item.EntityId == workoutId).ToArray());
     }
 
+    private sealed class MutableHistoryStatusSource(params OutboxOperation[] operations)
+        : IHistoryOutboxStatusSource
+    {
+        private OutboxOperation[] _operations = operations;
+
+        public void Replace(params OutboxOperation[] replacement) => _operations = replacement;
+
+        public Task<IReadOnlyList<OutboxOperation>> ForHistoryWorkoutAsync(
+            Guid workoutId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<OutboxOperation>>(
+                _operations.Where(item => item.EntityId == workoutId).ToArray());
+    }
+
+    private sealed class RecordingSyncStatusNotifications : IWorkoutSyncStatusNotifications
+    {
+        private EventHandler? _statusChanged;
+
+        public int SubscriptionCount { get; private set; }
+
+        public event EventHandler? StatusChanged
+        {
+            add { _statusChanged += value; SubscriptionCount++; }
+            remove { _statusChanged -= value; SubscriptionCount--; }
+        }
+
+        public void Raise() => _statusChanged?.Invoke(this, EventArgs.Empty);
+    }
+
     private sealed class GatedConfirmation : IHistoryConfirmation
     {
         public TaskCompletionSource Started { get; } = new(
@@ -602,5 +685,15 @@ public sealed class WorkoutHistoryViewModelTests : IAsyncDisposable
         public string? Get(string key) => _values.GetValueOrDefault(key);
 
         public void Set(string key, string value) => _values[key] = value;
+    }
+
+    private static async Task EventuallyAsync(Func<bool> condition)
+    {
+        for (var attempt = 0; attempt < 100; attempt++)
+        {
+            if (condition()) return;
+            await Task.Delay(10);
+        }
+        Assert.True(condition(), "The expected asynchronous state was not observed.");
     }
 }

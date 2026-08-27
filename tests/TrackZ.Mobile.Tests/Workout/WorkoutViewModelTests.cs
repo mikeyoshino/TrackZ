@@ -277,6 +277,120 @@ public sealed class WorkoutViewModelTests
                 System.Globalization.CultureInfo.GetCultureInfo("th-TH")).DismissNotice);
     }
 
+    [Fact]
+    public async Task Cancel_prestart_draft_requires_confirmation_then_clears_without_persisting_a_workout()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var confirmation = new RecordingConfirmation(true);
+        var viewModel = fixture.CreateViewModel(confirmation: confirmation);
+        await viewModel.AddExercisesAsync([fixture.FirstId]);
+        var discarded = false;
+        viewModel.WorkoutDiscarded += (_, _) => discarded = true;
+
+        await viewModel.DiscardWorkoutCommand.ExecuteAsync();
+
+        Assert.True(discarded);
+        Assert.Empty(viewModel.Exercises);
+        Assert.False(viewModel.HasStarted);
+        Assert.Null(await fixture.Coordinator.RestoreActiveAsync());
+        Assert.Equal(WorkoutResources.English.DiscardWorkoutTitle, confirmation.LastTitle);
+        Assert.Equal(WorkoutResources.English.DiscardWorkout, confirmation.LastAccept);
+        Assert.Equal(WorkoutResources.English.ContinueWorkout, confirmation.LastCancel);
+    }
+
+    [Fact]
+    public async Task Cancel_started_workout_requests_navigation_only_after_durable_discard()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.Coordinator.StartAsync([
+            new WorkoutExerciseSelection(fixture.FirstId, TrackingMode.Weighted),
+            new WorkoutExerciseSelection(fixture.SecondId, TrackingMode.Bodyweight)
+        ]);
+        await fixture.Coordinator.SaveSetAsync(
+            fixture.FirstId,
+            new LocalSet(50m, null, 8));
+        var viewModel = fixture.CreateViewModel(
+            confirmation: new RecordingConfirmation(true));
+        await viewModel.RestoreAsync();
+        var discarded = false;
+        viewModel.WorkoutDiscarded += (_, _) => discarded = true;
+
+        await viewModel.DiscardWorkoutCommand.ExecuteAsync();
+
+        Assert.True(discarded);
+        Assert.Empty(viewModel.Exercises);
+        Assert.False(viewModel.HasStarted);
+        Assert.Null(await fixture.Coordinator.RestoreActiveAsync());
+    }
+
+    [Fact]
+    public async Task Declined_cancel_keeps_the_started_workout_and_does_not_request_navigation()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var started = await fixture.Coordinator.StartAsync([
+            new WorkoutExerciseSelection(fixture.FirstId, TrackingMode.Weighted)
+        ]);
+        var viewModel = fixture.CreateViewModel(
+            confirmation: new RecordingConfirmation(false));
+        await viewModel.RestoreAsync();
+        var discarded = false;
+        viewModel.WorkoutDiscarded += (_, _) => discarded = true;
+
+        await viewModel.DiscardWorkoutCommand.ExecuteAsync();
+
+        Assert.False(discarded);
+        Assert.True(viewModel.HasStarted);
+        Assert.Equal(started.Id, (await fixture.Coordinator.RestoreActiveAsync())!.Id);
+    }
+
+    [Fact]
+    public async Task Failed_cancel_keeps_visible_rows_and_durable_workout_without_navigation()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var started = await fixture.Coordinator.StartAsync([
+            new WorkoutExerciseSelection(fixture.FirstId, TrackingMode.Weighted)
+        ]);
+        var viewModel = fixture.CreateViewModel(
+            confirmation: new RecordingConfirmation(true));
+        await viewModel.RestoreAsync();
+        await fixture.FailDeleteWorkoutOutboxAsync();
+        var discarded = false;
+        viewModel.WorkoutDiscarded += (_, _) => discarded = true;
+
+        await viewModel.DiscardWorkoutCommand.ExecuteAsync();
+
+        Assert.False(discarded);
+        Assert.True(viewModel.HasStarted);
+        Assert.Single(viewModel.Exercises);
+        Assert.Equal(WorkoutResources.English.DiscardWorkoutFailed, viewModel.ErrorMessage);
+        Assert.Equal(
+            TrackZNoticeSeverity.Error,
+            viewModel.NoticeSeverity);
+        Assert.Equal(
+            started.Id,
+            (await fixture.Coordinator.RestoreActiveAsync())!.Id);
+    }
+
+    [Fact]
+    public void Cancel_workout_copy_is_plain_and_localized_in_English_and_Thai()
+    {
+        var english = WorkoutResources.English;
+        var thai = WorkoutResources.ForCulture(CultureInfo.GetCultureInfo("th-TH"));
+
+        Assert.Equal("Cancel workout", english.DiscardWorkout);
+        Assert.Equal("Cancel this workout?", english.DiscardWorkoutTitle);
+        Assert.Equal(
+            "This workout and any saved sets will be deleted. This cannot be undone.",
+            english.DiscardWorkoutMessage);
+        Assert.Equal("Continue workout", english.ContinueWorkout);
+        Assert.Equal("ยกเลิกการฝึก", thai.DiscardWorkout);
+        Assert.Equal("ยกเลิกการฝึกครั้งนี้?", thai.DiscardWorkoutTitle);
+        Assert.Equal(
+            "การฝึกครั้งนี้และเซ็ตที่บันทึกไว้จะถูกลบ และไม่สามารถย้อนกลับได้",
+            thai.DiscardWorkoutMessage);
+        Assert.Equal("ออกกำลังกายต่อ", thai.ContinueWorkout);
+    }
+
     private sealed class Fixture : IAsyncDisposable
     {
         private readonly string _root;
@@ -337,10 +451,29 @@ public sealed class WorkoutViewModelTests
 
         public WorkoutViewModel CreateViewModel(
             IWeightUnitPreference? unitPreference = null,
-            IExerciseThumbnailCache? thumbnailCache = null) =>
+            IExerciseThumbnailCache? thumbnailCache = null,
+            TrackZ.Mobile.Features.History.IHistoryConfirmation? confirmation = null) =>
             new(Coordinator, _cache, _boundary, WorkoutResources.English,
+                confirmation: confirmation,
                 unitPreference: unitPreference,
                 thumbnailCache: thumbnailCache);
+
+        public async Task FailDeleteWorkoutOutboxAsync()
+        {
+            await using var connection = new SqliteConnection(
+                $"Data Source={Path.Combine(_root, "workouts.db")}");
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText = """
+                CREATE TRIGGER FailViewModelDeleteWorkoutOutbox
+                BEFORE INSERT ON OutboxOperation
+                WHEN NEW.OperationType = 6
+                BEGIN
+                    SELECT RAISE(ABORT, 'injected view-model delete failure');
+                END;
+                """;
+            await command.ExecuteNonQueryAsync();
+        }
 
         public ValueTask DisposeAsync()
         {
@@ -383,6 +516,27 @@ public sealed class WorkoutViewModelTests
         {
             RequestedRoutes.Add(thumbnailUri);
             return Task.FromResult<string?>(localThumbnail);
+        }
+    }
+
+    private sealed class RecordingConfirmation(bool result)
+        : TrackZ.Mobile.Features.History.IHistoryConfirmation
+    {
+        public string? LastTitle { get; private set; }
+        public string? LastAccept { get; private set; }
+        public string? LastCancel { get; private set; }
+
+        public Task<bool> ConfirmAsync(
+            string title,
+            string message,
+            string accept,
+            string cancel,
+            CancellationToken cancellationToken = default)
+        {
+            LastTitle = title;
+            LastAccept = accept;
+            LastCancel = cancel;
+            return Task.FromResult(result);
         }
     }
 }

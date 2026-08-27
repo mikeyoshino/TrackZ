@@ -28,6 +28,10 @@ public interface IHistoryOutboxStatusSource
 public sealed class OutboxRepository(TrackZLocalDatabase database)
     : IWorkoutOutboxStatusSource, IHistoryOutboxStatusSource
 {
+    public Task<IReadOnlyList<OutboxOperation>> UnresolvedAsync(
+        CancellationToken cancellationToken = default) =>
+        database.ReadAsync(ReadUnresolvedAsync, cancellationToken);
+
     public Task<IReadOnlyList<OutboxOperation>> PendingAsync(
         CancellationToken cancellationToken = default) =>
         database.ReadAsync(ReadPendingAsync, cancellationToken);
@@ -123,6 +127,26 @@ public sealed class OutboxRepository(TrackZLocalDatabase database)
         SqliteConnection connection,
         CancellationToken cancellationToken) =>
         await ReadByStateAsync(connection, OutboxOperationState.Pending, null, cancellationToken);
+
+    private static async Task<IReadOnlyList<OutboxOperation>> ReadUnresolvedAsync(
+        SqliteConnection connection,
+        CancellationToken cancellationToken)
+    {
+        var result = new List<OutboxOperation>();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT OperationId, EntityId, OperationType, Payload, BaseVersion,
+                   CreatedAt, State, DeletedAt, Version, ServerVersion, RetryCount,
+                   NextAttemptAt, ServerPayload, ReplacesOperationId, SendStartedAt,
+                   NeutralizedAt, FailureCode
+            FROM OutboxOperation
+            WHERE State IN (1, 3, 4) AND NeutralizedAt IS NULL
+            ORDER BY CreatedAt, OperationId;
+            """;
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken)) result.Add(ReadOperation(reader));
+        return result;
+    }
 
     private static async Task<IReadOnlyList<OutboxOperation>> ReadByStateAsync(
         SqliteConnection connection,

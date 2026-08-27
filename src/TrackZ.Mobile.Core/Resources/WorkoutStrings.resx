@@ -208,4 +208,8 @@
   <data name="HomeAssistedValueFormat" xml:space="preserve"><value>{0} {1} assistance × {2} reps</value></data>
   <data name="HomeBodyweightValueFormat" xml:space="preserve"><value>{0} reps</value></data>
   <data name="Open" xml:space="preserve"><value>Open</value></data>
+  <data name="DiscardWorkout" xml:space="preserve"><value>Cancel workout</value></data>
+  <data name="DiscardWorkoutTitle" xml:space="preserve"><value>Cancel this workout?</value></data>
+  <data name="DiscardWorkoutMessage" xml:space="preserve"><value>This workout and any saved sets will be deleted. This cannot be undone.</value></data>
+  <data name="DiscardWorkoutFailed" xml:space="preserve"><value>Could not cancel this workout. Your saved sets are still here.</value></data>
 </root>

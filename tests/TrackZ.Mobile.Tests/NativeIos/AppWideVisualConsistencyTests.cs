@@ -536,10 +536,41 @@ public sealed class AppWideVisualConsistencyTests
     {
         var summary = XDocument.Load(Path.Combine(MobileDirectory(), "Features/Summary/WorkoutSummaryPage.xaml"));
         AssertAuthoritativeVisibility(summary, "SummaryXpCard");
-        AssertAuthoritativeVisibility(summary, "SummarySyncStatus");
 
         var progress = XDocument.Load(Path.Combine(MobileDirectory(), "Features/Progress/ExerciseProgressPage.xaml"));
         AssertAuthoritativeVisibility(progress, "ProgressSnapshotContent");
+    }
+
+    [Fact]
+    public void Routine_sync_copy_is_replaced_by_one_icon_per_history_workout()
+    {
+        var pagesWithoutRoutineSyncStatus = new[]
+        {
+            "Features/Workout/SetLoggerPage.xaml",
+            "Features/History/WorkoutHistoryDetailPage.xaml",
+            "Features/History/HistoryConflictSheetPage.xaml",
+            "Features/Summary/WorkoutSummaryPage.xaml",
+            "Features/Progress/ExerciseProgressPage.xaml",
+            "Features/Profile/ProfilePage.xaml",
+            "Components/ExercisePerformanceCard.xaml"
+        };
+
+        foreach (var relativePath in pagesWithoutRoutineSyncStatus)
+        {
+            var document = XDocument.Load(Path.Combine(MobileDirectory(), relativePath));
+            Assert.DoesNotContain(document.Descendants(), ReferencesRoutineSyncStatus);
+        }
+
+        var history = XDocument.Load(Path.Combine(
+            MobileDirectory(), "Features/History/WorkoutHistoryPage.xaml"));
+        var indicator = Assert.Single(
+            history.Descendants(),
+            element => element.Name.LocalName == "WorkoutSyncIcon");
+        Assert.Equal("{Binding SyncState}", indicator.Attribute("State")?.Value);
+        Assert.Equal(
+            "{Binding SyncStatusText}",
+            indicator.Attribute("AccessibilityText")?.Value);
+        Assert.Null(indicator.Attribute("Text"));
     }
 
     [Fact]
@@ -619,7 +650,7 @@ public sealed class AppWideVisualConsistencyTests
         foreach (var button in document.Descendants().Where(element => element.Name.LocalName == "Button"))
         {
             var style = ResourceKey(button.Attribute("Style")?.Value);
-            if (style is not ("TrackZPrimaryButtonStyle" or "TrackZSecondaryButtonStyle" or "TrackZDestructiveButtonStyle" or "TrackZQuietButtonStyle"))
+            if (style is not ("TrackZPrimaryButtonStyle" or "TrackZSecondaryButtonStyle" or "TrackZDestructiveButtonStyle" or "TrackZQuietButtonStyle" or "TrackZQuietDestructiveButtonStyle"))
                 yield return $"Button '{button.Attribute("Text")?.Value ?? "unnamed"}' must use a semantic button style.";
 
             var minimum = button.Attribute("MinimumHeightRequest")?.Value;
@@ -630,8 +661,9 @@ public sealed class AppWideVisualConsistencyTests
                 button.Attribute("Text")?.Value,
                 button.Attribute("Clicked")?.Value,
                 button.Attribute("Command")?.Value);
-            if (ContainsDestructiveSignal(destructiveSignal) && style != "TrackZDestructiveButtonStyle")
-                yield return $"Destructive button '{button.Attribute("Text")?.Value ?? "unnamed"}' must use TrackZDestructiveButtonStyle.";
+            if (ContainsDestructiveSignal(destructiveSignal)
+                && style is not ("TrackZDestructiveButtonStyle" or "TrackZQuietDestructiveButtonStyle"))
+                yield return $"Destructive button '{button.Attribute("Text")?.Value ?? "unnamed"}' must use a destructive semantic button style.";
         }
 
         foreach (var label in document.Descendants().Where(element => element.Name.LocalName == "Label"))
@@ -975,6 +1007,13 @@ public sealed class AppWideVisualConsistencyTests
 
     private static string? ElementName(XElement element) =>
         element.Attribute(XName.Get("Name", "http://schemas.microsoft.com/winfx/2009/xaml"))?.Value;
+
+    private static bool ReferencesRoutineSyncStatus(XElement element) =>
+        element.Name.LocalName is "SyncStatusPill" or "WorkoutSyncIcon" ||
+        element.Attributes().Any(attribute =>
+            attribute.Value.Contains("SyncAccessibilityText", StringComparison.Ordinal) ||
+            attribute.Value.Contains("SyncLabel", StringComparison.Ordinal) ||
+            attribute.Value.Contains("SyncStatusText", StringComparison.Ordinal));
 
     private static string? XamlKey(XElement element) =>
         element.Attribute(XName.Get("Key", "http://schemas.microsoft.com/winfx/2009/xaml"))?.Value;

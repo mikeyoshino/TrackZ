@@ -31,14 +31,19 @@
             <CollectionView.ItemTemplate>
                 <DataTemplate x:DataType="history:HistoryWorkoutItem">
                     <Border Margin="0,0,0,12" Style="{DynamicResource TrackZListRowStyle}">
-                        <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="{DynamicResource TrackZSpace12}" RowSpacing="{DynamicResource TrackZSpace4}">
+                        <Grid ColumnDefinitions="*,24,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="{DynamicResource TrackZSpace12}" RowSpacing="{DynamicResource TrackZSpace4}">
                             <Label Style="{DynamicResource TrackZNavigationTitleStyle}" Text="{Binding CompletedAt, StringFormat='{0:ddd, d MMM · HH:mm}'}" />
-                            <components:SyncStatusPill Grid.Column="1" State="{Binding SyncState}" Text="{Binding SyncStatusText}" />
+                            <components:WorkoutSyncIcon
+                                Grid.Column="1"
+                                Grid.RowSpan="2"
+                                AccessibilityText="{Binding SyncStatusText}"
+                                State="{Binding SyncState}"
+                                VerticalOptions="Center" />
                             <HorizontalStackLayout Grid.Row="1" Spacing="{DynamicResource TrackZSpace16}">
                                 <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding ExerciseCountText}" />
                                 <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding SetCountText}" />
                             </HorizontalStackLayout>
-                            <Label Grid.Row="1" Grid.Column="1" Style="{DynamicResource TrackZSecondaryStyle}" Text="›" />
+                            <Label Grid.Column="2" Grid.RowSpan="2" Style="{DynamicResource TrackZSecondaryStyle}" Text="›" VerticalTextAlignment="Center" />
                         </Grid>
                     </Border>
                 </DataTemplate>

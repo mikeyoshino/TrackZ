@@ -5,6 +5,203 @@ namespace TrackZ.Mobile.Tests;
 public sealed class AccountSessionBoundaryTests
 {
     [Fact]
+    public async Task Declined_conditional_reset_holds_old_writes_then_resumes_without_cleanup()
+    {
+        var boundary = new AccountSessionBoundary();
+        var oldGeneration = boundary.Capture();
+        var authorizationEntered = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseAuthorization = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var cleanupCount = 0;
+        var resetNotificationCount = 0;
+        var oldMutationRan = false;
+        boundary.SessionReset += (_, _) => resetNotificationCount++;
+
+        var reset = boundary.TryResetIfAsync(
+            oldGeneration,
+            async _ =>
+            {
+                authorizationEntered.TrySetResult();
+                await releaseAuthorization.Task;
+                return false;
+            },
+            _ =>
+            {
+                cleanupCount++;
+                return Task.CompletedTask;
+            });
+        await authorizationEntered.Task;
+        var oldMutation = boundary.TryCommitAsync(oldGeneration, _ =>
+        {
+            oldMutationRan = true;
+            return Task.CompletedTask;
+        });
+
+        Assert.False(oldMutation.IsCompleted);
+        releaseAuthorization.TrySetResult();
+
+        Assert.False(await reset);
+        Assert.True(await oldMutation);
+        Assert.True(oldMutationRan);
+        Assert.Equal(0, cleanupCount);
+        Assert.Equal(0, resetNotificationCount);
+        Assert.Equal(oldGeneration, boundary.Capture());
+        Assert.True(await boundary.TryCommitAsync(
+            boundary.Capture(), _ => Task.CompletedTask));
+    }
+
+    [Fact]
+    public async Task Conditional_reset_authorization_failure_preserves_generation_and_queued_writes()
+    {
+        var boundary = new AccountSessionBoundary();
+        var generation = boundary.Capture();
+        var authorizationEntered = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseAuthorization = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var failure = new InvalidOperationException("confirmation failed");
+        var mutationRan = false;
+        var cleanupCount = 0;
+        var resetNotificationCount = 0;
+        boundary.SessionReset += (_, _) => resetNotificationCount++;
+
+        var reset = boundary.TryResetIfAsync(
+            generation,
+            async _ =>
+            {
+                authorizationEntered.TrySetResult();
+                await releaseAuthorization.Task;
+                throw failure;
+            },
+            _ =>
+            {
+                cleanupCount++;
+                return Task.CompletedTask;
+            });
+        await authorizationEntered.Task;
+        var mutation = boundary.TryCommitAsync(generation, _ =>
+        {
+            mutationRan = true;
+            return Task.CompletedTask;
+        });
+        Assert.False(mutation.IsCompleted);
+
+        releaseAuthorization.TrySetResult();
+
+        Assert.Same(failure, await Assert.ThrowsAsync<InvalidOperationException>(() => reset));
+        Assert.True(await mutation);
+        Assert.True(mutationRan);
+        Assert.Equal(generation, boundary.Capture());
+        Assert.Equal(0, cleanupCount);
+        Assert.Equal(0, resetNotificationCount);
+    }
+
+    [Fact]
+    public async Task Cancellation_during_conditional_authorization_preserves_generation_cleanup_and_queued_writes()
+    {
+        var boundary = new AccountSessionBoundary();
+        var generation = boundary.Capture();
+        var authorizationEntered = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseAuthorization = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        using var callerCancellation = new CancellationTokenSource();
+        var mutationRan = false;
+        var cleanupCount = 0;
+        var resetNotificationCount = 0;
+        boundary.SessionReset += (_, _) => resetNotificationCount++;
+
+        var reset = boundary.TryResetIfAsync(
+            generation,
+            async _ =>
+            {
+                authorizationEntered.TrySetResult();
+                await releaseAuthorization.Task;
+                return true;
+            },
+            _ =>
+            {
+                cleanupCount++;
+                return Task.CompletedTask;
+            },
+            callerCancellation.Token);
+        await authorizationEntered.Task;
+        var mutation = boundary.TryCommitAsync(generation, _ =>
+        {
+            mutationRan = true;
+            return Task.CompletedTask;
+        });
+        Assert.False(mutation.IsCompleted);
+
+        callerCancellation.Cancel();
+        releaseAuthorization.TrySetResult();
+
+        var cancellation = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => reset);
+        Assert.Equal(callerCancellation.Token, cancellation.CancellationToken);
+        Assert.True(await mutation);
+        Assert.True(mutationRan);
+        Assert.Equal(generation, boundary.Capture());
+        Assert.Equal(0, cleanupCount);
+        Assert.Equal(0, resetNotificationCount);
+    }
+
+    [Fact]
+    public async Task Cancellation_after_conditional_authorization_completes_reset_before_it_is_surfaced()
+    {
+        var boundary = new AccountSessionBoundary();
+        var generation = boundary.Capture();
+        using var callerCancellation = new CancellationTokenSource();
+        var cleanupCount = 0;
+        var resetNotificationCount = 0;
+        boundary.SessionReset += (_, _) => resetNotificationCount++;
+
+        var reset = boundary.TryResetIfAsync(
+            generation,
+            _ => Task.FromResult(true),
+            _ =>
+            {
+                cleanupCount++;
+                callerCancellation.Cancel();
+                return Task.CompletedTask;
+            },
+            callerCancellation.Token);
+
+        var cancellation = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => reset);
+
+        Assert.Equal(callerCancellation.Token, cancellation.CancellationToken);
+        Assert.Equal(1, cleanupCount);
+        Assert.Equal(1, resetNotificationCount);
+        Assert.NotEqual(generation, boundary.Capture());
+        Assert.False(await boundary.TryCommitAsync(generation, _ => Task.CompletedTask));
+        Assert.True(await boundary.TryCommitAsync(
+            boundary.Capture(), _ => Task.CompletedTask));
+    }
+
+    [Fact]
+    public async Task Conditional_reset_cancellation_callback_can_observe_reset_without_deadlocking()
+    {
+        var boundary = new AccountSessionBoundary();
+        var generation = boundary.Capture();
+        using var lease = boundary.CreateCancellationLease(generation);
+        var callbackRan = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        using var registration = lease.Token.Register(() =>
+        {
+            Assert.True(boundary.IsCancellationRequested(generation));
+            callbackRan.TrySetResult();
+        });
+
+        Assert.True(await boundary.TryResetIfAsync(
+            generation,
+            _ => Task.FromResult(true),
+            _ => Task.CompletedTask));
+
+        await callbackRan.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        Assert.NotEqual(generation, boundary.Capture());
+    }
+
+    [Fact]
     public async Task Cancellation_while_reset_waits_for_active_commit_restores_fresh_generation_before_it_is_surfaced()
     {
         var boundary = new AccountSessionBoundary();

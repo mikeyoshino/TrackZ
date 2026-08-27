@@ -42,7 +42,6 @@
                     </VerticalStackLayout>
                 </Border>
             </Grid>
-            <Label x:Name="SummarySyncStatus" IsVisible="{Binding HasAuthoritativeProgressData}" SemanticProperties.Description="{Binding SyncAccessibilityText}" Style="{DynamicResource TrackZPerformanceMetadataStyle}" Text="{Binding SyncAccessibilityText}" />
             <Label Style="{DynamicResource TrackZInlineErrorStyle}" Text="{Binding ErrorMessage}" />
         </VerticalStackLayout>
     </ScrollView>

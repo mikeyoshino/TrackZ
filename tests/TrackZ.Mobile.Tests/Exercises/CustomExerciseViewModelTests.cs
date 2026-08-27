@@ -35,8 +35,8 @@ public sealed class CustomExerciseViewModelTests : IAsyncLifetime
     }
 
     [Theory]
-    [InlineData("th-TH", "สร้างท่าเอง", "หน้าอก", "ใช้น้ำหนัก")]
-    [InlineData("en-US", "Custom exercise", "Chest", "Weight")]
+    [InlineData("th-TH", "สร้างท่าเอง", "หน้าอก", "น้ำหนักที่ยก + จำนวนครั้ง")]
+    [InlineData("en-US", "Custom exercise", "Chest", "Weight lifted + reps")]
     public void Custom_exercise_copy_and_enum_options_follow_ui_culture(
         string cultureName,
         string title,

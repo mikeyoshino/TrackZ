@@ -186,40 +186,33 @@ public sealed class TrackZIdentityApiClient(
     public Task RefreshAsync(string deviceName, CancellationToken cancellationToken = default) =>
         _refreshClient.RefreshAsync(deviceName, cancellationToken);
 
+    public async Task<IPreparedIdentityLogout> PrepareLogoutAsync(
+        CancellationToken cancellationToken = default) =>
+        await PrepareLogoutAsync(sessionBoundary.Capture(), cancellationToken);
+
+    private async Task<IPreparedIdentityLogout> PrepareLogoutAsync(
+        AccountSessionGeneration generation,
+        CancellationToken cancellationToken)
+    {
+        string? sessionId = null;
+        string? accessToken = null;
+        if (!await sessionBoundary.TryCommitAsync(generation, async token =>
+        {
+            sessionId = await tokenStore.GetSessionIdAsync(token);
+            accessToken = await tokenStore.GetAccessTokenAsync(token);
+        }, cancellationToken)) return PreparedIdentityLogout.None;
+
+        return new PreparedIdentityLogout(token =>
+            RevokeLogoutAsync(sessionId, accessToken, token));
+    }
+
     public async Task LogoutAsync(CancellationToken cancellationToken = default)
     {
         var generation = sessionBoundary.Capture();
-        using var sessionCancellation = sessionBoundary.CreateCancellationLease(
-            generation, cancellationToken);
+        var preparedLogout = await PrepareLogoutAsync(generation, cancellationToken);
         try
         {
-            string? sessionId = null;
-            string? accessToken = null;
-            if (!await sessionBoundary.TryCommitAsync(generation, async token =>
-            {
-                sessionId = await tokenStore.GetSessionIdAsync(token);
-                accessToken = await tokenStore.GetAccessTokenAsync(token);
-            }, cancellationToken)) return;
-            if (Guid.TryParse(sessionId, out var parsed) && parsed != Guid.Empty)
-            {
-                using var request = new HttpRequestMessage(HttpMethod.Post, "api/v1/auth/logout")
-                {
-                    Content = JsonContent.Create(new { sessionId = parsed })
-                };
-                var absoluteRequestUri = httpClient.BaseAddress is null
-                    ? request.RequestUri
-                    : new Uri(httpClient.BaseAddress, request.RequestUri!);
-                if (!string.IsNullOrWhiteSpace(accessToken) && IsExactApiOrigin(absoluteRequestUri))
-                    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-                using var response = await httpClient.SendAsync(request, sessionCancellation.Token);
-                await EnsureSuccessAsync(response, sessionCancellation.Token);
-            }
-        }
-        catch (OperationCanceledException) when (
-            !cancellationToken.IsCancellationRequested
-            && sessionBoundary.IsCancellationRequested(generation))
-        {
-            // A newer identity transition owns the current session.
+            await preparedLogout.RevokeAsync(cancellationToken);
         }
         finally
         {
@@ -235,6 +228,25 @@ public sealed class TrackZIdentityApiClient(
                 }
             }, CancellationToken.None);
         }
+    }
+
+    private async Task RevokeLogoutAsync(
+        string? sessionId,
+        string? accessToken,
+        CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(sessionId, out var parsed) || parsed == Guid.Empty) return;
+        using var request = new HttpRequestMessage(HttpMethod.Post, "api/v1/auth/logout")
+        {
+            Content = JsonContent.Create(new { sessionId = parsed })
+        };
+        var absoluteRequestUri = httpClient.BaseAddress is null
+            ? request.RequestUri
+            : new Uri(httpClient.BaseAddress, request.RequestUri!);
+        if (!string.IsNullOrWhiteSpace(accessToken) && IsExactApiOrigin(absoluteRequestUri))
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        using var response = await httpClient.SendAsync(request, cancellationToken);
+        await EnsureSuccessAsync(response, cancellationToken);
     }
 
     internal static async Task<TokenResponse> ReadTokensAsync(
