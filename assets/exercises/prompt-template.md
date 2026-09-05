@@ -44,6 +44,13 @@ Use one row verbatim as the exercise-specific completion of the shared prompt. E
 | Rear Delt Fly | rear-delt machine or incline bench | neutral grip, chest supported | arms open outward then return | posterior deltoids | retracting shoulder blades into a row |
 | Face Pull | cable, rope | overhand rope grip, staggered stance | rope pulls toward forehead with external rotation | posterior deltoids | pulling rope to chest with elbows low |
 | Upright Row | barbell or cable bar | narrow pronated grip, tall stance | elbows lift outward to chest height then lower | lateral deltoids | elbows forced high above shoulders |
+| Arnold Press | upright bench, two dumbbells | seated palms-in start rotating to palms-forward | dumbbells rotate and press from shoulders to overhead | anterior and lateral deltoids | performing a standard press without the characteristic rotation |
+| Dumbbell Front Raise | two dumbbells | standing neutral stance, soft elbows | straight arms raise forward from thighs to shoulder height | anterior deltoids | drifting outward into a lateral raise or swinging torso |
+| Cable Front Raise | low cable, straight bar or rope | facing away from pulley, cable between legs | arms raise forward from thighs to shoulder height | anterior deltoids | shrugging shoulders or turning it into a lateral raise |
+| Bent-Over Reverse Fly | two dumbbells | stable hip hinge, neutral spine, soft elbows | arms sweep outward to a T shape then return | posterior deltoids | standing upright or rowing dumbbells toward ribs |
+| Reverse Pec Deck | reverse-fly machine | seated facing chest pad, handles at shoulder height | arms open backward in a wide arc then return | posterior deltoids | bending elbows into a row or leaving chest support |
+| Landmine Press | landmine barbell | half-kneeling, one-arm grip at shoulder | bar presses diagonally upward and forward | anterior deltoid | pressing vertically or losing the anchored diagonal path |
+| Dumbbell Shrug | two dumbbells | standing tall, arms straight at sides | shoulders elevate vertically toward ears then lower | upper trapezius | bending elbows or rolling shoulders |
 | Barbell Curl | barbell | supinated shoulder-width grip, tall stance | elbows flex bar toward shoulders then lower | biceps brachii | swinging hips or elbows traveling forward |
 | Dumbbell Curl | two dumbbells | supinated grip, arms by sides | elbows flex dumbbells toward shoulders | biceps brachii | rotating shoulders forward |
 | Hammer Curl | two dumbbells | neutral grip, arms by sides | elbows flex with thumbs up then lower | brachialis | swinging torso |

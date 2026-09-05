@@ -42,6 +42,13 @@ All fields are intentionally blank. Product owner/anatomy reviewer must complete
 | Rear Delt Fly |  |  |  |  |  |  |  |  |  |  |
 | Face Pull |  |  |  |  |  |  |  |  |  |  |
 | Upright Row |  |  |  |  |  |  |  |  |  |  |
+| Arnold Press |  |  |  |  |  |  |  |  |  |  |
+| Dumbbell Front Raise |  |  |  |  |  |  |  |  |  |  |
+| Cable Front Raise |  |  |  |  |  |  |  |  |  |  |
+| Bent-Over Reverse Fly |  |  |  |  |  |  |  |  |  |  |
+| Reverse Pec Deck |  |  |  |  |  |  |  |  |  |  |
+| Landmine Press |  |  |  |  |  |  |  |  |  |  |
+| Dumbbell Shrug |  |  |  |  |  |  |  |  |  |  |
 | Barbell Curl |  |  |  |  |  |  |  |  |  |  |
 | Dumbbell Curl |  |  |  |  |  |  |  |  |  |  |
 | Hammer Curl |  |  |  |  |  |  |  |  |  |  |
