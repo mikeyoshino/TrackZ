@@ -57,6 +57,13 @@ All fields are intentionally blank. Product owner/anatomy reviewer must complete
 | Overhead Triceps Extension |  |  |  |  |  |  |  |  |  |  |
 | Skull Crusher |  |  |  |  |  |  |  |  |  |  |
 | Close-Grip Bench Press |  |  |  |  |  |  |  |  |  |  |
+| EZ-Bar Curl |  |  |  |  |  |  |  |  |  |  |
+| Incline Dumbbell Curl |  |  |  |  |  |  |  |  |  |  |
+| Cable Curl |  |  |  |  |  |  |  |  |  |  |
+| Concentration Curl |  |  |  |  |  |  |  |  |  |  |
+| Bench Dip |  |  |  |  |  |  |  |  |  |  |
+| Triceps Dip |  |  |  |  |  |  |  |  |  |  |
+| Single-Arm Cable Pushdown |  |  |  |  |  |  |  |  |  |  |
 | Back Squat |  |  |  |  |  |  |  |  |  |  |
 | Front Squat |  |  |  |  |  |  |  |  |  |  |
 | Leg Press |  |  |  |  |  |  |  |  |  |  |

@@ -59,6 +59,13 @@ Use one row verbatim as the exercise-specific completion of the shared prompt. E
 | Overhead Triceps Extension | cable rope or dumbbell | elbows near ears, standing braced | elbows extend overhead then flex | triceps long head | flaring ribs and low-back arch |
 | Skull Crusher | flat bench, EZ bar | supinated/angled grip, elbows vertical | elbows flex bar toward forehead then extend | triceps brachii | upper arms moving toward shoulders |
 | Close-Grip Bench Press | flat bench, barbell | close pronated grip, feet planted | bar lowers to lower chest then presses | triceps brachii | grip so narrow wrists collapse |
+| EZ-Bar Curl | EZ curl bar | angled supinated grip, tall stance | elbows flex the wavy bar toward shoulders then lower | biceps brachii | substituting a straight bar or swinging torso |
+| Incline Dumbbell Curl | incline bench, two dumbbells | seated reclined, arms hanging behind torso | elbows flex dumbbells from stretched position toward shoulders | biceps brachii | shoulders moving forward or bench set upright |
+| Cable Curl | low cable, short straight bar | supinated grip, elbows pinned at sides | bar curls from thighs toward chest then lowers | biceps brachii | leaning backward or allowing elbows to travel forward |
+| Concentration Curl | bench, one dumbbell | seated, working elbow braced on inner thigh | dumbbell curls from near ankle toward chest | biceps brachii | lifting elbow away from thigh or rotating torso |
+| Bench Dip | flat bench | hands behind hips on bench, legs extended | hips lower close to bench as elbows bend then press up | triceps brachii | drifting far from bench or using parallel bars |
+| Triceps Dip | parallel dip bars | upright torso, elbows tracking backward | body lowers vertically then presses to straight-arm support | triceps brachii | leaning forward and shifting load to chest |
+| Single-Arm Cable Pushdown | high cable, single D-handle | neutral or pronated one-hand grip, elbow pinned | forearm extends downward to straight arm then returns | triceps brachii | moving upper arm or turning movement into a curl |
 | Back Squat | rack, barbell | bar on upper back, feet shoulder-width | hips and knees flex to depth then extend | quadriceps and gluteus maximus | knees collapsing inward |
 | Front Squat | rack, barbell | front rack, elbows high, feet shoulder-width | hips and knees flex to depth then extend | quadriceps | elbows dropping and torso folding |
 | Leg Press | leg press machine | feet shoulder-width on platform | knees bend toward chest then press platform | quadriceps | pelvis rounding off pad |
