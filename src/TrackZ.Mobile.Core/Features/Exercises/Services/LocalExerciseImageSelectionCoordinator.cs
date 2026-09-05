@@ -14,6 +14,12 @@ public interface ILocalExerciseImagePicker
         CancellationToken cancellationToken = default);
 }
 
+public interface ILocalExerciseImageCapture
+{
+    Task<LocalExerciseImageSelection?> CaptureAsync(
+        CancellationToken cancellationToken = default);
+}
+
 public sealed class UnsupportedExerciseImageException : Exception;
 
 public sealed class LocalExerciseImageSelectionCoordinator
@@ -47,8 +53,37 @@ public sealed class LocalExerciseImageSelectionCoordinator
         ArgumentException.ThrowIfNullOrWhiteSpace(pickerTitle);
         ArgumentException.ThrowIfNullOrWhiteSpace(destinationDirectory);
         ArgumentNullException.ThrowIfNull(select);
+        return await SelectAndImportAsync(
+            token => _picker.PickAsync(pickerTitle, token),
+            destinationDirectory,
+            select,
+            cancellationToken);
+    }
+
+    public Task<bool> CaptureAndSelectAsync(
+        ILocalExerciseImageCapture capture,
+        string destinationDirectory,
+        Action<ImportedExerciseImage> select,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(capture);
+        ArgumentException.ThrowIfNullOrWhiteSpace(destinationDirectory);
+        ArgumentNullException.ThrowIfNull(select);
+        return SelectAndImportAsync(
+            capture.CaptureAsync,
+            destinationDirectory,
+            select,
+            cancellationToken);
+    }
+
+    private async Task<bool> SelectAndImportAsync(
+        Func<CancellationToken, Task<LocalExerciseImageSelection?>> selectImage,
+        string destinationDirectory,
+        Action<ImportedExerciseImage> select,
+        CancellationToken cancellationToken)
+    {
         var generation = _boundary.Capture();
-        var selected = await _picker.PickAsync(pickerTitle, cancellationToken);
+        var selected = await selectImage(cancellationToken);
         if (selected is null) return false;
 
         ImportedExerciseImage? imported = null;

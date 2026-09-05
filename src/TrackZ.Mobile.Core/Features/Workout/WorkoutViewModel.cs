@@ -25,7 +25,8 @@ public sealed record WorkoutExerciseDraftItem(
     int LoggedSetCount = 0,
     string LoggedSetText = "",
     string LastText = "",
-    string AccessibilitySummary = "")
+    string AccessibilitySummary = "",
+    string SetStatusText = "")
 {
     public bool HasArtwork => !string.IsNullOrWhiteSpace(ThumbnailUri);
     public bool ShowsArtworkPlaceholder => !HasArtwork;
@@ -69,6 +70,9 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged, IDisposable
         MoveUpCommand = new AsyncCommand(item => MoveAsync(item, -1), item => CanMove(item, -1));
         MoveDownCommand = new AsyncCommand(item => MoveAsync(item, 1), item => CanMove(item, 1));
         StartWorkoutCommand = new AsyncCommand(_ => StartAsync(), _ => Exercises.Count != 0 && !_hasStarted && !IsBusy);
+        LogNextSetCommand = new AsyncCommand(
+            _ => RequestNextSetAsync(),
+            _ => _hasStarted && Exercises.Count != 0 && !IsBusy);
         FinishWorkoutCommand = new AsyncCommand(_ => FinishAsync(), _ => _hasStarted && !IsBusy);
         DiscardWorkoutCommand = new AsyncCommand(
             _ => DiscardAsync(),
@@ -83,6 +87,7 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged, IDisposable
     public AsyncCommand MoveUpCommand { get; }
     public AsyncCommand MoveDownCommand { get; }
     public AsyncCommand StartWorkoutCommand { get; }
+    public AsyncCommand LogNextSetCommand { get; }
     public AsyncCommand FinishWorkoutCommand { get; }
     public AsyncCommand DiscardWorkoutCommand { get; }
     public ICommand DismissNoticeCommand { get; }
@@ -92,6 +97,16 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged, IDisposable
         " · ",
         string.Format(_text.ExerciseCountFormat, Exercises.Count),
         string.Format(_text.SetsLoggedFormat, Exercises.Sum(exercise => exercise.LoggedSetCount)));
+    public int CompletedExerciseCount => Exercises.Count(exercise => exercise.LoggedSetCount > 0);
+    public int TotalExerciseCount => Exercises.Count;
+    public double WorkoutProgress => TotalExerciseCount == 0
+        ? 0d
+        : (double)CompletedExerciseCount / TotalExerciseCount;
+    public string WorkoutProgressText => string.Format(
+        CultureInfo.CurrentCulture,
+        _text.ProgressFormat,
+        CompletedExerciseCount,
+        TotalExerciseCount);
 
     public bool IsBusy
     {
@@ -141,6 +156,7 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged, IDisposable
     public bool HasNotice => !string.IsNullOrWhiteSpace(NoticeMessage);
 
     public event PropertyChangedEventHandler? PropertyChanged;
+    public event EventHandler<WorkoutExerciseDraftItem>? ExerciseLoggingRequested;
     public event EventHandler<Guid>? WorkoutFinished;
     public event EventHandler? WorkoutDiscarded;
 
@@ -272,6 +288,7 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged, IDisposable
                     };
                 }
                 HasStarted = true;
+                ExerciseLoggingRequested?.Invoke(this, Exercises[0]);
             }
         }
         catch (OperationCanceledException) when (_boundary.IsCancellationRequested(generation))
@@ -326,6 +343,14 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged, IDisposable
         {
             IsBusy = false;
         }
+    }
+
+    private Task RequestNextSetAsync()
+    {
+        if (!HasStarted || Exercises.Count == 0 || IsBusy) return Task.CompletedTask;
+        var exercise = Exercises.FirstOrDefault(item => item.LoggedSetCount == 0) ?? Exercises[0];
+        ExerciseLoggingRequested?.Invoke(this, exercise);
+        return Task.CompletedTask;
     }
 
     private async Task DiscardAsync()
@@ -459,7 +484,8 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged, IDisposable
                 CultureInfo.CurrentCulture,
                 _text.OpenSetLoggerAccessibilityFormat,
                 name,
-                logged));
+                logged),
+            loggedSetCount == 0 ? _text.NoSetsYet : logged);
     }
 
     private void OnWeightUnitChanged(object? sender, EventArgs eventArgs)
@@ -510,6 +536,7 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged, IDisposable
     private void RaiseCommands()
     {
         StartWorkoutCommand.RaiseCanExecuteChanged();
+        LogNextSetCommand.RaiseCanExecuteChanged();
         FinishWorkoutCommand.RaiseCanExecuteChanged();
         DiscardWorkoutCommand.RaiseCanExecuteChanged();
         RemoveExerciseCommand.RaiseCanExecuteChanged();
@@ -518,6 +545,10 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged, IDisposable
         OnPropertyChanged(nameof(IsDraft));
         OnPropertyChanged(nameof(HasWorkoutToDiscard));
         OnPropertyChanged(nameof(WorkoutContextText));
+        OnPropertyChanged(nameof(CompletedExerciseCount));
+        OnPropertyChanged(nameof(TotalExerciseCount));
+        OnPropertyChanged(nameof(WorkoutProgress));
+        OnPropertyChanged(nameof(WorkoutProgressText));
     }
 
     private bool Set<T>(ref T field, T value, [CallerMemberName] string? name = null)

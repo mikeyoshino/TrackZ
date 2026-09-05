@@ -27,6 +27,45 @@ namespace TrackZ.Mobile.Tests.Architecture;
 public sealed class MauiCompositionTests
 {
     [Fact]
+    public void Weight_unit_button_presentation_keeps_exactly_one_selected_unit()
+    {
+        var selectedBackground = Microsoft.Maui.Graphics.Color.FromArgb("#C8FF3D");
+        var selectedText = Microsoft.Maui.Graphics.Color.FromArgb("#111410");
+        var inactiveBackground = Microsoft.Maui.Graphics.Color.FromArgb("#20252B");
+        var inactiveText = Microsoft.Maui.Graphics.Color.FromArgb("#F5F7F8");
+        var kilograms = UnitButton(selectedBackground, selectedText, inactiveBackground, inactiveText);
+        var pounds = UnitButton(selectedBackground, selectedText, inactiveBackground, inactiveText);
+
+        WeightUnitButtonPresenter.Apply(kilograms, pounds, WeightDisplayUnit.Kilograms);
+
+        Assert.Equal(selectedBackground, kilograms.BackgroundColor);
+        Assert.Equal(selectedText, kilograms.TextColor);
+        Assert.Equal(inactiveBackground, pounds.BackgroundColor);
+        Assert.Equal(inactiveText, pounds.TextColor);
+
+        WeightUnitButtonPresenter.Apply(kilograms, pounds, WeightDisplayUnit.Pounds);
+
+        Assert.Equal(inactiveBackground, kilograms.BackgroundColor);
+        Assert.Equal(inactiveText, kilograms.TextColor);
+        Assert.Equal(selectedBackground, pounds.BackgroundColor);
+        Assert.Equal(selectedText, pounds.TextColor);
+    }
+
+    private static Button UnitButton(
+        Microsoft.Maui.Graphics.Color selectedBackground,
+        Microsoft.Maui.Graphics.Color selectedText,
+        Microsoft.Maui.Graphics.Color inactiveBackground,
+        Microsoft.Maui.Graphics.Color inactiveText)
+    {
+        var button = new Button();
+        button.Resources["TrackZPrimary"] = selectedBackground;
+        button.Resources["TrackZPrimaryContrast"] = selectedText;
+        button.Resources["TrackZSurfaceRaised"] = inactiveBackground;
+        button.Resources["TrackZTextPrimary"] = inactiveText;
+        return button;
+    }
+
+    [Fact]
     public async Task Relaunch_does_not_push_workout_while_custom_creation_is_unresolved()
     {
         var root = Path.Combine(Path.GetTempPath(), $"trackz-custom-gate-{Guid.NewGuid():N}");
@@ -919,7 +958,7 @@ public sealed class MauiCompositionTests
         Assert.True(content.Children.IndexOf(editor) < content.Children.IndexOf(today));
         Assert.True(content.Children.IndexOf(today) < content.Children.IndexOf(previous));
         Assert.True(noHistory.IsVisible);
-        Assert.Equal(logger.Text.NoPreviousSetsYet, noHistory.Text);
+        Assert.Equal(logger.Text.NoSetsToday, noHistory.Text);
         Assert.False(today.IsVisible);
         Assert.False(previous.IsVisible);
         Assert.Equal(logger.HasPreviousReference, reference.IsVisible);
@@ -929,7 +968,7 @@ public sealed class MauiCompositionTests
 
         Assert.True(editor.IsVisible);
         Assert.False(today.IsVisible);
-        Assert.True(noHistory.IsVisible);
+        Assert.False(noHistory.IsVisible);
         Assert.False(addButton.IsVisible);
         Assert.True(saveButton.IsVisible);
         var saveSetOne = string.Format(CultureInfo.CurrentCulture, logger.Text.SaveSetNumberFormat, 1);
@@ -1003,6 +1042,51 @@ public sealed class MauiCompositionTests
 
         Assert.True(deactivatedReveal.CancellationToken.IsCancellationRequested);
         Assert.False(deactivatedReveal.Completed);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Logger_clears_unbound_coach_target_on_reset_or_deactivation(bool reset)
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"trackz-coach-reset-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        var original = DispatcherProvider.Current;
+        DispatcherProvider.SetCurrent(new HeadlessDispatcherProvider());
+        var app = MauiProgram.CreateMauiApp(services =>
+        {
+            ConfigureAuthenticatedServices(services);
+            services.AddSingleton<IConnectivityService>(new CountingConnectivity(isOnline: false));
+            services.AddSingleton<IUiDispatcher>(new InlineUiDispatcher());
+            services.AddSingleton<IExerciseThumbnailCache>(new HeadlessThumbnailCache());
+            services.AddSingleton<IWorkoutPreferenceStore>(new HeadlessPreferences());
+            services.AddSingleton<IWeightUnitPreference, WeightUnitPreference>();
+            services.AddSingleton(new ExerciseHistoryCache(Path.Combine(root, "history.db")));
+            services.AddSingleton(new ExerciseCache(Path.Combine(root, "exercises.db")));
+            services.AddSingleton(new TrackZLocalDatabase(Path.Combine(root, "workouts.db")));
+        });
+        try
+        {
+            var page = app.Services.GetRequiredService<SetLoggerPage>();
+            InvokePageLifecycle(page, "OnAppearing");
+            var host = page.FindByName<VerticalStackLayout>("CoachTargetHost");
+            host.Children.Add(new Label { Text = "Private accepted target" });
+            host.IsVisible = true;
+            if (reset)
+                await app.Services.GetRequiredService<IAccountSessionBoundary>().ResetAsync(_ => Task.CompletedTask);
+            else
+                page.Deactivate();
+            Assert.Empty(host.Children);
+            Assert.False(host.IsVisible);
+            page.Deactivate();
+        }
+        finally
+        {
+            app.Dispose();
+            DispatcherProvider.SetCurrent(original);
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            Directory.Delete(root, recursive: true);
+        }
     }
 
     private static async Task AssertRunningPulseIsCancelledPromptlyAsync(IServiceProvider services)

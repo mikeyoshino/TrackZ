@@ -157,8 +157,10 @@ public sealed class WorkoutSessionTests
     {
         { TrackingMode.Weighted, new SetMeasurement(0.001m, null, 1) },
         { TrackingMode.Weighted, new SetMeasurement(250m, null, 999) },
+        { TrackingMode.Weighted, new SetMeasurement(null, null, 10, 7) },
         { TrackingMode.Bodyweight, new SetMeasurement(null, null, 20) },
-        { TrackingMode.Assisted, new SetMeasurement(null, 0.001m, 10) }
+        { TrackingMode.Assisted, new SetMeasurement(null, 0.001m, 10) },
+        { TrackingMode.Assisted, new SetMeasurement(null, null, 10, 7) }
     };
 
     [Theory]
@@ -185,12 +187,16 @@ public sealed class WorkoutSessionTests
         { TrackingMode.Weighted, new SetMeasurement(0m, null, 10) },
         { TrackingMode.Weighted, new SetMeasurement(-1m, null, 10) },
         { TrackingMode.Weighted, new SetMeasurement(50m, 10m, 10) },
+        { TrackingMode.Weighted, new SetMeasurement(50m, null, 10, 7) },
+        { TrackingMode.Weighted, new SetMeasurement(null, null, 10, 0) },
         { TrackingMode.Bodyweight, new SetMeasurement(50m, null, 10) },
         { TrackingMode.Bodyweight, new SetMeasurement(null, 10m, 10) },
+        { TrackingMode.Bodyweight, new SetMeasurement(null, null, 10, 7) },
         { TrackingMode.Assisted, new SetMeasurement(null, null, 10) },
         { TrackingMode.Assisted, new SetMeasurement(null, 0m, 10) },
         { TrackingMode.Assisted, new SetMeasurement(null, -1m, 10) },
         { TrackingMode.Assisted, new SetMeasurement(50m, 10m, 10) },
+        { TrackingMode.Assisted, new SetMeasurement(null, 10m, 10, 7) },
         { TrackingMode.Weighted, new SetMeasurement(50m, null, 0) },
         { TrackingMode.Weighted, new SetMeasurement(50m, null, 1000) }
     };

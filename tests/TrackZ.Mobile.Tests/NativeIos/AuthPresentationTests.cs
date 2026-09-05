@@ -21,6 +21,24 @@ namespace TrackZ.Mobile.Tests.NativeIos;
 public sealed class AuthPresentationTests
 {
     [Fact]
+    public void Sign_in_leads_with_the_product_outcome_in_both_languages()
+    {
+        Assert.Equal("Track training more easily.\nSee clearer results.", AuthTextSet.English.SignInTitle);
+        Assert.Equal("ติดตามการฝึกง่ายขึ้น\nเห็นผลลัพธ์ชัดขึ้น", AuthTextSet.Thai.SignInTitle);
+        Assert.Equal("Start training with structure.\nSee your progress clearly.", AuthTextSet.English.CreateAccountTitle);
+        Assert.Equal("เริ่มต้นฝึกอย่างเป็นระบบ\nเห็นพัฒนาการได้ชัดขึ้น", AuthTextSet.Thai.CreateAccountTitle);
+    }
+
+    [Fact]
+    public void Fixed_dark_palette_requests_matching_system_chrome()
+    {
+        using var scope = TestApp.Create();
+        var application = scope.App.Services.GetRequiredService<App>();
+
+        Assert.Equal(AppTheme.Dark, application.UserAppTheme);
+    }
+
+    [Fact]
     public async Task Fresh_launch_never_resolves_protected_shell_before_sign_in()
     {
         using var scope = TestApp.Create();
@@ -93,7 +111,7 @@ public sealed class AuthPresentationTests
     }
 
     [Fact]
-    public async Task Auth_fields_are_exactly_50_points_and_actions_are_at_least_44_points()
+    public async Task Auth_fields_and_actions_keep_accessible_touch_targets()
     {
         using var scope = TestApp.Create();
         var application = scope.App.Services.GetRequiredService<App>();
@@ -109,64 +127,131 @@ public sealed class AuthPresentationTests
         };
 
         Assert.All(controls, control => Assert.True(control.MinimumHeightRequest >= 44));
-        Assert.Equal(50, signIn.EmailField.MinimumHeightRequest);
-        Assert.Equal(50, signIn.PasswordField.MinimumHeightRequest);
-        Assert.Equal(50, signIn.EmailEntry.MinimumHeightRequest);
-        Assert.Equal(50, signIn.PasswordEntry.MinimumHeightRequest);
-        Assert.Equal(50, create.EmailField.MinimumHeightRequest);
-        Assert.Equal(50, create.PasswordField.MinimumHeightRequest);
-        Assert.Equal(50, create.EmailEntry.MinimumHeightRequest);
-        Assert.Equal(50, create.PasswordEntry.MinimumHeightRequest);
+        Assert.Equal(56, signIn.EmailField.MinimumHeightRequest);
+        Assert.Equal(56, signIn.PasswordField.MinimumHeightRequest);
+        Assert.Equal(56, signIn.EmailEntry.MinimumHeightRequest);
+        Assert.Equal(56, signIn.PasswordEntry.MinimumHeightRequest);
+        Assert.Equal(56, create.EmailField.MinimumHeightRequest);
+        Assert.Equal(56, create.PasswordField.MinimumHeightRequest);
+        Assert.Equal(56, create.EmailEntry.MinimumHeightRequest);
+        Assert.Equal(56, create.PasswordEntry.MinimumHeightRequest);
+    }
+
+    [Fact]
+    public void Sign_in_keeps_brand_and_field_identity_visible_while_the_user_types()
+    {
+        using var culture = new UiCultureScope("th-TH");
+        using var scope = TestApp.Create();
+        var signIn = scope.App.Services.GetRequiredService<SignInPage>();
+
+        signIn.EmailEntry.Text = "lift@example.com";
+        signIn.PasswordEntry.Text = "Correct-Horse-9";
+
+        var brandMark = signIn.FindByName<Image>("BrandLogo");
+        var brandName = signIn.FindByName<Label>("BrandNameLabel");
+        var emailLabel = signIn.FindByName<Label>("EmailFieldLabel");
+        var passwordLabel = signIn.FindByName<Label>("PasswordFieldLabel");
+
+        Assert.False(Shell.GetNavBarIsVisible(signIn));
+        Assert.NotNull(brandMark);
+        Assert.Equal("TrackZ", brandName?.Text);
+        Assert.Equal(AuthTextSet.Thai.EmailLabel, emailLabel?.Text);
+        Assert.Equal(AuthTextSet.Thai.PasswordLabel, passwordLabel?.Text);
+        Assert.True(emailLabel?.IsVisible);
+        Assert.True(passwordLabel?.IsVisible);
+    }
+
+    [Fact]
+    public void Sign_in_presents_the_approved_centered_brand_and_single_scrollable_flow()
+    {
+        using var scope = TestApp.Create();
+        var signIn = scope.App.Services.GetRequiredService<SignInPage>();
+        var root = Assert.IsType<Grid>(signIn.Content);
+        var content = signIn.FindByName<ScrollView>("AuthScroll");
+        Assert.NotNull(content);
+        var flow = Assert.IsType<VerticalStackLayout>(content.Content);
+        var brand = signIn.FindByName<VerticalStackLayout>("BrandLockup");
+        var title = signIn.FindByName<Label>("SignInTitleLabel");
+        var form = signIn.FindByName<VerticalStackLayout>("CredentialForm");
+        var actions = signIn.FindByName<VerticalStackLayout>("AuthActions");
+        var logo = signIn.FindByName<Image>("BrandLogo");
+
+        Assert.NotNull(brand);
+        Assert.NotNull(title);
+        Assert.NotNull(form);
+        Assert.NotNull(actions);
+        Assert.NotNull(logo);
+        Assert.Equal(LayoutAlignment.Center, brand!.HorizontalOptions.Alignment);
+        Assert.Equal(LayoutAlignment.Center, title!.HorizontalOptions.Alignment);
+        Assert.Equal(TextAlignment.Center, title.HorizontalTextAlignment);
+        Assert.Equal("NotoSansThaiLight", title.FontFamily);
+        Assert.Equal(28, title.FontSize);
+        Assert.True(flow.Children.IndexOf(brand!) < flow.Children.IndexOf(title!));
+        Assert.True(flow.Children.IndexOf(title!) < flow.Children.IndexOf(form!));
+        Assert.True(flow.Children.IndexOf(form!) < flow.Children.IndexOf(actions!));
+        Assert.Same(actions, signIn.SubmitButton.Parent);
+        Assert.Null(signIn.FindByName<Label>("WelcomeBodyLabel"));
+    }
+
+    [Fact]
+    public void Create_account_reuses_the_centered_auth_pattern_in_one_scrollable_flow()
+    {
+        using var scope = TestApp.Create();
+        var create = scope.App.Services.GetRequiredService<CreateAccountPage>();
+        var root = Assert.IsType<Grid>(create.Content);
+        var scroll = create.FindByName<ScrollView>("AuthScroll");
+        var flow = Assert.IsType<VerticalStackLayout>(scroll?.Content);
+        var brand = create.FindByName<VerticalStackLayout>("BrandLockup");
+        var title = create.FindByName<Label>("CreateAccountTitleLabel");
+        var form = create.FindByName<VerticalStackLayout>("CredentialForm");
+        var actions = create.FindByName<VerticalStackLayout>("AuthActions");
+
+        Assert.False(NavigationPage.GetHasNavigationBar(create));
+        Assert.NotNull(create.FindByName<ImageButton>("BackAction"));
+        Assert.NotNull(create.FindByName<Image>("BrandLogo"));
+        Assert.Equal(LayoutAlignment.Center, brand?.HorizontalOptions.Alignment);
+        Assert.Equal(TextAlignment.Center, title?.HorizontalTextAlignment);
+        Assert.Equal("NotoSansThaiLight", title?.FontFamily);
+        Assert.Equal(28, title?.FontSize);
+        Assert.True(flow.Children.IndexOf(brand!) < flow.Children.IndexOf(title!));
+        Assert.True(flow.Children.IndexOf(title!) < flow.Children.IndexOf(form!));
+        Assert.True(flow.Children.IndexOf(form!) < flow.Children.IndexOf(actions!));
+        Assert.Same(actions, create.SubmitButton.Parent);
+        Assert.Null(create.FindByName<Label>("WelcomeBodyLabel"));
     }
 
     [Theory]
+    [InlineData(375, 667)]
     [InlineData(390, 844)]
     [InlineData(430, 932)]
-    public async Task Composed_auth_pages_keep_measured_field_and_footer_anchors_stable_under_unequal_header_growth(double width, double height)
+    [InlineData(844, 390)]
+    public async Task Composed_sign_in_keeps_the_complete_flow_available_at_supported_sizes(double width, double height)
     {
         using var scope = TestApp.Create();
         var application = scope.App.Services.GetRequiredService<App>();
         _ = application.CreateTestWindow();
         await application.Initialization;
         var signIn = scope.App.Services.GetRequiredService<SignInPage>();
-        var create = scope.App.Services.GetRequiredService<CreateAccountPage>();
         var signRoot = Assert.IsType<Grid>(signIn.Content);
-        var createRoot = Assert.IsType<Grid>(create.Content);
-        var signHeader = Assert.IsType<VerticalStackLayout>(signRoot.Children[0]);
-        var createHeader = Assert.IsType<VerticalStackLayout>(createRoot.Children[0]);
+        var scroll = signIn.FindByName<ScrollView>("AuthScroll");
+        Assert.NotNull(scroll);
+        var flow = Assert.IsType<VerticalStackLayout>(scroll.Content);
+        var brand = signIn.FindByName<VerticalStackLayout>("BrandLockup");
+        var form = signIn.FindByName<VerticalStackLayout>("CredentialForm");
 
-        Assert.Equal(112d, signHeader.MinimumHeightRequest);
-        Assert.Equal(signHeader.MinimumHeightRequest, createHeader.MinimumHeightRequest);
-        Assert.Equal(0, Grid.GetRow(signHeader));
-        Assert.Equal(0, Grid.GetRow(createHeader));
-        Assert.Equal(0, Grid.GetRow(Assert.IsAssignableFrom<BindableObject>(signIn.EmailField.Parent)));
-        Assert.Equal(0, Grid.GetRow(Assert.IsAssignableFrom<BindableObject>(create.EmailField.Parent)));
-        Assert.Equal(1, Grid.GetRow(Assert.IsAssignableFrom<BindableObject>(signIn.SubmitButton.Parent!.Parent)));
-        Assert.Equal(1, Grid.GetRow(Assert.IsAssignableFrom<BindableObject>(create.SubmitButton.Parent!.Parent)));
-
-        var createHeaderLabels = createHeader.Children.OfType<Label>().ToArray();
-        Assert.NotEmpty(createHeaderLabels);
-        foreach (var label in createHeaderLabels)
-            label.FontSize *= 1.6d;
-        create.WelcomeBody.Text = string.Join(' ', Enumerable.Repeat(create.Form.Text.CreateAccountWelcomeBody, 4));
-        createHeader.HeightRequest = 240;
+        Assert.Equal(0, Grid.GetRow(scroll));
 
         Arrange(signRoot, width, height);
-        Arrange(createRoot, width, height);
 
-        Assert.True(signHeader.Height > 0);
-        Assert.True(createHeader.Height > signHeader.Height);
+        Assert.NotNull(brand);
+        Assert.NotNull(form);
+        Assert.True(scroll.Height > 0);
+        Assert.True(flow.Height > 0);
         Assert.True(signIn.EmailField.Height > 0);
-        Assert.True(create.EmailField.Height > 0);
-        Assert.True(AbsoluteY(createHeader, createRoot) + createHeader.Height < AbsoluteY(create.EmailField, createRoot));
-        Assert.Equal(AbsoluteY(signIn.EmailField, signRoot), AbsoluteY(create.EmailField, createRoot), 3);
-        Assert.Equal(signIn.EmailField.Height, create.EmailField.Height, 3);
-        Assert.Equal(AbsoluteY(signIn.PasswordField, signRoot), AbsoluteY(create.PasswordField, createRoot), 3);
-        Assert.Equal(signIn.PasswordField.Height, create.PasswordField.Height, 3);
-        var signFooter = Assert.IsAssignableFrom<VisualElement>(signIn.SubmitButton.Parent!.Parent);
-        var createFooter = Assert.IsAssignableFrom<VisualElement>(create.SubmitButton.Parent!.Parent);
-        Assert.Equal(AbsoluteY(signFooter, signRoot), AbsoluteY(createFooter, createRoot), 3);
-        Assert.Equal(signFooter.Height, createFooter.Height, 3);
+        Assert.True(signIn.PasswordField.Height > 0);
+        Assert.True(flow.Children.IndexOf(brand!) < flow.Children.IndexOf(form!));
+        Assert.True(AbsoluteY(signIn.EmailField, flow) < AbsoluteY(signIn.PasswordField, flow));
+        Assert.True(AbsoluteY(signIn.SubmitButton, flow) > AbsoluteY(signIn.PasswordField, flow));
     }
 
     [Fact]
@@ -209,12 +294,14 @@ public sealed class AuthPresentationTests
         var gate = scope.App.Services.GetRequiredService<AuthGatePage>();
 
         Assert.Equal(AuthTextSet.English, signIn.Form.Text);
-        Assert.Equal(AuthTextSet.English.SignInWelcomeBody, signIn.WelcomeBody.Text);
-        Assert.Equal(AuthTextSet.English.CreateAccountWelcomeBody, create.WelcomeBody.Text);
-        Assert.Equal("Email", signIn.EmailEntry.Placeholder);
-        Assert.Equal("Password", signIn.PasswordEntry.Placeholder);
-        Assert.Equal("Email", create.EmailEntry.Placeholder);
-        Assert.Equal("Password", create.PasswordEntry.Placeholder);
+        Assert.Equal("Email", signIn.FindByName<Label>("EmailFieldLabel").Text);
+        Assert.Equal("Password", signIn.FindByName<Label>("PasswordFieldLabel").Text);
+        Assert.Null(signIn.EmailEntry.Placeholder);
+        Assert.Null(signIn.PasswordEntry.Placeholder);
+        Assert.Equal("Email", create.FindByName<Label>("EmailFieldLabel").Text);
+        Assert.Equal("Password", create.FindByName<Label>("PasswordFieldLabel").Text);
+        Assert.Null(create.EmailEntry.Placeholder);
+        Assert.Null(create.PasswordEntry.Placeholder);
         Assert.Equal(AuthTextSet.English.EmailAccessibilityLabel, SemanticProperties.GetDescription(signIn.EmailEntry));
         Assert.Equal(AuthTextSet.English.CheckingSessionAccessibilityLabel, SemanticProperties.GetDescription(gate.StatusIndicator));
     }
@@ -230,12 +317,14 @@ public sealed class AuthPresentationTests
         var gate = scope.App.Services.GetRequiredService<AuthGatePage>();
 
         Assert.Equal(AuthTextSet.Thai, signIn.Form.Text);
-        Assert.Equal(AuthTextSet.Thai.SignInWelcomeBody, signIn.WelcomeBody.Text);
-        Assert.Equal(AuthTextSet.Thai.CreateAccountWelcomeBody, create.WelcomeBody.Text);
-        Assert.Equal(AuthTextSet.Thai.EmailLabel, signIn.EmailEntry.Placeholder);
-        Assert.Equal(AuthTextSet.Thai.PasswordLabel, signIn.PasswordEntry.Placeholder);
-        Assert.Equal(AuthTextSet.Thai.EmailLabel, create.EmailEntry.Placeholder);
-        Assert.Equal(AuthTextSet.Thai.PasswordLabel, create.PasswordEntry.Placeholder);
+        Assert.Equal(AuthTextSet.Thai.EmailLabel, signIn.FindByName<Label>("EmailFieldLabel").Text);
+        Assert.Equal(AuthTextSet.Thai.PasswordLabel, signIn.FindByName<Label>("PasswordFieldLabel").Text);
+        Assert.Null(signIn.EmailEntry.Placeholder);
+        Assert.Null(signIn.PasswordEntry.Placeholder);
+        Assert.Equal(AuthTextSet.Thai.EmailLabel, create.FindByName<Label>("EmailFieldLabel").Text);
+        Assert.Equal(AuthTextSet.Thai.PasswordLabel, create.FindByName<Label>("PasswordFieldLabel").Text);
+        Assert.Null(create.EmailEntry.Placeholder);
+        Assert.Null(create.PasswordEntry.Placeholder);
         Assert.Equal(AuthTextSet.Thai.PasswordAccessibilityLabel, SemanticProperties.GetDescription(create.PasswordEntry));
         Assert.Equal(AuthTextSet.Thai.CheckingSessionAccessibilityLabel, SemanticProperties.GetDescription(gate.StatusIndicator));
     }

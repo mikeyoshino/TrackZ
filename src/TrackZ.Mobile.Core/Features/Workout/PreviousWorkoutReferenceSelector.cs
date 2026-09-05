@@ -10,7 +10,8 @@ public sealed record PreviousWorkoutReference(
     decimal? AssistedKg,
     int Reps,
     int Order,
-    bool HasRatedEffort);
+    bool HasRatedEffort,
+    int? PlateCount = null);
 
 public static class PreviousWorkoutReferenceSelector
 {
@@ -26,12 +27,14 @@ public static class PreviousWorkoutReferenceSelector
         var selected = session.TrackingMode switch
         {
             TrackingMode.Weighted => eligible
-                .OrderByDescending(set => set.WeightKg)
+                .OrderByDescending(set => set.PlateCount ?? int.MinValue)
+                .ThenByDescending(set => set.WeightKg)
                 .ThenByDescending(set => set.Reps)
                 .ThenByDescending(set => set.Order)
                 .FirstOrDefault(),
             TrackingMode.Assisted => eligible
-                .OrderBy(set => set.AssistedKg)
+                .OrderBy(set => set.PlateCount ?? int.MaxValue)
+                .ThenBy(set => set.AssistedKg)
                 .ThenByDescending(set => set.Reps)
                 .ThenByDescending(set => set.Order)
                 .FirstOrDefault(),
@@ -47,7 +50,8 @@ public static class PreviousWorkoutReferenceSelector
             selected.AssistedKg,
             selected.Reps,
             selected.Order,
-            selected.Effort is not null);
+            selected.Effort is not null,
+            selected.PlateCount);
     }
 
     private static bool ValidForMode(TrackingMode mode, WorkoutSetDto set) =>
@@ -56,12 +60,14 @@ public static class PreviousWorkoutReferenceSelector
         && set.CompletedAt != default
         && (mode switch
         {
-            TrackingMode.Weighted => Representable(set.WeightKg)
-                && set.AssistedKg is null,
+            TrackingMode.Weighted => set.AssistedKg is null
+                && ((Representable(set.WeightKg) && set.PlateCount is null)
+                    || (set.WeightKg is null && ValidPlateCount(set.PlateCount))),
             TrackingMode.Assisted => set.WeightKg is null
-                && Representable(set.AssistedKg),
+                && ((Representable(set.AssistedKg) && set.PlateCount is null)
+                    || (set.AssistedKg is null && ValidPlateCount(set.PlateCount))),
             TrackingMode.Bodyweight => set.WeightKg is null
-                && set.AssistedKg is null,
+                && set.AssistedKg is null && set.PlateCount is null,
             _ => false
         });
 
@@ -71,4 +77,7 @@ public static class PreviousWorkoutReferenceSelector
             and <= SetMeasurement.MaximumKilograms
         && ((decimal.GetBits(kilograms)[3] >> 16) & 0xff)
             <= SetMeasurement.MaximumKilogramScale;
+
+    private static bool ValidPlateCount(int? value) =>
+        value is >= SetMeasurement.MinimumPlateCount and <= SetMeasurement.MaximumPlateCount;
 }

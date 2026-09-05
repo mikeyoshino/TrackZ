@@ -5,6 +5,7 @@ using TrackZ.Contracts.Progress;
 using TrackZ.Domain.Exercises;
 using TrackZ.Mobile.Data;
 using TrackZ.Mobile.Identity;
+using TrackZ.Mobile.Features.Profile;
 
 namespace TrackZ.Mobile.Features.Gamification;
 
@@ -94,13 +95,15 @@ public sealed class ProgressSnapshotSource(
     IProgressApi api,
     ProgressSnapshotCache cache,
     TimeProvider timeProvider,
-    IAccountSessionBoundary boundary) : IProgressSnapshotSource
+    IAccountSessionBoundary boundary,
+    TrainingScheduleStore? schedules = null) : IProgressSnapshotSource
 {
     public async Task<ProgressSnapshot?> GetCachedAsync(CancellationToken cancellationToken = default)
     {
         var generation = boundary.Capture();
         var snapshot = await cache.ReadAsync(cancellationToken);
-        return boundary.IsCancellationRequested(generation) ? null : snapshot;
+        return boundary.IsCancellationRequested(generation) || snapshot is null ? null
+            : await WithScheduleAsync(snapshot, generation, cancellationToken);
     }
 
     public async Task<ProgressSnapshot> RefreshAsync(CancellationToken cancellationToken = default)
@@ -114,7 +117,7 @@ public sealed class ProgressSnapshotSource(
                 token => cache.WriteAsync(snapshot, token),
                 cancellationToken))
             throw new OperationCanceledException("The account session changed while progress was refreshing.");
-        return snapshot;
+        return await WithScheduleAsync(snapshot, generation, cancellationToken);
     }
 
     public async Task<ProgressSnapshot> UpdateWeeklyGoalAsync(int weeklyGoal, CancellationToken cancellationToken = default)
@@ -130,7 +133,17 @@ public sealed class ProgressSnapshotSource(
                 token => cache.WriteAsync(snapshot, token),
                 cancellationToken))
             throw new OperationCanceledException("The account session changed while preferences were saving.");
-        return snapshot;
+        return await WithScheduleAsync(snapshot, generation, cancellationToken);
+    }
+
+    private async Task<ProgressSnapshot> WithScheduleAsync(ProgressSnapshot snapshot,
+        AccountSessionGeneration generation, CancellationToken token)
+    {
+        if (schedules is null) return snapshot;
+        var plan = await schedules.ReadAsync(token);
+        if (boundary.IsCancellationRequested(generation)) throw new OperationCanceledException();
+        var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(timeProvider.GetUtcNow(), TimeZoneInfo.Local).DateTime);
+        return snapshot with { Profile = snapshot.Profile with { WeeklyGoal = plan.GoalForWeek(today, snapshot.Profile.WeeklyGoal) } };
     }
 }
 

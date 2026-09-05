@@ -36,6 +36,44 @@ public sealed class PerformanceCalculatorTests
     }
 
     [Fact]
+    public void Weighted_plate_count_prefers_more_plates_then_more_reps()
+    {
+        var best = PerformanceCalculator.Best(
+            TrackingMode.Weighted,
+            [new(null, null, 12, 6), new(null, null, 8, 7), new(null, null, 10, 7)]);
+
+        Assert.Equal(new ExercisePerformanceSet(null, null, 10, 7), best);
+    }
+
+    [Fact]
+    public void Assisted_plate_count_prefers_fewer_plates_then_more_reps()
+    {
+        var best = PerformanceCalculator.Best(
+            TrackingMode.Assisted,
+            [new(null, null, 10, 8), new(null, null, 8, 7), new(null, null, 9, 7)]);
+
+        Assert.Equal(new ExercisePerformanceSet(null, null, 9, 7), best);
+    }
+
+    [Fact]
+    public void Calculate_compares_only_the_latest_load_representation()
+    {
+        var older = Guid.NewGuid();
+        var latest = Guid.NewGuid();
+        var at = new DateTimeOffset(2026, 8, 10, 9, 0, 0, TimeSpan.Zero);
+        var snapshot = PerformanceCalculator.Calculate(
+            TrackingMode.Weighted,
+            [
+                Sample(older, at, 0, 100m, null, 5),
+                new ExercisePerformanceSample(
+                    latest, at.AddDays(1), Guid.NewGuid(), 0,
+                    new ExercisePerformanceSet(null, null, 10, 7))
+            ]);
+
+        Assert.Equal(new ExercisePerformanceSet(null, null, 10, 7), snapshot!.AllTimeBest);
+    }
+
+    [Fact]
     public void Calculate_uses_latest_session_for_last_and_all_sessions_for_personal_record()
     {
         var olderWorkoutId = Guid.Parse("10000000-0000-0000-0000-000000000000");

@@ -5,6 +5,15 @@ namespace TrackZ.Mobile.Tests.Networking;
 public sealed class SimulatorApiConfigurationTests
 {
     [Fact]
+    public void Debug_simulator_origins_default_to_the_local_development_api()
+    {
+        var origins = MobileEndpointOrigins.ResolveDevelopment(_ => null);
+
+        Assert.Equal(new Uri("http://127.0.0.1:5080/"), origins.ApiOrigin);
+        Assert.Equal(new Uri("http://127.0.0.1:5080/"), origins.MediaOrigin);
+    }
+
+    [Fact]
     public void Debug_simulator_origins_use_explicit_clean_http_origins()
     {
         var values = new Dictionary<string, string?>

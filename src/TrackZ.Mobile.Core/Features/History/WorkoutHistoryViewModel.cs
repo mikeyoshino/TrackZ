@@ -29,6 +29,7 @@ public sealed class HistorySetItem : INotifyPropertyChanged
     private decimal? _weightKg;
     private decimal? _assistedKg;
     private int _reps;
+    private int? _plateCount;
 
     private HistorySetItem(IWeightUnitPreference? unitPreference, WorkoutTextSet text)
     {
@@ -47,6 +48,8 @@ public sealed class HistorySetItem : INotifyPropertyChanged
     public required bool WorkoutActionsBlocked { get; init; }
     public int SetNumber => Order + 1;
     public bool UsesWeight => TrackingMode is TrackingMode.Weighted or TrackingMode.Assisted;
+    public bool UsesExactWeight => UsesWeight && PlateCount is null;
+    public bool UsesPlateCount => UsesWeight && PlateCount is not null;
     public bool IsWeighted => TrackingMode == TrackingMode.Weighted;
     public bool IsAssisted => TrackingMode == TrackingMode.Assisted;
     public bool IsBodyweight => TrackingMode == TrackingMode.Bodyweight;
@@ -79,6 +82,18 @@ public sealed class HistorySetItem : INotifyPropertyChanged
         set
         {
             if (Set(ref _reps, value)) OnPropertyChanged(nameof(MeasurementText));
+        }
+    }
+
+    public int? PlateCount
+    {
+        get => _plateCount;
+        set
+        {
+            if (!Set(ref _plateCount, value)) return;
+            OnPropertyChanged(nameof(UsesExactWeight));
+            OnPropertyChanged(nameof(UsesPlateCount));
+            OnPropertyChanged(nameof(MeasurementText));
         }
     }
 
@@ -115,6 +130,8 @@ public sealed class HistorySetItem : INotifyPropertyChanged
         : _text.Pounds;
     public string MeasurementText => TrackingMode switch
     {
+        TrackingMode.Weighted or TrackingMode.Assisted when PlateCount is { } plates =>
+            string.Format(System.Globalization.CultureInfo.CurrentCulture, _text.PlateMeasurementFormat, plates, Reps),
         TrackingMode.Weighted => $"{FormattedDisplayWeight} {WeightUnitLabel} × {Reps}",
         TrackingMode.Assisted => $"{FormattedDisplayWeight} {WeightUnitLabel} · {Reps} {_text.Reps}",
         TrackingMode.Bodyweight => $"{Reps} {_text.Reps}",
@@ -143,6 +160,7 @@ public sealed class HistorySetItem : INotifyPropertyChanged
         WorkoutActionsBlocked = workoutActionsBlocked,
         WeightKg = set.WeightKg,
         AssistedKg = set.AssistedKg,
+        PlateCount = set.PlateCount,
         Reps = set.Reps
     };
 
@@ -179,7 +197,8 @@ public sealed record HistoryExerciseItem(
     TrackingMode TrackingMode,
     bool WorkoutIsDeleted,
     bool WorkoutActionsBlocked,
-    IReadOnlyList<HistorySetItem> Sets);
+    IReadOnlyList<HistorySetItem> Sets,
+    BodyPart? BodyPart = null);
 
 public sealed record HistoryWorkoutItem(
     Guid WorkoutId,
@@ -200,6 +219,20 @@ public sealed record HistoryWorkoutItem(
     public bool IsExpanded => false;
     public int ExerciseCount => Exercises.Count(exercise => exercise.Sets.Any(set => !set.IsDeleted));
     public int SetCount => Exercises.SelectMany(exercise => exercise.Sets).Count(set => !set.IsDeleted);
+    public string ExercisePreview => string.Join(" · ", Exercises
+        .Where(exercise => exercise.Sets.Any(set => !set.IsDeleted))
+        .Select(exercise => exercise.Name).Distinct());
+    public string BodyPartTitle
+    {
+        get
+        {
+            var parts = Exercises.Where(exercise => exercise.Sets.Any(set => !set.IsDeleted))
+                .Select(exercise => exercise.BodyPart).OfType<BodyPart>().Distinct().ToArray();
+            return parts.Length == 0 ? HistoryPresentation.T("การฝึก", "Workout")
+                : string.Join(" · ", parts.Select(HistoryPresentation.Body));
+        }
+    }
+    public string LocalTimeText => CompletedAt.ToLocalTime().ToString("HH:mm");
     public string MonthGroup => CompletedAt.ToString("MMMM yyyy");
     public bool HasConflict => ConflictedOperationId is not null && ConflictedServerVersion is not null;
     public bool HasPermanentFailure => SyncState == WorkoutSyncState.PermanentFailure;
@@ -211,6 +244,7 @@ public sealed class HistoryMonthGroup(string month, IEnumerable<HistoryWorkoutIt
     : ObservableCollection<HistoryWorkoutItem>(workouts)
 {
     public string Month { get; } = month;
+    public string Summary => HistoryPresentation.MonthSummary(this);
 }
 
 public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged, IDisposable
@@ -224,6 +258,7 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged, IDisposabl
     private readonly IWorkoutSyncStatusNotifications? _syncNotifications;
     private readonly IUiDispatcher _dispatcher;
     private readonly ExerciseCache? _exerciseCache;
+    private readonly TrackZ.Mobile.Features.Profile.TrainingScheduleStore? _schedules;
     private readonly IWeightUnitPreference? _unitPreference;
     private readonly Dictionary<Guid, WorkoutSyncState> _durableStates = [];
     private readonly CancellationTokenSource _lifetime = new();
@@ -243,7 +278,8 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged, IDisposabl
         ExerciseCache? exerciseCache = null,
         IWeightUnitPreference? unitPreference = null,
         IWorkoutSyncStatusNotifications? syncNotifications = null,
-        IUiDispatcher? dispatcher = null)
+        IUiDispatcher? dispatcher = null,
+        TrackZ.Mobile.Features.Profile.TrainingScheduleStore? schedules = null)
     {
         _history = history;
         _outbox = outbox;
@@ -254,6 +290,7 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged, IDisposabl
         _syncNotifications = syncNotifications;
         _dispatcher = dispatcher ?? new InlineUiDispatcher();
         _exerciseCache = exerciseCache;
+        _schedules = schedules;
         _unitPreference = unitPreference;
         Text = text;
         EditSetCommand = new AsyncCommand(EditSetAsync, CanMutateSet);
@@ -281,8 +318,10 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged, IDisposabl
     }
 
     public ObservableCollection<HistoryWorkoutItem> Workouts { get; } = [];
+    public HistoryCalendarState Calendar { get; } = new(DateOnly.FromDateTime(DateTime.Today), TimeZoneInfo.Local);
     public ObservableCollection<HistoryMonthGroup> WorkoutGroups { get; } = [];
     public WorkoutTextSet Text { get; }
+    public string SupportingText => HistoryPresentation.SupportingText;
     public AsyncCommand EditSetCommand { get; }
     public AsyncCommand DeleteSetCommand { get; }
     public AsyncCommand DeleteWorkoutCommand { get; }
@@ -312,6 +351,7 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged, IDisposabl
     public async Task LoadAsync(CancellationToken cancellationToken = default)
     {
         if (_deactivated) return;
+        Calendar.RefreshToday(DateOnly.FromDateTime(DateTime.Today));
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(
             cancellationToken, _lifetime.Token);
         IsBusy = true;
@@ -346,6 +386,7 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged, IDisposabl
         _durableStates.Clear();
         Workouts.Clear();
         WorkoutGroups.Clear();
+        Calendar.Reset(DateOnly.FromDateTime(DateTime.Today));
         RaiseCommands();
     }
 
@@ -360,7 +401,7 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged, IDisposabl
                 set.WorkoutId,
                 set.WorkoutExerciseId,
                 set.SetId,
-                new HistorySetMeasurement(set.WeightKg, set.AssistedKg, set.Reps),
+                new HistorySetMeasurement(set.WeightKg, set.AssistedKg, set.Reps, set.PlateCount),
                 cancellationToken: token);
         }, Text.HistoryEditFailed);
     }
@@ -475,10 +516,12 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged, IDisposabl
     {
         var generation = _boundary.Capture();
         var history = await _history.GetHistoryAsync(cancellationToken);
-        var names = _exerciseCache is null
-            ? new Dictionary<Guid, string>()
+        var schedule = _schedules is null ? TrackZ.Mobile.Features.Profile.TrainingSchedule.Empty
+            : await _schedules.ReadAsync(cancellationToken);
+        var definitions = _exerciseCache is null
+            ? new Dictionary<Guid, TrackZ.Mobile.Features.Exercises.Models.CachedExercise>()
             : (await _exerciseCache.GetAllAsync(cancellationToken))
-                .ToDictionary(exercise => exercise.Id, exercise => exercise.Name);
+                .ToDictionary(exercise => exercise.Id);
         var projected = new List<HistoryWorkoutItem>(history.Count);
         var projectedStates = new Dictionary<Guid, WorkoutSyncState>(history.Count);
         foreach (var workout in history)
@@ -497,7 +540,7 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged, IDisposabl
                     workout.Id,
                     exercise.Id,
                     exercise.ExerciseDefinitionId,
-                    names.GetValueOrDefault(exercise.ExerciseDefinitionId, Text.UnknownExercise),
+                    definitions.GetValueOrDefault(exercise.ExerciseDefinitionId)?.Name ?? Text.UnknownExercise,
                     exercise.TrackingMode,
                     workout.DeletedAt is not null,
                     actionsBlocked,
@@ -510,7 +553,8 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged, IDisposabl
                             set,
                             _unitPreference,
                             Text))
-                        .ToArray()))
+                        .ToArray(),
+                    definitions.GetValueOrDefault(exercise.ExerciseDefinitionId)?.BodyPart))
                 .ToArray();
             var undo = operations.LastOrDefault(operation => operation.Type is
                 OutboxOperationType.CompleteWorkout or OutboxOperationType.EditSet or OutboxOperationType.DeleteSet
@@ -546,6 +590,7 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged, IDisposabl
         }
         cancellationToken.ThrowIfCancellationRequested();
         if (_deactivated || _boundary.IsCancellationRequested(generation)) return;
+        Calendar.SetSchedule(schedule);
         _durableStates.Clear();
         Workouts.Clear();
         WorkoutGroups.Clear();
@@ -630,6 +675,7 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged, IDisposabl
     {
         Workouts.Clear();
         WorkoutGroups.Clear();
+        Calendar.Reset(DateOnly.FromDateTime(DateTime.Today));
         _durableStates.Clear();
         ErrorMessage = null;
         RaiseCommands();
@@ -688,6 +734,7 @@ public sealed class WorkoutHistoryViewModel : INotifyPropertyChanged, IDisposabl
 
     private void RebuildGroups()
     {
+        Calendar.ReplaceWorkouts(Workouts);
         WorkoutGroups.Clear();
         foreach (var group in Workouts
                      .GroupBy(item => new DateTime(item.CompletedAt.Year, item.CompletedAt.Month, 1))

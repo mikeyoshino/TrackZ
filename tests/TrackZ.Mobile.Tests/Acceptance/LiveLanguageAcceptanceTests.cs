@@ -45,7 +45,7 @@ public sealed class LiveLanguageAcceptanceTests
                 using (var signedOut = first.Host.Prepare(new AuthGateSnapshot(AuthGateState.SignedOut)))
                 {
                     var signIn = signedOut.Scope.Services.GetRequiredService<SignInPage>();
-                    Assert.Equal("เข้าสู่ระบบ", signIn.Form.Text.SignInTitle);
+                    Assert.Equal("ติดตามการฝึกง่ายขึ้น\nเห็นผลลัพธ์ชัดขึ้น", signIn.Form.Text.SignInTitle);
                     Assert.Equal("อีเมล", signIn.Form.Text.EmailAccessibilityLabel);
                 }
 
@@ -210,6 +210,8 @@ public sealed class LiveLanguageAcceptanceTests
                 services.AddSingleton<ILocalizedUiHost>(provider =>
                     provider.GetRequiredService<AcceptanceUiHost>());
             }, languageStore);
+            // Load app-level styles before constructing pages; do not depend on another test's Application.Current.
+            _ = app.Services.GetRequiredService<Microsoft.Maui.IApplication>();
             var host = app.Services.GetRequiredService<AcceptanceUiHost>();
             host.Initialize(gate.Snapshot);
             return new Fixture(app, host, repository, boundary);

@@ -217,7 +217,8 @@ public sealed class PushSyncHandler(
                     set.UpdatedAt,
                     set.DeletedAt,
                     set.Version,
-                    set.Effort)).ToArray())).ToArray());
+                    set.Effort,
+                    set.PlateCount)).ToArray())).ToArray());
 
     private sealed record DispatchResult(SyncOperationResultDto Result, SyncMutationResult? Mutation);
 
@@ -499,7 +500,7 @@ internal sealed class SaveSetSyncHandler(
             workout.CompleteSet(
                 payload.WorkoutExerciseId,
                 payload.SetId,
-                new SetMeasurement(ParseDecimal(payload.WeightKg), ParseDecimal(payload.AssistedKg), payload.Reps),
+                new SetMeasurement(ParseDecimal(payload.WeightKg), ParseDecimal(payload.AssistedKg), payload.Reps, payload.PlateCount),
                 payload.CompletedAt);
             return SyncMutationResult.Applied(workout);
         }
@@ -591,7 +592,8 @@ internal sealed class EditSetSyncHandler(
                 new SetMeasurement(
                     ParseDecimal(payload.WeightKg),
                     ParseDecimal(payload.AssistedKg),
-                    payload.Reps),
+                    payload.Reps,
+                    payload.PlateCount),
                 payload.UpdatedAt);
             return SyncMutationResult.Applied(workout);
         }

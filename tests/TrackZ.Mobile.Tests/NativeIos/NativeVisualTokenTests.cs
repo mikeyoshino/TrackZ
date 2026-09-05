@@ -120,7 +120,7 @@ public sealed class NativeVisualTokenTests
     }
 
     [Fact]
-    public void Workout_sync_indicator_is_icon_only_and_uses_binary_accessible_states()
+    public void Workout_sync_indicator_explains_each_state_and_resets_recycled_success_marker()
     {
         var originalDispatcher = DispatcherProvider.Current;
         DispatcherProvider.SetCurrent(new InlineDispatcherProvider());
@@ -134,25 +134,39 @@ public sealed class NativeVisualTokenTests
                 State = WorkoutSyncState.Pending,
                 AccessibilityText = "Waiting to sync"
             };
-            var icon = Assert.IsType<Label>(indicator.FindByName("SyncIcon"));
-            var check = Assert.IsType<Label>(indicator.FindByName("SyncCheck"));
+            var label = Assert.IsType<Label>(indicator.FindByName("SyncStatusLabel"));
+            var icon = Assert.IsType<Microsoft.Maui.Controls.Shapes.Path>(indicator.FindByName("SyncIcon"));
+            var check = Assert.IsType<Microsoft.Maui.Controls.Shapes.Path>(indicator.FindByName("SyncCheck"));
+            var upload = Assert.IsType<Microsoft.Maui.Controls.Shapes.Path>(indicator.FindByName("SyncUpload"));
+            var warning = Assert.IsType<Microsoft.Maui.Controls.Shapes.Path>(indicator.FindByName("SyncWarning"));
+            var offline = Assert.IsType<Microsoft.Maui.Controls.Shapes.Path>(indicator.FindByName("SyncOffline"));
 
-            Assert.Equal("↻", icon.Text);
-            Assert.Equal(secondary, icon.TextColor);
+            Assert.Equal("Waiting to sync", label.Text);
+            Assert.Equal(secondary, Assert.IsType<SolidColorBrush>(icon.Stroke).Color);
             Assert.False(check.IsVisible);
+            Assert.True(upload.IsVisible);
             Assert.Equal("Waiting to sync", SemanticProperties.GetDescription(indicator));
             Assert.False(AutomationProperties.GetIsInAccessibleTree(icon));
-            Assert.DoesNotContain(
-                indicator.GetVisualTreeDescendants().OfType<Label>(),
-                label => label.Text == "Waiting to sync");
 
             indicator.State = WorkoutSyncState.Synced;
             indicator.AccessibilityText = "Synced";
 
-            Assert.Equal(primary, icon.TextColor);
+            Assert.Equal(primary, Assert.IsType<SolidColorBrush>(icon.Stroke).Color);
             Assert.True(check.IsVisible);
-            Assert.Equal(primary, check.TextColor);
+            Assert.False(upload.IsVisible);
+            Assert.Equal("Synced", label.Text);
             Assert.Equal("Synced", SemanticProperties.GetDescription(indicator));
+            foreach (var state in new[] { WorkoutSyncState.Offline, WorkoutSyncState.PermanentFailure,
+                WorkoutSyncState.Conflicted, WorkoutSyncState.Reconciling, WorkoutSyncState.Syncing, WorkoutSyncState.Pending })
+            {
+                indicator.State = state;
+                indicator.AccessibilityText = state.ToString();
+                Assert.Equal(state.ToString(), label.Text);
+                Assert.False(check.IsVisible);
+                Assert.Equal(state == WorkoutSyncState.Offline, offline.IsVisible);
+                Assert.Equal(state is WorkoutSyncState.PermanentFailure or WorkoutSyncState.Conflicted, warning.IsVisible);
+                Assert.Equal(state is WorkoutSyncState.Pending or WorkoutSyncState.Syncing or WorkoutSyncState.Reconciling, upload.IsVisible);
+            }
         }
         finally
         {
@@ -204,12 +218,15 @@ public sealed class NativeVisualTokenTests
         Assert.Equal(12, rowPadding.Top);
         Assert.Equal(12, rowPadding.Bottom);
         Assert.True(88 + rowPadding.Top + rowPadding.Bottom <= 112);
-        foreach (var component in new[] { "ExercisePerformanceCard.xaml", "ActiveWorkoutExerciseRow.xaml", "ExerciseListSkeleton.xaml" })
+        foreach (var component in new[] { "ExercisePerformanceCard.xaml", "ExerciseListSkeleton.xaml" })
         {
             var xaml = File.ReadAllText(Path.Combine(componentDirectory, component));
             Assert.Contains("ColumnDefinitions=\"88", xaml, StringComparison.Ordinal);
             Assert.Contains("TrackZExerciseArtworkSize", xaml, StringComparison.Ordinal);
         }
+        var activeWorkoutRow = File.ReadAllText(Path.Combine(componentDirectory, "ActiveWorkoutExerciseRow.xaml"));
+        Assert.Contains("ColumnDefinitions=\"72", activeWorkoutRow, StringComparison.Ordinal);
+        Assert.Contains("TrackZCompactExerciseArtworkSize", activeWorkoutRow, StringComparison.Ordinal);
 
         var skeleton = XDocument.Load(Path.Combine(componentDirectory, "ExerciseListSkeleton.xaml"));
         var loadedCards = new[] { "ExercisePerformanceCard.xaml", "ActiveWorkoutExerciseRow.xaml" }

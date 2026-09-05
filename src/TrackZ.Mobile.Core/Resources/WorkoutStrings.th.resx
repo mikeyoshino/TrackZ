@@ -10,7 +10,7 @@
   <data name="PermanentFailure" xml:space="preserve"><value>ซิงค์ไม่สำเร็จถาวร</value></data>
   <data name="Syncing" xml:space="preserve"><value>กำลังซิงค์…</value></data>
   <data name="Reconciling" xml:space="preserve"><value>กำลังตรวจสอบผลการซิงค์ก่อนหน้า…</value></data>
-  <data name="Synced" xml:space="preserve"><value>ซิงค์แล้ว</value></data>
+  <data name="Synced" xml:space="preserve"><value>ซิงก์แล้ว</value></data>
   <data name="InvalidWeightedSet" xml:space="preserve"><value>กรอกน้ำหนักและจำนวนครั้งที่ถูกต้อง</value></data>
   <data name="InvalidAssistedSet" xml:space="preserve"><value>กรอกน้ำหนักช่วยและจำนวนครั้งที่ถูกต้อง</value></data>
   <data name="InvalidBodyweightSet" xml:space="preserve"><value>กรอกจำนวนครั้งที่ถูกต้อง</value></data>
@@ -33,15 +33,23 @@
   <data name="RepsFieldLabel" xml:space="preserve"><value>จำนวนครั้ง</value></data>
   <data name="Kilograms" xml:space="preserve"><value>กก.</value></data>
   <data name="Pounds" xml:space="preserve"><value>ปอนด์</value></data>
+  <data name="ExactWeight" xml:space="preserve"><value>กก. / ปอนด์</value></data>
+  <data name="PlateCount" xml:space="preserve"><value>จำนวนแผ่น</value></data>
+  <data name="PlateCountHint" xml:space="preserve"><value>เปรียบเทียบเฉพาะเครื่องเดิม จำนวนแผ่นจะไม่รวมใน Volume แบบ กก./ปอนด์</value></data>
+  <data name="PlateMeasurementFormat" xml:space="preserve"><value>{0} แผ่น × {1}</value></data>
+  <data name="InvalidPlateCountSet" xml:space="preserve"><value>กรอกจำนวนแผ่นและจำนวนครั้งที่ถูกต้อง</value></data>
+  <data name="LoadType" xml:space="preserve"><value>วิธีบันทึกโหลด</value></data>
   <data name="Bodyweight" xml:space="preserve"><value>น้ำหนักตัว</value></data>
   <data name="NoExercises" xml:space="preserve"><value>เพิ่มท่าเพื่อจัดการฝึกของคุณ</value></data>
   <data name="SavedLocally" xml:space="preserve"><value>บันทึกเซ็ตแล้ว</value></data>
   <data name="ChooseExercises" xml:space="preserve"><value>เลือกท่าออกกำลังกาย</value></data>
   <data name="SearchExercises" xml:space="preserve"><value>ค้นหาท่าออกกำลังกาย</value></data>
-  <data name="AllBodyParts" xml:space="preserve"><value>ทุกส่วนของร่างกาย</value></data>
+  <data name="AllBodyParts" xml:space="preserve"><value>เลือก 1 ส่วนเพื่อดูท่าออกกำลังกาย</value></data>
   <data name="All" xml:space="preserve"><value>ทั้งหมด</value></data>
-  <data name="SelectedCountFormat" xml:space="preserve"><value>เลือกแล้ว: {0}</value></data>
-  <data name="NoMatchingExercises" xml:space="preserve"><value>ไม่พบท่าออกกำลังกายที่ตรงกับตัวกรอง</value></data>
+  <data name="SelectedCountFormat" xml:space="preserve"><value>เลือกแล้ว {0} ท่า</value></data>
+  <data name="NoMatchingExercises" xml:space="preserve"><value>ยังไม่มีท่าออกกำลังกาย</value></data>
+  <data name="NoMatchingExercisesSupporting" xml:space="preserve"><value>ลองเปลี่ยนคำค้นหาหรือตัวกรอง</value></data>
+  <data name="BodyPartFilterFormat" xml:space="preserve"><value>ส่วนที่ฝึก: {0}</value></data>
   <data name="CreateCustom" xml:space="preserve"><value>สร้างท่าเอง</value></data>
   <data name="Done" xml:space="preserve"><value>เสร็จสิ้น</value></data>
   <data name="ExerciseSelectionRequiredTitle" xml:space="preserve"><value>ยังไม่ได้เลือกท่า</value></data>
@@ -94,7 +102,7 @@
   <data name="ApplyLocal" xml:space="preserve"><value>ใช้ข้อมูลในเครื่อง</value></data>
   <data name="HistoryConflictFailed" xml:space="preserve"><value>ไม่สามารถแก้ไขข้อขัดแย้งการซิงค์นี้ได้</value></data>
   <data name="TrainTodayTitle" xml:space="preserve"><value>วันนี้</value></data>
-  <data name="ChooseWorkout" xml:space="preserve"><value>เลือกการฝึก</value></data>
+  <data name="ChooseWorkout" xml:space="preserve"><value>เลือกส่วนที่ต้องการฝึก</value></data>
   <data name="ResumeWorkout" xml:space="preserve"><value>ฝึกต่อ</value></data>
   <data name="Continue" xml:space="preserve"><value>ดำเนินการต่อ</value></data>
   <data name="TrainTab" xml:space="preserve"><value>ฝึก</value></data>
@@ -123,8 +131,8 @@
   <data name="ReadyWhenYouAre" xml:space="preserve"><value>พร้อมเมื่อไหร่ เริ่มได้เลย</value></data>
   <data name="YouAreInMotion" xml:space="preserve"><value>กำลังไปได้ดี</value></data>
   <data name="StartTraining" xml:space="preserve"><value>เริ่มฝึก</value></data>
-  <data name="ChooseTodaysWorkout" xml:space="preserve"><value>เลือกการฝึกวันนี้</value></data>
-  <data name="ChooseWorkoutSupporting" xml:space="preserve"><value>คุณเลือกส่วนร่างกายและท่าออกกำลังกายเอง</value></data>
+  <data name="ChooseTodaysWorkout" xml:space="preserve"><value>เลือกการฝึกของคุณ</value></data>
+  <data name="ChooseWorkoutSupporting" xml:space="preserve"><value>เลือกส่วนร่างกายหรือสร้างโปรแกรมเอง</value></data>
   <data name="WorkoutInProgress" xml:space="preserve"><value>กำลังออกกำลังกาย</value></data>
   <data name="ContinueWorkout" xml:space="preserve"><value>ออกกำลังกายต่อ</value></data>
   <data name="ThisWeek" xml:space="preserve"><value>สัปดาห์นี้</value></data>
@@ -200,7 +208,12 @@
   <data name="GuidanceUseRepsFormat" xml:space="preserve"><value>ใช้เป้าหมาย {0} ครั้งในเซ็ตถัดไป</value></data>
   <data name="HomeWeeklyGoalFormat" xml:space="preserve"><value>สัปดาห์นี้ฝึกแล้ว {0} จากเป้าหมาย {1} ครั้ง</value></data>
   <data name="HomeWeeklyStreakFormat" xml:space="preserve"><value>ทำถึงเป้า {0} สัปดาห์ติด</value></data>
-  <data name="HomeLatestPerformance" xml:space="preserve"><value>ผลงานท่าล่าสุด</value></data>
+  <data name="HomeWeeklyGoalTitle" xml:space="preserve"><value>เป้าหมายสัปดาห์</value></data>
+  <data name="HomeWeeklyGoalUnit" xml:space="preserve"><value>ครั้ง</value></data>
+  <data name="HomeWeeklyGoalRemainingFormat" xml:space="preserve"><value>เหลืออีก {0} ครั้ง</value></data>
+  <data name="HomeLatestPerformance" xml:space="preserve"><value>ฝึกล่าสุด</value></data>
+  <data name="HomeNoWorkoutHistory" xml:space="preserve"><value>ยังไม่มีประวัติการฝึก</value></data>
+  <data name="HomeNoWorkoutHistorySupporting" xml:space="preserve"><value>เริ่มฝึกครั้งแรกเพื่อดูสถิติของคุณที่นี่</value></data>
   <data name="HomeLatestLabel" xml:space="preserve"><value>ครั้งล่าสุด</value></data>
   <data name="HomeBestLabel" xml:space="preserve"><value>สถิติสูงสุด</value></data>
   <data name="HomeViewAllData" xml:space="preserve"><value>ดูข้อมูลทั้งหมด</value></data>
@@ -212,4 +225,14 @@
   <data name="DiscardWorkoutTitle" xml:space="preserve"><value>ยกเลิกการฝึกครั้งนี้?</value></data>
   <data name="DiscardWorkoutMessage" xml:space="preserve"><value>การฝึกครั้งนี้และเซ็ตที่บันทึกไว้จะถูกลบ และไม่สามารถย้อนกลับได้</value></data>
   <data name="DiscardWorkoutFailed" xml:space="preserve"><value>ยกเลิกการฝึกไม่ได้ เซ็ตที่บันทึกไว้ยังอยู่ครบ</value></data>
+  <data name="StartFirstExercise" xml:space="preserve"><value>เริ่มท่าแรก</value></data>
+  <data name="LogNextWorkoutSet" xml:space="preserve"><value>บันทึกเซ็ตถัดไป</value></data>
+  <data name="ProgressFormat" xml:space="preserve"><value>ความคืบหน้า {0} / {1}</value></data>
+  <data name="NoSetsYet" xml:space="preserve"><value>ยังไม่มีเซ็ต</value></data>
+  <data name="TodaySetsTitle" xml:space="preserve"><value>เซ็ตวันนี้</value></data>
+  <data name="NoSetsToday" xml:space="preserve"><value>ยังไม่มีเซ็ตวันนี้</value></data>
+  <data name="NoSetsTodaySupporting" xml:space="preserve"><value>เพิ่มเซ็ตแรกเพื่อเริ่มบันทึกการฝึกท่านี้</value></data>
+  <data name="AddSetNumberFormat" xml:space="preserve"><value>เพิ่มเซ็ตที่ {0}</value></data>
+  <data name="WeightUnitTitle" xml:space="preserve"><value>หน่วยน้ำหนัก</value></data>
+  <data name="DraftInputHelper" xml:space="preserve"><value>กรอกน้ำหนักและจำนวนครั้งเพื่อบันทึก</value></data>
 </root>

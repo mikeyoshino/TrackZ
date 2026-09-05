@@ -11,6 +11,7 @@ using TrackZ.Mobile.Features.Exercises.Services;
 using TrackZ.Mobile.Features.Gamification;
 using TrackZ.Mobile.Features.Localization;
 using TrackZ.Mobile.Features.Workout;
+using TrackZ.Mobile.Presentation;
 
 namespace TrackZ.Mobile.Tests.NativeIos;
 
@@ -24,6 +25,8 @@ public sealed class ExercisePickerInteractionTests : IDisposable
     private readonly RecordingExercisePickerNavigator _navigator = new();
     private readonly RecordingExercisePickerWarning _warning = new();
     private readonly RecordingLocalExerciseImagePicker _imagePicker = new();
+    private readonly RecordingLocalExerciseImageCapture _imageCapture = new();
+    private readonly RecordingExerciseOptionPicker _optionPicker = new();
     private readonly TestFileSystem _fileSystem;
 
     public ExercisePickerInteractionTests()
@@ -44,93 +47,89 @@ public sealed class ExercisePickerInteractionTests : IDisposable
             services.AddSingleton<IExercisePickerNavigator>(_navigator);
             services.AddSingleton<IExercisePickerWarning>(_warning);
             services.AddSingleton<ILocalExerciseImagePicker>(_imagePicker);
+            services.AddSingleton<ILocalExerciseImageCapture>(_imageCapture);
+            services.AddSingleton<IExerciseOptionPicker>(_optionPicker);
             services.AddSingleton<IFileSystem>(_fileSystem);
         }, new FixedLanguageStore(AppLanguage.English));
         _ = _app.Services.GetRequiredService<App>();
     }
 
     [Fact]
-    public void Body_part_filters_use_app_owned_taps_instead_of_native_cell_selection()
+    public void Body_part_filter_uses_one_native_picker_with_every_option()
     {
         var page = _app.Services.GetRequiredService<ExercisePickerPage>();
-        var filters = Descendants(page)
-            .OfType<CollectionView>()
-            .Single(view => view.ItemsSource is IEnumerable<BodyPartFilterOption>);
-        var options = Assert.IsAssignableFrom<IEnumerable<BodyPartFilterOption>>(filters.ItemsSource).ToArray();
+        var filter = page.FindByName<Picker>("BodyPartFilterPicker");
+        var options = Assert.IsAssignableFrom<IEnumerable<BodyPartFilterOption>>(filter.ItemsSource).ToArray();
 
-        Assert.Equal(SelectionMode.None, filters.SelectionMode);
+        Assert.Equal(7, options.Length);
         Assert.Equal(WorkoutResources.Current.All, options[0].Label);
+        Assert.Equal(options[0], filter.SelectedItem);
     }
 
     [Fact]
-    public void Activating_a_body_part_filter_changes_emphasis_without_moving_its_content()
+    public async Task Finish_is_disabled_until_at_least_one_exercise_is_selected()
+    {
+        var exerciseId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        await _app.Services.GetRequiredService<ExerciseCache>().ReplaceAllAsync([
+            new ExerciseSummaryDto(
+                exerciseId, "Bench Press", BodyPart.Chest, TrackingMode.Weighted,
+                null, null, null, null, false)
+        ], DateTimeOffset.UtcNow);
+        var page = _app.Services.GetRequiredService<ExercisePickerPage>();
+        var picker = Assert.IsType<ExercisePickerViewModel>(page.BindingContext);
+        await picker.LoadAsync(BodyPart.Chest);
+        var done = page.FindByName<Button>("DoneButton");
+
+        Assert.False(done.IsEnabled);
+
+        picker.Exercises.Single().ToggleSelectionCommand.Execute(null);
+
+        Assert.True(done.IsEnabled);
+    }
+
+    [Fact]
+    public void Selecting_a_body_part_from_the_native_picker_updates_the_filter_label()
     {
         var page = _app.Services.GetRequiredService<ExercisePickerPage>();
-        var filters = Descendants(page)
-            .OfType<CollectionView>()
-            .Single(view => view.ItemsSource is IEnumerable<BodyPartFilterOption>);
-        var option = Assert.IsAssignableFrom<IEnumerable<BodyPartFilterOption>>(filters.ItemsSource)
+        var viewModel = Assert.IsType<ExercisePickerViewModel>(page.BindingContext);
+        var filter = page.FindByName<Picker>("BodyPartFilterPicker");
+        var option = viewModel.BodyPartOptions
             .Single(item => item.Value == BodyPart.Legs);
-        var chip = Assert.IsType<Border>(filters.ItemTemplate.CreateContent());
-        chip.BindingContext = option;
-        var normalPadding = chip.Padding;
-        var normalMinimumHeight = chip.MinimumHeightRequest;
-        var normalBackground = chip.BackgroundColor;
 
-        option.SelectCommand.Execute(null);
+        filter.SelectedItem = option;
 
         Assert.True(option.IsSelected);
-        Assert.NotEqual(normalBackground, chip.BackgroundColor);
-        Assert.Equal(normalPadding, chip.Padding);
-        Assert.Equal(normalMinimumHeight, chip.MinimumHeightRequest);
-        Assert.True(chip.MinimumHeightRequest >= 44);
+        Assert.Equal(BodyPart.Legs, viewModel.SelectedBodyPart);
+        Assert.Equal("Body area: Legs", page.FindByName<Label>("BodyPartFilterLabel").Text);
     }
 
     [Fact]
-    public void Body_part_filter_text_stays_vertically_centered_inside_the_touch_target()
+    public void Body_part_filter_keeps_a_full_native_touch_target()
     {
         var page = _app.Services.GetRequiredService<ExercisePickerPage>();
-        var filters = Descendants(page)
-            .OfType<CollectionView>()
-            .Single(view => view.ItemsSource is IEnumerable<BodyPartFilterOption>);
-        var option = Assert.IsAssignableFrom<IEnumerable<BodyPartFilterOption>>(filters.ItemsSource)
-            .Single(item => item.Value == BodyPart.Legs);
-        var chip = Assert.IsType<Border>(filters.ItemTemplate.CreateContent());
-        chip.BindingContext = option;
-        var label = Assert.IsType<Label>(chip.Content);
+        var filter = page.FindByName<Picker>("BodyPartFilterPicker");
+        var label = page.FindByName<Label>("BodyPartFilterLabel");
 
+        Assert.True(filter.MinimumHeightRequest >= 44);
         Assert.Equal(LayoutOptions.Center, label.VerticalOptions);
-        Assert.Equal(TextAlignment.Center, label.VerticalTextAlignment);
-
-        option.SelectCommand.Execute(null);
-
-        Assert.True(option.IsSelected);
-        Assert.Equal(LayoutOptions.Center, label.VerticalOptions);
-        Assert.Equal(TextAlignment.Center, label.VerticalTextAlignment);
     }
 
     [Fact]
-    public void Returning_to_all_restores_the_previous_filter_chip_background()
+    public void Returning_to_all_updates_the_single_filter_label()
     {
         var page = _app.Services.GetRequiredService<ExercisePickerPage>();
-        var filters = Descendants(page)
-            .OfType<CollectionView>()
-            .Single(view => view.ItemsSource is IEnumerable<BodyPartFilterOption>);
-        var options = Assert.IsAssignableFrom<IEnumerable<BodyPartFilterOption>>(filters.ItemsSource).ToArray();
+        var viewModel = Assert.IsType<ExercisePickerViewModel>(page.BindingContext);
+        var filter = page.FindByName<Picker>("BodyPartFilterPicker");
+        var options = viewModel.BodyPartOptions;
         var all = options.Single(option => option.Value is null);
         var legs = options.Single(option => option.Value == BodyPart.Legs);
-        var legsChip = Assert.IsType<Border>(filters.ItemTemplate.CreateContent());
-        legsChip.BindingContext = legs;
-        var normalBackground = legsChip.BackgroundColor;
 
-        legs.SelectCommand.Execute(null);
-
-        Assert.NotEqual(normalBackground, legsChip.BackgroundColor);
-
-        all.SelectCommand.Execute(null);
+        filter.SelectedItem = legs;
+        filter.SelectedItem = all;
 
         Assert.False(legs.IsSelected);
-        Assert.Equal(normalBackground, legsChip.BackgroundColor);
+        Assert.Null(viewModel.SelectedBodyPart);
+        Assert.Equal("Body area: All", page.FindByName<Label>("BodyPartFilterLabel").Text);
     }
 
     [Fact]
@@ -150,19 +149,14 @@ public sealed class ExercisePickerInteractionTests : IDisposable
     }
 
     [Fact]
-    public void Custom_exercise_offers_one_local_image_action_without_a_library()
+    public void Custom_exercise_offers_camera_and_photo_library_actions()
     {
         var page = _app.Services.GetRequiredService<CustomExercisePage>();
         var viewModel = Assert.IsType<CustomExerciseViewModel>(page.BindingContext);
-        var imageActions = Descendants(page)
-            .OfType<Button>()
-            .Where(button => button.Text is not null &&
-                (button.Text == viewModel.Text.AddExerciseImage ||
-                 button.Text == viewModel.Text.ChooseExerciseImage))
-            .ToArray();
+        var imageActions = Descendants(page).OfType<Button>().ToArray();
 
-        var imageAction = Assert.Single(imageActions);
-        Assert.Equal(viewModel.Text.AddExerciseImage, imageAction.Text);
+        Assert.Contains(imageActions, button => button.Text == viewModel.Text.CaptureExerciseImage);
+        Assert.Contains(imageActions, button => button.Text == viewModel.Text.ChooseExerciseImage);
         Assert.Empty(Descendants(page).OfType<CollectionView>());
     }
 
@@ -173,7 +167,7 @@ public sealed class ExercisePickerInteractionTests : IDisposable
         var viewModel = Assert.IsType<CustomExerciseViewModel>(page.BindingContext);
         var imageAction = Descendants(page)
             .OfType<Button>()
-            .Single(button => button.Text == viewModel.Text.AddExerciseImage);
+            .Single(button => button.Text == viewModel.Text.ChooseExerciseImage);
 
         imageAction.SendClicked();
 
@@ -182,20 +176,116 @@ public sealed class ExercisePickerInteractionTests : IDisposable
     }
 
     [Fact]
-    public void Custom_exercise_fast_form_uses_equal_fields_and_a_compact_image_preview()
+    public void Custom_exercise_camera_action_opens_the_camera_immediately()
+    {
+        var page = _app.Services.GetRequiredService<CustomExercisePage>();
+        var viewModel = Assert.IsType<CustomExerciseViewModel>(page.BindingContext);
+        var cameraAction = Descendants(page)
+            .OfType<Button>()
+            .Single(button => button.Text == viewModel.Text.CaptureExerciseImage);
+
+        cameraAction.SendClicked();
+
+        Assert.Equal(1, _imageCapture.CaptureCount);
+    }
+
+    [Fact]
+    public void Custom_exercise_form_uses_equal_fields_and_a_large_equipment_photo_card()
     {
         var page = _app.Services.GetRequiredService<CustomExercisePage>();
         var content = Assert.IsType<VerticalStackLayout>(page.FindByName("CustomExerciseForm"));
         var nameField = Assert.IsType<Border>(page.FindByName("CustomExerciseNameField"));
         var bodyPartField = Assert.IsType<Border>(page.FindByName("CustomExerciseBodyPartField"));
         var trackingField = Assert.IsType<Border>(page.FindByName("CustomExerciseTrackingField"));
+        var photoCard = Assert.IsType<Border>(page.FindByName("CustomExercisePhotoCard"));
         var preview = Assert.IsType<Image>(page.FindByName("CustomExerciseImagePreview"));
 
         Assert.Equal(12, content.Spacing);
         Assert.Equal(nameField.MinimumHeightRequest, bodyPartField.MinimumHeightRequest);
         Assert.Equal(nameField.MinimumHeightRequest, trackingField.MinimumHeightRequest);
-        Assert.InRange(preview.HeightRequest, 44, 72);
-        Assert.Equal(preview.HeightRequest, preview.WidthRequest);
+        Assert.Equal(184, photoCard.HeightRequest);
+        Assert.Equal(Aspect.AspectFill, preview.Aspect);
+    }
+
+    [Fact]
+    public void Custom_exercise_uses_app_owned_selection_triggers_instead_of_native_pickers()
+    {
+        var page = _app.Services.GetRequiredService<CustomExercisePage>();
+
+        Assert.Empty(Descendants(page).OfType<Picker>());
+        Assert.NotNull(page.FindByName<Button>("CustomExerciseBodyPartButton"));
+        Assert.NotNull(page.FindByName<Button>("CustomExerciseTrackingButton"));
+    }
+
+    [Fact]
+    public void Custom_exercise_selection_triggers_remain_in_ios_hit_testing()
+    {
+        var page = _app.Services.GetRequiredService<CustomExercisePage>();
+        var bodyPart = page.FindByName<Button>("CustomExerciseBodyPartButton");
+        var tracking = page.FindByName<Button>("CustomExerciseTrackingButton");
+
+        Assert.True(bodyPart.Opacity > 0.01);
+        Assert.True(tracking.Opacity > 0.01);
+        Assert.False(bodyPart.InputTransparent);
+        Assert.False(tracking.InputTransparent);
+    }
+
+    [Fact]
+    public async Task Custom_exercise_selection_triggers_update_the_form_value()
+    {
+        var page = _app.Services.GetRequiredService<CustomExercisePage>();
+        var viewModel = Assert.IsType<CustomExerciseViewModel>(page.BindingContext);
+        _optionPicker.BodyPartResult = viewModel.BodyPartOptions.Single(option => option.Value == BodyPart.Legs);
+        _optionPicker.TrackingModeResult = viewModel.TrackingModeOptions.Single(option => option.Value == TrackingMode.Bodyweight);
+
+        page.FindByName<Button>("CustomExerciseBodyPartButton").SendClicked();
+        page.FindByName<Button>("CustomExerciseTrackingButton").SendClicked();
+        await _optionPicker.SelectionCompleted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        Assert.Equal(BodyPart.Legs, viewModel.BodyPart);
+        Assert.Equal(TrackingMode.Bodyweight, viewModel.TrackingMode);
+    }
+
+    [Fact]
+    public async Task Body_part_option_sheet_uses_large_detent_so_every_choice_is_reachable()
+    {
+        var presenter = new RecordingNativeSheetPresenter();
+        var picker = new MauiExerciseOptionPicker(presenter);
+        var viewModel = _app.Services.GetRequiredService<CustomExerciseViewModel>();
+
+        var pending = picker.PickBodyPartAsync(
+            viewModel.Text.BodyPart,
+            viewModel.BodyPartOptions,
+            selected: null);
+        var sheet = Assert.IsType<ExerciseOptionSheetPage>(presenter.Page);
+        var detent = presenter.Detent;
+        await sheet.CancelAsync();
+        await pending;
+
+        Assert.Equal(NativeSheetDetent.Large, detent);
+    }
+
+    [Fact]
+    public void Custom_exercise_hides_the_sticky_save_action_while_a_picker_has_focus()
+    {
+        var page = _app.Services.GetRequiredService<CustomExercisePage>();
+        var actions = Assert.IsType<Border>(page.FindByName("CustomExerciseActions"));
+
+        Assert.True(actions.IsVisible);
+
+        page.SetFormInputFocused(true);
+        Assert.False(actions.IsVisible);
+
+        page.SetFormInputFocused(false);
+        Assert.True(actions.IsVisible);
+    }
+
+    [Fact]
+    public void Custom_exercise_is_a_focused_subflow_without_the_app_tab_bar()
+    {
+        var page = _app.Services.GetRequiredService<CustomExercisePage>();
+
+        Assert.False(Shell.GetTabBarIsVisible(page));
     }
 
     [Fact]
@@ -382,6 +472,74 @@ public sealed class ExercisePickerInteractionTests : IDisposable
             LastTitle = pickerTitle;
             return Task.FromResult<LocalExerciseImageSelection?>(null);
         }
+    }
+
+    private sealed class RecordingLocalExerciseImageCapture : ILocalExerciseImageCapture
+    {
+        public int CaptureCount { get; private set; }
+
+        public Task<LocalExerciseImageSelection?> CaptureAsync(
+            CancellationToken cancellationToken = default)
+        {
+            CaptureCount++;
+            return Task.FromResult<LocalExerciseImageSelection?>(null);
+        }
+    }
+
+    private sealed class RecordingExerciseOptionPicker : IExerciseOptionPicker
+    {
+        private int _selectionCount;
+
+        public LocalizedBodyPartOption? BodyPartResult { get; set; }
+        public LocalizedTrackingModeOption? TrackingModeResult { get; set; }
+        public TaskCompletionSource SelectionCompleted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task<LocalizedBodyPartOption?> PickBodyPartAsync(
+            string title,
+            IReadOnlyList<LocalizedBodyPartOption> options,
+            LocalizedBodyPartOption? selected,
+            CancellationToken cancellationToken = default)
+        {
+            CompleteSelection();
+            return Task.FromResult(BodyPartResult);
+        }
+
+        public Task<LocalizedTrackingModeOption?> PickTrackingModeAsync(
+            string title,
+            IReadOnlyList<LocalizedTrackingModeOption> options,
+            LocalizedTrackingModeOption? selected,
+            CancellationToken cancellationToken = default)
+        {
+            CompleteSelection();
+            return Task.FromResult(TrackingModeResult);
+        }
+
+        private void CompleteSelection()
+        {
+            if (Interlocked.Increment(ref _selectionCount) == 2)
+                SelectionCompleted.TrySetResult();
+        }
+    }
+
+    private sealed class RecordingNativeSheetPresenter : INativeSheetPresenter
+    {
+        public ContentPage? Page { get; private set; }
+        public NativeSheetDetent? Detent { get; private set; }
+
+        public Task ShowAsync(
+            ContentPage page,
+            NativeSheetDetent detent,
+            CancellationToken cancellationToken = default)
+        {
+            Page = page;
+            Detent = detent;
+            return Task.CompletedTask;
+        }
+
+        public Task DismissAsync(
+            ContentPage page,
+            CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 
     private sealed class TestFileSystem(string root) : IFileSystem

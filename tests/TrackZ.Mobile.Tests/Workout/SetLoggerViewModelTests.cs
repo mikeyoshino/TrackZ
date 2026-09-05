@@ -41,6 +41,24 @@ public sealed class SetLoggerViewModelTests : IDisposable
         Assert.False(sut.HasPreviousBest);
         Assert.False(sut.HasAllTimePr);
         Assert.Equal("No previous sets yet. Start with set 1.", sut.Text.NoPreviousSetsYet);
+        Assert.Equal("Today's sets", sut.TodaySetsTitle);
+        Assert.Equal("0 sets", sut.TodaySetCountText);
+        Assert.Equal("Add set 1", sut.AddNextSetText);
+    }
+
+    [Fact]
+    public async Task Opening_an_empty_draft_keeps_validation_feedback_quiet_until_input_is_edited()
+    {
+        var fixture = await CreateFixtureAsync(TrackingMode.Weighted);
+        var sut = fixture.CreateLogger(null);
+        await sut.LoadAsync(ExerciseId, "Bench Press");
+
+        sut.BeginSetCommand.Execute(null);
+
+        Assert.True(sut.HasDraftSet);
+        Assert.False(sut.CanSaveDraftSet);
+        Assert.Null(sut.ValidationMessage);
+        Assert.Equal("Enter weight and reps to save", sut.DraftInputHelperText);
     }
 
     [Fact]
@@ -1374,7 +1392,8 @@ public sealed class SetLoggerViewModelTests : IDisposable
         await sut.LoadAsync(ExerciseId, "Bench Press");
 
         Assert.Equal("ออฟไลน์ · บันทึกไว้ในเครื่อง", sut.SyncStatusText);
-        Assert.Equal("กรอกน้ำหนักและจำนวนครั้งที่ถูกต้อง", sut.ValidationMessage);
+        Assert.Null(sut.ValidationMessage);
+        Assert.Equal("กรอกน้ำหนักและจำนวนครั้งเพื่อบันทึก", sut.DraftInputHelperText);
     }
 
     [Fact]

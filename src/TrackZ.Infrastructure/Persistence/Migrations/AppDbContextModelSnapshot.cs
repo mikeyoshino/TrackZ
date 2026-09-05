@@ -1076,6 +1076,9 @@ namespace TrackZ.Infrastructure.Persistence.Migrations
                         .HasPrecision(10, 3)
                         .HasColumnType("numeric(10,3)");
 
+                    b.Property<int?>("AllTimeBestPlateCount")
+                        .HasColumnType("integer");
+
                     b.Property<int?>("AllTimeBestReps")
                         .HasColumnType("integer");
 
@@ -1089,6 +1092,9 @@ namespace TrackZ.Infrastructure.Persistence.Migrations
                     b.Property<decimal?>("LastBestAssistedKg")
                         .HasPrecision(10, 3)
                         .HasColumnType("numeric(10,3)");
+
+                    b.Property<int?>("LastBestPlateCount")
+                        .HasColumnType("integer");
 
                     b.Property<int?>("LastBestReps")
                         .HasColumnType("integer");
@@ -1115,9 +1121,9 @@ namespace TrackZ.Infrastructure.Persistence.Migrations
 
                     b.ToTable("exercise_performances", null, t =>
                         {
-                            t.HasCheckConstraint("CK_exercise_performances_all_time_best_shape", "\"AllTimeBestReps\" IS NOT NULL AND \"AllTimeBestReps\" > 0 AND ((\"TrackingMode\" = 1 AND \"AllTimeBestWeightKg\" IS NOT NULL AND \"AllTimeBestWeightKg\" > 0 AND \"AllTimeBestAssistedKg\" IS NULL) OR (\"TrackingMode\" = 2 AND \"AllTimeBestWeightKg\" IS NULL AND \"AllTimeBestAssistedKg\" IS NULL) OR (\"TrackingMode\" = 3 AND \"AllTimeBestWeightKg\" IS NULL AND \"AllTimeBestAssistedKg\" IS NOT NULL AND \"AllTimeBestAssistedKg\" > 0))");
+                            t.HasCheckConstraint("CK_exercise_performances_all_time_best_shape", "\"AllTimeBestReps\" > 0 AND ((\"TrackingMode\" = 1 AND \"AllTimeBestAssistedKg\" IS NULL AND ((\"AllTimeBestWeightKg\" > 0 AND \"AllTimeBestPlateCount\" IS NULL) OR (\"AllTimeBestWeightKg\" IS NULL AND \"AllTimeBestPlateCount\" > 0))) OR (\"TrackingMode\" = 2 AND \"AllTimeBestWeightKg\" IS NULL AND \"AllTimeBestAssistedKg\" IS NULL AND \"AllTimeBestPlateCount\" IS NULL) OR (\"TrackingMode\" = 3 AND \"AllTimeBestWeightKg\" IS NULL AND ((\"AllTimeBestAssistedKg\" > 0 AND \"AllTimeBestPlateCount\" IS NULL) OR (\"AllTimeBestAssistedKg\" IS NULL AND \"AllTimeBestPlateCount\" > 0))))");
 
-                            t.HasCheckConstraint("CK_exercise_performances_last_best_shape", "\"LastPerformedAt\" IS NOT NULL AND \"LastBestReps\" IS NOT NULL AND \"LastBestReps\" > 0 AND ((\"TrackingMode\" = 1 AND \"LastBestWeightKg\" IS NOT NULL AND \"LastBestWeightKg\" > 0 AND \"LastBestAssistedKg\" IS NULL) OR (\"TrackingMode\" = 2 AND \"LastBestWeightKg\" IS NULL AND \"LastBestAssistedKg\" IS NULL) OR (\"TrackingMode\" = 3 AND \"LastBestWeightKg\" IS NULL AND \"LastBestAssistedKg\" IS NOT NULL AND \"LastBestAssistedKg\" > 0))");
+                            t.HasCheckConstraint("CK_exercise_performances_last_best_shape", "\"LastPerformedAt\" IS NOT NULL AND \"LastBestReps\" > 0 AND ((\"TrackingMode\" = 1 AND \"LastBestAssistedKg\" IS NULL AND ((\"LastBestWeightKg\" > 0 AND \"LastBestPlateCount\" IS NULL) OR (\"LastBestWeightKg\" IS NULL AND \"LastBestPlateCount\" > 0))) OR (\"TrackingMode\" = 2 AND \"LastBestWeightKg\" IS NULL AND \"LastBestAssistedKg\" IS NULL AND \"LastBestPlateCount\" IS NULL) OR (\"TrackingMode\" = 3 AND \"LastBestWeightKg\" IS NULL AND ((\"LastBestAssistedKg\" > 0 AND \"LastBestPlateCount\" IS NULL) OR (\"LastBestAssistedKg\" IS NULL AND \"LastBestPlateCount\" > 0))))");
 
                             t.HasCheckConstraint("CK_exercise_performances_tracking_mode", "\"TrackingMode\" IN (1, 2, 3)");
                         });
@@ -1233,6 +1239,9 @@ namespace TrackZ.Infrastructure.Persistence.Migrations
                     b.Property<int>("Order")
                         .HasColumnType("integer");
 
+                    b.Property<int?>("PlateCount")
+                        .HasColumnType("integer");
+
                     b.Property<int>("Reps")
                         .HasColumnType("integer");
 
@@ -1264,7 +1273,7 @@ namespace TrackZ.Infrastructure.Persistence.Migrations
                         {
                             t.HasCheckConstraint("CK_set_entries_effort", "\"Effort\" IS NULL OR \"Effort\" IN (1, 2, 3)");
 
-                            t.HasCheckConstraint("CK_set_entries_mode_measurement", "(\"TrackingMode\" = 1 AND \"WeightKg\" > 0 AND \"AssistedKg\" IS NULL) OR (\"TrackingMode\" = 2 AND \"WeightKg\" IS NULL AND \"AssistedKg\" IS NULL) OR (\"TrackingMode\" = 3 AND \"WeightKg\" IS NULL AND \"AssistedKg\" > 0)");
+                            t.HasCheckConstraint("CK_set_entries_mode_measurement", "(\"TrackingMode\" = 1 AND \"AssistedKg\" IS NULL AND ((\"WeightKg\" > 0 AND \"PlateCount\" IS NULL) OR (\"WeightKg\" IS NULL AND \"PlateCount\" BETWEEN 1 AND 999))) OR (\"TrackingMode\" = 2 AND \"WeightKg\" IS NULL AND \"AssistedKg\" IS NULL AND \"PlateCount\" IS NULL) OR (\"TrackingMode\" = 3 AND \"WeightKg\" IS NULL AND ((\"AssistedKg\" > 0 AND \"PlateCount\" IS NULL) OR (\"AssistedKg\" IS NULL AND \"PlateCount\" BETWEEN 1 AND 999)))");
 
                             t.HasCheckConstraint("CK_set_entries_order", "\"Order\" >= 0");
 

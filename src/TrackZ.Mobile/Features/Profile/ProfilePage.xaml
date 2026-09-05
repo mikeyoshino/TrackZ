@@ -14,7 +14,14 @@
     <Grid Padding="0,16,0,0" RowDefinitions="*,Auto">
         <ScrollView>
             <VerticalStackLayout Padding="{DynamicResource TrackZPageBottomContentPadding}" Spacing="{DynamicResource TrackZSpace16}">
-                <Label Style="{DynamicResource TrackZPageTitleStyle}" Text="{Binding Text.ProfileTitle}" />
+                <Grid ColumnDefinitions="*,Auto">
+                    <VerticalStackLayout Spacing="4">
+                        <Label Style="{DynamicResource TrackZProfileTitleStyle}" Text="{Binding Text.ProfileTitle}" />
+                        <Label x:Name="ProfileSubtitle" Style="{DynamicResource TrackZSecondaryStyle}" />
+                    </VerticalStackLayout>
+                    <Image Grid.Column="1" Source="trackz_auth_logo.png" WidthRequest="32" HeightRequest="32" AutomationProperties.ExcludedWithChildren="True" />
+                </Grid>
+                <ContentView x:Name="ScheduleHost" />
                 <Border x:Name="LanguageSettingsCard" Style="{DynamicResource TrackZCardStyle}">
                     <VerticalStackLayout Spacing="{DynamicResource TrackZSpace12}">
                         <Label Style="{DynamicResource TrackZSectionTitleStyle}" Text="{Binding MobileText.Language}" />
@@ -28,8 +35,8 @@
                                 Text="{Binding Languages[0].Label}">
                                 <Button.Triggers>
                                     <DataTrigger TargetType="Button" Binding="{Binding Languages[0].IsSelected}" Value="True">
-                                        <Setter Property="BackgroundColor" Value="{DynamicResource TrackZPrimary}" />
-                                        <Setter Property="TextColor" Value="{DynamicResource TrackZPrimaryContrast}" />
+                                        <Setter Property="BorderColor" Value="{DynamicResource TrackZPrimary}" />
+                                        <Setter Property="TextColor" Value="{DynamicResource TrackZPrimary}" />
                                     </DataTrigger>
                                 </Button.Triggers>
                             </Button>
@@ -43,8 +50,8 @@
                                 Text="{Binding Languages[1].Label}">
                                 <Button.Triggers>
                                     <DataTrigger TargetType="Button" Binding="{Binding Languages[1].IsSelected}" Value="True">
-                                        <Setter Property="BackgroundColor" Value="{DynamicResource TrackZPrimary}" />
-                                        <Setter Property="TextColor" Value="{DynamicResource TrackZPrimaryContrast}" />
+                                        <Setter Property="BorderColor" Value="{DynamicResource TrackZPrimary}" />
+                                        <Setter Property="TextColor" Value="{DynamicResource TrackZPrimary}" />
                                     </DataTrigger>
                                 </Button.Triggers>
                             </Button>
@@ -54,45 +61,36 @@
                 </Border>
                 <Border x:Name="WeightUnitSettingsCard" Style="{DynamicResource TrackZCardStyle}">
                     <VerticalStackLayout Spacing="{DynamicResource TrackZSpace12}">
-                        <Label Style="{DynamicResource TrackZSectionTitleStyle}" Text="{Binding Source={x:Reference Page}, Path=WorkoutText.Weight}" />
+                        <Label x:Name="WeightUnitTitle" Style="{DynamicResource TrackZHistoryDateStyle}" />
                         <Grid ColumnDefinitions="*,*" ColumnSpacing="{DynamicResource TrackZSpace8}">
                             <Button x:Name="KilogramsButton" Clicked="OnKilogramsClicked" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="{Binding Source={x:Reference Page}, Path=WorkoutText.Kilograms}">
                                 <Button.Triggers>
                                     <DataTrigger TargetType="Button" Binding="{Binding Source={x:Reference Page}, Path=IsKilogramsSelected}" Value="True">
-                                        <Setter Property="BackgroundColor" Value="{DynamicResource TrackZPrimary}" />
-                                        <Setter Property="TextColor" Value="{DynamicResource TrackZPrimaryContrast}" />
+                                        <Setter Property="BorderColor" Value="{DynamicResource TrackZPrimary}" />
+                                        <Setter Property="TextColor" Value="{DynamicResource TrackZPrimary}" />
                                     </DataTrigger>
                                 </Button.Triggers>
                             </Button>
                             <Button x:Name="PoundsButton" Grid.Column="1" Clicked="OnPoundsClicked" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="{Binding Source={x:Reference Page}, Path=WorkoutText.Pounds}">
                                 <Button.Triggers>
                                     <DataTrigger TargetType="Button" Binding="{Binding Source={x:Reference Page}, Path=IsPoundsSelected}" Value="True">
-                                        <Setter Property="BackgroundColor" Value="{DynamicResource TrackZPrimary}" />
-                                        <Setter Property="TextColor" Value="{DynamicResource TrackZPrimaryContrast}" />
+                                        <Setter Property="BorderColor" Value="{DynamicResource TrackZPrimary}" />
+                                        <Setter Property="TextColor" Value="{DynamicResource TrackZPrimary}" />
                                     </DataTrigger>
                                 </Button.Triggers>
                             </Button>
                         </Grid>
                     </VerticalStackLayout>
                 </Border>
-                <Border Style="{DynamicResource TrackZCardStyle}">
-                    <Grid ColumnDefinitions="*,Auto">
-                        <VerticalStackLayout Spacing="{DynamicResource TrackZSpace4}">
-                            <Label Style="{DynamicResource TrackZNavigationTitleStyle}" Text="{Binding Text.WeeklyGoal}" />
-                            <Label Style="{DynamicResource TrackZPerformanceMetadataStyle}" Text="{Binding WeeklyCompletedWorkouts, StringFormat='{0}'}" />
-                        </VerticalStackLayout>
-                        <Stepper Grid.Column="1" Minimum="1" Maximum="7" Style="{DynamicResource TrackZStepperStyle}" Value="{Binding WeeklyGoal}" />
-                    </Grid>
-                </Border>
                 <Border Style="{DynamicResource TrackZListRowStyle}">
                     <Grid ColumnDefinitions="*,Auto">
-                        <Label Style="{DynamicResource TrackZBodyStyle}" Text="{Binding Text.Haptics}" />
+                        <Label x:Name="HapticsTitle" Style="{DynamicResource TrackZHistoryDateStyle}" />
                         <Switch x:Name="HapticsSwitch" Grid.Column="1" Style="{DynamicResource TrackZSwitchStyle}" Toggled="OnHapticsToggled" />
                     </Grid>
                 </Border>
                 <Border Style="{DynamicResource TrackZListRowStyle}">
                     <Grid ColumnDefinitions="*,Auto">
-                        <Label Style="{DynamicResource TrackZBodyStyle}" Text="{Binding Text.ReduceMotion}" />
+                        <Label Style="{DynamicResource TrackZHistoryDateStyle}" Text="{Binding Text.ReduceMotion}" />
                         <Switch x:Name="ReduceMotionSwitch" Grid.Column="1" Style="{DynamicResource TrackZSwitchStyle}" Toggled="OnReduceMotionToggled" />
                     </Grid>
                 </Border>
@@ -106,7 +104,7 @@
         </ScrollView>
 
         <Border Grid.Row="1" Margin="0,0,0,12" Style="{DynamicResource TrackZStickyActionContainerStyle}">
-            <Button Command="{Binding SaveWeeklyGoalCommand}" Style="{DynamicResource TrackZPrimaryButtonStyle}" Text="{Binding Text.Save}" />
+            <Button x:Name="SavePlanButton" Clicked="OnSavePlanClicked" Style="{DynamicResource TrackZPrimaryButtonStyle}" />
         </Border>
     </Grid>
 </ContentPage>

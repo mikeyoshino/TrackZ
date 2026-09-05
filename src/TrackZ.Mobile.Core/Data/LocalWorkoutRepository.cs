@@ -447,7 +447,7 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
                 command.Transaction = transaction;
                 command.CommandText = """
                     SELECT Id, OperationId, WorkoutExerciseId, SortOrder, WeightKg, AssistedKg, Reps,
-                           Effort, CompletedAt, UpdatedAt, DeletedAt, Version, BaseVersion
+                           Effort, CompletedAt, UpdatedAt, DeletedAt, Version, BaseVersion, PlateCount
                     FROM LocalSet
                     WHERE WorkoutExerciseId = $exerciseId
                     ORDER BY SortOrder, Id;
@@ -471,7 +471,8 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
                         GuidValue(reader, 1),
                         reader.IsDBNull(7)
                             ? null
-                            : EnumValue<SetEffortRating>(reader, 7)));
+                            : EnumValue<SetEffortRating>(reader, 7),
+                        reader.IsDBNull(13) ? null : reader.GetInt32(13)));
                 }
                 hydrated.Add(exercise with { Sets = sets });
             }
@@ -567,7 +568,7 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
                 command.Transaction = transaction;
                 command.CommandText = """
                     SELECT Id, OperationId, WorkoutExerciseId, SortOrder, WeightKg, AssistedKg, Reps,
-                           Effort, CompletedAt, UpdatedAt, DeletedAt, Version, BaseVersion
+                           Effort, CompletedAt, UpdatedAt, DeletedAt, Version, BaseVersion, PlateCount
                     FROM LocalSet
                     WHERE WorkoutExerciseId = $exerciseId AND (
                         DeletedAt IS NULL OR EXISTS (
@@ -603,7 +604,8 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
                         GuidValue(reader, 1),
                         reader.IsDBNull(7)
                             ? null
-                            : EnumValue<SetEffortRating>(reader, 7)));
+                            : EnumValue<SetEffortRating>(reader, 7),
+                        reader.IsDBNull(13) ? null : reader.GetInt32(13)));
                 }
                 hydratedExercises.Add(exercise with { Sets = sets });
             }
@@ -696,16 +698,17 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
         command.CommandText = """
             INSERT INTO LocalSet
                 (Id, OperationId, WorkoutExerciseId, SortOrder, WeightKg, AssistedKg, Reps,
-                 Effort, CompletedAt, UpdatedAt, DeletedAt, Version, BaseVersion)
+                 Effort, CompletedAt, UpdatedAt, DeletedAt, Version, BaseVersion, PlateCount)
             VALUES
                 ($id, $operationId, $exerciseId, $order, $weight, $assisted, $reps,
-                 $effort, $completedAt, $updatedAt, $deletedAt, $version, $baseVersion)
+                 $effort, $completedAt, $updatedAt, $deletedAt, $version, $baseVersion, $plateCount)
             ON CONFLICT(Id) DO UPDATE SET
                 OperationId = excluded.OperationId,
                 WorkoutExerciseId = excluded.WorkoutExerciseId,
                 SortOrder = excluded.SortOrder,
                 WeightKg = excluded.WeightKg,
                 AssistedKg = excluded.AssistedKg,
+                PlateCount = excluded.PlateCount,
                 Reps = excluded.Reps,
                 Effort = excluded.Effort,
                 CompletedAt = excluded.CompletedAt,
@@ -721,6 +724,7 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
         Add(command, "$order", set.Order);
         Add(command, "$weight", DecimalText(set.WeightKg));
         Add(command, "$assisted", DecimalText(set.AssistedKg));
+        Add(command, "$plateCount", set.PlateCount);
         Add(command, "$reps", set.Reps);
         Add(command, "$effort", set.Effort is null ? null : (int)set.Effort.Value);
         Add(command, "$completedAt", Timestamp(set.CompletedAt));
@@ -790,7 +794,7 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
         command.Transaction = transaction;
         command.CommandText = """
             SELECT OperationId, WorkoutExerciseId, SortOrder, WeightKg, AssistedKg, Reps,
-                   Effort, CompletedAt, UpdatedAt, DeletedAt, Version, BaseVersion
+                   Effort, CompletedAt, UpdatedAt, DeletedAt, Version, BaseVersion, PlateCount
             FROM LocalSet WHERE Id = $id;
             """;
         Add(command, "$id", Id(set.Id));
@@ -809,7 +813,8 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
             && NullableString(reader, 8) == Timestamp(set.UpdatedAt)
             && NullableString(reader, 9) == Timestamp(set.DeletedAt)
             && reader.GetInt64(10) == set.Version
-            && reader.GetInt64(11) == set.BaseVersion;
+            && reader.GetInt64(11) == set.BaseVersion
+            && (reader.IsDBNull(12) ? set.PlateCount is null : reader.GetInt32(12) == set.PlateCount);
     }
 
     private static async Task ValidateCoverageAndStageOrdersAsync(
@@ -1203,15 +1208,21 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
 
     private static bool ValidMeasurement(TrackingMode mode, LocalSet set) => mode switch
     {
-        TrackingMode.Weighted => ValidKilograms(set.WeightKg) && set.AssistedKg is null,
-        TrackingMode.Bodyweight => set.WeightKg is null && set.AssistedKg is null,
-        TrackingMode.Assisted => set.WeightKg is null && ValidKilograms(set.AssistedKg),
+        TrackingMode.Weighted => set.AssistedKg is null
+            && ((ValidKilograms(set.WeightKg) && set.PlateCount is null)
+                || (set.WeightKg is null && ValidPlateCount(set.PlateCount))),
+        TrackingMode.Bodyweight => set.WeightKg is null && set.AssistedKg is null && set.PlateCount is null,
+        TrackingMode.Assisted => set.WeightKg is null
+            && ((ValidKilograms(set.AssistedKg) && set.PlateCount is null)
+                || (set.AssistedKg is null && ValidPlateCount(set.PlateCount))),
         _ => false
     };
 
     private static bool ValidKilograms(decimal? value) => value is { } kilograms
         && kilograms is >= 0.001m and <= 99999.999m
         && ((decimal.GetBits(kilograms)[3] >> 16) & 0xff) <= 3;
+
+    private static bool ValidPlateCount(int? value) => value is >= 1 and <= 999;
 
     private static void ValidateOperation(LocalWorkout workout, OutboxOperation operation)
     {
@@ -1375,7 +1386,8 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
                 set.Version,
                 set.BaseVersion,
                 set.OperationId,
-                set.Effort)).ToArray())).ToArray());
+                set.Effort,
+                set.PlateCount)).ToArray())).ToArray());
 
     private static LocalWorkout FromUndoSnapshot(HistoryUndoWorkout workout) => new(
         workout.Id,
@@ -1407,7 +1419,8 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
                 set.Version,
                 set.BaseVersion,
                 set.OperationId,
-                set.Effort)).ToArray())).ToArray());
+                set.Effort,
+                set.PlateCount)).ToArray())).ToArray());
 
     private sealed record HistoryUndoWorkout(
         Guid Id,
@@ -1443,5 +1456,6 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
         long Version,
         long BaseVersion,
         Guid OperationId,
-        SetEffortRating? Effort = null);
+        SetEffortRating? Effort = null,
+        int? PlateCount = null);
 }

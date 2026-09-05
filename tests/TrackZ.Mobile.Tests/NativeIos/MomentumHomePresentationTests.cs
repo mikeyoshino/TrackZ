@@ -19,7 +19,7 @@ namespace TrackZ.Mobile.Tests.NativeIos;
 public sealed class MomentumHomePresentationTests
 {
     [Fact]
-    public void Momentum_home_copy_is_complete_distinct_and_reuses_existing_primary_contracts()
+    public void Momentum_home_copy_is_localized_and_reuses_existing_action_contracts()
     {
         var english = WorkoutResources.English;
         var thai = WorkoutResources.ForCulture(CultureInfo.GetCultureInfo("th-TH"));
@@ -37,19 +37,33 @@ public sealed class MomentumHomePresentationTests
         Assert.Equal("บันทึกการฝึกแล้ว แต่เปิดไม่สำเร็จ แตะออกกำลังกายต่อ", thai.HomeOpenWorkoutFailed);
         Assert.Equal("เปิดข้อมูลผลงานไม่สำเร็จ ลองอีกครั้ง", thai.HomeOpenProgressFailed);
 
-        var englishHome = HomeCopy(english);
-        var thaiHome = HomeCopy(thai);
-        Assert.All(englishHome, value => Assert.False(string.IsNullOrWhiteSpace(value)));
-        Assert.All(thaiHome, value => Assert.False(string.IsNullOrWhiteSpace(value)));
-        Assert.Equal(englishHome.Length, englishHome.Distinct(StringComparer.Ordinal).Count());
+        var englishHome = TrackZ.Mobile.Features.Train.HomeCopy.ForCulture(CultureInfo.GetCultureInfo("en-US"));
+        var thaiHome = TrackZ.Mobile.Features.Train.HomeCopy.ForCulture(CultureInfo.GetCultureInfo("th-TH"));
+        Assert.Equal("Today", englishHome.Today);
+        Assert.Equal("Ready to train?", englishHome.ReadyHeadline);
+        Assert.Equal("Today's workout", englishHome.TodaysWorkout);
+        Assert.Equal("View summary ›", englishHome.ViewSummary);
+        Assert.Equal("View all ›", englishHome.ViewAll);
+        Assert.Equal("วันนี้", thaiHome.Today);
+        Assert.Equal("พร้อมฝึกกันไหม?", thaiHome.ReadyHeadline);
+        Assert.Equal("การฝึกวันนี้", thaiHome.TodaysWorkout);
+        Assert.Equal("ดูสรุป ›", thaiHome.ViewSummary);
+        Assert.Equal("ดูทั้งหมด ›", thaiHome.ViewAll);
+        Assert.Equal("ฝึกครั้งล่าสุด", thaiHome.LatestWorkoutHeading);
+        var latest = Repeat() with { BodyParts = [BodyPart.Chest, BodyPart.Back] };
+        var nextDay = new DateTimeOffset(2026, 8, 21, 12, 0, 0, TimeSpan.Zero);
+        Assert.Equal("Chest · Back", englishHome.FormatLatestWorkoutTitle(latest));
+        Assert.Equal("อก · หลัง", thaiHome.FormatLatestWorkoutTitle(latest));
+        Assert.Equal("Yesterday · 6 exercises · 18 sets", englishHome.FormatLatestWorkoutMeta(latest, nextDay));
+        Assert.Equal("เมื่อวาน · 6 ท่า · 18 เซ็ต", thaiHome.FormatLatestWorkoutMeta(latest, nextDay));
         Assert.All(
-            englishHome.Zip(thaiHome).Where(pair => pair.First != english.LastBestFormat),
-            pair => Assert.NotEqual(pair.First, pair.Second));
-        Assert.Equal("{0} · {1}", english.LastBestFormat);
-        Assert.Equal(english.LastBestFormat, thai.LastBestFormat);
-        Assert.NotEqual(
-            string.Format(CultureInfo.GetCultureInfo("en-US"), english.LastBestFormat, GamificationResources.English.Last, GamificationResources.English.Best),
-            string.Format(CultureInfo.GetCultureInfo("th-TH"), thai.LastBestFormat, GamificationResources.Thai.Last, GamificationResources.Thai.Best));
+            typeof(TrackZ.Mobile.Features.Train.HomeCopy).GetProperties()
+                .Where(property => property.PropertyType == typeof(string)),
+            property =>
+            {
+                Assert.False(string.IsNullOrWhiteSpace((string?)property.GetValue(englishHome)));
+                Assert.False(string.IsNullOrWhiteSpace((string?)property.GetValue(thaiHome)));
+            });
     }
 
     [Fact]
@@ -61,15 +75,31 @@ public sealed class MomentumHomePresentationTests
         var page = context.Page;
         var viewModel = context.ViewModel;
         var primary = Assert.IsType<Button>(page.FindByName("HeroActionButton"));
-        var viewAllProgress = Assert.IsType<Button>(page.FindByName("ViewAllProgressAction"));
+        var viewSummary = Assert.IsType<Button>(page.FindByName("ViewSummaryAction"));
+        var viewHistory = Assert.IsType<Button>(page.FindByName("ViewHistoryAction"));
         var contextLabel = Assert.IsType<Label>(page.FindByName("HomeContextLabel"));
+        var headline = Assert.IsType<Label>(page.FindByName("HomeHeadlineLabel"));
+        var header = Assert.IsType<Grid>(page.FindByName("HomeHeader"));
+        var brand = Assert.IsType<Image>(page.FindByName("HomeBrandLogo"));
 
-        Assert.Equal("Today · Week 34", contextLabel.Text);
+        Assert.Equal(page.Copy.Today, contextLabel.Text);
+        Assert.Equal(page.Copy.ReadyHeadline, headline.Text);
+        Assert.Equal("trackz_auth_logo.png", Assert.IsType<FileImageSource>(brand.Source).File);
+        Assert.InRange(brand.WidthRequest, 28, 36);
+        Assert.InRange(brand.HeightRequest, 28, 36);
+        Assert.Same(header, brand.Parent);
+        Assert.Equal(1, Grid.GetColumn(brand));
+        Assert.DoesNotContain(Descendants(header).OfType<Label>(), label => label.Text == "TrackZ");
+        Assert.Equal(page.Copy.TodaysWorkout, Assert.IsType<Label>(page.FindByName("HeroTitleLabel")).Text);
+        Assert.Equal(page.Copy.ChooseWorkoutSupporting, Assert.IsType<Label>(page.FindByName("HeroSupportingLabel")).Text);
         Assert.True(primary.MinimumHeightRequest >= 44);
         Assert.Same(viewModel.HeroActionCommand, primary.Command);
-        Assert.True(viewAllProgress.MinimumHeightRequest >= 44);
-        Assert.Same(viewModel.OpenProgressCommand, viewAllProgress.Command);
-        Assert.Equal(viewModel.Text.HomeViewAllData, viewAllProgress.Text);
+        Assert.True(viewSummary.MinimumHeightRequest >= 44);
+        Assert.True(viewHistory.MinimumHeightRequest >= 44);
+        Assert.Equal(page.Copy.ViewSummary, viewSummary.Text);
+        Assert.Equal(page.Copy.ViewSummary, SemanticProperties.GetDescription(viewSummary));
+        Assert.Equal(page.Copy.ViewAll, viewHistory.Text);
+        Assert.Equal(page.Copy.ViewAll, SemanticProperties.GetDescription(viewHistory));
         Assert.Single(
             Descendants(page).OfType<Button>(),
             button => ReferenceEquals(button.Style, context.Application.Resources["TrackZPrimaryButtonStyle"]));
@@ -77,41 +107,36 @@ public sealed class MomentumHomePresentationTests
         var root = Assert.IsType<VerticalStackLayout>(
             Assert.IsType<ScrollView>(page.FindByName("MomentumHomeScroll")).Content);
         var hero = Assert.IsAssignableFrom<IView>(page.FindByName("HomeHero"));
-        var repeat = Assert.IsAssignableFrom<IView>(page.FindByName("TrainAgainSection"));
-        var goal = Assert.IsAssignableFrom<IView>(page.FindByName("WeeklyGoalCard"));
-        var latest = Assert.IsAssignableFrom<IView>(page.FindByName("LatestPerformanceSection"));
+        var week = Assert.IsAssignableFrom<IView>(page.FindByName("CoachWeekSection"));
+        var advice = Assert.IsAssignableFrom<IView>(page.FindByName("CoachHomeHost"));
+        var latest = Assert.IsAssignableFrom<IView>(page.FindByName("LatestWorkoutSection"));
         var children = root.Children.ToList();
 
-        Assert.True(children.IndexOf(hero) < children.IndexOf(repeat));
-        Assert.True(children.IndexOf(repeat) < children.IndexOf(goal));
-        Assert.True(children.IndexOf(goal) < children.IndexOf(latest));
+        Assert.True(children.IndexOf(hero) < children.IndexOf(week));
+        Assert.True(children.IndexOf(week) < children.IndexOf(advice));
+        Assert.True(children.IndexOf(advice) < children.IndexOf(latest));
         Assert.Null(page.FindByName("MotivationStrip"));
         Assert.Null(page.FindByName("LevelMetric"));
-        Assert.True(Assert.IsType<Border>(page.FindByName("WeeklyGoalCard")).IsVisible);
-        Assert.True(Assert.IsType<Border>(page.FindByName("TrainAgainCard")).IsVisible);
-        Assert.True(Assert.IsType<Border>(page.FindByName("LatestPerformanceCard")).IsVisible);
-        Assert.Equal(viewModel.WeeklyGoalSentenceText,
-            Assert.IsType<Label>(page.FindByName("WeeklyGoalSentence")).Text);
-        Assert.Equal(viewModel.HasWeeklyStreak,
-            Assert.IsType<Label>(page.FindByName("WeeklyStreakSentence")).IsVisible);
-        Assert.Equal(viewModel.LatestPerformanceValue,
-            Assert.IsType<Label>(page.FindByName("LatestPerformanceValue")).Text);
-        Assert.Equal(viewModel.BestPerformanceValue,
-            Assert.IsType<Label>(page.FindByName("BestPerformanceValue")).Text);
-        var weeklyProgress = Assert.IsType<ProgressBar>(page.FindByName("WeeklyGoalProgress"));
-        Assert.Equal(viewModel.WeeklyGoalSentenceText, SemanticProperties.GetDescription(weeklyProgress));
-        var trainAgainArtwork = Assert.IsType<Border>(page.FindByName("TrainAgainArtwork"));
-        var fallback = Assert.IsType<Image>(page.FindByName("TrainAgainFallback"));
-        Assert.Equal("exercise_placeholder.png", Assert.IsType<FileImageSource>(fallback.Source).File);
-        Assert.True(AutomationProperties.GetExcludedWithChildren(trainAgainArtwork));
-        Assert.DoesNotContain(Descendants(trainAgainArtwork).OfType<Label>(), label => label.Text == "↻");
-        Assert.Equal(
-            viewModel.RepeatWorkoutAccessibilityText,
-            SemanticProperties.GetDescription(Assert.IsType<Border>(page.FindByName("TrainAgainCard"))));
+        Assert.False(Assert.IsType<VerticalStackLayout>(week).IsVisible);
+        Assert.False(Assert.IsType<VerticalStackLayout>(advice).IsVisible);
+        Assert.True(Assert.IsType<VerticalStackLayout>(latest).IsVisible);
+        Assert.Null(page.FindByName("TrainAgainCard"));
+        Assert.Null(page.FindByName("WeeklyGoalCard"));
+        Assert.Null(page.FindByName("LatestPerformanceCard"));
+
+        var latestCard = Assert.IsType<Border>(page.FindByName("LatestWorkoutCard"));
+        var labels = Descendants(latestCard).OfType<Label>().Select(label => label.Text).ToArray();
+        Assert.Contains(page.LatestWorkoutTitle, labels);
+        Assert.Contains(page.LatestWorkoutMeta, labels);
+        var artwork = Assert.Single(Descendants(latestCard).OfType<Border>());
+        var images = Descendants(artwork).OfType<Image>().ToArray();
+        Assert.Equal("exercise_placeholder.png", Assert.IsType<FileImageSource>(images[0].Source).File);
+        Assert.Equal(viewModel.RepeatWorkout?.ThumbnailPath, images[1].Source?.ToString());
+        Assert.True(AutomationProperties.GetExcludedWithChildren(artwork));
     }
 
     [Fact]
-    public async Task Active_reload_keeps_the_same_primary_button_and_hides_only_train_again()
+    public async Task Active_reload_keeps_the_same_primary_button_and_latest_history()
     {
         var source = new QueueDashboardSource(
             new TrainDashboardSnapshot(null, Repeat()),
@@ -123,53 +148,79 @@ public sealed class MomentumHomePresentationTests
 
         Assert.Same(primary, context.Page.FindByName("HeroActionButton"));
         Assert.Equal("Continue workout", primary.Text);
-        Assert.True(Assert.IsType<Border>(context.Page.FindByName("WeeklyGoalCard")).IsVisible);
-        Assert.False(Assert.IsType<Border>(context.Page.FindByName("TrainAgainCard")).IsVisible);
-        Assert.True(Assert.IsType<Border>(context.Page.FindByName("LatestPerformanceCard")).IsVisible);
+        Assert.Equal(context.ViewModel.HomeHeadlineText,
+            Assert.IsType<Label>(context.Page.FindByName("HomeHeadlineLabel")).Text);
+        Assert.True(Assert.IsType<VerticalStackLayout>(context.Page.FindByName("LatestWorkoutSection")).IsVisible);
         Assert.Single(
             Descendants(context.Page).OfType<Button>(),
             button => ReferenceEquals(button.Style, context.Application.Resources["TrackZPrimaryButtonStyle"]));
     }
 
     [Fact]
-    public async Task No_authoritative_progress_hides_weekly_goal_and_latest_performance_without_hiding_repeat()
+    public async Task Missing_progress_does_not_hide_real_latest_workout_or_show_empty_coach_hosts()
     {
         await using var context = await TestHome.CreateAsync(
             new TrainDashboardSnapshot(null, Repeat()),
             cachedProgress: null);
 
-        Assert.False(Assert.IsType<Border>(context.Page.FindByName("WeeklyGoalCard")).IsVisible);
-        Assert.True(Assert.IsType<Border>(context.Page.FindByName("TrainAgainCard")).IsVisible);
-        Assert.False(Assert.IsType<Border>(context.Page.FindByName("LatestPerformanceCard")).IsVisible);
+        Assert.False(Assert.IsType<VerticalStackLayout>(context.Page.FindByName("CoachWeekSection")).IsVisible);
+        Assert.False(Assert.IsType<VerticalStackLayout>(context.Page.FindByName("CoachHomeHost")).IsVisible);
+        Assert.True(Assert.IsType<VerticalStackLayout>(context.Page.FindByName("LatestWorkoutSection")).IsVisible);
     }
 
     [Fact]
-    public async Task Empty_repeat_hides_train_again_without_moving_authoritative_performance()
+    public async Task Empty_history_hides_the_entire_latest_workout_section()
     {
         await using var context = await TestHome.CreateAsync(
             new TrainDashboardSnapshot(null, null),
             Progress());
 
-        Assert.True(Assert.IsType<Border>(context.Page.FindByName("WeeklyGoalCard")).IsVisible);
-        Assert.False(Assert.IsType<Border>(context.Page.FindByName("TrainAgainCard")).IsVisible);
-        Assert.True(Assert.IsType<Border>(context.Page.FindByName("LatestPerformanceCard")).IsVisible);
+        Assert.False(Assert.IsType<VerticalStackLayout>(context.Page.FindByName("LatestWorkoutSection")).IsVisible);
+        Assert.NotNull(context.Page.FindByName("LatestWorkoutCard"));
     }
 
     [Fact]
-    public async Task Shared_unit_change_updates_the_existing_latest_performance_rows_in_pounds()
+    public async Task Coach_hosts_show_only_supplied_real_content_and_clear_without_placeholders()
+    {
+        await using var context = await TestHome.CreateAsync(
+            new TrainDashboardSnapshot(null, null),
+            EmptyProgress());
+        var page = context.Page;
+
+        var week = new Label { Text = "Real week" };
+        var advice = new Label { Text = "Real advice" };
+        page.SetCoachContent(week, advice);
+
+        var weekHost = Assert.IsType<VerticalStackLayout>(page.FindByName("CoachWeekHost"));
+        var adviceHost = Assert.IsType<VerticalStackLayout>(page.FindByName("CoachHomeHost"));
+        Assert.True(Assert.IsType<VerticalStackLayout>(page.FindByName("CoachWeekSection")).IsVisible);
+        Assert.True(adviceHost.IsVisible);
+        Assert.Same(week, Assert.Single(weekHost.Children));
+        Assert.Same(advice, Assert.Single(adviceHost.Children));
+
+        page.SetCoachContent(null, null);
+
+        Assert.False(Assert.IsType<VerticalStackLayout>(page.FindByName("CoachWeekSection")).IsVisible);
+        Assert.False(adviceHost.IsVisible);
+        Assert.Empty(weekHost.Children);
+        Assert.Empty(adviceHost.Children);
+    }
+
+    [Fact]
+    public async Task Unit_change_does_not_replace_actual_latest_workout_metadata_with_performance_mock_data()
     {
         await using var context = await TestHome.CreateAsync(
             new TrainDashboardSnapshot(null, Repeat()),
             Progress());
-        var latest = Assert.IsType<Label>(context.Page.FindByName("LatestPerformanceValue"));
-        var best = Assert.IsType<Label>(context.Page.FindByName("BestPerformanceValue"));
-        var card = Assert.IsType<Border>(context.Page.FindByName("LatestPerformanceCard"));
+        var card = Assert.IsType<Border>(context.Page.FindByName("LatestWorkoutCard"));
+        var before = Descendants(card).OfType<Label>().Select(label => label.Text).ToArray();
 
         context.WeightPreference.Set(WeightDisplayUnit.Pounds);
 
-        Assert.Equal("154.60 lb × 8 reps", latest.Text);
-        Assert.Equal("159.84 lb × 6 reps", best.Text);
-        Assert.Same(card, context.Page.FindByName("LatestPerformanceCard"));
+        Assert.Equal(before, Descendants(card).OfType<Label>().Select(label => label.Text));
+        Assert.Contains(context.Page.LatestWorkoutTitle, before);
+        Assert.Contains(context.Page.LatestWorkoutMeta, before);
+        Assert.Same(card, context.Page.FindByName("LatestWorkoutCard"));
     }
 
     [Fact]
@@ -194,54 +245,22 @@ public sealed class MomentumHomePresentationTests
     }
 
     [Fact]
-    public async Task Repeat_failure_hides_load_retry_and_keeps_train_again_as_the_retry_action()
+    public async Task Latest_history_row_never_exposes_the_train_again_command()
     {
         await using var context = await TestHome.CreateAsync(
-            new TrainDashboardSnapshot(null, InvalidRepeat()),
+            new TrainDashboardSnapshot(null, Repeat()),
             cachedProgress: null);
-        var retry = Assert.IsType<Button>(context.Page.FindByName("HomeRetryButton"));
-        var trainAgain = Assert.IsType<Border>(context.Page.FindByName("TrainAgainCard"));
+        var latest = Assert.IsType<Border>(context.Page.FindByName("LatestWorkoutCard"));
 
-        await context.ViewModel.TrainAgainCommand.ExecuteAsync();
-
-        Assert.Equal("Could not repeat that workout. Try again.", context.ViewModel.ErrorText);
-        Assert.False(context.ViewModel.HasLoadRetry);
-        Assert.False(retry.IsVisible);
-        Assert.False(context.ViewModel.RetryCommand.CanExecute(null));
-        Assert.True(trainAgain.IsVisible);
-        Assert.True(context.ViewModel.TrainAgainCommand.CanExecute(null));
+        Assert.Empty(latest.GestureRecognizers);
+        Assert.DoesNotContain(
+            Descendants(context.Page).OfType<Button>(),
+            button => ReferenceEquals(button.Command, context.ViewModel.TrainAgainCommand));
+        Assert.NotNull(context.Page.FindByName("ViewHistoryAction"));
         Assert.Single(
             Descendants(context.Page).OfType<Button>(),
             button => ReferenceEquals(button.Style, context.Application.Resources["TrackZPrimaryButtonStyle"]));
     }
-
-    private static string[] HomeCopy(WorkoutTextSet text) =>
-    [
-        text.ReadyWhenYouAre,
-        text.YouAreInMotion,
-        text.StartTraining,
-        text.ChooseTodaysWorkout,
-        text.ChooseWorkoutSupporting,
-        text.WorkoutInProgress,
-        text.ContinueWorkout,
-        text.TrainAgain,
-        text.Open,
-        text.HomeWeeklyGoalFormat,
-        text.HomeWeeklyStreakFormat,
-        text.HomeLatestPerformance,
-        text.HomeLatestLabel,
-        text.HomeBestLabel,
-        text.HomeWeightedValueFormat,
-        text.HomeAssistedValueFormat,
-        text.HomeBodyweightValueFormat,
-        text.HomeExerciseProgressFormat,
-        text.RepeatWorkoutAccessibilityFormat,
-        text.HomeLoadFailed,
-        text.HomeRepeatFailed,
-        text.HomeOpenWorkoutFailed,
-        text.HomeOpenProgressFailed,
-        text.HomeContextFormat
-    ];
 
     private static ActiveWorkoutCard Active() => new(
         Guid.Parse("11111111-1111-1111-1111-111111111111"),
@@ -286,6 +305,11 @@ public sealed class MomentumHomePresentationTests
                 null,
                 6)]),
         new GamificationProfileDto(640, 8, 600, 800, 4, 3, 4, 4, [], []),
+        At(11));
+
+    private static ProgressSnapshot EmptyProgress() => new(
+        new ProgressSummaryDto(0m, 0m, 0, 0, []),
+        new GamificationProfileDto(0, 1, 0, 100, 3, 0, 0, 0, [], []),
         At(11));
 
     private static DateTimeOffset At(int hour) =>

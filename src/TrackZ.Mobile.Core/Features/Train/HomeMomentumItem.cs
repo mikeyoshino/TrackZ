@@ -26,8 +26,8 @@ public sealed class HomeMomentumItem : INotifyPropertyChanged, IDisposable
 
     public ExerciseProgressSummaryDto Source { get; }
     public string ExerciseName => Source.ExerciseName;
-    public string LatestValueText => Format(Source.LastWeightKg, Source.LastAssistedKg, Source.LastReps);
-    public string BestValueText => Format(Source.BestWeightKg, Source.BestAssistedKg, Source.BestReps);
+    public string LatestValueText => Format(Source.LastWeightKg, Source.LastAssistedKg, Source.LastReps, Source.LastPlateCount);
+    public string BestValueText => Format(Source.BestWeightKg, Source.BestAssistedKg, Source.BestReps, Source.BestPlateCount);
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -38,7 +38,11 @@ public sealed class HomeMomentumItem : INotifyPropertyChanged, IDisposable
         _preference.Changed -= OnPreferenceChanged;
     }
 
-    private string Format(decimal? weightKg, decimal? assistedKg, int reps) => Source.TrackingMode switch
+    private string Format(decimal? weightKg, decimal? assistedKg, int reps, int? plateCount)
+    {
+        if (plateCount is { } plates)
+            return string.Format(CultureInfo.CurrentCulture, _text.PlateMeasurementFormat, plates, reps);
+        return Source.TrackingMode switch
     {
         TrackingMode.Weighted => string.Format(
             CultureInfo.CurrentCulture,
@@ -58,6 +62,7 @@ public sealed class HomeMomentumItem : INotifyPropertyChanged, IDisposable
             reps),
         _ => throw new ArgumentOutOfRangeException(nameof(Source.TrackingMode))
     };
+    }
 
     private string UnitLabel => _preference.Current == WeightDisplayUnit.Pounds ? _text.Pounds : _text.Kilograms;
 

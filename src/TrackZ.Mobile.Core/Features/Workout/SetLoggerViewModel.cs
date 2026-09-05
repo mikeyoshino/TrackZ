@@ -34,6 +34,12 @@ public enum WeightDisplayUnit
     Pounds = 2
 }
 
+public enum LoadEntryMode
+{
+    ExactWeight = 1,
+    PlateCount = 2
+}
+
 public interface IExerciseHistorySource
 {
     Task<ExerciseHistorySessionDto?> GetMostRecentAsync(
@@ -100,7 +106,8 @@ public sealed record SetDisplayRow(
     decimal? AssistedKg,
     int Reps,
     TrackingMode TrackingMode,
-    string MeasurementText)
+    string MeasurementText,
+    int? PlateCount = null)
 {
     public int SetNumber => Order + 1;
 }
@@ -150,10 +157,14 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
     private decimal? _draftBaselineWeightKg;
     private decimal? _draftBaselineAssistedKg;
     private int _draftBaselineReps;
+    private int? _draftBaselinePlateCount;
+    private int? _plateCount;
+    private LoadEntryMode _loadEntryMode = LoadEntryMode.ExactWeight;
     private string _weightInputText = string.Empty;
     private bool _isApplyingWeightInput;
     private ExerciseHistorySessionDto? _previousSession;
     private PreviousWorkoutReference? _previousReference;
+    private bool _draftInputEdited;
 
     public SetLoggerViewModel(
         ActiveWorkoutCoordinator coordinator,
@@ -192,6 +203,8 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         DecrementRepsCommand = new RelayCommand(_ => Reps = Math.Max(0, Reps - 1), _ => !_disposed && !IsBusy);
         UseKilogramsCommand = new RelayCommand(_ => DisplayUnit = WeightDisplayUnit.Kilograms, _ => !_disposed && !IsBusy);
         UsePoundsCommand = new RelayCommand(_ => DisplayUnit = WeightDisplayUnit.Pounds, _ => !_disposed && !IsBusy);
+        IncrementPlateCountCommand = new RelayCommand(_ => PlateCount = Math.Min(SetMeasurement.MaximumPlateCount, (PlateCount ?? 0) + 1), _ => !_disposed && UsesPlateCount && !IsBusy);
+        DecrementPlateCountCommand = new RelayCommand(_ => PlateCount = Math.Max(SetMeasurement.MinimumPlateCount, (PlateCount ?? 1) - 1), _ => !_disposed && UsesPlateCount && !IsBusy);
         KeepServerCommand = new AsyncCommand(_ => ResolveConflictAsync(keepServer: true), _ => CanResolveConflict);
         ApplyLocalCommand = new AsyncCommand(_ => ResolveConflictAsync(keepServer: false), _ => CanResolveConflict);
         _boundary.SessionReset += OnSessionReset;
@@ -213,6 +226,8 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
     public ICommand DecrementRepsCommand { get; }
     public ICommand UseKilogramsCommand { get; }
     public ICommand UsePoundsCommand { get; }
+    public ICommand IncrementPlateCountCommand { get; }
+    public ICommand DecrementPlateCountCommand { get; }
     public AsyncCommand KeepServerCommand { get; }
     public AsyncCommand ApplyLocalCommand { get; }
     public WorkoutTextSet Text => _text;
@@ -239,6 +254,8 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         private set => Set(ref _exerciseName, value);
     }
 
+    public Guid ExerciseDefinitionId => _exerciseId;
+
     public string? ThumbnailUri
     {
         get => _thumbnailUri;
@@ -259,6 +276,8 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
     public string PreviousReferenceTitle => _text.PreviousWorkoutReference;
     public string PreviousReferenceLoad => _previousReference is null
         ? string.Empty
+        : _previousReference.PlateCount is { } plates
+            ? $"{plates} {_text.PlateCount}"
         : _previousReference.TrackingMode switch
         {
             TrackingMode.Weighted =>
@@ -289,6 +308,8 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         {
             if (!Set(ref _trackingMode, value)) return;
             OnPropertyChanged(nameof(UsesWeight));
+            OnPropertyChanged(nameof(UsesExactWeight));
+            OnPropertyChanged(nameof(UsesPlateCount));
             OnPropertyChanged(nameof(IsBodyweight));
             OnPropertyChanged(nameof(IsAssisted));
             OnPropertyChanged(nameof(WeightCaption));
@@ -300,6 +321,50 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
     }
 
     public bool UsesWeight => TrackingMode is TrackingMode.Weighted or TrackingMode.Assisted;
+    public LoadEntryMode LoadMode
+    {
+        get => _loadEntryMode;
+        set
+        {
+            if (!Enum.IsDefined(value)) throw new ArgumentOutOfRangeException(nameof(value));
+            if (!Set(ref _loadEntryMode, value)) return;
+            if (value == LoadEntryMode.PlateCount)
+            {
+                WeightKg = null;
+                AssistedKg = null;
+                PlateCount ??= SetMeasurement.MinimumPlateCount;
+            }
+            else
+            {
+                PlateCount = null;
+            }
+            OnPropertyChanged(nameof(UsesExactWeight));
+            OnPropertyChanged(nameof(UsesPlateCount));
+            OnPropertyChanged(nameof(SelectedLoadEntryIndex));
+            MeasurementChanged();
+        }
+    }
+    public IReadOnlyList<string> LoadEntryOptions => [_text.ExactWeight, _text.PlateCount];
+    public int SelectedLoadEntryIndex
+    {
+        get => LoadMode == LoadEntryMode.ExactWeight ? 0 : 1;
+        set
+        {
+            if (value is 0 or 1)
+                LoadMode = value == 0 ? LoadEntryMode.ExactWeight : LoadEntryMode.PlateCount;
+        }
+    }
+    public bool UsesExactWeight => UsesWeight && LoadMode == LoadEntryMode.ExactWeight;
+    public bool UsesPlateCount => UsesWeight && LoadMode == LoadEntryMode.PlateCount;
+    public int? PlateCount
+    {
+        get => _plateCount;
+        set
+        {
+            if (!Set(ref _plateCount, value)) return;
+            MeasurementChanged();
+        }
+    }
     public bool IsBodyweight => TrackingMode == TrackingMode.Bodyweight;
     public bool IsAssisted => TrackingMode == TrackingMode.Assisted;
     public string WeightCaption => TrackingMode == TrackingMode.Assisted ? _text.Assistance : _text.Weight;
@@ -466,12 +531,15 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(CanCancelDraftSet));
             OnPropertyChanged(nameof(CanSaveDraftSet));
             OnPropertyChanged(nameof(HasNoDraftSet));
+            OnPropertyChanged(nameof(ShowsEmptyTodaySets));
             OnPropertyChanged(nameof(ShowsSetComparison));
             RaiseCommands();
         }
     }
     public bool HasNoDraftSet => !HasDraftSet;
     public bool HasTodaySets => TodaySets.Count > 0;
+    public bool HasNoTodaySets => !HasTodaySets;
+    public bool ShowsEmptyTodaySets => HasNoDraftSet && HasNoTodaySets;
     public bool HasLastSets => LastSets.Count > 0;
     public bool IsLastWorkoutExpanded
     {
@@ -490,6 +558,16 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
     public int DraftSetNumber => NextSetNumber;
     public bool CanMatchLast => !_disposed && !IsBusy && TodaySets.Count < LastSets.Count;
     public int NextSetNumber => TodaySets.Count + 1;
+    public string TodaySetsTitle => _text.TodaySetsTitle;
+    public string TodaySetCountText => string.Format(
+        CultureInfo.CurrentCulture,
+        TodaySets.Count == 1 ? _text.SetCountSingularFormat : _text.SetCountPluralFormat,
+        TodaySets.Count);
+    public string AddNextSetText => string.Format(
+        CultureInfo.CurrentCulture,
+        _text.AddSetNumberFormat,
+        NextSetNumber);
+    public string DraftInputHelperText => _text.DraftInputHelper;
     public string NextSetText => string.Format(
         CultureInfo.CurrentCulture,
         _text.NextSetFormat,
@@ -498,7 +576,11 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         CultureInfo.CurrentCulture,
         _text.SaveSetNumberFormat,
         NextSetNumber);
-    public string? ValidationMessage => IsValidMeasurement() ? null : TrackingMode switch
+    public string? ValidationMessage => !HasDraftSet || !_draftInputEdited || IsValidMeasurement()
+        ? null
+        : UsesPlateCount
+            ? _text.InvalidPlateCountSet
+            : TrackingMode switch
     {
         TrackingMode.Weighted => _text.InvalidWeightedSet,
         TrackingMode.Assisted => _text.InvalidAssistedSet,
@@ -729,8 +811,12 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
             {
                 var set = trackingMode switch
                 {
-                    TrackingMode.Weighted => new LocalSet(WeightKg, null, Reps),
-                    TrackingMode.Assisted => new LocalSet(null, AssistedKg, Reps),
+                    TrackingMode.Weighted => UsesPlateCount
+                        ? new LocalSet(null, null, Reps, PlateCount)
+                        : new LocalSet(WeightKg, null, Reps),
+                    TrackingMode.Assisted => UsesPlateCount
+                        ? new LocalSet(null, null, Reps, PlateCount)
+                        : new LocalSet(null, AssistedKg, Reps),
                     TrackingMode.Bodyweight => new LocalSet(null, null, Reps),
                     _ => throw new InvalidOperationException("Tracking mode is invalid.")
                 };
@@ -818,8 +904,10 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
     {
         if (!CanMatchLast) return;
         var target = LastSets[TodaySets.Count];
+        LoadMode = target.PlateCount is null ? LoadEntryMode.ExactWeight : LoadEntryMode.PlateCount;
         WeightKg = target.WeightKg;
         AssistedKg = target.AssistedKg;
+        PlateCount = target.PlateCount;
         Reps = target.Reps;
     }
 
@@ -831,10 +919,13 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
             : TodaySets.LastOrDefault();
         _draftBaselineWeightKg = suggestion?.WeightKg;
         _draftBaselineAssistedKg = suggestion?.AssistedKg;
+        _draftBaselinePlateCount = suggestion?.PlateCount;
         _draftBaselineReps = suggestion?.Reps ?? 0;
         RestoreDraftBaseline();
         ErrorMessage = null;
         HasDraftSet = true;
+        _draftInputEdited = false;
+        OnPropertyChanged(nameof(ValidationMessage));
     }
 
     public bool TryApplyGuidanceToNextDraft(HypertrophyGuidanceResult result)
@@ -861,6 +952,7 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         if (!CanCancelDraftSet) return;
         RestoreDraftBaseline();
         HasDraftSet = false;
+        _draftInputEdited = false;
         ErrorMessage = null;
     }
 
@@ -868,6 +960,8 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
     {
         WeightKg = _draftBaselineWeightKg;
         AssistedKg = _draftBaselineAssistedKg;
+        LoadMode = _draftBaselinePlateCount is null ? LoadEntryMode.ExactWeight : LoadEntryMode.PlateCount;
+        PlateCount = _draftBaselinePlateCount;
         Reps = _draftBaselineReps;
         RefreshWeightInputText();
     }
@@ -890,7 +984,9 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
     private SetSavedPresentation CreateSavedPresentation(LocalSet saved)
     {
         var comparable = TodaySets.Count < LastSets.Count ? LastSets[TodaySets.Count] : null;
-        var existing = LastSets.Concat(TodaySets).ToArray();
+        var existing = LastSets.Concat(TodaySets)
+            .Where(row => (row.PlateCount is not null) == (saved.PlateCount is not null))
+            .ToArray();
         var knownPerformances = existing.AsEnumerable();
         if (_cachedExercise?.AllTimeBest is { } allTime)
             knownPerformances = knownPerformances.Append(new SetDisplayRow(
@@ -900,7 +996,8 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
                 allTime.AssistedKg,
                 allTime.Reps,
                 TrackingMode,
-                string.Empty));
+                string.Empty,
+                allTime.PlateCount));
         var known = knownPerformances.ToArray();
         var outcome = known.Length == 0 || known.All(row => Outranks(saved, row))
             ? SetSavedOutcome.PersonalRecord
@@ -926,8 +1023,14 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
 
     private bool Outranks(LocalSet candidate, SetDisplayRow existing) => TrackingMode switch
     {
+        TrackingMode.Weighted when candidate.PlateCount is not null =>
+            candidate.PlateCount > existing.PlateCount
+            || candidate.PlateCount == existing.PlateCount && candidate.Reps > existing.Reps,
         TrackingMode.Weighted => candidate.WeightKg > existing.WeightKg
             || candidate.WeightKg == existing.WeightKg && candidate.Reps > existing.Reps,
+        TrackingMode.Assisted when candidate.PlateCount is not null =>
+            candidate.PlateCount < existing.PlateCount
+            || candidate.PlateCount == existing.PlateCount && candidate.Reps > existing.Reps,
         TrackingMode.Assisted => candidate.AssistedKg < existing.AssistedKg
             || candidate.AssistedKg == existing.AssistedKg && candidate.Reps > existing.Reps,
         TrackingMode.Bodyweight => candidate.Reps > existing.Reps,
@@ -937,6 +1040,7 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
     private bool SameMeasurement(LocalSet candidate, SetDisplayRow existing) =>
         candidate.WeightKg == existing.WeightKg
         && candidate.AssistedKg == existing.AssistedKg
+        && candidate.PlateCount == existing.PlateCount
         && candidate.Reps == existing.Reps;
 
     private async Task RefreshSyncStateCoreAsync(CancellationToken cancellationToken)
@@ -1036,13 +1140,15 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         var payload = operation.DeserializePayload<SaveSetOutboxPayload>();
         var weight = ParseCanonical(payload.WeightKg);
         var assisted = ParseCanonical(payload.AssistedKg);
-        var mode = weight is not null
+        var mode = payload.PlateCount is not null
+            ? TrackingMode
+            : weight is not null
             ? TrackingMode.Weighted
             : assisted is not null
                 ? TrackingMode.Assisted
                 : TrackingMode.Bodyweight;
         return LocalDetail(
-            Measurement(weight, assisted, payload.Reps, mode),
+            Measurement(weight, assisted, payload.Reps, mode, payload.PlateCount),
             operation.BaseVersion);
     }
 
@@ -1159,9 +1265,13 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         if (Reps is < 1 or > 999) return false;
         return TrackingMode switch
         {
-            TrackingMode.Weighted => ValidKilograms(WeightKg) && AssistedKg is null,
-            TrackingMode.Bodyweight => WeightKg is null && AssistedKg is null,
-            TrackingMode.Assisted => WeightKg is null && ValidKilograms(AssistedKg),
+            TrackingMode.Weighted => AssistedKg is null
+                && ((UsesExactWeight && ValidKilograms(WeightKg) && PlateCount is null)
+                    || (UsesPlateCount && WeightKg is null && ValidPlateCount(PlateCount))),
+            TrackingMode.Bodyweight => WeightKg is null && AssistedKg is null && PlateCount is null,
+            TrackingMode.Assisted => WeightKg is null
+                && ((UsesExactWeight && ValidKilograms(AssistedKg) && PlateCount is null)
+                    || (UsesPlateCount && AssistedKg is null && ValidPlateCount(PlateCount))),
             _ => false
         };
     }
@@ -1170,6 +1280,9 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         value is { } kilograms
         && kilograms is >= SetMeasurement.MinimumKilograms and <= SetMeasurement.MaximumKilograms
         && ((decimal.GetBits(kilograms)[3] >> 16) & 0xff) <= SetMeasurement.MaximumKilogramScale;
+
+    private static bool ValidPlateCount(int? value) =>
+        value is >= SetMeasurement.MinimumPlateCount and <= SetMeasurement.MaximumPlateCount;
 
     private static IReadOnlyList<WorkoutSetDto> OrderedExact(IReadOnlyList<WorkoutSetDto> sets)
     {
@@ -1182,14 +1295,16 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
 
     private SetDisplayRow Row(WorkoutSetDto set, TrackingMode mode) =>
         new(set.Id, set.Order, set.WeightKg, set.AssistedKg, set.Reps, mode,
-            Measurement(set.WeightKg, set.AssistedKg, set.Reps, mode));
+            Measurement(set.WeightKg, set.AssistedKg, set.Reps, mode, set.PlateCount), set.PlateCount);
 
     private SetDisplayRow Row(LocalSet set, TrackingMode mode) =>
         new(set.Id, set.Order, set.WeightKg, set.AssistedKg, set.Reps, mode,
-            Measurement(set.WeightKg, set.AssistedKg, set.Reps, mode));
+            Measurement(set.WeightKg, set.AssistedKg, set.Reps, mode, set.PlateCount), set.PlateCount);
 
-    private string Measurement(decimal? weight, decimal? assisted, int reps, TrackingMode mode) => mode switch
+    private string Measurement(decimal? weight, decimal? assisted, int reps, TrackingMode mode, int? plateCount = null) => mode switch
     {
+        TrackingMode.Weighted or TrackingMode.Assisted when plateCount is not null =>
+            string.Format(CultureInfo.CurrentCulture, _text.PlateMeasurementFormat, plateCount, reps),
         TrackingMode.Weighted => $"{MeasurementValue(weight)} {WeightUnitLabel} × {reps}",
         TrackingMode.Assisted => $"{MeasurementValue(assisted)} {WeightUnitLabel} · {reps} {_text.Reps}",
         TrackingMode.Bodyweight => $"{reps} {_text.Reps}",
@@ -1214,7 +1329,7 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
             var row = LastSets[index];
             LastSets[index] = row with
             {
-                MeasurementText = Measurement(row.WeightKg, row.AssistedKg, row.Reps, row.TrackingMode)
+                MeasurementText = Measurement(row.WeightKg, row.AssistedKg, row.Reps, row.TrackingMode, row.PlateCount)
             };
         }
         for (var index = 0; index < TodaySets.Count; index++)
@@ -1222,7 +1337,7 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
             var row = TodaySets[index];
             TodaySets[index] = row with
             {
-                MeasurementText = Measurement(row.WeightKg, row.AssistedKg, row.Reps, row.TrackingMode)
+                MeasurementText = Measurement(row.WeightKg, row.AssistedKg, row.Reps, row.TrackingMode, row.PlateCount)
             };
         }
         RefreshExerciseContext();
@@ -1274,6 +1389,10 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(DraftSetNumber));
         OnPropertyChanged(nameof(SaveDraftSetText));
         OnPropertyChanged(nameof(HasTodaySets));
+        OnPropertyChanged(nameof(HasNoTodaySets));
+        OnPropertyChanged(nameof(ShowsEmptyTodaySets));
+        OnPropertyChanged(nameof(TodaySetCountText));
+        OnPropertyChanged(nameof(AddNextSetText));
         OnPropertyChanged(nameof(HasLastSets));
         OnPropertyChanged(nameof(LastWorkoutHeaderText));
         (ToggleLastWorkoutCommand as RelayCommand)?.RaiseCanExecuteChanged();
@@ -1281,8 +1400,8 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
 
     private SetDisplayRow? Best(IEnumerable<SetDisplayRow> rows) => TrackingMode switch
     {
-        TrackingMode.Weighted => rows.OrderByDescending(row => row.WeightKg).ThenByDescending(row => row.Reps).FirstOrDefault(),
-        TrackingMode.Assisted => rows.OrderBy(row => row.AssistedKg).ThenByDescending(row => row.Reps).FirstOrDefault(),
+        TrackingMode.Weighted => rows.OrderByDescending(row => row.PlateCount ?? int.MinValue).ThenByDescending(row => row.WeightKg).ThenByDescending(row => row.Reps).FirstOrDefault(),
+        TrackingMode.Assisted => rows.OrderBy(row => row.PlateCount ?? int.MaxValue).ThenBy(row => row.AssistedKg).ThenByDescending(row => row.Reps).FirstOrDefault(),
         TrackingMode.Bodyweight => rows.OrderByDescending(row => row.Reps).FirstOrDefault(),
         _ => null
     };
@@ -1300,6 +1419,7 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
 
     private void MeasurementChanged()
     {
+        if (HasDraftSet) _draftInputEdited = true;
         OnPropertyChanged(nameof(CanCompleteSet));
         OnPropertyChanged(nameof(CanSaveDraftSet));
         OnPropertyChanged(nameof(ValidationMessage));
@@ -1320,6 +1440,8 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         (DecrementRepsCommand as RelayCommand)?.RaiseCanExecuteChanged();
         (UseKilogramsCommand as RelayCommand)?.RaiseCanExecuteChanged();
         (UsePoundsCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        (IncrementPlateCountCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        (DecrementPlateCountCommand as RelayCommand)?.RaiseCanExecuteChanged();
         KeepServerCommand.RaiseCanExecuteChanged();
         ApplyLocalCommand.RaiseCanExecuteChanged();
     }
@@ -1367,6 +1489,8 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         PublishSetPresentationState();
         WeightKg = null;
         AssistedKg = null;
+        LoadMode = LoadEntryMode.ExactWeight;
+        PlateCount = null;
         Reps = 0;
         ErrorMessage = null;
         SyncState = _connectivity.IsOnline ? WorkoutSyncState.Synced : WorkoutSyncState.Offline;

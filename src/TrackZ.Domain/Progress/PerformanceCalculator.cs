@@ -15,15 +15,21 @@ public static class PerformanceCalculator
         var latest = history
             .OrderByDescending(sample => sample.CompletedAt)
             .ThenByDescending(sample => sample.WorkoutId)
+            .ThenByDescending(sample => sample.Order)
             .First();
+        var usesPlates = latest.Set.PlateCount is not null;
         var latestSets = history
             .Where(sample => sample.WorkoutId == latest.WorkoutId)
+            .Where(sample => (sample.Set.PlateCount is not null) == usesPlates)
+            .Select(sample => sample.Set);
+        var comparableSets = history
+            .Where(sample => (sample.Set.PlateCount is not null) == usesPlates)
             .Select(sample => sample.Set);
 
         return new ExercisePerformanceSnapshot(
             latest.CompletedAt.ToUniversalTime(),
             Best(trackingMode, latestSets),
-            Best(trackingMode, history.Select(sample => sample.Set)));
+            Best(trackingMode, comparableSets));
     }
 
     public static ExercisePerformanceSet Best(
@@ -35,12 +41,14 @@ public static class PerformanceCalculator
         var ordered = trackingMode switch
         {
             TrackingMode.Weighted => sets
-                .OrderByDescending(set => set.WeightKg)
+                .OrderByDescending(set => set.PlateCount ?? int.MinValue)
+                .ThenByDescending(set => set.WeightKg)
                 .ThenByDescending(set => set.Reps),
             TrackingMode.Bodyweight => sets
                 .OrderByDescending(set => set.Reps),
             TrackingMode.Assisted => sets
-                .OrderBy(set => set.AssistedKg)
+                .OrderBy(set => set.PlateCount ?? int.MaxValue)
+                .ThenBy(set => set.AssistedKg)
                 .ThenByDescending(set => set.Reps),
             _ => throw new ArgumentOutOfRangeException(nameof(trackingMode))
         };

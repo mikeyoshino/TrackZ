@@ -8,7 +8,11 @@ using TrackZ.Mobile.Sync;
 
 namespace TrackZ.Mobile.Features.History;
 
-public sealed record HistorySetMeasurement(decimal? WeightKg, decimal? AssistedKg, int Reps);
+public sealed record HistorySetMeasurement(
+    decimal? WeightKg,
+    decimal? AssistedKg,
+    int Reps,
+    int? PlateCount = null);
 
 public sealed record HistoryMutationResult(LocalWorkout Workout, Guid OperationId);
 
@@ -65,6 +69,7 @@ public sealed class WorkoutHistoryCoordinator(
             {
                 WeightKg = measurement.WeightKg,
                 AssistedKg = measurement.AssistedKg,
+                PlateCount = measurement.PlateCount,
                 Reps = measurement.Reps,
                 UpdatedAt = updatedAt,
                 Version = set.Version + 1
@@ -88,7 +93,7 @@ public sealed class WorkoutHistoryCoordinator(
                 new EditSetOutboxPayload(
                     workoutId, workoutExerciseId, setId,
                     DecimalText(measurement.WeightKg), DecimalText(measurement.AssistedKg),
-                    measurement.Reps, updatedAt),
+                    measurement.Reps, updatedAt, measurement.PlateCount),
                 previous.Version,
                 updatedAt);
             await workouts.SaveHistoryMutationAndEnqueueAsync(previous, updated, operation, token);
@@ -403,12 +408,14 @@ public sealed class WorkoutHistoryCoordinator(
     {
         var valid = measurement.Reps is >= 1 and <= 999 && mode switch
         {
-            TrackingMode.Weighted => Kilograms(measurement.WeightKg)
-                && measurement.AssistedKg is null,
+            TrackingMode.Weighted => measurement.AssistedKg is null
+                && ((Kilograms(measurement.WeightKg) && measurement.PlateCount is null)
+                    || (measurement.WeightKg is null && Plates(measurement.PlateCount))),
             TrackingMode.Bodyweight => measurement.WeightKg is null
-                && measurement.AssistedKg is null,
+                && measurement.AssistedKg is null && measurement.PlateCount is null,
             TrackingMode.Assisted => measurement.WeightKg is null
-                && Kilograms(measurement.AssistedKg),
+                && ((Kilograms(measurement.AssistedKg) && measurement.PlateCount is null)
+                    || (measurement.AssistedKg is null && Plates(measurement.PlateCount))),
             _ => false
         };
         if (!valid)
@@ -418,6 +425,8 @@ public sealed class WorkoutHistoryCoordinator(
     private static bool Kilograms(decimal? value) => value is { } kilograms
         && kilograms is >= 0.001m and <= 99999.999m
         && ((decimal.GetBits(kilograms)[3] >> 16) & 0xff) <= 3;
+
+    private static bool Plates(int? value) => value is >= 1 and <= 999;
 
     private static void ValidateIds(
         Guid workoutId,

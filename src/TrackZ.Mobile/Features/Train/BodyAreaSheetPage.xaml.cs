@@ -35,4 +35,7 @@ public partial class BodyAreaSheetPage : ContentPage
 
     private async void OnCancelClicked(object? sender, EventArgs eventArgs) =>
         await CancelAsync();
+
+    private async void OnCloseClicked(object? sender, EventArgs eventArgs) =>
+        await CancelAsync();
 }

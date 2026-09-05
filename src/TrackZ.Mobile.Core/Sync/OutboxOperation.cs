@@ -89,7 +89,8 @@ public sealed record SaveSetOutboxPayload(
     string? WeightKg,
     string? AssistedKg,
     int Reps,
-    DateTimeOffset CompletedAt);
+    DateTimeOffset CompletedAt,
+    int? PlateCount = null);
 
 public sealed record RecordSetEffortOutboxPayload(
     Guid WorkoutId,
@@ -109,7 +110,8 @@ public sealed record EditSetOutboxPayload(
     string? WeightKg,
     string? AssistedKg,
     int Reps,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    int? PlateCount = null);
 
 public sealed record DeleteSetOutboxPayload(
     Guid WorkoutId,

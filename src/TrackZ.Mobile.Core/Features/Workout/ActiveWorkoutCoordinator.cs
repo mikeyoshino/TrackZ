@@ -141,6 +141,7 @@ public sealed class ActiveWorkoutCoordinator(
                     if (existing.OperationId != set.OperationId
                         || existing.WeightKg != set.WeightKg
                         || existing.AssistedKg != set.AssistedKg
+                        || existing.PlateCount != set.PlateCount
                         || existing.Reps != set.Reps
                         || set.CompletedAt != default && existing.CompletedAt != Utc(set.CompletedAt))
                         throw new InvalidDataException("The set ID is already bound to a different measurement.");
@@ -156,6 +157,7 @@ public sealed class ActiveWorkoutCoordinator(
                         || priorPayload.Order != existing.Order
                         || priorPayload.WeightKg != DecimalText(existing.WeightKg)
                         || priorPayload.AssistedKg != DecimalText(existing.AssistedKg)
+                        || priorPayload.PlateCount != existing.PlateCount
                         || priorPayload.Reps != existing.Reps
                         || priorPayload.CompletedAt != existing.CompletedAt)
                         throw new InvalidDataException("The saved set and outbox operation contracts diverge.");
@@ -209,7 +211,8 @@ public sealed class ActiveWorkoutCoordinator(
                         DecimalText(durableSet.WeightKg),
                         DecimalText(durableSet.AssistedKg),
                         durableSet.Reps,
-                        durableSet.CompletedAt),
+                        durableSet.CompletedAt,
+                        durableSet.PlateCount),
                     active.Version,
                     durableSet.CompletedAt);
                 await workouts.SaveWorkoutAndEnqueueAsync(graph, operation, token);

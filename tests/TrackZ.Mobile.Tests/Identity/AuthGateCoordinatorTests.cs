@@ -325,7 +325,11 @@ public sealed class AuthGateCoordinatorTests
     {
         var fixture = Fixture.For(SessionCase.None);
         fixture.Identity.LoginFailure = new MobileApiException(errorCode, "Server message");
-        var form = new AuthFormViewModel(fixture.Coordinator, AuthTextSet.English);
+        var form = new AuthFormViewModel(fixture.Coordinator, AuthTextSet.English)
+        {
+            Email = "lift@example.com",
+            Password = "Correct-Horse-9"
+        };
 
         await form.SubmitCommand.ExecuteAsync();
 
@@ -335,11 +339,49 @@ public sealed class AuthGateCoordinatorTests
     }
 
     [Fact]
+    public async Task Create_account_form_validates_required_credentials_before_contacting_identity()
+    {
+        var fixture = Fixture.For(SessionCase.None);
+        var form = new AuthFormViewModel(fixture.Coordinator, AuthTextSet.English);
+        form.SetMode(AuthFormMode.CreateAccount);
+
+        await form.SubmitCommand.ExecuteAsync();
+
+        Assert.Equal(0, fixture.Identity.RegisterCalls);
+        Assert.Equal("Enter your email address.", form.EmailError);
+        Assert.Equal("Enter your password.", form.PasswordError);
+        Assert.Null(form.FormError);
+    }
+
+    [Fact]
+    public async Task Create_account_form_validates_password_policy_before_contacting_identity()
+    {
+        var fixture = Fixture.For(SessionCase.None);
+        var form = new AuthFormViewModel(fixture.Coordinator, AuthTextSet.English)
+        {
+            Email = "lift@example.com",
+            Password = "too-short"
+        };
+        form.SetMode(AuthFormMode.CreateAccount);
+
+        await form.SubmitCommand.ExecuteAsync();
+
+        Assert.Equal(0, fixture.Identity.RegisterCalls);
+        Assert.Null(form.EmailError);
+        Assert.Equal("Use a password that meets the requirements.", form.PasswordError);
+        Assert.Null(form.FormError);
+    }
+
+    [Fact]
     public async Task Auth_form_silently_ignores_session_reset_cancellation()
     {
         var fixture = Fixture.For(SessionCase.None);
         fixture.Identity.GateLogin();
-        var form = new AuthFormViewModel(fixture.Coordinator, AuthTextSet.English);
+        var form = new AuthFormViewModel(fixture.Coordinator, AuthTextSet.English)
+        {
+            Email = "lift@example.com",
+            Password = "Correct-Horse-9"
+        };
 
         var submit = form.SubmitCommand.ExecuteAsync();
         await fixture.Identity.LoginEntered;

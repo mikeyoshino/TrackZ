@@ -33,15 +33,23 @@
   <data name="RepsFieldLabel" xml:space="preserve"><value>Reps</value></data>
   <data name="Kilograms" xml:space="preserve"><value>kg</value></data>
   <data name="Pounds" xml:space="preserve"><value>lb</value></data>
+  <data name="ExactWeight" xml:space="preserve"><value>kg / lb</value></data>
+  <data name="PlateCount" xml:space="preserve"><value>Number of plates</value></data>
+  <data name="PlateCountHint" xml:space="preserve"><value>Compare only on the same machine. Plate counts are not included in kg/lb volume</value></data>
+  <data name="PlateMeasurementFormat" xml:space="preserve"><value>{0} plates × {1}</value></data>
+  <data name="InvalidPlateCountSet" xml:space="preserve"><value>Enter a valid plate count and reps</value></data>
+  <data name="LoadType" xml:space="preserve"><value>Load type</value></data>
   <data name="Bodyweight" xml:space="preserve"><value>BODYWEIGHT</value></data>
   <data name="NoExercises" xml:space="preserve"><value>Add exercises to build your workout.</value></data>
   <data name="SavedLocally" xml:space="preserve"><value>Set saved</value></data>
   <data name="ChooseExercises" xml:space="preserve"><value>Choose exercises</value></data>
   <data name="SearchExercises" xml:space="preserve"><value>Search exercises</value></data>
-  <data name="AllBodyParts" xml:space="preserve"><value>All body parts</value></data>
+  <data name="AllBodyParts" xml:space="preserve"><value>Choose 1 area to view exercises</value></data>
   <data name="All" xml:space="preserve"><value>All</value></data>
-  <data name="SelectedCountFormat" xml:space="preserve"><value>Selected: {0}</value></data>
-  <data name="NoMatchingExercises" xml:space="preserve"><value>No cached exercises match this filter.</value></data>
+  <data name="SelectedCountFormat" xml:space="preserve"><value>Selected {0} exercises</value></data>
+  <data name="NoMatchingExercises" xml:space="preserve"><value>No exercises yet</value></data>
+  <data name="NoMatchingExercisesSupporting" xml:space="preserve"><value>Try changing your search or filter</value></data>
+  <data name="BodyPartFilterFormat" xml:space="preserve"><value>Body area: {0}</value></data>
   <data name="CreateCustom" xml:space="preserve"><value>Create custom</value></data>
   <data name="Done" xml:space="preserve"><value>Done</value></data>
   <data name="ExerciseSelectionRequiredTitle" xml:space="preserve"><value>No exercises selected</value></data>
@@ -94,7 +102,7 @@
   <data name="ApplyLocal" xml:space="preserve"><value>Apply local</value></data>
   <data name="HistoryConflictFailed" xml:space="preserve"><value>Could not resolve this sync conflict.</value></data>
   <data name="TrainTodayTitle" xml:space="preserve"><value>Today</value></data>
-  <data name="ChooseWorkout" xml:space="preserve"><value>Choose workout</value></data>
+  <data name="ChooseWorkout" xml:space="preserve"><value>Choose a body area</value></data>
   <data name="ResumeWorkout" xml:space="preserve"><value>Resume workout</value></data>
   <data name="Continue" xml:space="preserve"><value>Continue</value></data>
   <data name="TrainTab" xml:space="preserve"><value>Train</value></data>
@@ -123,8 +131,8 @@
   <data name="ReadyWhenYouAre" xml:space="preserve"><value>Ready when you are.</value></data>
   <data name="YouAreInMotion" xml:space="preserve"><value>You're in motion.</value></data>
   <data name="StartTraining" xml:space="preserve"><value>Start training</value></data>
-  <data name="ChooseTodaysWorkout" xml:space="preserve"><value>Choose today's workout</value></data>
-  <data name="ChooseWorkoutSupporting" xml:space="preserve"><value>You choose the body area and exercises</value></data>
+  <data name="ChooseTodaysWorkout" xml:space="preserve"><value>Choose your workout</value></data>
+  <data name="ChooseWorkoutSupporting" xml:space="preserve"><value>Choose a body area or build your own routine</value></data>
   <data name="WorkoutInProgress" xml:space="preserve"><value>Workout in progress</value></data>
   <data name="ContinueWorkout" xml:space="preserve"><value>Continue workout</value></data>
   <data name="ThisWeek" xml:space="preserve"><value>This week</value></data>
@@ -200,7 +208,12 @@
   <data name="GuidanceUseRepsFormat" xml:space="preserve"><value>Use {0} reps for the next set</value></data>
   <data name="HomeWeeklyGoalFormat" xml:space="preserve"><value>This week you completed {0} of {1} workouts</value></data>
   <data name="HomeWeeklyStreakFormat" xml:space="preserve"><value>Goal met {0} weeks in a row</value></data>
-  <data name="HomeLatestPerformance" xml:space="preserve"><value>Latest performance</value></data>
+  <data name="HomeWeeklyGoalTitle" xml:space="preserve"><value>Weekly goal</value></data>
+  <data name="HomeWeeklyGoalUnit" xml:space="preserve"><value>workouts</value></data>
+  <data name="HomeWeeklyGoalRemainingFormat" xml:space="preserve"><value>{0} workouts remaining</value></data>
+  <data name="HomeLatestPerformance" xml:space="preserve"><value>Latest workout</value></data>
+  <data name="HomeNoWorkoutHistory" xml:space="preserve"><value>No workout history yet</value></data>
+  <data name="HomeNoWorkoutHistorySupporting" xml:space="preserve"><value>Complete your first workout to see your stats here.</value></data>
   <data name="HomeLatestLabel" xml:space="preserve"><value>Latest</value></data>
   <data name="HomeBestLabel" xml:space="preserve"><value>Best</value></data>
   <data name="HomeViewAllData" xml:space="preserve"><value>View all data</value></data>
@@ -212,4 +225,14 @@
   <data name="DiscardWorkoutTitle" xml:space="preserve"><value>Cancel this workout?</value></data>
   <data name="DiscardWorkoutMessage" xml:space="preserve"><value>This workout and any saved sets will be deleted. This cannot be undone.</value></data>
   <data name="DiscardWorkoutFailed" xml:space="preserve"><value>Could not cancel this workout. Your saved sets are still here.</value></data>
+  <data name="StartFirstExercise" xml:space="preserve"><value>Start first exercise</value></data>
+  <data name="LogNextWorkoutSet" xml:space="preserve"><value>Log next set</value></data>
+  <data name="ProgressFormat" xml:space="preserve"><value>Progress {0} / {1}</value></data>
+  <data name="NoSetsYet" xml:space="preserve"><value>No sets yet</value></data>
+  <data name="TodaySetsTitle" xml:space="preserve"><value>Today's sets</value></data>
+  <data name="NoSetsToday" xml:space="preserve"><value>No sets today</value></data>
+  <data name="NoSetsTodaySupporting" xml:space="preserve"><value>Add your first set to start tracking this exercise.</value></data>
+  <data name="AddSetNumberFormat" xml:space="preserve"><value>Add set {0}</value></data>
+  <data name="WeightUnitTitle" xml:space="preserve"><value>Weight unit</value></data>
+  <data name="DraftInputHelper" xml:space="preserve"><value>Enter weight and reps to save</value></data>
 </root>

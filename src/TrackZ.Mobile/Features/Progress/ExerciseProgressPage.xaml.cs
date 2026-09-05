@@ -1,6 +1,10 @@
 using System.Globalization;
 using TrackZ.Mobile.Features.Gamification;
 using TrackZ.Mobile.Identity;
+using TrackZ.Mobile.Features.Coach;
+using TrackZ.Mobile.Features.Workout;
+using TrackZ.Mobile.Features.Exercises;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace TrackZ.Mobile.Features.Progress;
 
@@ -11,6 +15,7 @@ public partial class ExerciseProgressPage : ContentPage, IQueryAttributable
     private readonly Func<ScrollView, Element, ScrollToPosition, bool, Task> _scrollTo;
     private Guid? _requestedExerciseId;
     private CancellationTokenSource? _focusCancellation;
+    private CoachDashboardPresenter? _coachPresenter;
 
     public ExerciseProgressPage(
         ProgressDashboardViewModel viewModel,
@@ -59,6 +64,14 @@ public partial class ExerciseProgressPage : ContentPage, IQueryAttributable
         try
         {
             await _viewModel.LoadAsync(cancellationToken);
+            if (Handler?.MauiContext?.Services is { } services)
+            {
+                _coachPresenter ??= new CoachDashboardPresenter(services.GetRequiredService<TrainingCoachSource>(),
+                    services.GetRequiredService<CoachJournal>(), _boundary, services.GetRequiredService<IWeightUnitPreference>(),
+                    services.GetRequiredService<IClock>(), this);
+                _coachPresenter.Activate(LoadCoachAsync, () => CoachReportHost.Children.Clear());
+                await LoadCoachAsync();
+            }
             cancellationToken.ThrowIfCancellationRequested();
             _ = await _boundary.TryCommitAsync(
                 generation,
@@ -80,8 +93,31 @@ public partial class ExerciseProgressPage : ContentPage, IQueryAttributable
 
     protected override void OnDisappearing()
     {
+        _coachPresenter?.Dispose();
         _focusCancellation?.Cancel();
         base.OnDisappearing();
+    }
+
+    private async Task LoadCoachAsync()
+    {
+        if (_coachPresenter is null) return;
+        CoachReportHost.Children.Clear();
+        var loading = new ActivityIndicator { IsRunning = true, Color = Color.FromArgb("#C8FF3D") };
+        CoachReportHost.Children.Add(loading);
+        try
+        {
+            var report = await _coachPresenter.LoadAsync();
+            CoachReportHost.Children.Clear();
+            if (report is not null) CoachReportHost.Children.Add(_coachPresenter.Report(report,
+                _viewModel.HasAuthoritativeProgressData ? _viewModel.WeeklyGoal : null));
+        }
+        catch (OperationCanceledException) { CoachReportHost.Children.Clear(); }
+        catch (Exception)
+        {
+            CoachReportHost.Children.Clear();
+            CoachReportHost.Children.Add(CoachUi.Label(CoachCopy.T("ยังโหลดรายงานไม่ได้", "Could not load your report"), 15, true));
+            CoachReportHost.Children.Add(CoachUi.Button(CoachCopy.T("ลองอีกครั้ง", "Try again"), LoadCoachAsync));
+        }
     }
 
     internal async Task FocusRequestedExerciseAsync(CancellationToken cancellationToken = default)

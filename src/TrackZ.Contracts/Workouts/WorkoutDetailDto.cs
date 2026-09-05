@@ -27,7 +27,8 @@ public sealed record WorkoutSetDto(
     int Reps,
     DateTimeOffset CompletedAt,
     DateTimeOffset? UpdatedAt,
-    SetEffortRating? Effort = null);
+    SetEffortRating? Effort = null,
+    int? PlateCount = null);
 
 public sealed record ExerciseHistorySessionDto(
     Guid WorkoutId,

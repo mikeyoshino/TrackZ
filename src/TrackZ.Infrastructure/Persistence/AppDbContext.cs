@@ -496,6 +496,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
                 set.Order,
                 set.WeightKg,
                 set.AssistedKg,
+                set.PlateCount,
                 set.Reps))
             .ToListAsync(cancellationToken);
 
@@ -527,7 +528,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
                     row.CompletedAt,
                     row.SetId,
                     row.Order,
-                    new ExercisePerformanceSet(row.WeightKg, row.AssistedKg, row.Reps))))!;
+                    new ExercisePerformanceSet(row.WeightKg, row.AssistedKg, row.Reps, row.PlateCount))))!;
             if (existing is null)
             {
                 ExercisePerformances.Add(ExercisePerformance.Create(
@@ -589,6 +590,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         int Order,
         decimal? WeightKg,
         decimal? AssistedKg,
+        int? PlateCount,
         int Reps);
 
     public async Task<WorkoutReadSession?> GetOwnedWorkoutAsync(
@@ -715,7 +717,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
                             set.Reps,
                             set.CompletedAt,
                             set.UpdatedAt,
-                            set.Effort))
+                            set.Effort,
+                            set.PlateCount))
                         .ToList()))
                 .ToList()))
             .ToList();
@@ -1177,13 +1180,15 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
                         : new PerformanceSetDto(
                             exercise.TrackingMode == TrackingMode.Weighted ? performance.LastBestWeightKg : null,
                             exercise.TrackingMode == TrackingMode.Assisted ? performance.LastBestAssistedKg : null,
-                            performance.LastBestReps.GetValueOrDefault()),
+                            performance.LastBestReps.GetValueOrDefault(),
+                            performance.LastBestPlateCount),
                     performance == null || performance.TrackingMode != exercise.TrackingMode || performance.AllTimeBestReps == null
                         ? null
                         : new PerformanceSetDto(
                             exercise.TrackingMode == TrackingMode.Weighted ? performance.AllTimeBestWeightKg : null,
                             exercise.TrackingMode == TrackingMode.Assisted ? performance.AllTimeBestAssistedKg : null,
-                            performance.AllTimeBestReps.GetValueOrDefault()),
+                            performance.AllTimeBestReps.GetValueOrDefault(),
+                            performance.AllTimeBestPlateCount),
                     exercise.OwnerId != null,
                     exercise.OwnerId == null ? publishedSystemImageId : selectedLibraryImageId),
                 exercise.Name,

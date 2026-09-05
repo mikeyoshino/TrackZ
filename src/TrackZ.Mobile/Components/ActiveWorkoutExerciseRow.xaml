@@ -35,17 +35,18 @@
         <Border
             AutomationProperties.IsInAccessibleTree="True"
             MinimumHeightRequest="{DynamicResource TrackZExerciseCardHeight}"
+            Padding="12"
             SemanticProperties.Description="{Binding Exercise.AccessibilitySummary, Source={x:Reference Root}}"
             Style="{DynamicResource TrackZListRowStyle}">
             <Border.GestureRecognizers>
                 <TapGestureRecognizer Command="{Binding OpenCommand, Source={x:Reference Root}}" CommandParameter="{Binding Exercise, Source={x:Reference Root}}" />
             </Border.GestureRecognizers>
             <Grid AutomationProperties.ExcludedWithChildren="True"
-                  ColumnDefinitions="88,*,Auto,Auto"
+                  ColumnDefinitions="72,*,Auto,Auto"
                   ColumnSpacing="{DynamicResource TrackZSpace12}">
                 <Grid x:Name="ActiveWorkoutArtwork"
-                      HeightRequest="{DynamicResource TrackZExerciseArtworkSize}"
-                      WidthRequest="{DynamicResource TrackZExerciseArtworkSize}">
+                      HeightRequest="{DynamicResource TrackZCompactExerciseArtworkSize}"
+                      WidthRequest="{DynamicResource TrackZCompactExerciseArtworkSize}">
                     <Image Aspect="AspectFit"
                            IsVisible="{Binding Exercise.HasArtwork, Source={x:Reference Root}}"
                            Source="{Binding Exercise.ThumbnailUri, Source={x:Reference Root}}" />
@@ -53,21 +54,34 @@
                             IsVisible="{Binding Exercise.ShowsArtworkPlaceholder, Source={x:Reference Root}}"
                             StrokeThickness="0"
                             StrokeShape="RoundRectangle 14">
-                        <Image Aspect="AspectFit" HeightRequest="52" Source="exercise_placeholder.png" WidthRequest="52" />
+                        <Image Aspect="AspectFit" HeightRequest="42" Source="exercise_placeholder.png" WidthRequest="42" />
                     </Border>
                 </Grid>
                 <Label Grid.Column="1"
-                       LineBreakMode="TailTruncation"
+                       LineBreakMode="WordWrap"
+                       MaxLines="2"
                        Style="{DynamicResource TrackZNavigationTitleStyle}"
                        Text="{Binding Exercise.Name, Source={x:Reference Root}}"
                        VerticalOptions="Center" />
-                <Label x:Name="WorkoutExerciseSetCounter"
-                       Grid.Column="2"
-                       AutomationProperties.IsInAccessibleTree="False"
-                       HorizontalTextAlignment="End"
-                       Style="{DynamicResource TrackZPerformanceNumberStyle}"
-                       Text="{Binding Exercise.LoggedSetText, Source={x:Reference Root}}"
-                       VerticalOptions="Center" />
+                <VerticalStackLayout Grid.Column="2" Spacing="4" VerticalOptions="Center">
+                    <Border Padding="12,4"
+                            Stroke="{DynamicResource TrackZPrimary}"
+                            StrokeShape="RoundRectangle 999"
+                            StrokeThickness="1">
+                        <Label x:Name="WorkoutExerciseSetCounter"
+                               AutomationProperties.IsInAccessibleTree="False"
+                               HorizontalTextAlignment="Center"
+                               Style="{DynamicResource TrackZBodyStyle}"
+                               Text="{Binding Exercise.LoggedSetText, Source={x:Reference Root}}"
+                               />
+                    </Border>
+                    <Label x:Name="WorkoutExerciseSetStatus"
+                           AutomationProperties.IsInAccessibleTree="False"
+                           FontSize="12"
+                           HorizontalTextAlignment="Center"
+                           Text="{Binding Exercise.SetStatusText, Source={x:Reference Root}}"
+                           TextColor="{DynamicResource TrackZTextSecondary}" />
+                </VerticalStackLayout>
                 <Label x:Name="WorkoutExerciseChevron"
                        Grid.Column="3"
                        AutomationProperties.IsInAccessibleTree="False"

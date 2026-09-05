@@ -29,5 +29,6 @@ internal static class WorkoutDtoMapper
         set.Reps,
         set.CompletedAt,
         set.UpdatedAt,
-        set.Effort);
+        set.Effort,
+        set.PlateCount);
 }

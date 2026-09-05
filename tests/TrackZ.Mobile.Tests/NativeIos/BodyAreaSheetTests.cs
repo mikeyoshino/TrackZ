@@ -25,6 +25,21 @@ public sealed class BodyAreaSheetTests
     }
 
     [Fact]
+    public void Body_area_sheet_uses_the_compact_header_and_has_no_footer_cancel_bar()
+    {
+        var page = new BodyAreaSheetPage(WorkoutResources.ForCulture(
+            CultureInfo.GetCultureInfo("th-TH")));
+
+        Assert.Equal("เลือกส่วนที่ต้องการฝึก", page.FindByName<Label>("BodyAreaTitle").Text);
+        Assert.Equal(
+            "เลือก 1 ส่วนเพื่อดูท่าออกกำลังกาย",
+            page.FindByName<Label>("BodyAreaSupporting").Text);
+        Assert.NotNull(page.FindByName<ImageButton>("BodyAreaCloseButton"));
+        Assert.DoesNotContain(Descendants(page).OfType<Button>(), button =>
+            button.Text == "ยกเลิก");
+    }
+
+    [Fact]
     public async Task Selecting_body_area_completes_once_and_dismisses()
     {
         var presenter = new RecordingSheetPresenter();
@@ -82,6 +97,17 @@ public sealed class BodyAreaSheetTests
             Assert.Same(Page, page);
             DismissCount++;
             return Task.CompletedTask;
+        }
+    }
+
+    private static IEnumerable<Element> Descendants(IVisualTreeElement root)
+    {
+        foreach (var child in root.GetVisualChildren().OfType<Element>())
+        {
+            yield return child;
+            if (child is IVisualTreeElement tree)
+                foreach (var descendant in Descendants(tree))
+                    yield return descendant;
         }
     }
 }

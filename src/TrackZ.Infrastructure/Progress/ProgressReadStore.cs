@@ -81,7 +81,9 @@ public sealed class ProgressReadStore(AppDbContext database, TimeProvider timePr
                 performance.LastBestReps ?? 0,
                 performance.AllTimeBestWeightKg,
                 performance.AllTimeBestAssistedKg,
-                performance.AllTimeBestReps ?? 0))
+                performance.AllTimeBestReps ?? 0,
+                performance.LastBestPlateCount,
+                performance.AllTimeBestPlateCount))
             .ToListAsync(cancellationToken);
 
         return new ProgressSummaryDto(

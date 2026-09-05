@@ -3,7 +3,8 @@ namespace TrackZ.Mobile.Presentation;
 public enum NativeSheetDetent
 {
     Medium = 1,
-    Large = 2
+    Large = 2,
+    Form = 3
 }
 
 public interface INativeSheetPresenter

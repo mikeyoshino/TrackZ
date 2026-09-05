@@ -15,6 +15,11 @@
     <Color x:Key="TrackZWarning">#FFC95C</Color>
     <Color x:Key="TrackZDanger">#FF6969</Color>
     <Color x:Key="TrackZHairline">#2B3137</Color>
+    <Color x:Key="TrackZAuthSurface">#14191D</Color>
+    <Color x:Key="TrackZAuthBorder">#353C43</Color>
+    <Color x:Key="TrackZAuthGlowCore">#41680F</Color>
+    <Color x:Key="TrackZAuthGlowMid">#1F350B</Color>
+    <Color x:Key="TrackZTransparent">#00000000</Color>
     <Color x:Key="TrackZBorder">#2B3137</Color>
     <Color x:Key="TrackZSyncSyncedSurface">#173126</Color>
     <Color x:Key="TrackZSyncPendingSurface">#31321F</Color>

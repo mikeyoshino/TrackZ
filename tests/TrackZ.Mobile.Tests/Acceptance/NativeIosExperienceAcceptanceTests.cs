@@ -29,10 +29,18 @@ public sealed class NativeIosExperienceAcceptanceTests
                 Assert.DoesNotContain(document.Descendants(), element =>
                     element.Name.LocalName == "Label" && element.Attribute("Text")?.Value == nativeTitle);
             }
-            else
+            else if (relativePath == "Features/Train/TrainPage.xaml")
             {
                 Assert.Contains(document.Descendants(), element =>
-                    element.Name.LocalName == "Label" && ResourceKey(element.Attribute("Style")?.Value) == "TrackZPageTitleStyle");
+                    element.Name.LocalName == "Label" && ResourceKey(element.Attribute("Style")?.Value) == "HomeHeadlineStyle");
+            }
+            else
+            {
+                var titleStyle = relativePath == "Features/Progress/ExerciseProgressPage.xaml"
+                    ? "TrackZCoachPageTitleStyle" : relativePath == "Features/Profile/ProfilePage.xaml"
+                        ? "TrackZProfileTitleStyle" : "TrackZPageTitleStyle";
+                Assert.Contains(document.Descendants(), element =>
+                    element.Name.LocalName == "Label" && ResourceKey(element.Attribute("Style")?.Value) == titleStyle);
             }
             Assert.Contains(document.Root!.DescendantsAndSelf().Attributes("Padding"), attribute =>
                 ResourceKey(attribute.Value) is "TrackZPageHorizontalPadding" or "TrackZPageContentPadding" or "TrackZPageBottomContentPadding");
@@ -74,7 +82,7 @@ public sealed class NativeIosExperienceAcceptanceTests
     }
 
     [Fact]
-    public void Momentum_home_keeps_the_approved_named_hierarchy_one_primary_and_quiet_home_copy()
+    public void Momentum_home_keeps_the_approved_named_hierarchy_one_primary_and_optional_coach_hosts()
     {
         var mobileDirectory = Path.Combine(FindSolutionDirectory(), "src", "TrackZ.Mobile");
         var document = XDocument.Load(Path.Combine(mobileDirectory, "Features/Train/TrainPage.xaml"));
@@ -90,9 +98,10 @@ public sealed class NativeIosExperienceAcceptanceTests
 
         var approvedHierarchy = new[]
         {
-            "MomentumHomeScroll", "HomeContextLabel", "HomeHero", "HeroActionButton", "TrainAgainSection",
-            "TrainAgainCard", "WeeklyGoalCard", "WeeklyGoalSentence", "WeeklyStreakSentence",
-            "LatestPerformanceSection", "LatestPerformanceCard", "LatestPerformanceValue", "BestPerformanceValue"
+            "MomentumHomeScroll", "HomeContextLabel", "HomeHeadlineLabel", "HomeHero", "HeroActionButton",
+            "HomeLoadingIndicator", "HomeErrorState", "HomeRetryButton", "CoachWeekSection",
+            "ViewSummaryAction", "CoachWeekHost", "CoachHomeHost", "LatestWorkoutSection",
+            "ViewHistoryAction", "LatestWorkoutCard", "LatestWorkoutTitleLabel", "LatestWorkoutMetaLabel"
         };
         Assert.Equal(
             approvedHierarchy,
@@ -106,40 +115,13 @@ public sealed class NativeIosExperienceAcceptanceTests
         Assert.DoesNotContain(homeText, value => value.EnumerateRunes().Any(rune =>
             rune.Value is >= 0x2190 and <= 0x21FF
             || rune.Value is >= 0x1F000 and <= 0x1FAFF));
-
-        var homeCopy = HomeCopy(WorkoutResources.English).Concat(HomeCopy(WorkoutResources.ForCulture(System.Globalization.CultureInfo.GetCultureInfo("th-TH"))));
-        Assert.DoesNotContain(homeCopy, value => value.Contains("offline", StringComparison.OrdinalIgnoreCase)
-            || value.Contains("saved on this device", StringComparison.OrdinalIgnoreCase)
-            || value.Contains("recommend", StringComparison.OrdinalIgnoreCase)
-            || value.Contains("แนะนำ", StringComparison.Ordinal));
+        Assert.Equal("VerticalStackLayout",
+            Assert.Single(namedElements, item => item.Name == "CoachWeekHost").Element);
+        Assert.Equal("VerticalStackLayout",
+            Assert.Single(namedElements, item => item.Name == "CoachHomeHost").Element);
+        Assert.DoesNotContain(namedElements, item => item.Name is
+            "TrainAgainCard" or "WeeklyGoalCard" or "LatestPerformanceCard");
     }
-
-    private static IEnumerable<string> HomeCopy(WorkoutTextSet text) =>
-    [
-        text.ReadyWhenYouAre,
-        text.YouAreInMotion,
-        text.StartTraining,
-        text.ChooseTodaysWorkout,
-        text.ChooseWorkoutSupporting,
-        text.WorkoutInProgress,
-        text.ContinueWorkout,
-        text.TrainAgain,
-        text.Open,
-        text.HomeWeeklyGoalFormat,
-        text.HomeWeeklyStreakFormat,
-        text.HomeLatestPerformance,
-        text.HomeLatestLabel,
-        text.HomeBestLabel,
-        text.HomeWeightedValueFormat,
-        text.HomeAssistedValueFormat,
-        text.HomeBodyweightValueFormat,
-        text.HomeExerciseProgressFormat,
-        text.RepeatWorkoutAccessibilityFormat,
-        text.HomeLoadFailed,
-        text.HomeRepeatFailed,
-        text.HomeOpenWorkoutFailed,
-        text.HomeContextFormat
-    ];
 
     private static string FindSolutionDirectory()
     {

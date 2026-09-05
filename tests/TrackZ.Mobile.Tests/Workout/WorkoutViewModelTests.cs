@@ -38,6 +38,10 @@ public sealed class WorkoutViewModelTests
         Assert.Equal([2, 0], viewModel.Exercises.Select(item => item.LoggedSetCount));
         Assert.Equal(["2 sets", "0 sets"], viewModel.Exercises.Select(item => item.LoggedSetText));
         Assert.Equal("2 exercises · 2 sets logged", viewModel.WorkoutContextText);
+        Assert.Equal(1, viewModel.CompletedExerciseCount);
+        Assert.Equal(2, viewModel.TotalExerciseCount);
+        Assert.Equal(0.5, viewModel.WorkoutProgress);
+        Assert.Equal("Progress 1 / 2", viewModel.WorkoutProgressText);
         Assert.Equal(
             ["Press, 2 sets. Open set logger.",
              "Pull-up, 0 sets. Open set logger."],
@@ -66,6 +70,18 @@ public sealed class WorkoutViewModelTests
         Assert.Equal("Press, 2 เซ็ต เปิดหน้าบันทึกเซ็ต", string.Format(
             thai.OpenSetLoggerAccessibilityFormat, "Press", "2 เซ็ต"));
         Assert.Equal("2 sets logged", string.Format(english.SetsLoggedFormat, 2));
+    }
+
+    [Fact]
+    public void Workout_start_flow_copy_is_localized_in_english_and_thai()
+    {
+        var english = WorkoutResources.ForCulture(CultureInfo.GetCultureInfo("en-US"));
+        var thai = WorkoutResources.ForCulture(CultureInfo.GetCultureInfo("th-TH"));
+
+        Assert.Equal("Start first exercise", english.StartFirstExercise);
+        Assert.Equal("Log next set", english.LogNextWorkoutSet);
+        Assert.Equal("เริ่มท่าแรก", thai.StartFirstExercise);
+        Assert.Equal("บันทึกเซ็ตถัดไป", thai.LogNextWorkoutSet);
     }
 
     [Fact]
@@ -167,6 +183,66 @@ public sealed class WorkoutViewModelTests
 
         Assert.Equal([route], thumbnails.RequestedRoutes);
         Assert.Equal(localThumbnail, viewModel.Exercises.Single().ThumbnailUri);
+    }
+
+    [Fact]
+    public async Task Successful_start_requests_logging_for_the_first_exercise_after_state_becomes_active()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var viewModel = fixture.CreateViewModel();
+        await viewModel.AddExercisesAsync([fixture.FirstId, fixture.SecondId]);
+        WorkoutExerciseDraftItem? requested = null;
+        bool? wasStartedWhenRequested = null;
+        viewModel.ExerciseLoggingRequested += (_, exercise) =>
+        {
+            requested = exercise;
+            wasStartedWhenRequested = viewModel.HasStarted;
+        };
+
+        await viewModel.StartWorkoutCommand.ExecuteAsync();
+
+        Assert.Equal(fixture.FirstId, requested?.ExerciseDefinitionId);
+        Assert.True(wasStartedWhenRequested);
+        Assert.NotEqual(Guid.Empty, requested?.WorkoutExerciseId);
+    }
+
+    [Fact]
+    public async Task Log_next_set_requests_the_first_exercise_without_a_logged_set()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.Coordinator.StartAsync([
+            new WorkoutExerciseSelection(fixture.FirstId, TrackingMode.Weighted),
+            new WorkoutExerciseSelection(fixture.SecondId, TrackingMode.Bodyweight)
+        ]);
+        await fixture.Coordinator.SaveSetAsync(fixture.FirstId, new LocalSet(50, null, 8));
+        var viewModel = fixture.CreateViewModel();
+        await viewModel.RestoreAsync();
+        WorkoutExerciseDraftItem? requested = null;
+        viewModel.ExerciseLoggingRequested += (_, exercise) => requested = exercise;
+
+        await viewModel.LogNextSetCommand.ExecuteAsync();
+
+        Assert.Equal(fixture.SecondId, requested?.ExerciseDefinitionId);
+    }
+
+    [Fact]
+    public async Task Log_next_set_falls_back_to_the_first_exercise_when_every_exercise_has_a_set()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.Coordinator.StartAsync([
+            new WorkoutExerciseSelection(fixture.FirstId, TrackingMode.Weighted),
+            new WorkoutExerciseSelection(fixture.SecondId, TrackingMode.Bodyweight)
+        ]);
+        await fixture.Coordinator.SaveSetAsync(fixture.FirstId, new LocalSet(50, null, 8));
+        await fixture.Coordinator.SaveSetAsync(fixture.SecondId, new LocalSet(null, null, 10));
+        var viewModel = fixture.CreateViewModel();
+        await viewModel.RestoreAsync();
+        WorkoutExerciseDraftItem? requested = null;
+        viewModel.ExerciseLoggingRequested += (_, exercise) => requested = exercise;
+
+        await viewModel.LogNextSetCommand.ExecuteAsync();
+
+        Assert.Equal(fixture.FirstId, requested?.ExerciseDefinitionId);
     }
 
     [Fact]

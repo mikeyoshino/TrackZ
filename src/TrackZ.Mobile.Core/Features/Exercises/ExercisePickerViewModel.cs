@@ -123,6 +123,11 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged, IDisposabl
     public IReadOnlyCollection<Guid> SelectedExerciseIds => _selectedIds;
     public WorkoutTextSet Text => _text;
     public string SelectedCountText => string.Format(CultureInfo.CurrentCulture, _text.SelectedCountFormat, _selectedIds.Count);
+    public string SelectedBodyPartFilterText => string.Format(
+        CultureInfo.CurrentCulture,
+        _text.BodyPartFilterFormat,
+        SelectedBodyPartOption?.Label ?? _text.All);
+    public bool CanCompleteSelection => _selectedIds.Count > 0;
     public ICommand ToggleSelectionCommand { get; }
     public AsyncCommand RetryCommand { get; }
     public AsyncCommand SignInCommand { get; }
@@ -143,7 +148,7 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged, IDisposabl
         ExercisePickerPresentationState.AuthenticationRequired => _text.SignIn,
         ExercisePickerPresentationState.OfflineWithCache or ExercisePickerPresentationState.OfflineWithoutCache => _text.Offline,
         ExercisePickerPresentationState.RequestFailure => _text.LoadFailed,
-        ExercisePickerPresentationState.NoFilterMatches => _text.NoMatchingExercises,
+        ExercisePickerPresentationState.NoFilterMatches => _text.NoMatchingExercisesSupporting,
         _ => _text.ChooseExercises
     };
     public string StateMessage => PresentationState switch
@@ -177,6 +182,7 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged, IDisposabl
             _selectedBodyPart = value;
             OnPropertyChanged();
             OnPropertyChanged(nameof(SelectedBodyPartOption));
+            OnPropertyChanged(nameof(SelectedBodyPartFilterText));
             UpdateBodyPartSelection();
             ApplyFilter();
         }
@@ -211,6 +217,7 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged, IDisposabl
         _selectedBodyPart = bodyPart;
         OnPropertyChanged(nameof(SelectedBodyPart));
         OnPropertyChanged(nameof(SelectedBodyPartOption));
+        OnPropertyChanged(nameof(SelectedBodyPartFilterText));
         UpdateBodyPartSelection();
         if (!await _boundary.TryCommitAsync(generation, async token =>
         {
@@ -378,6 +385,7 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged, IDisposabl
             exercise.IsSelected = _selectedIdSet.Contains(id);
         OnPropertyChanged(nameof(SelectedExerciseIds));
         OnPropertyChanged(nameof(SelectedCountText));
+        OnPropertyChanged(nameof(CanCompleteSelection));
     }
 
     private void SelectBodyPart(BodyPart? bodyPart) => SelectedBodyPart = bodyPart;
@@ -515,6 +523,7 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged, IDisposabl
         Exercises.Clear();
         OnPropertyChanged(nameof(SelectedExerciseIds));
         OnPropertyChanged(nameof(SelectedCountText));
+        OnPropertyChanged(nameof(CanCompleteSelection));
         OnPropertyChanged(nameof(LastError));
         OnPropertyChanged(nameof(LastErrorCode));
         UpdatePresentation();

@@ -48,7 +48,7 @@ public sealed class LocalizationAuditTests
         new(StringComparer.Ordinal)
         {
             "›", "—", "+", "−", "·", "↗", "×", "i", "kg", "lb", "XP", "#0",
-            "JPEG, PNG, WebP"
+            "JPEG, PNG, WebP", "TrackZ", "Z"
         };
 
     private static readonly IReadOnlyDictionary<string, (string English, string Thai)> ExpectedInsightFirstHomeCopy =
@@ -59,7 +59,7 @@ public sealed class LocalizationAuditTests
             [nameof(WorkoutTextSet.HomeWeeklyStreakFormat)] =
                 ("Goal met {0} weeks in a row", "ทำถึงเป้า {0} สัปดาห์ติด"),
             [nameof(WorkoutTextSet.HomeLatestPerformance)] =
-                ("Latest performance", "ผลงานท่าล่าสุด"),
+                ("Latest workout", "ฝึกล่าสุด"),
             [nameof(WorkoutTextSet.HomeLatestLabel)] = ("Latest", "ครั้งล่าสุด"),
             [nameof(WorkoutTextSet.HomeBestLabel)] = ("Best", "สถิติสูงสุด"),
             [nameof(WorkoutTextSet.HomeViewAllData)] = ("View all data", "ดูข้อมูลทั้งหมด"),
@@ -203,12 +203,13 @@ public sealed class LocalizationAuditTests
         literal.Root!.SetAttributeValue("Title", "Custom exercise");
         Assert.Contains(AuditLiteralCopy(path, literal), error => error.Contains("Custom exercise", StringComparison.Ordinal));
 
-        var rawEnum = XDocument.Load(Path.Combine(MobileDirectory(), path));
+        const string pickerPath = "Features/Exercises/ExercisePickerPage.xaml";
+        var rawEnum = XDocument.Load(Path.Combine(MobileDirectory(), pickerPath));
         var picker = Assert.Single(
             rawEnum.Descendants(),
             element => element.Attribute("ItemsSource")?.Value == "{Binding BodyPartOptions}");
         picker.SetAttributeValue("ItemsSource", "{Binding BodyParts}");
-        Assert.Contains(AuditRawEnumPickers(path, rawEnum), error => error.Contains("BodyParts", StringComparison.Ordinal));
+        Assert.Contains(AuditRawEnumPickers(pickerPath, rawEnum), error => error.Contains("BodyParts", StringComparison.Ordinal));
     }
 
     [Fact]

@@ -18,6 +18,7 @@ using TrackZ.Mobile.Networking;
 using TrackZ.Mobile.Features.Auth;
 using TrackZ.Mobile.Features.Localization;
 using TrackZ.Mobile.Localization;
+using TrackZ.Mobile.Features.Coach;
 
 namespace TrackZ.Mobile;
 
@@ -35,7 +36,14 @@ public static class MauiProgram
 		AppLanguageCulture.Apply(appLanguageStore.Read());
 		var builder = MauiApp.CreateBuilder();
 		builder
-			.UseMauiApp<App>();
+			.UseMauiApp<App>()
+			.ConfigureFonts(fonts =>
+			{
+				fonts.AddFont("NotoSansThai-Light.ttf", "NotoSansThaiLight");
+				fonts.AddFont("NotoSansThai-Regular.ttf", "NotoSansThaiRegular");
+				fonts.AddFont("NotoSansThai-Medium.ttf", "NotoSansThaiMedium");
+				fonts.AddFont("NotoSansThai-SemiBold.ttf", "NotoSansThaiSemiBold");
+			});
 		builder.Services.AddSingleton<IAppLanguageStore>(appLanguageStore);
 		builder.Services.AddSingleton<App>();
 		builder.Services.AddSingleton<IApplication>(services => services.GetRequiredService<App>());
@@ -51,7 +59,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<IMobilePrivateDataCleaner, MauiPrivateDataCleaner>();
 		builder.Services.AddSingleton<IAccessTokenProvider>(services => services.GetRequiredService<MobileTokenStore>());
 #if DEBUG
-		var origins = MobileEndpointOrigins.Resolve(Environment.GetEnvironmentVariable);
+		var origins = MobileEndpointOrigins.ResolveDevelopment(Environment.GetEnvironmentVariable);
 #else
 		var origins = MobileEndpointOrigins.Resolve(_ => null);
 #endif
@@ -126,6 +134,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<IUiDispatcher, MauiUiDispatcher>();
 		builder.Services.AddSingleton<IFileSystem>(_ => FileSystem.Current);
 		builder.Services.AddSingleton<ILocalExerciseImagePicker, MauiLocalExerciseImagePicker>();
+		builder.Services.AddSingleton<ILocalExerciseImageCapture, MauiLocalExerciseImageCapture>();
 		builder.Services.AddSingleton<IExerciseFileStore, LocalExerciseFileStore>();
 		builder.Services.AddSingleton(services => new ExerciseCache(
 			Path.Combine(FileSystem.AppDataDirectory, "exercise-catalog.db")));
@@ -161,6 +170,9 @@ public static class MauiProgram
 		builder.Services.AddSingleton<IWorkoutPreferenceStore, MauiWorkoutPreferenceStore>();
 		builder.Services.AddSingleton<IWeightUnitPreference, WeightUnitPreference>();
 		builder.Services.AddSingleton<IExerciseGuidancePreferenceStore, ExerciseGuidancePreferenceStore>();
+		builder.Services.AddSingleton<CoachJournal>();
+		builder.Services.AddSingleton<TrackZ.Mobile.Features.Profile.TrainingScheduleStore>();
+		builder.Services.AddSingleton<TrainingCoachSource>();
 		builder.Services.AddScoped<MauiSetSavedFeedback>();
 		builder.Services.AddScoped<ISetSavedFeedback>(services => services.GetRequiredService<MauiSetSavedFeedback>());
 		builder.Services.AddSingleton<IReduceMotionPreference, MauiReduceMotionPreference>();
@@ -185,6 +197,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<LocalExerciseImageSelectionCoordinator>();
 		builder.Services.AddScoped<ExercisePickerViewModel>();
 		builder.Services.AddTransient<CustomExerciseViewModel>();
+		builder.Services.AddSingleton<IExerciseOptionPicker, MauiExerciseOptionPicker>();
 		builder.Services.AddScoped<WorkoutViewModel>();
 		builder.Services.AddTransient<SetLoggerViewModel>();
 		builder.Services.AddTransient<SetEffortPromptViewModel>();

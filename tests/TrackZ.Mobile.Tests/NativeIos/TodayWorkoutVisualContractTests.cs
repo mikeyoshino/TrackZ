@@ -7,6 +7,32 @@ public sealed class TodayWorkoutVisualContractTests
     private static readonly XNamespace X = "http://schemas.microsoft.com/winfx/2009/xaml";
 
     [Fact]
+    public void Native_page_uses_actions_instead_of_a_workout_state_badge()
+    {
+        var page = XDocument.Load(Path.Combine(Root(), "src/TrackZ.Mobile/Features/Workout/WorkoutPage.xaml"));
+
+        Assert.DoesNotContain(page.Descendants(), element => Name(element) == "WorkoutStateBadge");
+
+        var start = page.Descendants().Single(element => Name(element) == "StartFirstExerciseButton");
+        Assert.Equal("{Binding StartWorkoutCommand}", start.Attribute("Command")?.Value);
+        Assert.Equal("{Binding IsDraft}", start.Attribute("IsVisible")?.Value);
+        Assert.Equal("{Binding Text.StartFirstExercise}", start.Attribute("Text")?.Value);
+        Assert.Equal("{DynamicResource TrackZPrimaryButtonStyle}", start.Attribute("Style")?.Value);
+
+        var logNext = page.Descendants().Single(element => Name(element) == "LogNextSetButton");
+        Assert.Equal("{Binding LogNextSetCommand}", logNext.Attribute("Command")?.Value);
+        Assert.Equal("{Binding HasStarted}", logNext.Attribute("IsVisible")?.Value);
+        Assert.Equal("{Binding Text.LogNextWorkoutSet}", logNext.Attribute("Text")?.Value);
+        Assert.Equal("{DynamicResource TrackZPrimaryButtonStyle}", logNext.Attribute("Style")?.Value);
+
+        var finish = page.Descendants().Single(element => Name(element) == "FinishWorkoutButton");
+        Assert.Equal("{Binding FinishWorkoutCommand}", finish.Attribute("Command")?.Value);
+        Assert.Equal("{Binding HasStarted}", finish.Attribute("IsVisible")?.Value);
+        Assert.Equal("{DynamicResource TrackZSecondaryButtonStyle}", finish.Attribute("Style")?.Value);
+        Assert.Equal("1", finish.Attribute("Grid.Column")?.Value);
+    }
+
+    [Fact]
     public void Native_page_matches_the_approved_compact_illustrated_queue_reference()
     {
         var page = XDocument.Load(Path.Combine(Root(), "src/TrackZ.Mobile/Features/Workout/WorkoutPage.xaml"));
@@ -17,6 +43,10 @@ public sealed class TodayWorkoutVisualContractTests
 
         var context = page.Descendants().Single(element => Name(element) == "WorkoutContext");
         Assert.Equal("{Binding WorkoutContextText}", context.Attribute("Text")?.Value);
+        var progress = page.Descendants().Single(element => Name(element) == "WorkoutProgress");
+        Assert.Equal("{Binding WorkoutProgress}", progress.Attribute("Progress")?.Value);
+        var progressText = page.Descendants().Single(element => Name(element) == "WorkoutProgressText");
+        Assert.Equal("{Binding WorkoutProgressText}", progressText.Attribute("Text")?.Value);
         var notice = page.Descendants().Single(element => Name(element) == "WorkoutNotice");
         Assert.Equal("TrackZNoticeBanner", notice.Name.LocalName);
         Assert.Equal("2", notice.Attribute("Grid.Row")?.Value);
@@ -41,14 +71,18 @@ public sealed class TodayWorkoutVisualContractTests
         Assert.Equal("{Binding Text.DiscardWorkout}", discard.Attribute("Text")?.Value);
 
         var artwork = component.Descendants().Single(element => Name(element) == "ActiveWorkoutArtwork");
-        Assert.Equal("{DynamicResource TrackZExerciseArtworkSize}", artwork.Attribute("HeightRequest")?.Value);
-        Assert.Equal("{DynamicResource TrackZExerciseArtworkSize}", artwork.Attribute("WidthRequest")?.Value);
+        Assert.Equal("{DynamicResource TrackZCompactExerciseArtworkSize}", artwork.Attribute("HeightRequest")?.Value);
+        Assert.Equal("{DynamicResource TrackZCompactExerciseArtworkSize}", artwork.Attribute("WidthRequest")?.Value);
 
         var counter = component.Descendants().Single(element => Name(element) == "WorkoutExerciseSetCounter");
-        Assert.Equal("2", counter.Attribute("Grid.Column")?.Value);
+        Assert.Equal("2", counter.Parent?.Parent?.Attribute("Grid.Column")?.Value);
         Assert.Equal("{Binding Exercise.LoggedSetText, Source={x:Reference Root}}", counter.Attribute("Text")?.Value);
-        Assert.Equal("{DynamicResource TrackZPerformanceNumberStyle}", counter.Attribute("Style")?.Value);
+        Assert.Equal("{DynamicResource TrackZBodyStyle}", counter.Attribute("Style")?.Value);
         Assert.Equal("False", counter.Attribute("AutomationProperties.IsInAccessibleTree")?.Value);
+        Assert.NotNull(counter.Parent?.Attribute("Stroke"));
+
+        var status = component.Descendants().Single(element => Name(element) == "WorkoutExerciseSetStatus");
+        Assert.Equal("{Binding Exercise.SetStatusText, Source={x:Reference Root}}", status.Attribute("Text")?.Value);
 
         var row = component.Descendants().Single(element =>
             element.Name.LocalName == "Border"

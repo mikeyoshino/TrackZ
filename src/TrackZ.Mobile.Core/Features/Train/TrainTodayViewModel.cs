@@ -91,7 +91,7 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged, IDisposable
         CultureInfo.CurrentCulture,
         Text.HomeContextFormat,
         ISOWeek.GetWeekOfYear(TimeZoneInfo.ConvertTimeFromUtc(_clock.UtcNow.UtcDateTime, _localTimeZone)));
-    public string HeroEyebrowText => HasActiveWorkout ? Text.WorkoutInProgress : Text.StartTraining;
+    public string HeroEyebrowText => HasActiveWorkout ? Text.WorkoutInProgress : Text.Today;
     public string HeroTitleText => ActiveWorkout is { BodyParts.Count: > 0 } active
         ? FormatBodyParts(active.BodyParts)
         : HasActiveWorkout ? Text.WorkoutInProgress : Text.ChooseTodaysWorkout;
@@ -106,13 +106,17 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged, IDisposable
     public double ActiveWorkoutProgress => ActiveWorkout is { ExerciseCount: > 0 } active
         ? Math.Clamp((double)active.LoggedExerciseCount / active.ExerciseCount, 0d, 1d)
         : 0d;
-    public string HeroActionText => HasActiveWorkout ? Text.ContinueWorkout : Text.StartWorkout;
+    public string HeroActionText => HasActiveWorkout ? Text.ContinueWorkout : Text.StartTraining;
     public double WeeklyProgress => Math.Clamp((double)WeeklyCompletedWorkouts / Math.Max(1, WeeklyGoal), 0d, 1d);
     public string WeeklyGoalSentenceText => string.Format(
         CultureInfo.CurrentCulture,
         Text.HomeWeeklyGoalFormat,
         WeeklyCompletedWorkouts,
         WeeklyGoal);
+    public string WeeklyGoalRemainingText => string.Format(
+        CultureInfo.CurrentCulture,
+        Text.HomeWeeklyGoalRemainingFormat,
+        Math.Max(0, WeeklyGoal - WeeklyCompletedWorkouts));
     public bool HasWeeklyStreak => CurrentStreakWeeks > 0;
     public string WeeklyStreakSentenceText => HasWeeklyStreak
         ? string.Format(CultureInfo.CurrentCulture, Text.HomeWeeklyStreakFormat, CurrentStreakWeeks)
@@ -149,7 +153,8 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged, IDisposable
         get => _hasAuthoritativeProgress;
         private set
         {
-            Set(ref _hasAuthoritativeProgress, value);
+            if (!Set(ref _hasAuthoritativeProgress, value)) return;
+            OnPropertyChanged(nameof(ShowLatestPerformanceSection));
         }
     }
     public int WeeklyCompletedWorkouts
@@ -160,6 +165,7 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged, IDisposable
             if (!Set(ref _weeklyCompletedWorkouts, value)) return;
             OnPropertyChanged(nameof(WeeklyProgress));
             OnPropertyChanged(nameof(WeeklyGoalSentenceText));
+            OnPropertyChanged(nameof(WeeklyGoalRemainingText));
         }
     }
     public int WeeklyGoal
@@ -170,6 +176,7 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged, IDisposable
             if (!Set(ref _weeklyGoal, value)) return;
             OnPropertyChanged(nameof(WeeklyProgress));
             OnPropertyChanged(nameof(WeeklyGoalSentenceText));
+            OnPropertyChanged(nameof(WeeklyGoalRemainingText));
         }
     }
     public int CurrentStreakWeeks
@@ -198,6 +205,8 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged, IDisposable
                 _recentMomentum.PropertyChanged += OnRecentMomentumChanged;
             OnPropertyChanged();
             OnPropertyChanged(nameof(HasRecentMomentum));
+            OnPropertyChanged(nameof(HasNoRecentMomentum));
+            OnPropertyChanged(nameof(ShowLatestPerformanceSection));
             OnPropertyChanged(nameof(LatestPerformanceTitle));
             OnPropertyChanged(nameof(LatestPerformanceValue));
             OnPropertyChanged(nameof(BestPerformanceValue));
@@ -205,6 +214,8 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged, IDisposable
         }
     }
     public bool HasRecentMomentum => RecentMomentum is not null;
+    public bool HasNoRecentMomentum => !HasRecentMomentum;
+    public bool ShowLatestPerformanceSection => HasAuthoritativeProgress;
     public bool IsProgressLoading { get => _isProgressLoading; private set => Set(ref _isProgressLoading, value); }
     public string SavedSetCountText => string.Format(
         Text.SavedSetCountFormat,

@@ -36,7 +36,8 @@ public sealed class GetExerciseHistoryHandler(
             var exercise = session.Exercises.Single(item => item.ExerciseDefinitionId == request.ExerciseId);
             var orderedSets = exercise.Sets.OrderBy(set => set.Order).ToList();
             var volume = exercise.TrackingMode == TrackingMode.Weighted
-                ? orderedSets.Sum(set => set.WeightKg!.Value * set.Reps)
+                ? orderedSets.Where(set => set.WeightKg is not null)
+                    .Sum(set => set.WeightKg!.Value * set.Reps)
                 : 0m;
             return new ExerciseHistorySessionDto(
                 session.Id,

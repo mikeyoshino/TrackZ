@@ -38,8 +38,27 @@ public sealed class MauiLocalExerciseImagePicker : ILocalExerciseImagePicker
             PickerTitle = pickerTitle,
             FileTypes = FilePickerFileType.Images
         });
-        if (selected is null) return null;
-        return new LocalExerciseImageSelection(
+        return selected is null ? null : MauiExerciseImageSelection.From(selected);
+    }
+}
+
+public sealed class MauiLocalExerciseImageCapture : ILocalExerciseImageCapture
+{
+    public async Task<LocalExerciseImageSelection?> CaptureAsync(
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!MediaPicker.Default.IsCaptureSupported) return null;
+        var selected = await MediaPicker.Default.CapturePhotoAsync();
+        cancellationToken.ThrowIfCancellationRequested();
+        return selected is null ? null : MauiExerciseImageSelection.From(selected);
+    }
+}
+
+internal static class MauiExerciseImageSelection
+{
+    public static LocalExerciseImageSelection From(FileResult selected) =>
+        new(
             selected.FileName,
             selected.ContentType,
             async token =>
@@ -51,7 +70,6 @@ public sealed class MauiLocalExerciseImagePicker : ILocalExerciseImagePicker
                 token.ThrowIfCancellationRequested();
                 throw new OperationCanceledException(token);
             });
-    }
 }
 
 public sealed class SecureMobileTokenStorage : IMobileTokenStorage

@@ -10,6 +10,7 @@ using TrackZ.Mobile.Features.Exercises.Services;
 using TrackZ.Mobile.Features.Gamification;
 using TrackZ.Mobile.Features.Workout;
 using TrackZ.Mobile.Features.Shared;
+using TrackZ.Mobile.Features.Train;
 
 namespace TrackZ.Mobile.Tests.NativeIos;
 
@@ -41,26 +42,37 @@ public sealed class AccessibilitySemanticsTests
     [Fact]
     public void Momentum_home_uses_localized_semantic_bindings_and_shared_44_point_targets()
     {
-        var mobileDirectory = Path.Combine(FindSolutionDirectory(), "src", "TrackZ.Mobile");
-        var xaml = File.ReadAllText(Path.Combine(mobileDirectory, "Features", "Train", "TrainPage.xaml"));
-        var controls = File.ReadAllText(Path.Combine(mobileDirectory, "Resources", "Styles", "TrackZControls.xaml"));
+        using var app = CreateApp();
+        _ = app.Services.GetRequiredService<TrackZ.Mobile.App>();
+        var page = app.Services.GetRequiredService<TrainPage>();
+        var primary = Assert.IsType<Button>(page.FindByName("HeroActionButton"));
+        var retry = Assert.IsType<Button>(page.FindByName("HomeRetryButton"));
+        var summary = Assert.IsType<Button>(page.FindByName("ViewSummaryAction"));
+        var history = Assert.IsType<Button>(page.FindByName("ViewHistoryAction"));
 
-        Assert.Contains("x:Name=\"HeroActionButton\"", xaml, StringComparison.Ordinal);
-        Assert.Contains("SemanticProperties.Description=\"{Binding HeroActionText}\"", xaml, StringComparison.Ordinal);
-        Assert.Contains("SemanticProperties.Description=\"{Binding RepeatWorkoutAccessibilityText}\"", xaml, StringComparison.Ordinal);
-        Assert.Contains("x:Name=\"HomeRetryButton\"", xaml, StringComparison.Ordinal);
-        Assert.Contains("SemanticProperties.Description=\"{Binding Text.TryAgain}\"", xaml, StringComparison.Ordinal);
-        Assert.Contains("Style=\"{DynamicResource TrackZQuietButtonStyle}\"", xaml, StringComparison.Ordinal);
-        Assert.Contains("x:Name=\"TrainAgainCard\"", xaml, StringComparison.Ordinal);
-        Assert.Contains("x:Name=\"LatestPerformanceCard\"", xaml, StringComparison.Ordinal);
-        Assert.DoesNotContain("RecentMomentumText", xaml, StringComparison.Ordinal);
-        Assert.Contains("TrackZPrimaryButtonStyle", controls, StringComparison.Ordinal);
-        Assert.Contains("TrackZExerciseCardHeight", controls, StringComparison.Ordinal);
+        Assert.Equal(primary.Text, SemanticProperties.GetDescription(primary));
+        Assert.Equal(retry.Text, SemanticProperties.GetDescription(retry));
+        Assert.Equal(page.Copy.ViewSummary, SemanticProperties.GetDescription(summary));
+        Assert.Equal(page.Copy.ViewAll, SemanticProperties.GetDescription(history));
+        Assert.Equal(page.Copy.Loading, SemanticProperties.GetDescription(
+            Assert.IsType<ActivityIndicator>(page.FindByName("HomeLoadingIndicator"))));
+        Assert.All(new[] { primary, retry, summary, history }, button =>
+        {
+            Assert.True(button.MinimumHeightRequest >= 44);
+            Assert.True(button.MinimumWidthRequest >= 44);
+        });
+
+        var latest = Assert.IsType<Border>(page.FindByName("LatestWorkoutCard"));
+        var artwork = Assert.Single(Descendants(latest).OfType<Border>());
+        Assert.True(AutomationProperties.GetExcludedWithChildren(artwork));
+        Assert.Null(SemanticProperties.GetDescription(latest));
         Assert.True(NativeAccessibility.MinimumActionTarget >= 44);
 
         var thai = WorkoutResources.ForCulture(System.Globalization.CultureInfo.GetCultureInfo("th-TH"));
         Assert.NotEqual(WorkoutResources.English.ContinueWorkout, thai.ContinueWorkout);
-        Assert.NotEqual(WorkoutResources.English.RepeatWorkoutAccessibilityFormat, thai.RepeatWorkoutAccessibilityFormat);
+        Assert.NotEqual(
+            HomeCopy.ForCulture(CultureInfo.GetCultureInfo("en-US")).Loading,
+            HomeCopy.ForCulture(CultureInfo.GetCultureInfo("th-TH")).Loading);
     }
 
     [Fact]
@@ -186,6 +198,17 @@ public sealed class AccessibilitySemanticsTests
         element.Attribute(XName.Get(
             "Name",
             "http://schemas.microsoft.com/winfx/2009/xaml"))?.Value;
+
+    private static IEnumerable<Element> Descendants(IVisualTreeElement root)
+    {
+        foreach (var child in root.GetVisualChildren().OfType<Element>())
+        {
+            yield return child;
+            if (child is IVisualTreeElement tree)
+                foreach (var descendant in Descendants(tree))
+                    yield return descendant;
+        }
+    }
 
     private static MauiApp CreateApp()
     {

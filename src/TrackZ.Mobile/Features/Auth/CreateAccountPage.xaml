@@ -2,30 +2,157 @@
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              x:Class="TrackZ.Mobile.Features.Auth.CreateAccountPage"
+             x:Name="Page"
              SafeAreaEdges="All"
+             Shell.NavBarIsVisible="False"
+             NavigationPage.HasNavigationBar="False"
              BackgroundColor="{DynamicResource TrackZBackground}">
-    <Grid Padding="0,24,0,0" RowDefinitions="*,Auto" BackgroundColor="{DynamicResource TrackZBackground}">
-        <VerticalStackLayout Padding="{DynamicResource TrackZPageHorizontalPadding}" Spacing="{DynamicResource TrackZSpace12}" Style="{DynamicResource TrackZAuthHeaderStyle}" VerticalOptions="Start">
-            <Label Style="{DynamicResource TrackZNavigationTitleStyle}" Text="{Binding Text.CreateAccountTitle}" />
-            <Label x:Name="WelcomeBodyLabel" Style="{DynamicResource TrackZBodyStyle}" Text="{Binding Text.CreateAccountWelcomeBody}" />
-        </VerticalStackLayout>
-        <VerticalStackLayout Grid.Row="0" Padding="{DynamicResource TrackZPageHorizontalPadding}" Spacing="{DynamicResource TrackZSpace12}" VerticalOptions="Center">
-            <Border x:Name="EmailFieldContainer" Style="{DynamicResource TrackZFieldContainerStyle}">
-                <Entry x:Name="EmailInput" Style="{DynamicResource TrackZFieldStyle}" Placeholder="{Binding Text.EmailLabel}" Text="{Binding Email}" Keyboard="Email" ReturnType="Next" SemanticProperties.Description="{Binding Text.EmailAccessibilityLabel}" />
-            </Border>
-            <Label Style="{DynamicResource TrackZFieldErrorStyle}" Text="{Binding EmailError}" />
-            <Border x:Name="PasswordFieldContainer" Style="{DynamicResource TrackZFieldContainerStyle}">
-                <Entry x:Name="PasswordInput" Style="{DynamicResource TrackZFieldStyle}" Placeholder="{Binding Text.PasswordLabel}" Text="{Binding Password}" IsPassword="True" ReturnType="Go" SemanticProperties.Description="{Binding Text.PasswordAccessibilityLabel}" />
-            </Border>
-            <Label Style="{DynamicResource TrackZFieldErrorStyle}" Text="{Binding PasswordError}" />
-            <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Text.CreateAccountRequirements}" />
-            <Label Style="{DynamicResource TrackZFieldErrorStyle}" Text="{Binding FormError}" />
-        </VerticalStackLayout>
-        <Border Grid.Row="1" Style="{DynamicResource TrackZStickyActionContainerStyle}">
-            <VerticalStackLayout Spacing="{DynamicResource TrackZSpace8}">
-                <Button x:Name="SubmitAction" Style="{DynamicResource TrackZPrimaryButtonStyle}" Text="{Binding Text.CreateAccountAction}" Command="{Binding SubmitCommand}" Clicked="OnSubmitClicked" SemanticProperties.Description="{Binding Text.CreateAccountAction}" />
-                <Button x:Name="SwitchModeAction" Style="{DynamicResource TrackZQuietButtonStyle}" Text="{Binding Text.SignInLink}" Clicked="OnSwitchModeClicked" SemanticProperties.Description="{Binding Text.SignInLink}" />
+    <Grid BackgroundColor="{DynamicResource TrackZBackground}">
+        <ScrollView
+            x:Name="AuthScroll"
+            Padding="{DynamicResource TrackZPageHorizontalPadding}"
+            ZIndex="0">
+            <VerticalStackLayout
+                x:Name="AuthFlow"
+                Padding="{DynamicResource TrackZCreateAccountFlowPadding}"
+                Spacing="0"
+                MaximumWidthRequest="480"
+                HorizontalOptions="Fill">
+                <ImageButton
+                    x:Name="BackAction"
+                    Style="{DynamicResource TrackZAuthBackButtonStyle}"
+                    Source="auth_back.png"
+                    Clicked="OnBackClicked"
+                    SemanticProperties.Description="{Binding Text.SignInLink}" />
+
+                <VerticalStackLayout
+                    x:Name="BrandLockup"
+                    Margin="{DynamicResource TrackZCreateAccountBrandMargin}"
+                    Spacing="4"
+                    HorizontalOptions="Center">
+                    <Image
+                        x:Name="BrandLogo"
+                        Source="trackz_auth_logo.png"
+                        WidthRequest="{DynamicResource TrackZCreateAccountLogoSize}"
+                        HeightRequest="{DynamicResource TrackZCreateAccountLogoSize}"
+                        Aspect="AspectFit"
+                        AutomationProperties.ExcludedWithChildren="True" />
+                    <Label
+                        Text="TrackZ"
+                        Style="{DynamicResource TrackZAuthCompactBrandNameStyle}" />
+                </VerticalStackLayout>
+
+                <Label
+                    x:Name="CreateAccountTitleLabel"
+                    Margin="{DynamicResource TrackZCreateAccountHeadlineMargin}"
+                    MaximumWidthRequest="{DynamicResource TrackZAuthHeadlineMaxWidth}"
+                    HorizontalOptions="Center"
+                    SemanticProperties.HeadingLevel="Level1"
+                    Style="{DynamicResource TrackZAuthHeadlineStyle}"
+                    Text="{Binding Text.CreateAccountTitle}" />
+
+                <VerticalStackLayout
+                    x:Name="CredentialForm"
+                    Margin="{DynamicResource TrackZCreateAccountFormMargin}"
+                    Spacing="20">
+                    <VerticalStackLayout Spacing="8">
+                        <Label
+                            x:Name="EmailFieldLabel"
+                            Style="{DynamicResource TrackZAuthFieldLabelStyle}"
+                            Text="{Binding Text.EmailLabel}" />
+                        <Border
+                            x:Name="EmailFieldContainer"
+                            Style="{DynamicResource TrackZAuthFieldContainerStyle}">
+                            <Entry
+                                x:Name="EmailInput"
+                                Keyboard="Email"
+                                ReturnType="Next"
+                                SemanticProperties.Description="{Binding Text.EmailAccessibilityLabel}"
+                                Style="{DynamicResource TrackZAuthFieldStyle}"
+                                Text="{Binding Email}" />
+                        </Border>
+                        <Label Style="{DynamicResource TrackZFieldErrorStyle}" Text="{Binding EmailError}" />
+                    </VerticalStackLayout>
+
+                    <VerticalStackLayout Spacing="8">
+                        <Label
+                            x:Name="PasswordFieldLabel"
+                            Style="{DynamicResource TrackZAuthFieldLabelStyle}"
+                            Text="{Binding Text.PasswordLabel}" />
+                        <Border
+                            x:Name="PasswordFieldContainer"
+                            Style="{DynamicResource TrackZAuthFieldContainerStyle}">
+                            <Entry
+                                x:Name="PasswordInput"
+                                IsPassword="True"
+                                ReturnType="Go"
+                                SemanticProperties.Description="{Binding Text.PasswordAccessibilityLabel}"
+                                Style="{DynamicResource TrackZAuthFieldStyle}"
+                                Text="{Binding Password}" />
+                        </Border>
+                        <Label Style="{DynamicResource TrackZFieldErrorStyle}" Text="{Binding PasswordError}" />
+                        <Label
+                            Style="{DynamicResource TrackZAuthRequirementStyle}"
+                            Text="{Binding Text.CreateAccountRequirements}" />
+                    </VerticalStackLayout>
+
+                    <Label Style="{DynamicResource TrackZFieldErrorStyle}" Text="{Binding FormError}" />
+                </VerticalStackLayout>
+
+                <VerticalStackLayout
+                    x:Name="AuthActions"
+                    Margin="{DynamicResource TrackZAuthActionsMargin}"
+                    Spacing="8">
+                    <Button
+                        x:Name="SubmitAction"
+                        Style="{DynamicResource TrackZAuthPrimaryButtonStyle}"
+                        Text="{Binding Text.CreateAccountAction}"
+                        Command="{Binding SubmitCommand}"
+                        Clicked="OnSubmitClicked"
+                        SemanticProperties.Description="{Binding Text.CreateAccountAction}" />
+                    <HorizontalStackLayout HorizontalOptions="Center" Spacing="0">
+                        <Label
+                            Style="{DynamicResource TrackZAuthPromptStyle}"
+                            Text="{Binding Text.SignInPrompt}" />
+                        <Button
+                            x:Name="SwitchModeAction"
+                            Style="{DynamicResource TrackZAuthLinkButtonStyle}"
+                            Text="{Binding Text.SignInLink}"
+                            Clicked="OnSwitchModeClicked"
+                            SemanticProperties.Description="{Binding Text.SignInLink}" />
+                    </HorizontalStackLayout>
+                </VerticalStackLayout>
             </VerticalStackLayout>
-        </Border>
+        </ScrollView>
+
+        <BoxView
+            x:Name="AmbientGlow"
+            Margin="-80,40,-80,0"
+            HeightRequest="{DynamicResource TrackZAuthGlowHeight}"
+            Opacity="0.24"
+            VerticalOptions="Start"
+            ZIndex="-2"
+            InputTransparent="True"
+            AutomationProperties.ExcludedWithChildren="True">
+            <BoxView.Background>
+                <RadialGradientBrush Center="0.5,0.42" Radius="0.52">
+                    <GradientStop Color="{DynamicResource TrackZAuthGlowCore}" Offset="0" />
+                    <GradientStop Color="{DynamicResource TrackZAuthGlowMid}" Offset="0.42" />
+                    <GradientStop Color="{DynamicResource TrackZTransparent}" Offset="1" />
+                </RadialGradientBrush>
+            </BoxView.Background>
+        </BoxView>
+        <GraphicsView
+            x:Name="BackContours"
+            Opacity="0.44"
+            ZIndex="-1"
+            InputTransparent="True"
+            AutomationProperties.ExcludedWithChildren="True" />
+        <GraphicsView
+            x:Name="FrontContours"
+            Opacity="0.28"
+            ZIndex="-1"
+            InputTransparent="True"
+            AutomationProperties.ExcludedWithChildren="True" />
     </Grid>
 </ContentPage>

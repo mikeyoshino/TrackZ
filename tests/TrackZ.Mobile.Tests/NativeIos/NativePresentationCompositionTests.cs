@@ -21,6 +21,8 @@ public sealed class NativePresentationCompositionTests
         using var app = MauiProgram.CreateMauiApp(services =>
         {
             services.AddSingleton<IWeightUnitPreference, KilogramPreference>();
+            services.AddSingleton(new TrackZ.Mobile.Data.TrackZLocalDatabase(
+                Path.Combine(Path.GetTempPath(), $"trackz-profile-composition-{Guid.NewGuid():N}.db")));
             services.AddSingleton<IProgressSnapshotSource, EmptyProgressSource>();
             services.AddSingleton<IConnectivityService, OfflineConnectivity>();
             services.AddSingleton<IMobilePrivateDataCleaner, NoopPrivateDataCleaner>();

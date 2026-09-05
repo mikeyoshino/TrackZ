@@ -51,6 +51,31 @@ public sealed class ActiveWorkoutCoordinatorTests : IDisposable
     }
 
     [Fact]
+    public async Task Save_plate_count_set_survives_restart_and_typed_outbox()
+    {
+        var fixture = CreateFixture();
+        await fixture.Coordinator.StartAsync([
+            new WorkoutExerciseSelection(_exerciseId, TrackingMode.Weighted)
+        ]);
+
+        var saved = await fixture.Coordinator.SaveSetAsync(
+            _exerciseId,
+            new LocalSet(null, null, 10, 7));
+
+        var restored = await CreateFixture().Coordinator.RestoreActiveAsync();
+        var set = Assert.Single(Assert.Single(restored!.Exercises).Sets);
+        Assert.Equal(7, set.PlateCount);
+        Assert.Null(set.WeightKg);
+        var operation = Assert.Single(
+            await fixture.Outbox.PendingAsync(),
+            item => item.Type == OutboxOperationType.SaveSet);
+        var payload = operation.DeserializePayload<SaveSetOutboxPayload>();
+        Assert.Equal(saved.Id, payload.SetId);
+        Assert.Equal(7, payload.PlateCount);
+        Assert.Null(payload.WeightKg);
+    }
+
+    [Fact]
     public async Task Active_add_reorder_and_remove_each_commit_one_typed_operation_and_survive_restart()
     {
         var secondDefinitionId = Guid.Parse("22222222-2222-2222-2222-222222222222");
@@ -597,7 +622,7 @@ public sealed class ActiveWorkoutCoordinatorTests : IDisposable
     }
 
     [Fact]
-    public async Task Schema_v5_upgrades_to_v6_with_null_effort_and_accepts_operation_type_11()
+    public async Task Schema_v5_upgrades_to_current_with_null_effort_and_accepts_operation_type_11()
     {
         var fixture = CreateFixture();
         await fixture.Coordinator.StartAsync([
@@ -618,7 +643,7 @@ public sealed class ActiveWorkoutCoordinatorTests : IDisposable
         await using var connection = await OpenRawAsync();
         await using var version = connection.CreateCommand();
         version.CommandText = "PRAGMA user_version;";
-        Assert.Equal(6, Convert.ToInt32(await version.ExecuteScalarAsync()));
+        Assert.Equal(TrackZLocalDatabase.CurrentSchemaVersion, Convert.ToInt32(await version.ExecuteScalarAsync()));
         await using var schema = connection.CreateCommand();
         schema.CommandText = "SELECT sql FROM sqlite_master WHERE type='table' AND name='OutboxOperation';";
         Assert.Contains("BETWEEN 1 AND 11", (string)(await schema.ExecuteScalarAsync())!, StringComparison.Ordinal);

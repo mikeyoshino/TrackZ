@@ -1368,12 +1368,12 @@ public sealed class SyncCoordinator(
                 await ExecuteAsync(connection, transaction, """
                     INSERT INTO LocalSet
                         (Id, OperationId, WorkoutExerciseId, SortOrder, WeightKg, AssistedKg,
-                         Reps, Effort, CompletedAt, UpdatedAt, DeletedAt, Version, BaseVersion)
+                         Reps, Effort, CompletedAt, UpdatedAt, DeletedAt, Version, BaseVersion, PlateCount)
                     VALUES ($id, $id, $exerciseId, $order, $weight, $assisted,
-                            $reps, $effort, $completedAt, $updatedAt, $deletedAt, $version, $version)
+                            $reps, $effort, $completedAt, $updatedAt, $deletedAt, $version, $version, $plateCount)
                     ON CONFLICT(Id) DO UPDATE SET
                         SortOrder = excluded.SortOrder, WeightKg = excluded.WeightKg,
-                        AssistedKg = excluded.AssistedKg, Reps = excluded.Reps,
+                        AssistedKg = excluded.AssistedKg, PlateCount = excluded.PlateCount, Reps = excluded.Reps,
                         Effort = excluded.Effort,
                         CompletedAt = excluded.CompletedAt, UpdatedAt = excluded.UpdatedAt,
                         DeletedAt = excluded.DeletedAt, Version = excluded.Version,
@@ -1381,6 +1381,7 @@ public sealed class SyncCoordinator(
                     """, cancellationToken,
                     ("$id", Id(set.Id)), ("$exerciseId", Id(exercise.Id)), ("$order", set.Order),
                     ("$weight", set.WeightKg), ("$assisted", set.AssistedKg), ("$reps", set.Reps),
+                    ("$plateCount", set.PlateCount),
                     ("$effort", set.Effort is null ? null : (int)set.Effort.Value),
                     ("$completedAt", Timestamp(set.CompletedAt)), ("$updatedAt", Timestamp(set.UpdatedAt)),
                     ("$deletedAt", Timestamp(set.DeletedAt)), ("$version", set.Version));
@@ -1535,7 +1536,7 @@ public sealed class SyncCoordinator(
                         && (!Utc(setDeletion)
                             || setDeletion < (set.UpdatedAt ?? set.CompletedAt))
                     || !ValidMeasurement(
-                        (TrackingMode)exercise.TrackingMode, set.WeightKg, set.AssistedKg))
+                        (TrackingMode)exercise.TrackingMode, set.WeightKg, set.AssistedKg, set.PlateCount))
                     throw new InvalidDataException("The authoritative set is malformed.");
                 var lastMutation = set.DeletedAt ?? set.UpdatedAt ?? set.CompletedAt;
                 if (exercise.DeletedAt is { } deletedExercise
@@ -1554,11 +1555,15 @@ public sealed class SyncCoordinator(
             var ordered = orders.Order().ToArray();
             return ordered.Select((value, index) => value == index).All(value => value);
         }
-        static bool ValidMeasurement(TrackingMode mode, string? weight, string? assisted) => mode switch
+        static bool ValidMeasurement(TrackingMode mode, string? weight, string? assisted, int? plateCount) => mode switch
         {
-            TrackingMode.Weighted => Kilograms(weight) && assisted is null,
-            TrackingMode.Bodyweight => weight is null && assisted is null,
-            TrackingMode.Assisted => weight is null && Kilograms(assisted),
+            TrackingMode.Weighted => assisted is null
+                && ((Kilograms(weight) && plateCount is null)
+                    || (weight is null && Plates(plateCount))),
+            TrackingMode.Bodyweight => weight is null && assisted is null && plateCount is null,
+            TrackingMode.Assisted => weight is null
+                && ((Kilograms(assisted) && plateCount is null)
+                    || (assisted is null && Plates(plateCount))),
             _ => false
         };
         static bool Kilograms(string? value)
@@ -1573,6 +1578,7 @@ public sealed class SyncCoordinator(
                 return false;
             return ((decimal.GetBits(kilograms)[3] >> 16) & 0xff) <= 3;
         }
+        static bool Plates(int? value) => value is >= 1 and <= 999;
     }
 
     private static async Task WriteCursorAsync(

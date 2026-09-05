@@ -245,7 +245,7 @@ public sealed class ExercisePickerViewModelTests : IAsyncLifetime
 
         Assert.True(item.IsSelected);
         Assert.Equal([item.Id], sut.SelectedExerciseIds);
-        Assert.Equal("Selected: 1", sut.SelectedCountText);
+        Assert.Equal("Selected 1 exercises", sut.SelectedCountText);
     }
 
     [Fact]
@@ -321,19 +321,19 @@ public sealed class ExercisePickerViewModelTests : IAsyncLifetime
 
         Assert.Equal("เลือกท่าออกกำลังกาย", sut.Text.ChooseExercises);
         Assert.Equal("ค้นหาท่าออกกำลังกาย", sut.Text.SearchExercises);
-        Assert.Equal("ทุกส่วนของร่างกาย", sut.Text.AllBodyParts);
-        Assert.Equal("ไม่พบท่าออกกำลังกายที่ตรงกับตัวกรอง", sut.Text.NoMatchingExercises);
+        Assert.Equal("เลือก 1 ส่วนเพื่อดูท่าออกกำลังกาย", sut.Text.AllBodyParts);
+        Assert.Equal("ยังไม่มีท่าออกกำลังกาย", sut.Text.NoMatchingExercises);
         Assert.Equal("สร้างท่าเอง", sut.Text.CreateCustom);
         Assert.Equal("เสร็จสิ้น", sut.Text.Done);
         Assert.Equal("เข้าสู่ระบบ", sut.Text.SignIn);
         Assert.Equal("ลองอีกครั้ง", sut.Text.TryAgain);
-        Assert.Equal("เลือกแล้ว: 0", sut.SelectedCountText);
+        Assert.Equal("เลือกแล้ว 0 ท่า", sut.SelectedCountText);
         Assert.Equal(["ทั้งหมด", "หน้าอก", "หลัง", "ไหล่", "แขน", "ขา", "แกนกลางลำตัว"],
             sut.BodyPartOptions.Select(item => item.Label));
 
         sut.ToggleSelectionCommand.Execute(exercise.Id);
 
-        Assert.Equal("เลือกแล้ว: 1", sut.SelectedCountText);
+        Assert.Equal("เลือกแล้ว 1 ท่า", sut.SelectedCountText);
     }
 
     [Fact]

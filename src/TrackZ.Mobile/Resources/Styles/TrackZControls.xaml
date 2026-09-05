@@ -13,19 +13,52 @@
     <x:Double x:Key="TrackZPrimaryActionHeight">52</x:Double>
     <x:Double x:Key="TrackZMinimumTarget">44</x:Double>
     <x:Double x:Key="TrackZFieldHeight">50</x:Double>
+    <x:Double x:Key="TrackZBodyAreaChoiceHeight">60</x:Double>
+    <x:Double x:Key="TrackZFilterTriggerWidth">220</x:Double>
+    <x:Double x:Key="TrackZFilterIconSize">22</x:Double>
+    <x:Double x:Key="TrackZChevronIconSize">20</x:Double>
+    <x:Double x:Key="TrackZEmptyStateIconSize">56</x:Double>
     <x:Double x:Key="TrackZExerciseCardHeight">112</x:Double>
     <x:Double x:Key="TrackZExerciseArtworkColumnWidth">88</x:Double>
     <x:Double x:Key="TrackZExerciseArtworkSize">88</x:Double>
+    <x:Double x:Key="TrackZCompactExerciseArtworkSize">72</x:Double>
+    <x:Double x:Key="TrackZEquipmentPhotoHeight">184</x:Double>
+    <x:Double x:Key="TrackZBrandMarkSize">64</x:Double>
+    <x:Double x:Key="TrackZAuthLogoSize">112</x:Double>
+    <x:Double x:Key="TrackZAuthFieldHeight">56</x:Double>
+    <x:Double x:Key="TrackZAuthPrimaryActionHeight">58</x:Double>
+    <x:Double x:Key="TrackZAuthBrandNameSize">32</x:Double>
+    <x:Double x:Key="TrackZAuthHeadlineSize">28</x:Double>
+    <x:Double x:Key="TrackZAuthHeadlineMaxWidth">370</x:Double>
+    <x:Double x:Key="TrackZAuthGlowHeight">460</x:Double>
+    <x:Double x:Key="TrackZCreateAccountLogoSize">80</x:Double>
     <x:Double x:Key="TrackZArtworkRadius">14</x:Double>
     <x:Double x:Key="TrackZAuthHeaderMinimumHeight">112</x:Double>
     <Thickness x:Key="TrackZPageHorizontalPadding">18,0</Thickness>
     <Thickness x:Key="TrackZPageContentPadding">18,16,18,24</Thickness>
+    <Thickness x:Key="TrackZHomePagePadding">24,16,24,32</Thickness>
     <Thickness x:Key="TrackZPageBottomContentPadding">18,0,18,24</Thickness>
     <Thickness x:Key="TrackZAuthGatePadding">18,24</Thickness>
     <Thickness x:Key="TrackZVerticalRowPadding">0,8</Thickness>
+    <Thickness x:Key="TrackZAuthFlowPadding">0,60,0,40</Thickness>
+    <Thickness x:Key="TrackZAuthHeadlineMargin">0,24,0,0</Thickness>
+    <Thickness x:Key="TrackZAuthFormMargin">0,44,0,0</Thickness>
+    <Thickness x:Key="TrackZAuthActionsMargin">0,24,0,0</Thickness>
+    <Thickness x:Key="TrackZCreateAccountFlowPadding">0,12,0,32</Thickness>
+    <Thickness x:Key="TrackZCreateAccountBrandMargin">0,4,0,0</Thickness>
+    <Thickness x:Key="TrackZCreateAccountHeadlineMargin">0,16,0,0</Thickness>
+    <Thickness x:Key="TrackZCreateAccountFormMargin">0,32,0,0</Thickness>
 
     <Style x:Key="TrackZAuthHeaderStyle" TargetType="VerticalStackLayout">
         <Setter Property="MinimumHeightRequest" Value="{StaticResource TrackZAuthHeaderMinimumHeight}" />
+    </Style>
+
+    <Style x:Key="TrackZBrandMarkStyle" TargetType="Border">
+        <Setter Property="WidthRequest" Value="{StaticResource TrackZBrandMarkSize}" />
+        <Setter Property="HeightRequest" Value="{StaticResource TrackZBrandMarkSize}" />
+        <Setter Property="BackgroundColor" Value="{StaticResource TrackZPrimary}" />
+        <Setter Property="StrokeThickness" Value="0" />
+        <Setter Property="StrokeShape" Value="RoundRectangle 18" />
     </Style>
 
     <Style x:Key="TrackZPrimaryButtonStyle" TargetType="Button">
@@ -106,12 +139,22 @@
         <Setter Property="StrokeShape" Value="RoundRectangle 16" />
     </Style>
     <Style x:Key="TrackZHomeHeroStyle" TargetType="Border">
-        <Setter Property="MinimumHeightRequest" Value="172" />
+        <Setter Property="MinimumHeightRequest" Value="160" />
         <Setter Property="Padding" Value="{StaticResource TrackZSpace16}" />
         <Setter Property="BackgroundColor" Value="{StaticResource TrackZSurfaceRaised}" />
         <Setter Property="Stroke" Value="{StaticResource TrackZPrimary}" />
         <Setter Property="StrokeThickness" Value="1" />
         <Setter Property="StrokeShape" Value="RoundRectangle 24" />
+    </Style>
+    <Style x:Key="TrackZHomeGoalCardStyle" TargetType="Border" BasedOn="{StaticResource TrackZCardStyle}">
+        <Setter Property="MinimumHeightRequest" Value="148" />
+        <Setter Property="Padding" Value="16" />
+        <Setter Property="StrokeShape" Value="RoundRectangle 20" />
+    </Style>
+    <Style x:Key="TrackZHomeEmptyCardStyle" TargetType="Border" BasedOn="{StaticResource TrackZCardStyle}">
+        <Setter Property="MinimumHeightRequest" Value="208" />
+        <Setter Property="Padding" Value="24" />
+        <Setter Property="StrokeShape" Value="RoundRectangle 20" />
     </Style>
     <Style x:Key="TrackZHomeMetricCardStyle" TargetType="Border">
         <Setter Property="MinimumHeightRequest" Value="76" />
@@ -125,6 +168,10 @@
         <Setter Property="BackgroundColor" Value="{StaticResource TrackZSurfaceRaised}" />
         <Setter Property="StrokeThickness" Value="0" />
         <Setter Property="StrokeShape" Value="RoundRectangle 14" />
+    </Style>
+    <Style x:Key="TrackZEquipmentPhotoStyle" TargetType="Border" BasedOn="{StaticResource TrackZArtworkFrameStyle}">
+        <Setter Property="HeightRequest" Value="{StaticResource TrackZEquipmentPhotoHeight}" />
+        <Setter Property="StrokeShape" Value="RoundRectangle 20" />
     </Style>
     <Style x:Key="TrackZListRowStyle" TargetType="Border">
         <Setter Property="Padding" Value="{StaticResource TrackZSpace12}" />
@@ -163,5 +210,39 @@
         <Setter Property="FontSize" Value="15" />
         <Setter Property="MinimumHeightRequest" Value="{StaticResource TrackZFieldHeight}" />
         <Setter Property="MinimumWidthRequest" Value="{StaticResource TrackZMinimumTarget}" />
+    </Style>
+    <Style x:Key="TrackZAuthFieldContainerStyle" TargetType="Border" BasedOn="{StaticResource TrackZFieldContainerStyle}">
+        <Setter Property="MinimumHeightRequest" Value="{StaticResource TrackZAuthFieldHeight}" />
+        <Setter Property="Padding" Value="16,0" />
+        <Setter Property="BackgroundColor" Value="{StaticResource TrackZAuthSurface}" />
+        <Setter Property="Stroke" Value="{StaticResource TrackZAuthBorder}" />
+        <Setter Property="StrokeThickness" Value="1" />
+        <Setter Property="StrokeShape" Value="RoundRectangle 18" />
+    </Style>
+    <Style x:Key="TrackZAuthFieldStyle" TargetType="Entry" BasedOn="{StaticResource TrackZFieldStyle}">
+        <Setter Property="MinimumHeightRequest" Value="{StaticResource TrackZAuthFieldHeight}" />
+        <Setter Property="FontFamily" Value="NotoSansThaiRegular" />
+        <Setter Property="FontSize" Value="16" />
+    </Style>
+    <Style x:Key="TrackZAuthPrimaryButtonStyle" TargetType="Button" BasedOn="{StaticResource TrackZPrimaryButtonStyle}">
+        <Setter Property="MinimumHeightRequest" Value="{StaticResource TrackZAuthPrimaryActionHeight}" />
+        <Setter Property="CornerRadius" Value="18" />
+        <Setter Property="FontFamily" Value="NotoSansThaiSemiBold" />
+        <Setter Property="FontAttributes" Value="None" />
+        <Setter Property="FontSize" Value="18" />
+    </Style>
+    <Style x:Key="TrackZAuthLinkButtonStyle" TargetType="Button" BasedOn="{StaticResource TrackZQuietButtonStyle}">
+        <Setter Property="Margin" Value="0" />
+        <Setter Property="Padding" Value="8,0" />
+        <Setter Property="FontFamily" Value="NotoSansThaiMedium" />
+        <Setter Property="TextColor" Value="{StaticResource TrackZPrimary}" />
+    </Style>
+    <Style x:Key="TrackZAuthBackButtonStyle" TargetType="ImageButton">
+        <Setter Property="WidthRequest" Value="{StaticResource TrackZMinimumTarget}" />
+        <Setter Property="HeightRequest" Value="{StaticResource TrackZMinimumTarget}" />
+        <Setter Property="Padding" Value="12" />
+        <Setter Property="CornerRadius" Value="22" />
+        <Setter Property="BackgroundColor" Value="Transparent" />
+        <Setter Property="HorizontalOptions" Value="Start" />
     </Style>
 </ResourceDictionary>

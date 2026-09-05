@@ -13,6 +13,7 @@ public partial class WorkoutPage : ContentPage
         InitializeComponent();
         BindingContext = _viewModel = viewModel;
         exercisePicker.SelectionCompleted += OnSelectionCompleted;
+        _viewModel.ExerciseLoggingRequested += OnExerciseLoggingRequested;
         _viewModel.WorkoutFinished += OnWorkoutFinished;
         _viewModel.WorkoutDiscarded += OnWorkoutDiscarded;
         OpenLoggerCommand = new Command<WorkoutExerciseDraftItem>(OpenLogger);
@@ -38,6 +39,9 @@ public partial class WorkoutPage : ContentPage
         var query = $"exerciseId={exercise.ExerciseDefinitionId:D}&name={Uri.EscapeDataString(exercise.Name)}";
         await Shell.Current.GoToAsync($"{nameof(SetLoggerPage)}?{query}");
     }
+
+    private void OnExerciseLoggingRequested(object? sender, WorkoutExerciseDraftItem exercise) =>
+        OpenLogger(exercise);
 
     private async void OnWorkoutFinished(object? sender, Guid workoutId) =>
         await Shell.Current.GoToAsync($"{nameof(WorkoutSummaryPage)}?workoutId={workoutId:D}");

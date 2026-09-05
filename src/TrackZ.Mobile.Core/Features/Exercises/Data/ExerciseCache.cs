@@ -80,7 +80,8 @@ public sealed class ExerciseCache
             SELECT Id, Name, BodyPart, TrackingMode, ThumbnailUri, LastPerformedAt,
                    LastBestWeightKg, LastBestAssistedKg, LastBestReps,
                    AllTimeBestWeightKg, AllTimeBestAssistedKg, AllTimeBestReps,
-                   IsCustom, IsPendingSync, LastSyncedAt, LibraryImageId, RemoteThumbnailRoute
+                   IsCustom, IsPendingSync, LastSyncedAt, LibraryImageId, RemoteThumbnailRoute,
+                   LastBestPlateCount, AllTimeBestPlateCount
             FROM cached_exercises
             ORDER BY Name COLLATE NOCASE, Id;
             """;
@@ -498,6 +499,8 @@ public sealed class ExerciseCache
                     AllTimeBestWeightKg TEXT NULL,
                     AllTimeBestAssistedKg TEXT NULL,
                     AllTimeBestReps INTEGER NULL,
+                    LastBestPlateCount INTEGER NULL,
+                    AllTimeBestPlateCount INTEGER NULL,
                     IsCustom INTEGER NOT NULL,
                     IsPendingSync INTEGER NOT NULL,
                     LastSyncedAt TEXT NOT NULL,
@@ -533,6 +536,8 @@ public sealed class ExerciseCache
             await command.ExecuteNonQueryAsync(cancellationToken);
             await EnsureColumnAsync(connection, "cached_exercises", "LibraryImageId", "TEXT NULL", cancellationToken);
             await EnsureColumnAsync(connection, "cached_exercises", "RemoteThumbnailRoute", "TEXT NULL", cancellationToken);
+            await EnsureColumnAsync(connection, "cached_exercises", "LastBestPlateCount", "INTEGER NULL", cancellationToken);
+            await EnsureColumnAsync(connection, "cached_exercises", "AllTimeBestPlateCount", "INTEGER NULL", cancellationToken);
             await using (var normalizeLegacyThumbnail = connection.CreateCommand())
             {
                 normalizeLegacyThumbnail.CommandText = """
@@ -610,11 +615,13 @@ public sealed class ExerciseCache
                 (Id, Name, BodyPart, TrackingMode, ThumbnailUri, RemoteThumbnailRoute, LastPerformedAt,
                  LastBestWeightKg, LastBestAssistedKg, LastBestReps,
                  AllTimeBestWeightKg, AllTimeBestAssistedKg, AllTimeBestReps,
+                 LastBestPlateCount, AllTimeBestPlateCount,
                  IsCustom, IsPendingSync, LastSyncedAt, LibraryImageId)
             VALUES
                 ($id, $name, $bodyPart, $trackingMode, $thumbnailUri, $remoteThumbnailRoute, $lastPerformedAt,
                  $lastWeight, $lastAssisted, $lastReps,
                  $bestWeight, $bestAssisted, $bestReps,
+                 $lastPlateCount, $bestPlateCount,
                  $isCustom, $isPendingSync, $lastSyncedAt, $libraryImageId)
             ON CONFLICT(Id) DO UPDATE SET
                 Name = excluded.Name,
@@ -629,6 +636,8 @@ public sealed class ExerciseCache
                 AllTimeBestWeightKg = excluded.AllTimeBestWeightKg,
                 AllTimeBestAssistedKg = excluded.AllTimeBestAssistedKg,
                 AllTimeBestReps = excluded.AllTimeBestReps,
+                LastBestPlateCount = excluded.LastBestPlateCount,
+                AllTimeBestPlateCount = excluded.AllTimeBestPlateCount,
                 IsCustom = excluded.IsCustom,
                 IsPendingSync = excluded.IsPendingSync,
                 LastSyncedAt = excluded.LastSyncedAt,
@@ -648,6 +657,8 @@ public sealed class ExerciseCache
         Add(command, "$bestWeight", Decimal(exercise.AllTimeBest?.WeightKg));
         Add(command, "$bestAssisted", Decimal(exercise.AllTimeBest?.AssistedKg));
         Add(command, "$bestReps", exercise.AllTimeBest?.Reps);
+        Add(command, "$lastPlateCount", exercise.LastBestSet?.PlateCount);
+        Add(command, "$bestPlateCount", exercise.AllTimeBest?.PlateCount);
         Add(command, "$isCustom", exercise.IsCustom ? 1 : 0);
         Add(command, "$isPendingSync", exercise.IsPendingSync ? 1 : 0);
         Add(command, "$lastSyncedAt", Format(exercise.LastSyncedAt));
@@ -664,8 +675,8 @@ public sealed class ExerciseCache
         ThumbnailUri = reader.IsDBNull(4) ? null : reader.GetString(4),
         RemoteThumbnailRoute = reader.IsDBNull(16) ? null : reader.GetString(16),
         LastPerformedAt = reader.IsDBNull(5) ? null : Parse(reader.GetString(5)),
-        LastBestSet = Set(reader, 6, 7, 8),
-        AllTimeBest = Set(reader, 9, 10, 11),
+        LastBestSet = Set(reader, 6, 7, 8, 17),
+        AllTimeBest = Set(reader, 9, 10, 11, 18),
         IsCustom = reader.GetInt32(12) != 0,
         IsPendingSync = reader.GetInt32(13) != 0,
         LastSyncedAt = Parse(reader.GetString(14)),
@@ -693,13 +704,19 @@ public sealed class ExerciseCache
     private static bool IsLocalThumbnail(string path) =>
         !Uri.TryCreate(path, UriKind.Absolute, out var uri) || uri.IsFile;
 
-    private static PerformanceSetDto? Set(SqliteDataReader reader, int weightIndex, int assistedIndex, int repsIndex) =>
+    private static PerformanceSetDto? Set(
+        SqliteDataReader reader,
+        int weightIndex,
+        int assistedIndex,
+        int repsIndex,
+        int plateCountIndex) =>
         reader.IsDBNull(repsIndex)
             ? null
             : new PerformanceSetDto(
                 reader.IsDBNull(weightIndex) ? null : decimal.Parse(reader.GetString(weightIndex), CultureInfo.InvariantCulture),
                 reader.IsDBNull(assistedIndex) ? null : decimal.Parse(reader.GetString(assistedIndex), CultureInfo.InvariantCulture),
-                reader.GetInt32(repsIndex));
+                reader.GetInt32(repsIndex),
+                reader.IsDBNull(plateCountIndex) ? null : reader.GetInt32(plateCountIndex));
 
     private static void Validate(IEnumerable<ExerciseSummaryDto> exercises)
     {

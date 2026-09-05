@@ -87,7 +87,8 @@ internal sealed record SaveSetSyncPayload(
     string? WeightKg,
     string? AssistedKg,
     int Reps,
-    DateTimeOffset CompletedAt);
+    DateTimeOffset CompletedAt,
+    int? PlateCount = null);
 
 internal sealed record CompleteWorkoutSyncPayload(
     Guid WorkoutId,
@@ -100,7 +101,8 @@ internal sealed record EditSetSyncPayload(
     string? WeightKg,
     string? AssistedKg,
     int Reps,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    int? PlateCount = null);
 
 internal sealed record RecordSetEffortSyncPayload(
     Guid WorkoutId,

@@ -20,6 +20,8 @@ public sealed class SetEntry
 
     public decimal? AssistedKg { get; private set; }
 
+    public int? PlateCount { get; private set; }
+
     public int Reps { get; private set; }
 
     public SetEffortRating? Effort { get; private set; }
@@ -34,7 +36,7 @@ public sealed class SetEntry
 
     public long Version { get; private set; }
 
-    public SetMeasurement Measurement => new(WeightKg, AssistedKg, Reps);
+    public SetMeasurement Measurement => new(WeightKg, AssistedKg, Reps, PlateCount);
 
     internal DateTimeOffset LastMutationAt
     {
@@ -71,6 +73,7 @@ public sealed class SetEntry
             Order = order,
             WeightKg = measurement.WeightKg,
             AssistedKg = measurement.AssistedKg,
+            PlateCount = measurement.PlateCount,
             Reps = measurement.Reps,
             CompletedAt = completedAt,
             Version = 1
@@ -98,6 +101,7 @@ public sealed class SetEntry
 
         WeightKg = measurement.WeightKg;
         AssistedKg = measurement.AssistedKg;
+        PlateCount = measurement.PlateCount;
         Reps = measurement.Reps;
         UpdatedAt = updatedAt;
         Version++;

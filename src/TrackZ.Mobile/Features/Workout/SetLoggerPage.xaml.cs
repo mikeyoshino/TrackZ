@@ -1,5 +1,8 @@
 using System.ComponentModel;
 using TrackZ.Mobile.Identity;
+using TrackZ.Mobile.Features.Coach;
+using TrackZ.Mobile.Features.Exercises;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace TrackZ.Mobile.Features.Workout;
 
@@ -21,6 +24,7 @@ public partial class SetLoggerPage : ContentPage, IQueryAttributable
     private bool _restoreAddFocusWhenReady;
     private CancellationTokenSource? _draftTransitionCancellation;
     private EffortSheetLifetime? _effortSheetLifetime;
+    private CancellationTokenSource? _coachTargetLifetime;
 
     public SetLoggerPage(
         SetLoggerViewModel viewModel,
@@ -85,20 +89,88 @@ public partial class SetLoggerPage : ContentPage, IQueryAttributable
         BindingContext = _viewModel;
     }
 
-    protected override void OnAppearing()
+    protected override async void OnAppearing()
     {
         base.OnAppearing();
+        if (_deactivated) return;
+        _sessionBoundary.SessionReset -= OnCoachSessionReset;
+        _sessionBoundary.SessionReset += OnCoachSessionReset;
+        RefreshWeightUnitButtons();
+        FinishExerciseButton.Text = CoachCopy.T("จบท่านี้ · เช็กการฝึก", "Finish exercise · quick check-in");
+        WarmupSetLabel.Text = CoachCopy.T("เซ็ตวอร์มอัป · ไม่รวมในรายงาน", "Warm-up set · excluded from report");
+        SemanticProperties.SetDescription(WarmupSetSwitch, WarmupSetLabel.Text);
         SubscribeFeedback();
         SubscribeDraftTransition();
         SubscribeEffortPrompt();
+        _coachTargetLifetime?.Cancel();
+        _coachTargetLifetime?.Dispose();
+        _coachTargetLifetime = new CancellationTokenSource();
+        await LoadCoachTargetAsync(_coachTargetLifetime.Token);
+    }
+
+    private async Task LoadCoachTargetAsync(CancellationToken token)
+    {
+        CoachTargetHost.Children.Clear(); CoachTargetHost.IsVisible = false;
+        if (Handler?.MauiContext?.Services is not { } services) return;
+        var generation = _sessionBoundary.Capture();
+        try
+        {
+            using var lease = _sessionBoundary.CreateCancellationLease(generation, token);
+            var report = await services.GetRequiredService<TrainingCoachSource>().LoadAsync(lease.Token);
+            var exercise = report.Exercises.FirstOrDefault(e => e.Id == _viewModel.ExerciseDefinitionId && e.Accepted && e.Recommendation.IsIncrease);
+            if (exercise is null) return;
+            await _sessionBoundary.TryCommitAsync(generation, _ =>
+            {
+                CoachTargetHost.Children.Add(CoachUi.Card(CoachUi.Stack(
+                    CoachUi.Label(CoachCopy.T("เป้าหมายที่คุณเลือกไว้", "Your chosen target"), 14, true),
+                    CoachUi.Label(CoachCopy.Target(exercise, services.GetRequiredService<IWeightUnitPreference>().Current), 21),
+                    CoachUi.Label(CoachCopy.T("ถ้ายังคุมท่าได้ · ไม่เปลี่ยนน้ำหนักให้อัตโนมัติ", "Only with good control · load is not changed automatically"), 12, true))));
+                CoachTargetHost.IsVisible = true;
+                return Task.CompletedTask;
+            }, lease.Token);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception) { /* Optional target must never prevent set logging. */ }
+    }
+
+    private async void OnFinishExerciseClicked(object? sender, EventArgs args)
+    {
+        if (_deactivated || !_viewModel.HasTodaySets || Handler?.MauiContext?.Services is not { } services) return;
+        FinishExerciseButton.IsEnabled = false;
+        try
+        {
+            var page = new ExerciseCheckInPage(services.GetRequiredService<TrainingCoachSource>(),
+                services.GetRequiredService<CoachJournal>(), _sessionBoundary,
+                services.GetRequiredService<IWeightUnitPreference>(), services.GetRequiredService<IExerciseGuidancePreferenceStore>(),
+                services.GetRequiredService<IClock>(), _viewModel.ExerciseDefinitionId);
+            await Navigation.PushAsync(page, false);
+        }
+        finally { if (!_deactivated) FinishExerciseButton.IsEnabled = true; }
     }
 
     protected override void OnDisappearing()
     {
+        _sessionBoundary.SessionReset -= OnCoachSessionReset;
+        ClearCoachTarget();
         UnsubscribeFeedback();
         UnsubscribeDraftTransition();
         UnsubscribeEffortPrompt();
         base.OnDisappearing();
+    }
+
+    private void OnCoachSessionReset(object? sender, EventArgs args) => ClearCoachTarget();
+
+    private void ClearCoachTarget()
+    {
+        _coachTargetLifetime?.Cancel();
+        void Clear()
+        {
+            CoachTargetHost.Children.Clear();
+            CoachTargetHost.IsVisible = false;
+            WarmupSetSwitch.IsToggled = false;
+        }
+        if (Dispatcher.IsDispatchRequired) Dispatcher.Dispatch(Clear);
+        else Clear();
     }
 
     protected override void OnParentSet()
@@ -122,6 +194,8 @@ public partial class SetLoggerPage : ContentPage, IQueryAttributable
             lifetime = _effortSheetLifetime;
             _effortSheetLifetime = null;
         }
+        _sessionBoundary.SessionReset -= OnCoachSessionReset;
+        ClearCoachTarget();
         UnsubscribeFeedback();
         UnsubscribeDraftTransition();
         UnsubscribeEffortPrompt();
@@ -140,11 +214,26 @@ public partial class SetLoggerPage : ContentPage, IQueryAttributable
         await _viewModel.LoadAsync(exerciseId, Uri.UnescapeDataString(rawName.ToString()!));
     }
 
-    private Task OnSetSavedAsync(SetSavedPresentation presentation, SetSavedFeedbackSession session)
+    private async Task OnSetSavedAsync(SetSavedPresentation presentation, SetSavedFeedbackSession session)
     {
+        var warmup = WarmupSetSwitch.IsToggled;
+        if (Handler?.MauiContext?.Services.GetService<CoachJournal>() is { } journal)
+        {
+            var generation = _sessionBoundary.Capture();
+            try
+            {
+                // If optional classification fails, the set remains explicitly
+                // unclassified and can be labelled in the exercise check-in.
+                await _sessionBoundary.TryCommitAsync(generation,
+                    token => journal.SetWarmupAsync(presentation.Set.Id, warmup, token), session.CancellationToken);
+            }
+            catch (OperationCanceledException) { return; }
+            catch (Exception) { }
+        }
+        WarmupSetSwitch.IsToggled = false;
         SavedPrimary.Text = presentation.PrimaryText;
         SavedSecondary.Text = presentation.SecondaryText;
-        return RunSavedAnimationAsync(presentation, session);
+        await RunSavedAnimationAsync(presentation, session);
     }
 
     private void SubscribeFeedback()
@@ -255,6 +344,11 @@ public partial class SetLoggerPage : ContentPage, IQueryAttributable
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs eventArgs)
     {
         if (_deactivated) return;
+        if (eventArgs.PropertyName == nameof(SetLoggerViewModel.DisplayUnit))
+        {
+            RefreshWeightUnitButtons();
+            return;
+        }
         if (eventArgs.PropertyName == nameof(SetLoggerViewModel.IsBusy))
         {
             if (!_viewModel.IsBusy && _restoreAddFocusWhenReady) RestoreAddFocus();
@@ -277,6 +371,12 @@ public partial class SetLoggerPage : ContentPage, IQueryAttributable
         }
         RestoreAddFocus();
     }
+
+    private void RefreshWeightUnitButtons() =>
+        WeightUnitButtonPresenter.Apply(
+            KilogramsButton,
+            PoundsButton,
+            _viewModel.DisplayUnit);
 
     private void RestoreAddFocus()
     {

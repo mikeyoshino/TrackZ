@@ -18,9 +18,10 @@
   <data name="OptionalExerciseImage" xml:space="preserve"><value>รูปท่า (ไม่บังคับ)</value></data>
   <data name="ExerciseImageOptionalHelp" xml:space="preserve"><value>เพิ่มรูปเอง หรือเลือกจากคลัง</value></data>
   <data name="AddExerciseImage" xml:space="preserve"><value>เพิ่มรูป</value></data>
+  <data name="CaptureExerciseImage" xml:space="preserve"><value>ถ่ายรูปเครื่องเล่น</value></data>
   <data name="HideExerciseImages" xml:space="preserve"><value>ซ่อน</value></data>
   <data name="ExerciseImagePlaceholder" xml:space="preserve"><value>รูปท่า</value></data>
-  <data name="ChooseExerciseImage" xml:space="preserve"><value>เลือกรูปจากเครื่อง</value></data>
+  <data name="ChooseExerciseImage" xml:space="preserve"><value>เลือกจากคลัง</value></data>
   <data name="ChooseFromExerciseLibrary" xml:space="preserve"><value>เลือกจากคลังรูป</value></data>
   <data name="PublishedLibraryImages" xml:space="preserve"><value>รูปจากคลังที่เผยแพร่</value></data>
   <data name="ExerciseImageRetentionHelp" xml:space="preserve"><value>แอปจะเก็บไฟล์ต้นฉบับไว้อย่างปลอดภัยเพื่ออัปโหลด และปรับขนาดเฉพาะภาพตัวอย่าง คุณยังเลือกรูปจากคลังที่เผยแพร่แล้วได้</value></data>

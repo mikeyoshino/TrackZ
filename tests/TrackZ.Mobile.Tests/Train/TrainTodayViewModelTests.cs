@@ -409,7 +409,7 @@ public sealed class TrainTodayViewModelTests
         Assert.Equal("This week you completed 1 of 3 workouts", viewModel.WeeklyGoalSentenceText);
         Assert.Equal("Goal met 4 weeks in a row", viewModel.WeeklyStreakSentenceText);
         Assert.True(viewModel.HasWeeklyStreak);
-        Assert.Equal("Latest performance", viewModel.Text.HomeLatestPerformance);
+        Assert.Equal("Latest workout", viewModel.Text.HomeLatestPerformance);
         Assert.Equal("Bench Press", viewModel.LatestPerformanceTitle);
         Assert.Equal("70.125 kg × 8 reps", viewModel.LatestPerformanceValue);
         Assert.Equal("72.5 kg × 6 reps", viewModel.BestPerformanceValue);
@@ -498,9 +498,9 @@ public sealed class TrainTodayViewModelTests
     [InlineData(
         "en-US",
         "Ready when you are.",
-        "Start training",
-        "Choose today's workout",
-        "You choose the body area and exercises",
+        "TODAY",
+        "Choose your workout",
+        "Choose a body area or build your own routine",
         "This week you completed 3 of 4 workouts",
         "Goal met 4 weeks in a row",
         "Shoulders + Back",
@@ -513,9 +513,9 @@ public sealed class TrainTodayViewModelTests
     [InlineData(
         "th-TH",
         "พร้อมเมื่อไหร่ เริ่มได้เลย",
-        "เริ่มฝึก",
-        "เลือกการฝึกวันนี้",
-        "คุณเลือกส่วนร่างกายและท่าออกกำลังกายเอง",
+        "วันนี้",
+        "เลือกการฝึกของคุณ",
+        "เลือกส่วนร่างกายหรือสร้างโปรแกรมเอง",
         "สัปดาห์นี้ฝึกแล้ว 3 จากเป้าหมาย 4 ครั้ง",
         "ทำถึงเป้า 4 สัปดาห์ติด",
         "ไหล่ + หลัง",

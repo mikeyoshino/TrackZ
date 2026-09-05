@@ -137,9 +137,14 @@ public sealed class ExerciseHistoryCache
                 throw new InvalidDataException("Exercise history set identity or order is invalid.");
             var validShape = session.TrackingMode switch
             {
-                TrackingMode.Weighted => set.WeightKg is > 0m && set.AssistedKg is null,
-                TrackingMode.Bodyweight => set.WeightKg is null && set.AssistedKg is null,
-                TrackingMode.Assisted => set.WeightKg is null && set.AssistedKg is > 0m,
+                TrackingMode.Weighted => set.AssistedKg is null
+                    && ((set.WeightKg is > 0m && set.PlateCount is null)
+                        || (set.WeightKg is null && set.PlateCount is >= 1 and <= 999)),
+                TrackingMode.Bodyweight => set.WeightKg is null && set.AssistedKg is null
+                    && set.PlateCount is null,
+                TrackingMode.Assisted => set.WeightKg is null
+                    && ((set.AssistedKg is > 0m && set.PlateCount is null)
+                        || (set.AssistedKg is null && set.PlateCount is >= 1 and <= 999)),
                 _ => false
             };
             if (!validShape) throw new InvalidDataException("Exercise history set shape is invalid.");
@@ -244,7 +249,8 @@ public sealed class CachedExerciseHistorySource(
                     set.Reps,
                     set.CompletedAt,
                     set.UpdatedAt,
-                    set.Effort))
+                    set.Effort,
+                    set.PlateCount))
                 .ToArray();
             if (sets.Length == 0) continue;
             return new ExerciseHistorySessionDto(
@@ -252,7 +258,8 @@ public sealed class CachedExerciseHistorySource(
                 workout.CompletedAt!.Value,
                 exercise.TrackingMode,
                 exercise.TrackingMode == TrackingMode.Weighted
-                    ? sets.Sum(set => set.WeightKg!.Value * set.Reps)
+                    ? sets.Where(set => set.WeightKg is not null)
+                        .Sum(set => set.WeightKg!.Value * set.Reps)
                     : 0m,
                 sets);
         }

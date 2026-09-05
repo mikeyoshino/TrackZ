@@ -18,9 +18,11 @@ public sealed class ExercisePerformance
     public DateTimeOffset? LastPerformedAt { get; private set; }
     public decimal? LastBestWeightKg { get; private set; }
     public decimal? LastBestAssistedKg { get; private set; }
+    public int? LastBestPlateCount { get; private set; }
     public int? LastBestReps { get; private set; }
     public decimal? AllTimeBestWeightKg { get; private set; }
     public decimal? AllTimeBestAssistedKg { get; private set; }
+    public int? AllTimeBestPlateCount { get; private set; }
     public int? AllTimeBestReps { get; private set; }
 
     public static ExercisePerformance Create(
@@ -66,9 +68,11 @@ public sealed class ExercisePerformance
         LastPerformedAt = lastPerformedAt.ToUniversalTime();
         LastBestWeightKg = lastBestSet.WeightKg;
         LastBestAssistedKg = lastBestSet.AssistedKg;
+        LastBestPlateCount = lastBestSet.PlateCount;
         LastBestReps = lastBestSet.Reps;
         AllTimeBestWeightKg = allTimeBest.WeightKg;
         AllTimeBestAssistedKg = allTimeBest.AssistedKg;
+        AllTimeBestPlateCount = allTimeBest.PlateCount;
         AllTimeBestReps = allTimeBest.Reps;
     }
 
@@ -77,13 +81,22 @@ public sealed class ExercisePerformance
         if (set is null) return;
         var valid = trackingMode switch
         {
-            TrackingMode.Weighted => set.WeightKg is > 0m && set.AssistedKg is null && set.Reps > 0,
-            TrackingMode.Bodyweight => set.WeightKg is null && set.AssistedKg is null && set.Reps > 0,
-            TrackingMode.Assisted => set.WeightKg is null && set.AssistedKg is > 0m && set.Reps > 0,
+            TrackingMode.Weighted => set.AssistedKg is null && set.Reps > 0
+                && ((set.WeightKg is > 0m && set.PlateCount is null)
+                    || (set.WeightKg is null && set.PlateCount is >= 1 and <= 999)),
+            TrackingMode.Bodyweight => set.WeightKg is null && set.AssistedKg is null
+                && set.PlateCount is null && set.Reps > 0,
+            TrackingMode.Assisted => set.WeightKg is null && set.Reps > 0
+                && ((set.AssistedKg is > 0m && set.PlateCount is null)
+                    || (set.AssistedKg is null && set.PlateCount is >= 1 and <= 999)),
             _ => false
         };
         if (!valid) throw new ArgumentException("The performance set does not match the tracking mode.", parameterName);
     }
 }
 
-public sealed record ExercisePerformanceSet(decimal? WeightKg, decimal? AssistedKg, int Reps);
+public sealed record ExercisePerformanceSet(
+    decimal? WeightKg,
+    decimal? AssistedKg,
+    int Reps,
+    int? PlateCount = null);

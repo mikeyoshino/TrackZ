@@ -12,6 +12,7 @@ public sealed class TrackSetsVisualContractTests
     {
         var page = XDocument.Load(Path.Combine(Root(), "src/TrackZ.Mobile/Features/Workout/SetLoggerPage.xaml"));
         var content = page.Descendants().Single(element => Name(element) == "TrackSetsContent");
+        Assert.Equal("False", page.Root!.Attribute("Shell.TabBarIsVisible")?.Value);
 
         var exercise = content.Elements().Single(element => Name(element) == "ExerciseSummary");
         var editor = content.Elements().Single(element => Name(element) == "InlineSetEditor");
@@ -41,7 +42,10 @@ public sealed class TrackSetsVisualContractTests
             referenceReason.Attribute("Style")?.Value);
         Assert.Equal("{Binding PreviousReferenceReason}",
             referenceReason.Attribute("Text")?.Value);
-        Assert.Equal(children.IndexOf(exercise) + 1, children.IndexOf(reference));
+        var coachTarget = content.Elements().Single(element => Name(element) == "CoachTargetHost");
+        Assert.Equal("False", coachTarget.Attribute("IsVisible")?.Value);
+        Assert.Equal(children.IndexOf(exercise) + 1, children.IndexOf(coachTarget));
+        Assert.Equal(children.IndexOf(coachTarget) + 1, children.IndexOf(reference));
         Assert.True(children.IndexOf(reference) < children.IndexOf(editor));
 
         Assert.True(children.IndexOf(exercise) < children.IndexOf(editor));
@@ -52,12 +56,31 @@ public sealed class TrackSetsVisualContractTests
 
         var draftControls = editor.Descendants().Single(element => Name(element) == "DraftControlGrid");
         Assert.Equal("*,*", draftControls.Attribute("ColumnDefinitions")?.Value);
+        Assert.Null(editor.Attribute("Stroke"));
+        Assert.Contains(editor.Descendants(), element => Name(element) == "CloseDraftSetButton");
+        Assert.Contains(editor.Descendants(), element => Name(element) == "KilogramsButton");
+        Assert.Contains(editor.Descendants(), element => Name(element) == "PoundsButton");
+        Assert.Contains(editor.Descendants(), element => Name(element) == "DraftWeightCard");
+        Assert.Contains(editor.Descendants(), element => Name(element) == "DraftRepsCard");
         Assert.Contains(editor.Descendants(), element => Name(element) == "SaveDraftSetButton");
         Assert.DoesNotContain(
             page.Root!.Elements().Where(element => element.Name.LocalName == "Grid").SelectMany(element => element.Elements()),
             element => Name(element) == "SaveDraftSetButton");
 
         Assert.Equal("{Binding HasTodaySets}", today.Attribute("IsVisible")?.Value);
+        var empty = content.Elements().Single(element => Name(element) == "EmptyTodaySetsSection");
+        Assert.Equal("{Binding ShowsEmptyTodaySets}", empty.Attribute("IsVisible")?.Value);
+        var add = page.Descendants().Single(element => Name(element) == "AddSetButton");
+        Assert.Equal("{Binding AddNextSetText}", add.Attribute("Text")?.Value);
+        foreach (var badgeLabelName in new[] { "EmptyTodaySetCount", "TodaySetCount" })
+        {
+            var badgeLabel = page.Descendants().Single(element =>
+                Name(element) == badgeLabelName);
+            Assert.Equal("Center", badgeLabel.Attribute("HorizontalTextAlignment")?.Value);
+            Assert.Equal("Center", badgeLabel.Attribute("VerticalTextAlignment")?.Value);
+            Assert.Equal("Center", badgeLabel.Attribute("HorizontalOptions")?.Value);
+            Assert.Equal("Center", badgeLabel.Attribute("VerticalOptions")?.Value);
+        }
         Assert.Equal("{Binding HasLastSets}", previous.Attribute("IsVisible")?.Value);
         Assert.Contains(previous.Descendants(), element =>
             Name(element) == "LastWorkoutDisclosure" &&
@@ -78,25 +101,38 @@ public sealed class TrackSetsVisualContractTests
             Name(element) == "DraftWeightInput");
         var repsInput = controls.Descendants().Single(element =>
             Name(element) == "DraftRepsInput");
-        var weightContainer = Assert.IsType<XElement>(weightInput.Parent);
+        var weightCard = controls.Descendants().Single(element => Name(element) == "DraftWeightCard");
         var weightCaption = controls.Descendants().Single(element =>
             Name(element) == "DraftWeightCaption");
         var repsCaption = controls.Descendants().Single(element =>
             Name(element) == "DraftRepsCaption");
 
-        Assert.Equal("{Binding WeightUnitLabel}",
+        Assert.Equal("0",
             weightInput.Attribute("Placeholder")?.Value);
-        Assert.Equal("{Binding Text.Reps}",
+        Assert.Equal("0",
             repsInput.Attribute("Placeholder")?.Value);
-        Assert.Equal("{Binding WeightFieldLabel}",
+        Assert.Equal("{Binding WeightCaption}",
             weightCaption.Attribute("Text")?.Value);
         Assert.Equal("{Binding Text.RepsFieldLabel}",
             repsCaption.Attribute("Text")?.Value);
-        Assert.Equal("Border", weightContainer.Name.LocalName);
+        Assert.Equal("{DynamicResource TrackZCardStyle}", weightCard.Attribute("Style")?.Value);
+        Assert.Contains(weightCard.Descendants(), element =>
+            element.Name.LocalName == "Label"
+            && element.Attribute("Text")?.Value == "{Binding WeightUnitLabel}");
+        var weightButtons = weightCard.Descendants().Single(element =>
+            Name(element) == "WeightAdjustButtons");
+        var repsCard = controls.Descendants().Single(element =>
+            Name(element) == "DraftRepsCard");
+        var repsButtons = repsCard.Descendants().Single(element =>
+            Name(element) == "RepsAdjustButtons");
+        Assert.Equal("*,*", weightButtons.Attribute("ColumnDefinitions")?.Value);
+        Assert.Equal("*,*", repsButtons.Attribute("ColumnDefinitions")?.Value);
+        Assert.DoesNotContain(weightCard.Descendants(), element =>
+            element.Attribute("ColumnDefinitions")?.Value == "44,*,44");
+        Assert.DoesNotContain(repsCard.Descendants(), element =>
+            element.Attribute("ColumnDefinitions")?.Value == "44,*,44");
         Assert.All(new[] { weightInput, repsInput }, input =>
-            Assert.Equal("0", input.Parent?.Attribute("Padding")?.Value));
-        Assert.DoesNotContain(weightContainer.Descendants(), element =>
-            element.Name.LocalName == "Label");
+            Assert.Equal("{DynamicResource TrackZFieldStyle}", input.Attribute("Style")?.Value));
     }
 
     [Fact]

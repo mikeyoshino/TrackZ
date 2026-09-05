@@ -14,8 +14,9 @@
             <Label Style="{DynamicResource TrackZNavigationTitleStyle}" Text="{Binding Source={x:Reference Page}, Path=Text.Edit}" />
         </Grid>
         <VerticalStackLayout Grid.Row="1" Padding="{DynamicResource TrackZPageHorizontalPadding}" Spacing="{DynamicResource TrackZSpace12}">
-            <Entry IsVisible="{Binding UsesWeight}" Keyboard="Numeric" Style="{DynamicResource TrackZFieldStyle}" Text="{Binding DisplayWeight, Mode=TwoWay}" />
-            <Label IsVisible="{Binding UsesWeight}" Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding WeightUnitLabel}" />
+            <Entry IsVisible="{Binding UsesExactWeight}" Keyboard="Numeric" Style="{DynamicResource TrackZFieldStyle}" Text="{Binding DisplayWeight, Mode=TwoWay}" />
+            <Label IsVisible="{Binding UsesExactWeight}" Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding WeightUnitLabel}" />
+            <Entry IsVisible="{Binding UsesPlateCount}" Keyboard="Numeric" MaxLength="3" Placeholder="{Binding Source={x:Reference Page}, Path=Text.PlateCount}" Style="{DynamicResource TrackZFieldStyle}" Text="{Binding PlateCount, Mode=TwoWay}" />
             <Entry Keyboard="Numeric" MaxLength="3" Style="{DynamicResource TrackZFieldStyle}" Text="{Binding Reps, Mode=TwoWay}" />
         </VerticalStackLayout>
         <Border Grid.Row="2" Style="{DynamicResource TrackZStickyActionContainerStyle}">

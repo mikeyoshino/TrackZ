@@ -5,28 +5,31 @@ namespace TrackZ.Mobile.Presentation;
 
 internal static class NativeSheetConfiguration
 {
-    public static void Configure(ContentPage page, NativeSheetDetent detent)
+    public static void Configure(UIViewController controller, NativeSheetDetent detent)
     {
-        if (page.Handler?.PlatformView is not UIView view) return;
-        var controller = FindViewController(view);
-        if (controller?.SheetPresentationController is not { } sheet) return;
+        controller.ModalPresentationStyle = UIModalPresentationStyle.PageSheet;
+        controller.ModalInPresentation = true;
+        if (controller.SheetPresentationController is not { } sheet) return;
 
-        sheet.Detents = detent == NativeSheetDetent.Medium
-            ? [UISheetPresentationControllerDetent.CreateMediumDetent()]
-            : [UISheetPresentationControllerDetent.CreateLargeDetent()];
+        sheet.Detents = detent switch
+        {
+            NativeSheetDetent.Medium => [UISheetPresentationControllerDetent.CreateMediumDetent()],
+            NativeSheetDetent.Form when OperatingSystem.IsIOSVersionAtLeast(16) || OperatingSystem.IsMacCatalystVersionAtLeast(16)
+                => [UISheetPresentationControllerDetent.Create("trackz-form",
+                context => OperatingSystem.IsIOSVersionAtLeast(16) || OperatingSystem.IsMacCatalystVersionAtLeast(16)
+                    ? (System.Runtime.InteropServices.NFloat)Math.Min(560, (double)context.MaximumDetentValue)
+                    : 560)],
+            _ => [UISheetPresentationControllerDetent.CreateLargeDetent()]
+        };
         sheet.PrefersGrabberVisible = true;
         sheet.PreferredCornerRadius = 28;
     }
 
-    private static UIViewController? FindViewController(UIResponder responder)
+    public static UIViewController? FindTopViewController(UIViewController? controller)
     {
-        UIResponder? current = responder;
-        while (current is not null)
-        {
-            if (current is UIViewController controller) return controller;
-            current = current.NextResponder;
-        }
-        return null;
+        while (controller?.PresentedViewController is { } presented)
+            controller = presented;
+        return controller;
     }
 }
 #endif

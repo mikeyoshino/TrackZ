@@ -89,6 +89,7 @@ public sealed class CustomExerciseViewModel : INotifyPropertyChanged, IDisposabl
             if (BodyPart == value?.Value) return;
             BodyPart = value?.Value;
             OnPropertyChanged();
+            OnPropertyChanged(nameof(BodyPartSelectionText));
         }
     }
     public LocalizedTrackingModeOption? SelectedTrackingMode
@@ -99,8 +100,11 @@ public sealed class CustomExerciseViewModel : INotifyPropertyChanged, IDisposabl
             if (TrackingMode == value?.Value) return;
             TrackingMode = value?.Value;
             OnPropertyChanged();
+            OnPropertyChanged(nameof(TrackingModeSelectionText));
         }
     }
+    public string BodyPartSelectionText => SelectedBodyPart?.Label ?? Text.BodyPart;
+    public string TrackingModeSelectionText => SelectedTrackingMode?.Label ?? Text.TrackingMode;
     public Dictionary<string, string[]> ValidationErrors { get; } = new(StringComparer.Ordinal);
     public ObservableCollection<CachedLibraryImage> LibraryImages { get; } = [];
 
@@ -237,6 +241,8 @@ public sealed class CustomExerciseViewModel : INotifyPropertyChanged, IDisposabl
         OnPropertyChanged(nameof(TrackingMode));
         OnPropertyChanged(nameof(SelectedBodyPart));
         OnPropertyChanged(nameof(SelectedTrackingMode));
+        OnPropertyChanged(nameof(BodyPartSelectionText));
+        OnPropertyChanged(nameof(TrackingModeSelectionText));
         OnPropertyChanged(nameof(PreviewImagePath));
     }
 

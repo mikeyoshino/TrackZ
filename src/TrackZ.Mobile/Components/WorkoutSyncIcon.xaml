@@ -5,29 +5,26 @@
     xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
     AutomationProperties.IsInAccessibleTree="True"
-    HeightRequest="24"
+    MinimumHeightRequest="24"
     InputTransparent="True"
-    SemanticProperties.Description="{Binding AccessibilityText, Source={x:Reference Root}}"
-    WidthRequest="24">
-    <Grid AutomationProperties.IsInAccessibleTree="False">
-        <Label
-            x:Name="SyncIcon"
-            AutomationProperties.IsInAccessibleTree="False"
-            FontAttributes="Bold"
-            FontSize="21"
-            HorizontalTextAlignment="Center"
-            Text="↻"
-            TextColor="{DynamicResource TrackZTextSecondary}"
-            VerticalTextAlignment="Center" />
-        <Label
-            x:Name="SyncCheck"
-            AutomationProperties.IsInAccessibleTree="False"
-            FontAttributes="Bold"
-            FontSize="10"
-            HorizontalOptions="End"
-            IsVisible="False"
-            Text="✓"
-            TextColor="{DynamicResource TrackZPrimary}"
-            VerticalOptions="End" />
+    SemanticProperties.Description="{Binding AccessibilityText, Source={x:Reference Root}}">
+    <Grid ColumnDefinitions="24,*" ColumnSpacing="8">
+        <Grid WidthRequest="24" HeightRequest="24" VerticalOptions="Start" AutomationProperties.ExcludedWithChildren="True">
+            <Path x:Name="SyncIcon" AutomationProperties.IsInAccessibleTree="False"
+                  Data="M 6,19 C 3.2,19 1,16.8 1,14 C 1,11.5 2.8,9.4 5.2,9 C 6.1,5.6 9,3.5 12.3,4 C 15.2,4.3 17.3,6.3 17.9,9 C 20.8,9.1 23,11.2 23,14 C 23,16.8 20.8,19 18,19 Z"
+                  Stroke="{DynamicResource TrackZTextSecondary}" StrokeThickness="1.5" StrokeLineCap="Round" StrokeLineJoin="Round" />
+            <Path x:Name="SyncCheck" Data="M 8,12.5 L 11,15.5 L 16,10.5" IsVisible="False"
+                  Stroke="{DynamicResource TrackZPrimary}" StrokeThickness="1.5" StrokeLineCap="Round" StrokeLineJoin="Round" />
+            <Path x:Name="SyncUpload" Data="M 12,16 L 12,9 M 9,12 L 12,9 L 15,12" IsVisible="False"
+                  Stroke="{DynamicResource TrackZTextSecondary}" StrokeThickness="1.5" StrokeLineCap="Round" StrokeLineJoin="Round" />
+            <Path x:Name="SyncOffline" Data="M 3,3 L 21,21" IsVisible="False"
+                  Stroke="{DynamicResource TrackZTextSecondary}" StrokeThickness="1.5" StrokeLineCap="Round" />
+            <Path x:Name="SyncWarning" Data="M 12,9 L 12,13 M 12,16 L 12,16.1" IsVisible="False"
+                  Stroke="{DynamicResource TrackZWarning}" StrokeThickness="1.5" StrokeLineCap="Round" />
+        </Grid>
+        <Label x:Name="SyncStatusLabel" Grid.Column="1" AutomationProperties.IsInAccessibleTree="False"
+               Text="{Binding AccessibilityText, Source={x:Reference Root}}"
+               Style="{DynamicResource TrackZSecondaryStyle}" FontSize="12"
+               LineBreakMode="WordWrap" VerticalTextAlignment="Center" />
     </Grid>
 </ContentView>

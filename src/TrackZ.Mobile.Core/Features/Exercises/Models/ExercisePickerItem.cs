@@ -168,6 +168,12 @@ public sealed class ExercisePickerItem : INotifyPropertyChanged
     {
         if (performance is null) return "—";
         var reps = performance.Reps.ToString(CultureInfo.CurrentCulture);
+        if (performance.PlateCount is { } plates)
+            return string.Format(
+                CultureInfo.CurrentCulture,
+                _text.PlateMeasurementFormat,
+                plates,
+                reps);
         return TrackingMode switch
         {
             TrackingMode.Weighted => string.Format(

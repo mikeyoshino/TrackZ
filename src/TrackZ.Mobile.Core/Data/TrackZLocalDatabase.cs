@@ -4,7 +4,7 @@ namespace TrackZ.Mobile.Data;
 
 public sealed class TrackZLocalDatabase
 {
-    public const int CurrentSchemaVersion = 6;
+    public const int CurrentSchemaVersion = 9;
     private const int BusyTimeoutMilliseconds = 5_000;
     private readonly string _connectionString;
     private readonly SemaphoreSlim _schemaGate = new(1, 1);
@@ -45,7 +45,7 @@ public sealed class TrackZLocalDatabase
                 _initialized = true;
                 return;
             }
-            if (version is not (0 or 1 or 2 or 3 or 4 or 5))
+            if (version is not (0 or 1 or 2 or 3 or 4 or 5 or 6 or 7 or 8))
             {
                 throw new InvalidDataException(
                     $"Workout database schema {version} is not supported; expected {CurrentSchemaVersion}.");
@@ -60,13 +60,18 @@ public sealed class TrackZLocalDatabase
             var guidanceUpgrade = version == 5
                 ? BuildGuidanceUpgrade()
                 : string.Empty;
+            // Some legacy databases already have this column (for example after a
+            // partial older upgrade). Do not let a duplicate ALTER stop the batch.
+            var needsPlateCount = version is 0 or 1 || !await HasPlateCountAsync(connection, cancellationToken);
             await using var transaction = connection.BeginTransaction(deferred: false);
             await using var schema = connection.CreateCommand();
             schema.Transaction = transaction;
-            schema.CommandText = version is 2 or 3 or 4
+            schema.CommandText = (version is 2 or 3 or 4
                 ? syncStateUpgrade
                 : version == 5
                 ? guidanceUpgrade
+                : version is 6 or 7
+                ? string.Empty
                 : version == 1
                 ? $$"""
                     DROP INDEX IF EXISTS UX_LocalSet_ActiveOrder;
@@ -212,7 +217,19 @@ public sealed class TrackZLocalDatabase
                     Version INTEGER NOT NULL CHECK (Version >= 0)
                 );
 
-                PRAGMA user_version = 6;
+                PRAGMA user_version = 7;
+                """) + (needsPlateCount ? BuildPlateCountUpgrade() : string.Empty);
+            await schema.ExecuteNonQueryAsync(cancellationToken);
+            schema.CommandText = """
+                CREATE TABLE IF NOT EXISTS CoachJournal (
+                    Id INTEGER PRIMARY KEY CHECK (Id = 1),
+                    Payload TEXT NOT NULL CHECK (json_valid(Payload))
+                );
+                CREATE TABLE IF NOT EXISTS TrainingSchedule (
+                    Id INTEGER PRIMARY KEY CHECK (Id = 1),
+                    Payload TEXT NOT NULL CHECK (json_valid(Payload))
+                );
+                PRAGMA user_version = 9;
                 """;
             await schema.ExecuteNonQueryAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
@@ -230,7 +247,7 @@ public sealed class TrackZLocalDatabase
         {
             foreach (var table in new[]
                      {
-                         "HistoryUndo", "OutboxOperation", "LocalSet", "LocalWorkoutExercise", "LocalWorkout", "SyncCursor"
+                         "TrainingSchedule", "CoachJournal", "HistoryUndo", "OutboxOperation", "LocalSet", "LocalWorkoutExercise", "LocalWorkout", "SyncCursor"
                      })
             {
                 await using var command = connection.CreateCommand();
@@ -311,6 +328,13 @@ public sealed class TrackZLocalDatabase
         await using var command = connection.CreateCommand();
         command.CommandText = "PRAGMA user_version;";
         return Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken));
+    }
+
+    private static async Task<bool> HasPlateCountAsync(SqliteConnection connection, CancellationToken token)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM pragma_table_info('LocalSet') WHERE name = 'PlateCount'";
+        return Convert.ToInt32(await command.ExecuteScalarAsync(token)) > 0;
     }
 
     private static async Task<string> BuildSyncStateUpgradeAsync(
@@ -396,7 +420,7 @@ public sealed class TrackZLocalDatabase
             SELECT OperationId, SnapshotJson, CreatedAt FROM HistoryUndoV4;
             DROP TABLE HistoryUndoV4;
             DROP TABLE OutboxOperationV4;
-            PRAGMA user_version = 6;
+            PRAGMA user_version = 7;
             """);
         return string.Join(Environment.NewLine, statements);
 
@@ -455,6 +479,13 @@ public sealed class TrackZLocalDatabase
         SELECT OperationId, SnapshotJson, CreatedAt FROM HistoryUndoV5;
         DROP TABLE HistoryUndoV5;
         DROP TABLE OutboxOperationV5;
-        PRAGMA user_version = 6;
+        PRAGMA user_version = 7;
+        """;
+
+    private static string BuildPlateCountUpgrade() => """
+        ALTER TABLE LocalSet
+            ADD COLUMN PlateCount INTEGER NULL
+            CHECK (PlateCount IS NULL OR PlateCount BETWEEN 1 AND 999);
+        PRAGMA user_version = 7;
         """;
 }

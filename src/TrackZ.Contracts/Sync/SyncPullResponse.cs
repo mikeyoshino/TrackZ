@@ -44,4 +44,5 @@ public sealed record SyncSetDto(
     DateTimeOffset? UpdatedAt,
     DateTimeOffset? DeletedAt,
     long Version,
-    SetEffortRating? Effort = null);
+    SetEffortRating? Effort = null,
+    int? PlateCount = null);

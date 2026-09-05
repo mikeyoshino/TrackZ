@@ -31,8 +31,8 @@ public sealed class AppWideVisualConsistencyTests
         new Dictionary<string, string[]>(StringComparer.Ordinal)
         {
             ["Features/Auth/AuthGatePage.xaml"] = ["$=TrackZAuthGatePadding"],
-            ["Features/Auth/SignInPage.xaml"] = ["0=TrackZPageHorizontalPadding", "1=TrackZPageHorizontalPadding"],
-            ["Features/Auth/CreateAccountPage.xaml"] = ["0=TrackZPageHorizontalPadding", "1=TrackZPageHorizontalPadding"],
+            ["Features/Auth/SignInPage.xaml"] = ["0=TrackZPageHorizontalPadding"],
+            ["Features/Auth/CreateAccountPage.xaml"] = ["0=TrackZPageHorizontalPadding"],
             ["Features/Train/TrainPage.xaml"] = ["$=TrackZPageContentPadding"],
             ["Features/Train/BodyAreaSheetPage.xaml"] = ["0=TrackZPageHorizontalPadding", "1=TrackZPageHorizontalPadding"],
             ["Features/Exercises/ExercisePickerPage.xaml"] = ["0=TrackZPageHorizontalPadding", "1=TrackZPageHorizontalPadding", "2=TrackZPageHorizontalPadding"],
@@ -88,24 +88,14 @@ public sealed class AppWideVisualConsistencyTests
     private static readonly IReadOnlyDictionary<string, string> ExpectedMomentumHomeVisibilityBindings =
         new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["TrainAgainSection"] = "{Binding ShowTrainAgain}",
-            ["TrainAgainCard"] = "{Binding ShowTrainAgain}",
-            ["WeeklyGoalCard"] = "{Binding HasAuthoritativeProgress}",
-            ["LatestPerformanceSection"] = "{Binding HasRecentMomentum}",
-            ["LatestPerformanceCard"] = "{Binding HasRecentMomentum}"
+            ["CoachWeekSection"] = "False",
+            ["CoachHomeHost"] = "False",
+            ["LatestWorkoutSection"] = "{Binding HasLatestWorkout, Source={x:Reference Page}}"
         };
 
     private static readonly IReadOnlyDictionary<string, ArtworkContract[]> ArtworkContracts =
         new Dictionary<string, ArtworkContract[]>(StringComparer.Ordinal)
         {
-            ["Features/Train/TrainPage.xaml"] =
-            [
-                new(
-                    "TrainAgainArtwork",
-                    "Border",
-                    "ContentPage/ScrollView/VerticalStackLayout/VerticalStackLayout/Border/Grid/Border",
-                    "TrackZArtworkFrameStyle"),
-            ],
             ["Features/Workout/SetLoggerPage.xaml"] =
             [
                 new(
@@ -128,9 +118,6 @@ public sealed class AppWideVisualConsistencyTests
 
     private static readonly string[] BottomActionPages =
     [
-        "Features/Auth/SignInPage.xaml",
-        "Features/Auth/CreateAccountPage.xaml",
-        "Features/Train/BodyAreaSheetPage.xaml",
         "Features/Exercises/ExercisePickerPage.xaml",
         "Features/Exercises/CustomExercisePage.xaml",
         "Features/Workout/WorkoutPage.xaml",
@@ -198,37 +185,45 @@ public sealed class AppWideVisualConsistencyTests
     }
 
     [Fact]
-    public void Auth_forms_keep_identical_field_and_footer_anchors_while_requirements_change_visibility()
+    public void Auth_forms_use_persistent_field_labels_and_only_registration_shows_password_requirements()
     {
         var signIn = XDocument.Load(Path.Combine(MobileDirectory(), "Features/Auth/SignInPage.xaml"));
         var create = XDocument.Load(Path.Combine(MobileDirectory(), "Features/Auth/CreateAccountPage.xaml"));
-        Assert.Equal(FormAnchorSignature(signIn), FormAnchorSignature(create));
+        var emailLabel = Named(signIn, "EmailFieldLabel");
+        var passwordLabel = Named(signIn, "PasswordFieldLabel");
+        var createEmailLabel = Named(create, "EmailFieldLabel");
+        var createPasswordLabel = Named(create, "PasswordFieldLabel");
+        Assert.Equal("{Binding Text.EmailLabel}", emailLabel.Attribute("Text")?.Value);
+        Assert.Equal("{Binding Text.PasswordLabel}", passwordLabel.Attribute("Text")?.Value);
+        Assert.All(
+            signIn.Descendants().Concat(create.Descendants()).Where(element => element.Name.LocalName == "Entry"),
+            entry => Assert.Null(entry.Attribute("Placeholder")));
+        Assert.Equal("{Binding Text.EmailLabel}", createEmailLabel.Attribute("Text")?.Value);
+        Assert.Equal("{Binding Text.PasswordLabel}", createPasswordLabel.Attribute("Text")?.Value);
 
-        var signRequirement = Assert.Single(signIn.Descendants(), element => element.Attribute("Text")?.Value == "{Binding Text.CreateAccountRequirements}");
+        Assert.DoesNotContain(signIn.Descendants(), element => element.Attribute("Text")?.Value == "{Binding Text.CreateAccountRequirements}");
         var createRequirement = Assert.Single(create.Descendants(), element => element.Attribute("Text")?.Value == "{Binding Text.CreateAccountRequirements}");
-        Assert.Equal("0", signRequirement.Attribute("Opacity")?.Value);
-        Assert.Equal("True", signRequirement.Attribute("InputTransparent")?.Value);
-        Assert.Equal("True", signRequirement.Attribute("AutomationProperties.ExcludedWithChildren")?.Value);
         Assert.Null(createRequirement.Attribute("Opacity"));
-        Assert.Equal(ElementPath(signRequirement), ElementPath(createRequirement));
     }
 
     [Fact]
-    public void Auth_anchor_geometry_is_independent_of_measured_header_height_without_weakening_title_roles()
+    public void Sign_in_brand_and_credentials_share_one_scrollable_flow_without_weakening_title_roles()
     {
         var signIn = XDocument.Load(Path.Combine(MobileDirectory(), "Features/Auth/SignInPage.xaml"));
-        var create = XDocument.Load(Path.Combine(MobileDirectory(), "Features/Auth/CreateAccountPage.xaml"));
+        var root = Assert.Single(signIn.Root!.Elements());
+        var scroll = Assert.Single(root.Elements(), element => element.Name.LocalName == "ScrollView");
+        var flow = Assert.Single(scroll.Elements(), element => element.Name.LocalName == "VerticalStackLayout");
+        var brand = Named(signIn, "BrandLockup");
+        var title = Named(signIn, "SignInTitleLabel");
+        var form = Named(signIn, "CredentialForm");
 
-        Assert.Empty(AuditAuthHeaderGeometry(signIn, create));
-
-        var mutatedCreate = new XDocument(create);
-        var mutatedRoot = Assert.Single(mutatedCreate.Root!.Elements());
-        mutatedRoot.SetAttributeValue("RowDefinitions", "Auto,*,Auto");
-        mutatedRoot.Elements().ElementAt(1).SetAttributeValue(XName.Get("Row", "http://schemas.microsoft.com/dotnet/2021/maui"), "1");
-        mutatedRoot.Elements().ElementAt(2).SetAttributeValue(XName.Get("Row", "http://schemas.microsoft.com/dotnet/2021/maui"), "2");
-        Assert.Contains(
-            AuditAuthHeaderGeometry(signIn, mutatedCreate),
-            error => error.Contains("header-independent overlay", StringComparison.Ordinal));
+        Assert.Equal("False", signIn.Root!.Attribute("Shell.NavBarIsVisible")?.Value);
+        Assert.True(brand.IsBefore(title));
+        Assert.True(title.IsBefore(form));
+        Assert.Same(flow, brand.Parent);
+        Assert.Same(flow, title.Parent);
+        Assert.Same(flow, form.Parent);
+        Assert.Equal("TrackZAuthHeadlineStyle", ResourceKey(title.Attribute("Style")?.Value));
     }
 
     [Fact]
@@ -259,7 +254,7 @@ public sealed class AppWideVisualConsistencyTests
     {
         const string train = "Features/Train/TrainPage.xaml";
         var document = XDocument.Load(Path.Combine(MobileDirectory(), train));
-        var contentRoot = Assert.Single(document.Root!.Elements());
+        var contentRoot = VisualRoot(document.Root!);
         var padding = contentRoot.Attribute("Padding")!.Value;
         contentRoot.Attribute("Padding")!.Remove();
         contentRoot.Elements().Single().SetAttributeValue("Padding", padding);
@@ -303,15 +298,14 @@ public sealed class AppWideVisualConsistencyTests
     public void Momentum_home_artwork_columns_reserve_the_semantic_artwork_width_and_gap()
     {
         var train = XDocument.Load(Path.Combine(MobileDirectory(), "Features/Train/TrainPage.xaml"));
-        Assert.Empty(AuditArtworkGridGeometry("Features/Train/TrainPage.xaml", train));
+        Assert.Empty(AuditLatestWorkoutArtwork(train));
 
         var mutated = new XDocument(train);
-        var artwork = Named(mutated, "TrainAgainArtwork");
-        artwork.SetAttributeValue("WidthRequest", "{DynamicResource TrackZExerciseCardHeight}");
+        LatestWorkoutArtwork(mutated).SetAttributeValue("WidthRequest", "88");
 
         Assert.Contains(
-            AuditArtworkGridGeometry("Features/Train/TrainPage.xaml", mutated),
-            error => error.Contains("artwork width", StringComparison.Ordinal));
+            AuditLatestWorkoutArtwork(mutated),
+            error => error.Contains("compact artwork geometry", StringComparison.Ordinal));
 
     }
 
@@ -322,13 +316,13 @@ public sealed class AppWideVisualConsistencyTests
         Assert.Empty(AuditMomentumArtworkSemantics(train));
 
         var missingFallback = new XDocument(train);
-        Named(missingFallback, "TrainAgainFallback").SetAttributeValue("Source", "another_image.png");
+        LatestWorkoutImages(missingFallback)[0].SetAttributeValue("Source", "another_image.png");
         Assert.Contains(
             AuditMomentumArtworkSemantics(missingFallback),
             error => error.Contains("shared exercise fallback", StringComparison.Ordinal));
 
         var accessibleArtwork = new XDocument(train);
-        Named(accessibleArtwork, "TrainAgainArtwork")
+        LatestWorkoutArtwork(accessibleArtwork)
             .Attribute("AutomationProperties.ExcludedWithChildren")!
             .Remove();
         Assert.Contains(
@@ -336,12 +330,12 @@ public sealed class AppWideVisualConsistencyTests
             error => error.Contains("decorative artwork", StringComparison.Ordinal));
 
         var duplicateDescription = new XDocument(train);
-        Named(duplicateDescription, "TrainAgainFallback").SetAttributeValue(
+        LatestWorkoutImages(duplicateDescription)[0].SetAttributeValue(
             "SemanticProperties.Description",
-            "{Binding RepeatWorkoutAccessibilityText}");
+            "{Binding RepeatWorkoutMetaText}");
         Assert.Contains(
             AuditMomentumArtworkSemantics(duplicateDescription),
-            error => error.Contains("one authoritative semantic description", StringComparison.Ordinal));
+            error => error.Contains("must not duplicate", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -350,20 +344,21 @@ public sealed class AppWideVisualConsistencyTests
         var train = XDocument.Load(Path.Combine(MobileDirectory(), "Features/Train/TrainPage.xaml"));
 
         var swapped = new XDocument(train);
-        var swappedFallback = Named(swapped, "TrainAgainFallback");
-        var swappedThumbnail = Named(swapped, "TrainAgainThumbnail");
+        var swappedImages = LatestWorkoutImages(swapped);
+        var swappedFallback = swappedImages[0];
+        var swappedThumbnail = swappedImages[1];
         swappedThumbnail.Remove();
         swappedFallback.AddBeforeSelf(swappedThumbnail);
 
         var detachedFallback = new XDocument(train);
-        var fallbackArtwork = Named(detachedFallback, "TrainAgainArtwork");
-        var fallback = Named(detachedFallback, "TrainAgainFallback");
+        var fallbackArtwork = LatestWorkoutArtwork(detachedFallback);
+        var fallback = LatestWorkoutImages(detachedFallback)[0];
         fallback.Remove();
         fallbackArtwork.AddAfterSelf(fallback);
 
         var detachedThumbnail = new XDocument(train);
-        var thumbnailArtwork = Named(detachedThumbnail, "TrainAgainArtwork");
-        var thumbnail = Named(detachedThumbnail, "TrainAgainThumbnail");
+        var thumbnailArtwork = LatestWorkoutArtwork(detachedThumbnail);
+        var thumbnail = LatestWorkoutImages(detachedThumbnail)[1];
         thumbnail.Remove();
         thumbnailArtwork.AddAfterSelf(thumbnail);
 
@@ -371,32 +366,32 @@ public sealed class AppWideVisualConsistencyTests
             new[] { swapped, detachedFallback, detachedThumbnail },
             mutation => Assert.Contains(
                 AuditMomentumArtworkSemantics(mutation),
-                error => error.Contains("direct fallback-first image layer", StringComparison.Ordinal)));
+                error => error.Contains("fallback", StringComparison.OrdinalIgnoreCase)));
     }
 
     [Fact]
-    public void Momentum_home_audit_rejects_action_order_active_train_again_and_unauthorized_insight_mutations()
+    public void Momentum_home_audit_rejects_order_visible_empty_hosts_and_missing_history_guard()
     {
         const string trainPath = "Features/Train/TrainPage.xaml";
         var train = XDocument.Load(Path.Combine(MobileDirectory(), trainPath));
-        var repeat = Named(train, "TrainAgainCard").Parent!;
-        repeat.Remove();
-        Named(train, "HomeHero").AddBeforeSelf(repeat);
+        var latest = Named(train, "LatestWorkoutSection");
+        latest.Remove();
+        Named(train, "HomeHero").AddBeforeSelf(latest);
         Assert.Contains(
             AuditPage(trainPath, train),
-            error => error.Contains("action-first order", StringComparison.Ordinal));
+                error => error.Contains("action-first order", StringComparison.Ordinal));
 
-        var activeTrainAgain = XDocument.Load(Path.Combine(MobileDirectory(), trainPath));
-        Named(activeTrainAgain, "TrainAgainSection").SetAttributeValue("IsVisible", "{Binding HasActiveWorkout}");
+        var visibleEmptyCoach = XDocument.Load(Path.Combine(MobileDirectory(), trainPath));
+        Named(visibleEmptyCoach, "CoachHomeHost").SetAttributeValue("IsVisible", "True");
         Assert.Contains(
-            AuditPage(trainPath, activeTrainAgain),
-            error => error.Contains("TrainAgainSection", StringComparison.Ordinal));
+            AuditPage(trainPath, visibleEmptyCoach),
+            error => error.Contains("CoachHomeHost", StringComparison.Ordinal));
 
-        var unauthorizedInsight = XDocument.Load(Path.Combine(MobileDirectory(), trainPath));
-        Named(unauthorizedInsight, "WeeklyGoalCard").SetAttributeValue("IsVisible", "True");
+        var unguardedHistory = XDocument.Load(Path.Combine(MobileDirectory(), trainPath));
+        Named(unguardedHistory, "LatestWorkoutSection").SetAttributeValue("IsVisible", "True");
         Assert.Contains(
-            AuditPage(trainPath, unauthorizedInsight),
-            error => error.Contains("WeeklyGoalCard", StringComparison.Ordinal));
+            AuditPage(trainPath, unguardedHistory),
+            error => error.Contains("completed-workout guard", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -414,15 +409,15 @@ public sealed class AppWideVisualConsistencyTests
             element.Name.LocalName == "Setter" &&
             element.Attribute("Property")?.Value == "BackgroundColor" &&
             element.Attribute("TargetName") is null);
-        background.SetAttributeValue("Value", "{DynamicResource TrackZSurfaceRaised}");
+        background.SetAttributeValue("Value", "{DynamicResource TrackZPrimary}");
 
         Assert.Contains(
             AuditMomentumHeroStates(mutated),
-            error => error.Contains("lime ready hero", StringComparison.Ordinal));
+            error => error.Contains("dark ready hero", StringComparison.Ordinal));
     }
 
     [Fact]
-    public void Create_account_is_a_pushed_destination_and_uses_navigation_title_semantics()
+    public void Create_account_is_a_pushed_destination_with_a_custom_back_action_and_auth_headline()
     {
         var path = Path.Combine(MobileDirectory(), "Features/Auth/CreateAccountPage.xaml");
         var document = XDocument.Load(path);
@@ -430,7 +425,9 @@ public sealed class AppWideVisualConsistencyTests
             element.Name.LocalName == "Label" &&
             string.Equals(element.Attribute("Text")?.Value, "{Binding Text.CreateAccountTitle}", StringComparison.Ordinal));
 
-        Assert.Equal("TrackZNavigationTitleStyle", ResourceKey(title.Attribute("Style")?.Value));
+        Assert.Equal("False", document.Root!.Attribute("NavigationPage.HasNavigationBar")?.Value);
+        Assert.Equal("TrackZAuthHeadlineStyle", ResourceKey(title.Attribute("Style")?.Value));
+        Assert.NotNull(document.Descendants().SingleOrDefault(element => ElementName(element) == "BackAction"));
     }
 
     [Fact]
@@ -616,7 +613,7 @@ public sealed class AppWideVisualConsistencyTests
         var pagePadding = root.DescendantsAndSelf().Attributes("Padding")
             .Where(attribute => PagePaddingKeys.Contains(ResourceKey(attribute.Value), StringComparer.Ordinal))
             .ToArray();
-        var contentRoot = root.Elements().Single();
+        var contentRoot = VisualRoot(root);
         var actualPaddingOwners = pagePadding
             .Select(attribute => $"{RelativeElementPath(contentRoot, attribute.Parent!)}={ResourceKey(attribute.Value)}")
             .Order(StringComparer.Ordinal)
@@ -640,9 +637,16 @@ public sealed class AppWideVisualConsistencyTests
         if (!string.Equals(relativePath, "Features/Auth/AuthGatePage.xaml", StringComparison.Ordinal)
             && !usesVisibleNativeNavigationTitle)
         {
-            var expectedTitleStyle = RootTitlePages.Contains(relativePath, StringComparer.Ordinal)
-                ? "TrackZPageTitleStyle"
-                : "TrackZNavigationTitleStyle";
+            var expectedTitleStyle = relativePath switch
+            {
+                "Features/Auth/SignInPage.xaml" or "Features/Auth/CreateAccountPage.xaml" => "TrackZAuthHeadlineStyle",
+                "Features/Train/TrainPage.xaml" => "HomeHeadlineStyle",
+                "Features/Progress/ExerciseProgressPage.xaml" => "TrackZCoachPageTitleStyle",
+                "Features/History/WorkoutHistoryPage.xaml" => "TrackZHistoryTitleStyle",
+                "Features/Profile/ProfilePage.xaml" => "TrackZProfileTitleStyle",
+                _ when RootTitlePages.Contains(relativePath, StringComparer.Ordinal) => "TrackZPageTitleStyle",
+                _ => "TrackZNavigationTitleStyle"
+            };
             if (!document.Descendants().Any(element => element.Name.LocalName == "Label" && ResourceKey(element.Attribute("Style")?.Value) == expectedTitleStyle))
                 yield return $"The page title must use {expectedTitleStyle}.";
         }
@@ -650,7 +654,7 @@ public sealed class AppWideVisualConsistencyTests
         foreach (var button in document.Descendants().Where(element => element.Name.LocalName == "Button"))
         {
             var style = ResourceKey(button.Attribute("Style")?.Value);
-            if (style is not ("TrackZPrimaryButtonStyle" or "TrackZSecondaryButtonStyle" or "TrackZDestructiveButtonStyle" or "TrackZQuietButtonStyle" or "TrackZQuietDestructiveButtonStyle"))
+            if (style is not ("TrackZPrimaryButtonStyle" or "TrackZAuthPrimaryButtonStyle" or "TrackZAuthLinkButtonStyle" or "TrackZSecondaryButtonStyle" or "TrackZDestructiveButtonStyle" or "TrackZQuietButtonStyle" or "TrackZQuietDestructiveButtonStyle" or "HomeSectionLinkStyle"))
                 yield return $"Button '{button.Attribute("Text")?.Value ?? "unnamed"}' must use a semantic button style.";
 
             var minimum = button.Attribute("MinimumHeightRequest")?.Value;
@@ -681,7 +685,7 @@ public sealed class AppWideVisualConsistencyTests
         }
 
         var primaryActions = document.Descendants()
-            .Where(element => element.Name.LocalName == "Button" && ResourceKey(element.Attribute("Style")?.Value) == "TrackZPrimaryButtonStyle")
+            .Where(element => element.Name.LocalName == "Button" && ResourceKey(element.Attribute("Style")?.Value) is "TrackZPrimaryButtonStyle" or "TrackZAuthPrimaryButtonStyle")
             .ToArray();
         var actionCapablePrimaryActions = primaryActions.Where(IsStaticallyActionCapable).ToArray();
         var expectedPrimaryCount = ExpectedPrimaryActionCounts[relativePath];
@@ -702,7 +706,7 @@ public sealed class AppWideVisualConsistencyTests
             if (hero is null || primaryActions.Any(action => !action.Ancestors().Contains(hero)))
                 yield return "Momentum Home primary action must stay inside HomeHero.";
 
-            var orderedNames = new[] { "HomeHero", "TrainAgainSection", "WeeklyGoalCard", "LatestPerformanceSection" };
+            var orderedNames = new[] { "HomeHero", "CoachWeekSection", "CoachHomeHost", "LatestWorkoutSection" };
             var descendants = document.Descendants().ToList();
             var orderedElements = orderedNames
                 .Select(name => descendants.SingleOrDefault(element => ElementName(element) == name))
@@ -718,6 +722,10 @@ public sealed class AppWideVisualConsistencyTests
                 if (element?.Attribute("IsVisible")?.Value != expectedBinding)
                     yield return $"Momentum Home '{name}' must retain IsVisible=\"{expectedBinding}\".";
             }
+
+            var latest = descendants.SingleOrDefault(element => ElementName(element) == "LatestWorkoutSection");
+            if (latest?.Attribute("IsVisible")?.Value != "{Binding HasLatestWorkout, Source={x:Reference Page}}")
+                yield return "Momentum Home latest workout must retain its null completed-workout guard.";
         }
 
         if (BottomActionPages.Contains(relativePath, StringComparer.Ordinal))
@@ -770,80 +778,56 @@ public sealed class AppWideVisualConsistencyTests
                 element.Attribute("Property")?.Value == property)?
                 .Attribute("Value")?.Value;
 
-        if (ResourceKey(Value(ready, "BackgroundColor")) != "TrackZPrimary")
-            yield return "Momentum Home must preserve the approved lime ready hero with its dark primary action.";
+        if (ResourceKey(Value(ready, "BackgroundColor")) != "TrackZSurface" ||
+            ResourceKey(Value(ready, "Stroke")) != "TrackZHairline")
+            yield return "Momentum Home must preserve the approved dark ready hero with a quiet outline.";
 
-        if (ResourceKey(Value(active, "BackgroundColor")) != "TrackZSurface")
-            yield return "Momentum Home must preserve the approved dark active hero with its lime primary action.";
+        if (ResourceKey(Value(active, "BackgroundColor")) != "TrackZSurfaceRaised" ||
+            ResourceKey(Value(active, "Stroke")) != "TrackZPrimary")
+            yield return "Momentum Home must preserve the approved raised active hero with its lime outline.";
 
         var primary = hero.Descendants().SingleOrDefault(element => ElementName(element) == "HeroActionButton");
-        var readyAction = primary?.Descendants().SingleOrDefault(element =>
-            element.Name.LocalName == "DataTrigger" &&
-            element.Attribute("Binding")?.Value == "{Binding ShowStartHero}" &&
-            element.Attribute("Value")?.Value == "True");
         if (primary is null || ResourceKey(primary.Attribute("Style")?.Value) != "TrackZPrimaryButtonStyle" ||
-            readyAction is null ||
-            ResourceKey(Value(readyAction, "BackgroundColor")) != "TrackZPrimaryContrast" ||
-            ResourceKey(Value(readyAction, "TextColor")) != "TrackZPrimary")
-            yield return "Momentum Home ready action must invert the shared lime primary style without creating another button.";
+            primary.Descendants().Any(element =>
+                element.Name.LocalName == "Setter" &&
+                element.Attribute("Property")?.Value is "BackgroundColor" or "TextColor"))
+            yield return "Momentum Home must use one shared lime primary action in both ready and active states.";
 
         foreach (var labelName in new[] { "HeroEyebrowLabel", "HeroTitleLabel", "HeroSupportingLabel" })
         {
             var label = hero.Descendants().SingleOrDefault(element => ElementName(element) == labelName);
-            var trigger = label?.Descendants().SingleOrDefault(element =>
-                element.Name.LocalName == "DataTrigger" &&
-                element.Attribute("Binding")?.Value == "{Binding ShowStartHero}" &&
-                element.Attribute("Value")?.Value == "True");
-            if (trigger is null || ResourceKey(Value(trigger, "TextColor")) != "TrackZPrimaryContrast")
-                yield return $"Momentum Home ready hero label '{labelName}' must use the high-contrast semantic color.";
+            if (label is null || label.Descendants().Any(element =>
+                    element.Name.LocalName == "Setter" &&
+                    element.Attribute("Property")?.Value == "TextColor"))
+                yield return $"Momentum Home dark hero label '{labelName}' must retain its semantic style color.";
         }
     }
 
     private static IEnumerable<string> AuditMomentumArtworkSemantics(XDocument document)
     {
-        var artworks = document.Descendants().Where(element => ElementName(element) == "TrainAgainArtwork").ToArray();
-        var grids = artworks.Length == 1
-            ? artworks[0].Elements().Where(element => element.Name.LocalName == "Grid").ToArray()
-            : [];
-        var images = grids.Length == 1
-            ? grids[0].Elements().Where(element => element.Name.LocalName == "Image").ToArray()
-            : [];
-        var fallbacks = document.Descendants().Where(element => ElementName(element) == "TrainAgainFallback").ToArray();
-        var thumbnails = document.Descendants().Where(element => ElementName(element) == "TrainAgainThumbnail").ToArray();
-        if (artworks.Length != 1 || grids.Length != 1 || images.Length != 2 ||
-            fallbacks.Length != 1 || thumbnails.Length != 1 ||
-            !ReferenceEquals(images[0], fallbacks[0]) || !ReferenceEquals(images[1], thumbnails[0]))
+        var artwork = LatestWorkoutArtworkOrDefault(document);
+        var grid = artwork?.Elements().SingleOrDefault(element => element.Name.LocalName == "Grid");
+        var images = grid?.Elements().Where(element => element.Name.LocalName == "Image").ToArray() ?? [];
+        if (artwork is null || grid is null || images.Length != 2)
         {
-            yield return "Train again artwork must contain one immediate Grid with one direct fallback-first image layer followed by its thumbnail.";
+            yield return "Latest workout artwork must contain one immediate Grid with one direct fallback-first image layer followed by its thumbnail.";
         }
         else if (images[0].Attribute("Source")?.Value != "exercise_placeholder.png" ||
                  images[1].Attribute("Source")?.Value != "{Binding RepeatWorkout.ThumbnailPath}")
         {
-            yield return "Train again must layer the shared exercise fallback beneath its optional real thumbnail.";
+            yield return "Latest workout must layer the shared exercise fallback beneath its optional real thumbnail.";
         }
 
-        foreach (var name in new[] { "TrainAgainArtwork" })
-        {
-            var decoration = document.Descendants().SingleOrDefault(element => ElementName(element) == name);
-            if (decoration?.Attribute("AutomationProperties.ExcludedWithChildren")?.Value != "True")
-                yield return $"Momentum decorative artwork '{name}' must stay outside the accessibility tree.";
-        }
+        if (artwork?.Attribute("AutomationProperties.ExcludedWithChildren")?.Value != "True")
+            yield return "Momentum decorative artwork must stay outside the accessibility tree.";
 
         if (document.Descendants().Any(element => element.Attribute("Text")?.Value == "↻"))
-            yield return "Train again must not use the raw refresh glyph instead of exercise artwork.";
+            yield return "Latest workout must not use the raw refresh glyph instead of exercise artwork.";
 
-        foreach (var (name, description) in new[]
-        {
-            ("TrainAgainCard", "{Binding RepeatWorkoutAccessibilityText}")
-        })
-        {
-            var card = document.Descendants().SingleOrDefault(element => ElementName(element) == name);
-            var descriptions = card?.DescendantsAndSelf()
-                .SelectMany(element => element.Attributes("SemanticProperties.Description"))
-                .ToArray() ?? [];
-            if (descriptions.Length != 1 || descriptions[0].Parent != card || descriptions[0].Value != description)
-                yield return $"Momentum card '{name}' must retain one authoritative semantic description.";
-        }
+        var card = document.Descendants().SingleOrDefault(element => ElementName(element) == "LatestWorkoutCard");
+        if (card?.DescendantsAndSelf().SelectMany(element =>
+                element.Attributes("SemanticProperties.Description")).Any() == true)
+            yield return "Latest workout artwork and row must not duplicate the visible title and metadata description.";
     }
 
     private static IEnumerable<string> AuditCommon(XDocument document)
@@ -909,6 +893,45 @@ public sealed class AppWideVisualConsistencyTests
         }
     }
 
+    private static IEnumerable<string> AuditLatestWorkoutArtwork(XDocument document)
+    {
+        var artwork = LatestWorkoutArtworkOrDefault(document);
+        if (artwork is null)
+        {
+            yield return "Latest workout compact artwork is missing.";
+            yield break;
+        }
+
+        var grid = ArtworkColumnGrid(artwork);
+        var firstColumn = grid?.Attribute("ColumnDefinitions")?.Value.Split(',').FirstOrDefault();
+        if (grid is null || firstColumn != "64" ||
+            artwork.Attribute("WidthRequest")?.Value != "56" ||
+            artwork.Attribute("HeightRequest")?.Value != "56")
+            yield return "Latest workout must retain its 64-point reserved column and 56-point compact artwork geometry.";
+        if (ResourceKey(grid?.Attribute("ColumnSpacing")?.Value) != "TrackZSpace12")
+            yield return "Latest workout artwork column must retain the semantic 12-point text gap.";
+        if (ResourceKey(artwork.Attribute("Style")?.Value) != "TrackZArtworkFrameStyle")
+            yield return "Latest workout artwork must retain the semantic artwork frame style.";
+    }
+
+    private static XElement LatestWorkoutArtwork(XDocument document) =>
+        Assert.IsType<XElement>(LatestWorkoutArtworkOrDefault(document));
+
+    private static XElement? LatestWorkoutArtworkOrDefault(XDocument document)
+    {
+        var card = document.Descendants().SingleOrDefault(element =>
+            ElementName(element) == "LatestWorkoutCard");
+        var row = card?.Elements().SingleOrDefault(element => element.Name.LocalName == "Grid");
+        return row?.Elements().SingleOrDefault(element => element.Name.LocalName == "Border");
+    }
+
+    private static XElement[] LatestWorkoutImages(XDocument document)
+    {
+        var artwork = LatestWorkoutArtwork(document);
+        var grid = Assert.Single(artwork.Elements(), element => element.Name.LocalName == "Grid");
+        return grid.Elements().Where(element => element.Name.LocalName == "Image").ToArray();
+    }
+
     private static string ElementRolePath(XElement element) =>
         string.Join('/', element.AncestorsAndSelf().Reverse().Select(ancestor => ancestor.Name.LocalName));
 
@@ -941,25 +964,12 @@ public sealed class AppWideVisualConsistencyTests
         "TrackZPageHorizontalPadding", "TrackZPageContentPadding", "TrackZPageBottomContentPadding", "TrackZAuthGatePadding"
     ];
 
-    private static readonly double[] AllowedLocalDimensions = [0, 4, 8, 12, 16, 24, 32, 44, 50, 52, 88, 112];
+    private static readonly double[] AllowedLocalDimensions = [0, 4, 8, 12, 16, 20, 24, 32, 42, 44, 50, 52, 56, 88, 112];
 
     private static int GridRow(XElement element) =>
         int.TryParse(element.Attribute(XName.Get("Row", "http://schemas.microsoft.com/dotnet/2021/maui"))?.Value ?? element.Attribute("Grid.Row")?.Value, out var row)
             ? row
             : 0;
-
-    private static string FormAnchorSignature(XDocument document)
-    {
-        var rootGrid = Assert.Single(document.Root!.Elements());
-        var anchors = new[] { "WelcomeBodyLabel", "EmailFieldContainer", "PasswordFieldContainer", "SubmitAction", "SwitchModeAction" };
-        return string.Join('|', new[] { rootGrid.Attribute("Padding")?.Value, rootGrid.Attribute("RowDefinitions")?.Value }
-            .Concat(anchors.Select(name =>
-            {
-                var element = Assert.Single(document.Descendants(), candidate => candidate.Attribute(XName.Get("Name", "http://schemas.microsoft.com/winfx/2009/xaml"))?.Value == name);
-                var band = element.Ancestors().First(ancestor => ancestor.Parent == rootGrid);
-                return $"{name}:{GridRow(band)}:{ElementPath(element)}";
-            })));
-    }
 
     private static string ElementPath(XElement element)
     {
@@ -968,6 +978,9 @@ public sealed class AppWideVisualConsistencyTests
             indices.Push(current.Parent.Elements().ToList().IndexOf(current));
         return string.Join('.', indices);
     }
+
+    private static XElement VisualRoot(XElement page) =>
+        Assert.Single(page.Elements(), element => !element.Name.LocalName.Contains('.', StringComparison.Ordinal));
 
     private static string RelativeElementPath(XElement root, XElement element)
     {
@@ -1046,27 +1059,6 @@ public sealed class AppWideVisualConsistencyTests
         var element = Assert.Single(document.Descendants(), candidate =>
             candidate.Attribute(XName.Get("Name", "http://schemas.microsoft.com/winfx/2009/xaml"))?.Value == name);
         Assert.Equal("{Binding HasAuthoritativeProgressData}", element.Attribute("IsVisible")?.Value);
-    }
-
-    private static IEnumerable<string> AuditAuthHeaderGeometry(XDocument signIn, XDocument create)
-    {
-        var signRoot = signIn.Root!.Elements().Single();
-        var createRoot = create.Root!.Elements().Single();
-        var signHeader = signRoot.Elements().First();
-        var createHeader = createRoot.Elements().First();
-
-        foreach (var (root, header) in new[] { (signRoot, signHeader), (createRoot, createHeader) })
-        {
-            var email = root.Descendants().Single(element => element.Attribute(XName.Get("Name", "http://schemas.microsoft.com/winfx/2009/xaml"))?.Value == "EmailFieldContainer");
-            var submit = root.Descendants().Single(element => element.Attribute(XName.Get("Name", "http://schemas.microsoft.com/winfx/2009/xaml"))?.Value == "SubmitAction");
-            var formBand = email.Ancestors().First(ancestor => ancestor.Parent == root);
-            var footerBand = submit.Ancestors().First(ancestor => ancestor.Parent == root);
-            if (root.Attribute("RowDefinitions")?.Value != "*,Auto" ||
-                GridRow(header) != 0 || GridRow(formBand) != 0 || GridRow(footerBand) != 1 ||
-                header.Attribute("VerticalOptions")?.Value != "Start" ||
-                formBand.Attribute("VerticalOptions")?.Value != "Center")
-                yield return "Auth pages must use the header-independent overlay: header/form row 0 with Start/Center alignment and sticky footer row 1.";
-        }
     }
 
     private static string MobileDirectory() =>

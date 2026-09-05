@@ -15,7 +15,8 @@ public sealed record LocalSet(
     long Version,
     long BaseVersion,
     Guid OperationId,
-    SetEffortRating? Effort = null)
+    SetEffortRating? Effort = null,
+    int? PlateCount = null)
 {
     public LocalSet(decimal? weightKg, decimal? assistedKg, int reps)
         : this(
@@ -32,6 +33,13 @@ public sealed record LocalSet(
             0,
             Guid.NewGuid(),
             null)
+    {
+    }
+
+    public LocalSet(decimal? weightKg, decimal? assistedKg, int reps, int? plateCount)
+        : this(
+            Guid.NewGuid(), Guid.Empty, 0, weightKg, assistedKg, reps,
+            DateTimeOffset.MinValue, null, null, 1, 0, Guid.NewGuid(), null, plateCount)
     {
     }
 }

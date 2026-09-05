@@ -23,6 +23,7 @@ public partial class App : Application, ILocalizedUiHost
 		LocalizedUiScopeManager localizedScopes)
 	{
 		InitializeComponent();
+		UserAppTheme = AppTheme.Dark;
 		_authentication = authentication;
 		_synchronization = synchronization;
 		_localizedScopes = localizedScopes;

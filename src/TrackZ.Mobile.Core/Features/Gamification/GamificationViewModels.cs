@@ -331,7 +331,9 @@ public sealed class ExerciseProgressItem : INotifyPropertyChanged
     public decimal? BestWeightKg => Source.BestWeightKg;
     public decimal? BestAssistedKg => Source.BestAssistedKg;
     public int BestReps => Source.BestReps;
-    public string PersonalRecordText => Source.TrackingMode switch
+    public string PersonalRecordText => Source.BestPlateCount is { } plates
+        ? $"{plates} {WorkoutResources.Current.PlateCount} × {Source.BestReps}"
+        : Source.TrackingMode switch
     {
         TrackingMode.Weighted => $"{FormatWeight(Source.BestWeightKg)} × {Source.BestReps}",
         TrackingMode.Assisted => $"{FormatWeight(Source.BestAssistedKg)} assist × {Source.BestReps}",

@@ -19,4 +19,6 @@ public sealed record ExerciseProgressSummaryDto(
     int LastReps,
     decimal? BestWeightKg,
     decimal? BestAssistedKg,
-    int BestReps);
+    int BestReps,
+    int? LastPlateCount = null,
+    int? BestPlateCount = null);

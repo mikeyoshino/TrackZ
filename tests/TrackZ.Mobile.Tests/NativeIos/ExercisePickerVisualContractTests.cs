@@ -7,26 +7,35 @@ public sealed class ExercisePickerVisualContractTests
     private static readonly XNamespace X = "http://schemas.microsoft.com/winfx/2009/xaml";
 
     [Fact]
-    public void Native_picker_uses_one_title_compact_search_filters_results_and_one_selection_count()
+    public void Native_picker_uses_one_title_compact_filter_trigger_results_and_one_selection_count()
     {
         var page = LoadPage("Features/Exercises/ExercisePickerPage.xaml");
         var root = Assert.Single(page.Root!.Elements());
 
         Assert.Equal("0,12,0,0", root.Attribute("Padding")?.Value);
-        Assert.Equal("Auto,Auto,*,Auto", root.Attribute("RowDefinitions")?.Value);
+        Assert.Equal("Auto,Auto,*,Auto,Auto", root.Attribute("RowDefinitions")?.Value);
         Assert.Equal("{DynamicResource TrackZSpace12}", root.Attribute("RowSpacing")?.Value);
         Assert.DoesNotContain(page.Descendants(), element =>
             element.Name.LocalName == "Label" &&
             element.Attribute("Text")?.Value == "{Binding Text.ChooseExercises}");
+        Assert.Equal("False", page.Root!.Attribute("Shell.TabBarIsVisible")?.Value);
 
         var search = Named(page, "ExerciseSearch");
         Assert.Equal("0", GridRow(search));
         Assert.Equal("{DynamicResource TrackZFieldHeight}", search.Attribute("HeightRequest")?.Value);
         Assert.Equal("Center", search.Attribute("VerticalOptions")?.Value);
 
-        var filters = Named(page, "BodyPartFilters");
         Assert.Equal("1", GridRow(Named(page, "BodyPartFilterBand")));
-        Assert.Equal("{DynamicResource TrackZMinimumTarget}", filters.Attribute("HeightRequest")?.Value);
+        var nativeFilter = Named(page, "BodyPartFilterPicker");
+        Assert.Equal("Picker", nativeFilter.Name.LocalName);
+        Assert.Null(nativeFilter.Attribute("Opacity"));
+        Assert.Equal("Transparent", nativeFilter.Attribute("TextColor")?.Value);
+        Assert.Equal("Transparent", nativeFilter.Attribute("BackgroundColor")?.Value);
+        Assert.Equal(
+            "{Binding SelectedBodyPartFilterText}",
+            Named(page, "BodyPartFilterLabel").Attribute("Text")?.Value);
+        Assert.DoesNotContain(page.Descendants(), element =>
+            element.Attribute(X + "Name")?.Value == "BodyPartFilters");
 
         Assert.Equal("2", GridRow(Named(page, "ExerciseResults")));
         var selectedCounts = page.Descendants().Where(element =>
@@ -35,8 +44,13 @@ public sealed class ExercisePickerVisualContractTests
         Assert.Single(selectedCounts);
 
         var footer = Named(page, "ExercisePickerActions");
-        Assert.Equal("3", GridRow(footer));
+        Assert.Equal("4", GridRow(footer));
         Assert.Equal("0,0,0,12", footer.Attribute("Margin")?.Value);
+
+        var createCustom = Named(page, "CreateCustomExerciseButton");
+        Assert.Equal("3", GridRow(createCustom));
+        Assert.Equal("{Binding Text.CreateCustom}", createCustom.Attribute("Text")?.Value);
+        Assert.Null(createCustom.Attribute("IsVisible"));
     }
 
     [Fact]

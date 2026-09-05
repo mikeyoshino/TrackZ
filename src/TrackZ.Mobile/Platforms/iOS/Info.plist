@@ -41,5 +41,7 @@
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>TrackZ connects to your local development API while running in the simulator.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>TrackZ uses the camera to photograph gym equipment for your custom exercises.</string>
 </dict>
 </plist>

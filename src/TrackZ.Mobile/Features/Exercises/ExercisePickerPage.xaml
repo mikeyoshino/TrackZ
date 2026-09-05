@@ -11,8 +11,9 @@
     BackgroundColor="{DynamicResource TrackZBackground}"
     SafeAreaEdges="All"
     Shell.NavBarHasShadow="False"
+    Shell.TabBarIsVisible="False"
     Title="{Binding Text.ChooseExercises}">
-    <Grid Padding="0,12,0,0" RowDefinitions="Auto,Auto,*,Auto" RowSpacing="{DynamicResource TrackZSpace12}">
+    <Grid Padding="0,12,0,0" RowDefinitions="Auto,Auto,*,Auto,Auto" RowSpacing="{DynamicResource TrackZSpace12}">
         <Grid Padding="{DynamicResource TrackZPageHorizontalPadding}">
             <SearchBar
                 x:Name="ExerciseSearch"
@@ -30,42 +31,47 @@
         </Grid>
 
         <Grid x:Name="BodyPartFilterBand" Grid.Row="1" Padding="{DynamicResource TrackZPageHorizontalPadding}">
-            <CollectionView
-                x:Name="BodyPartFilters"
-                HeightRequest="{DynamicResource TrackZMinimumTarget}"
-                HorizontalScrollBarVisibility="Never"
-                ItemsSource="{Binding BodyPartOptions}"
-                SelectionMode="None">
-                <CollectionView.ItemsLayout>
-                    <LinearItemsLayout ItemSpacing="8" Orientation="Horizontal" />
-                </CollectionView.ItemsLayout>
-                <CollectionView.ItemTemplate>
-                    <DataTemplate x:DataType="viewModels:BodyPartFilterOption">
-                        <Border Style="{DynamicResource TrackZSelectionChipStyle}">
-                            <Border.GestureRecognizers>
-                                <TapGestureRecognizer Command="{Binding SelectCommand}" />
-                            </Border.GestureRecognizers>
-                            <Border.Triggers>
-                                <DataTrigger Binding="{Binding IsSelected}" TargetType="Border" Value="True">
-                                    <Setter Property="BackgroundColor" Value="{DynamicResource TrackZPrimary}" />
-                                    <Setter Property="Stroke" Value="{DynamicResource TrackZPrimary}" />
-                                </DataTrigger>
-                            </Border.Triggers>
-                            <Label
-                                Style="{DynamicResource TrackZBodyStyle}"
-                                Text="{Binding Label}"
-                                VerticalOptions="Center"
-                                VerticalTextAlignment="Center">
-                                <Label.Triggers>
-                                    <DataTrigger Binding="{Binding IsSelected}" TargetType="Label" Value="True">
-                                        <Setter Property="TextColor" Value="{DynamicResource TrackZPrimaryContrast}" />
-                                    </DataTrigger>
-                                </Label.Triggers>
-                            </Label>
-                        </Border>
-                    </DataTemplate>
-                </CollectionView.ItemTemplate>
-            </CollectionView>
+            <Border
+                HorizontalOptions="Start"
+                MinimumHeightRequest="{DynamicResource TrackZFieldHeight}"
+                MinimumWidthRequest="{DynamicResource TrackZFilterTriggerWidth}"
+                Style="{DynamicResource TrackZSelectionChipStyle}">
+                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="{DynamicResource TrackZSpace8}">
+                    <Image
+                        HeightRequest="{DynamicResource TrackZFilterIconSize}"
+                        InputTransparent="True"
+                        Source="filter.png"
+                        VerticalOptions="Center"
+                        WidthRequest="{DynamicResource TrackZFilterIconSize}" />
+                    <Label
+                        x:Name="BodyPartFilterLabel"
+                        Grid.Column="1"
+                        InputTransparent="True"
+                        Style="{DynamicResource TrackZBodyStyle}"
+                        Text="{Binding SelectedBodyPartFilterText}"
+                        VerticalOptions="Center" />
+                    <Image
+                        Grid.Column="2"
+                        HeightRequest="{DynamicResource TrackZChevronIconSize}"
+                        InputTransparent="True"
+                        Source="chevron_down.png"
+                        VerticalOptions="Center"
+                        WidthRequest="{DynamicResource TrackZChevronIconSize}" />
+                    <Picker
+                        x:Name="BodyPartFilterPicker"
+                        Grid.ColumnSpan="3"
+                        ItemDisplayBinding="{Binding Label}"
+                        ItemsSource="{Binding BodyPartOptions}"
+                        MinimumHeightRequest="{DynamicResource TrackZMinimumTarget}"
+                        MinimumWidthRequest="{DynamicResource TrackZFilterTriggerWidth}"
+                        BackgroundColor="Transparent"
+                        SelectedItem="{Binding SelectedBodyPartOption, Mode=TwoWay}"
+                        SemanticProperties.Description="{Binding SelectedBodyPartFilterText}"
+                        Style="{DynamicResource TrackZPickerStyle}"
+                        TextColor="Transparent"
+                        TitleColor="Transparent" />
+                </Grid>
+            </Border>
         </Grid>
 
         <Grid x:Name="ExerciseResults" Grid.Row="2" Padding="{DynamicResource TrackZPageHorizontalPadding}">
@@ -98,26 +104,63 @@
                 IsVisible="{Binding ShowRequestFailure}"
                 Message="{Binding StateMessage}"
                 Title="{Binding StateTitle}" />
-            <components:TrackZStateView
+            <VerticalStackLayout
+                HorizontalOptions="Center"
                 IsVisible="{Binding ShowNoMatches}"
-                Message="{Binding StateMessage}"
-                Title="{Binding StateTitle}" />
+                MaximumWidthRequest="360"
+                Spacing="{DynamicResource TrackZSpace12}"
+                VerticalOptions="Center">
+                <Image
+                    HeightRequest="{DynamicResource TrackZEmptyStateIconSize}"
+                    Opacity="0.58"
+                    Source="tab_train.png"
+                    WidthRequest="{DynamicResource TrackZEmptyStateIconSize}" />
+                <Label
+                    HorizontalTextAlignment="Center"
+                    Style="{DynamicResource TrackZSectionTitleStyle}"
+                    Text="{Binding StateTitle}" />
+                <Label
+                    HorizontalTextAlignment="Center"
+                    Style="{DynamicResource TrackZSecondaryStyle}"
+                    Text="{Binding StateMessage}" />
+            </VerticalStackLayout>
         </Grid>
+
+        <Button
+            x:Name="CreateCustomExerciseButton"
+            Grid.Row="3"
+            Clicked="OnCreateCustomClicked"
+            ImageSource="plus.png"
+            Margin="{DynamicResource TrackZPageHorizontalPadding}"
+            BackgroundColor="Transparent"
+            BorderColor="{DynamicResource TrackZPrimary}"
+            BorderWidth="1"
+            SemanticProperties.Description="{Binding Text.CreateCustom}"
+            Style="{DynamicResource TrackZSecondaryButtonStyle}"
+            TextColor="{DynamicResource TrackZPrimary}"
+            Text="{Binding Text.CreateCustom}" />
 
         <Border
             x:Name="ExercisePickerActions"
-            Grid.Row="3"
+            Grid.Row="4"
             Margin="0,0,0,12"
             Style="{DynamicResource TrackZStickyActionContainerStyle}">
-            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="{DynamicResource TrackZSpace12}">
-                <Button Clicked="OnCreateCustomClicked" Style="{DynamicResource TrackZQuietButtonStyle}" Text="{Binding Text.CreateCustom}" />
-                <Label Grid.Column="1" HorizontalTextAlignment="Center" Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding SelectedCountText}" VerticalOptions="Center" />
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="{DynamicResource TrackZSpace12}">
+                <Label Style="{DynamicResource TrackZBodyStyle}" Text="{Binding SelectedCountText}" VerticalOptions="Center" />
                 <Button
                     x:Name="DoneButton"
-                    Grid.Column="2"
+                    Grid.Column="1"
                     Command="{Binding Source={x:Reference Page}, Path=DoneCommand}"
+                    IsEnabled="{Binding CanCompleteSelection}"
                     Style="{DynamicResource TrackZPrimaryButtonStyle}"
-                    Text="{Binding Text.Done}" />
+                    Text="{Binding Text.Done}">
+                    <Button.Triggers>
+                        <DataTrigger Binding="{Binding CanCompleteSelection}" TargetType="Button" Value="False">
+                            <Setter Property="BackgroundColor" Value="{DynamicResource TrackZSurfaceRaised}" />
+                            <Setter Property="TextColor" Value="{DynamicResource TrackZTextSecondary}" />
+                        </DataTrigger>
+                    </Button.Triggers>
+                </Button>
             </Grid>
         </Border>
     </Grid>

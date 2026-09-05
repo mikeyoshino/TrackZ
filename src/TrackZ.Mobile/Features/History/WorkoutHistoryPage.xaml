@@ -12,38 +12,40 @@
     Shell.NavBarIsVisible="False"
     Title="{Binding Text.HistoryTitle}">
     <Grid Padding="{DynamicResource TrackZPageContentPadding}" RowDefinitions="Auto,*" RowSpacing="{DynamicResource TrackZSpace16}">
-        <Grid ColumnDefinitions="*,Auto">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
             <VerticalStackLayout Spacing="{DynamicResource TrackZSpace4}">
-                <Label Style="{DynamicResource TrackZPageTitleStyle}" Text="{Binding Text.HistoryTitle}" />
+                <Label Style="{DynamicResource TrackZHistoryTitleStyle}" Text="{Binding Text.HistoryTitle}" />
+                <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding SupportingText}" />
                 <Label Style="{DynamicResource TrackZInlineErrorStyle}" Text="{Binding ErrorMessage}" />
             </VerticalStackLayout>
-            <ActivityIndicator Grid.Column="1" IsRunning="{Binding IsBusy}" IsVisible="{Binding IsBusy}" />
+            <Button x:Name="FilterButton" Grid.Column="1" Style="{DynamicResource TrackZQuietButtonStyle}"
+                    ImageSource="filter.png" Clicked="OnFilterClicked" VerticalOptions="Start" />
         </Grid>
-        <CollectionView Grid.Row="1" IsGrouped="True" ItemsSource="{Binding WorkoutGroups}" SelectionChanged="OnWorkoutSelected" SelectionMode="Single">
-            <CollectionView.EmptyView>
-                <Label HorizontalTextAlignment="Center" Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Source={x:Reference Page}, Path=BindingContext.Text.NoHistory}" VerticalTextAlignment="Center" />
-            </CollectionView.EmptyView>
-            <CollectionView.GroupHeaderTemplate>
-                <DataTemplate x:DataType="history:HistoryMonthGroup">
-                    <Label Margin="0,16,0,8" Style="{DynamicResource TrackZSectionTitleStyle}" Text="{Binding Month}" />
-                </DataTemplate>
-            </CollectionView.GroupHeaderTemplate>
+        <CollectionView Grid.Row="1" ItemsSource="{Binding Calendar.SelectedWorkouts}" SelectionChanged="OnWorkoutSelected" SelectionMode="Single">
+            <CollectionView.Header>
+                <ContentView x:Name="CalendarHost" />
+            </CollectionView.Header>
             <CollectionView.ItemTemplate>
                 <DataTemplate x:DataType="history:HistoryWorkoutItem">
                     <Border Margin="0,0,0,12" Style="{DynamicResource TrackZListRowStyle}">
-                        <Grid ColumnDefinitions="*,24,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="{DynamicResource TrackZSpace12}" RowSpacing="{DynamicResource TrackZSpace4}">
-                            <Label Style="{DynamicResource TrackZNavigationTitleStyle}" Text="{Binding CompletedAt, StringFormat='{0:ddd, d MMM · HH:mm}'}" />
+                        <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto,Auto" ColumnSpacing="{DynamicResource TrackZSpace12}" RowSpacing="{DynamicResource TrackZSpace4}">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                                <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding LocalTimeText}" />
+                                <Label Grid.Column="1" Style="{DynamicResource TrackZHistoryDateStyle}" Text="{Binding BodyPartTitle}" />
+                            </Grid>
                             <components:WorkoutSyncIcon
-                                Grid.Column="1"
-                                Grid.RowSpan="2"
+                                Grid.Row="3"
+                                Margin="0,4,0,0"
                                 AccessibilityText="{Binding SyncStatusText}"
                                 State="{Binding SyncState}"
                                 VerticalOptions="Center" />
-                            <HorizontalStackLayout Grid.Row="1" Spacing="{DynamicResource TrackZSpace16}">
+                            <Label Grid.Row="1" Margin="0,4,0,8" Style="{DynamicResource TrackZSecondaryStyle}"
+                                   Text="{Binding ExercisePreview}" MaxLines="2" LineBreakMode="TailTruncation" />
+                            <HorizontalStackLayout Grid.Row="2" Spacing="{DynamicResource TrackZSpace16}">
                                 <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding ExerciseCountText}" />
                                 <Label Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding SetCountText}" />
                             </HorizontalStackLayout>
-                            <Label Grid.Column="2" Grid.RowSpan="2" Style="{DynamicResource TrackZSecondaryStyle}" Text="›" VerticalTextAlignment="Center" />
+                            <Label Grid.Column="1" Grid.RowSpan="4" Style="{DynamicResource TrackZSecondaryStyle}" Text="›" VerticalTextAlignment="Center" />
                         </Grid>
                     </Border>
                 </DataTemplate>

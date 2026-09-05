@@ -18,9 +18,10 @@
   <data name="OptionalExerciseImage" xml:space="preserve"><value>Exercise image (optional)</value></data>
   <data name="ExerciseImageOptionalHelp" xml:space="preserve"><value>Add your own image or choose one from the library.</value></data>
   <data name="AddExerciseImage" xml:space="preserve"><value>Add image</value></data>
+  <data name="CaptureExerciseImage" xml:space="preserve"><value>Take equipment photo</value></data>
   <data name="HideExerciseImages" xml:space="preserve"><value>Hide</value></data>
   <data name="ExerciseImagePlaceholder" xml:space="preserve"><value>Image</value></data>
-  <data name="ChooseExerciseImage" xml:space="preserve"><value>Choose from device</value></data>
+  <data name="ChooseExerciseImage" xml:space="preserve"><value>Choose from library</value></data>
   <data name="ChooseFromExerciseLibrary" xml:space="preserve"><value>Choose from the image library</value></data>
   <data name="PublishedLibraryImages" xml:space="preserve"><value>Published library images</value></data>
   <data name="ExerciseImageRetentionHelp" xml:space="preserve"><value>The original file is retained for secure upload; only this preview is resized. Published library images can also be assigned when available.</value></data>

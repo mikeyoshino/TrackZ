@@ -183,11 +183,16 @@ public sealed class WorkoutExercise
         var validReps = measurement.Reps is >= 1 and <= 999;
         var validForMode = TrackingMode switch
         {
-            TrackingMode.Weighted => IsRepresentableKilograms(measurement.WeightKg)
+            TrackingMode.Weighted =>
+                ((IsRepresentableKilograms(measurement.WeightKg) && measurement.PlateCount is null)
+                    || (measurement.WeightKg is null && IsValidPlateCount(measurement.PlateCount)))
                 && measurement.AssistedKg is null,
-            TrackingMode.Bodyweight => measurement.WeightKg is null && measurement.AssistedKg is null,
+            TrackingMode.Bodyweight => measurement.WeightKg is null
+                && measurement.AssistedKg is null
+                && measurement.PlateCount is null,
             TrackingMode.Assisted => measurement.WeightKg is null
-                && IsRepresentableKilograms(measurement.AssistedKg),
+                && ((IsRepresentableKilograms(measurement.AssistedKg) && measurement.PlateCount is null)
+                    || (measurement.AssistedKg is null && IsValidPlateCount(measurement.PlateCount))),
             _ => false
         };
 
@@ -205,6 +210,9 @@ public sealed class WorkoutExercise
             && kilograms is >= SetMeasurement.MinimumKilograms and <= SetMeasurement.MaximumKilograms
             && DecimalScale(kilograms) <= SetMeasurement.MaximumKilogramScale;
     }
+
+    private static bool IsValidPlateCount(int? value) =>
+        value is >= SetMeasurement.MinimumPlateCount and <= SetMeasurement.MaximumPlateCount;
 
     private static int DecimalScale(decimal value) =>
         (decimal.GetBits(value)[3] >> 16) & 0xff;

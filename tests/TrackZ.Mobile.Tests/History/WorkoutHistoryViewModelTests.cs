@@ -24,6 +24,29 @@ public sealed class WorkoutHistoryViewModelTests : IAsyncDisposable
     private readonly AccountSessionBoundary _boundary = new();
 
     [Fact]
+    public async Task Calendar_uses_cached_body_part_refreshes_after_load_and_clears_on_account_reset()
+    {
+        var completed = await CompletedWorkoutAsync(TrackingMode.Weighted, 20m, null, 8);
+        await CacheAsync(Assert.Single(completed.Exercises).ExerciseDefinitionId, "Press", TrackingMode.Weighted);
+        var viewModel = ViewModel(WorkoutResources.English, new RecordingConfirmation());
+        await viewModel.LoadAsync();
+        var date = DateOnly.FromDateTime(completed.CompletedAt!.Value.ToLocalTime().DateTime);
+        viewModel.Calendar.ShowMonth(date.Year, date.Month);
+        viewModel.Calendar.SelectDate(date);
+        viewModel.Calendar.ApplyFilter([BodyPart.Arms]);
+        Assert.Empty(viewModel.Calendar.SelectedWorkouts);
+        viewModel.Calendar.ApplyFilter([BodyPart.Chest]);
+        Assert.Equal(completed.Id, Assert.Single(viewModel.Calendar.SelectedWorkouts).WorkoutId);
+        await viewModel.LoadAsync();
+        Assert.Equal(date, viewModel.Calendar.SelectedDate);
+        Assert.Single(viewModel.Calendar.SelectedWorkouts);
+        await _boundary.ResetAsync(_ => Task.CompletedTask);
+        Assert.Empty(viewModel.Calendar.SelectedWorkouts);
+        Assert.Empty(viewModel.Calendar.Filter);
+        Assert.DoesNotContain(viewModel.Calendar.Days, day => day.HasTraining);
+    }
+
+    [Fact]
     public async Task Detail_loads_one_workout_reloads_after_edit_and_clears_on_account_reset()
     {
         var completed = await CompletedWorkoutAsync(TrackingMode.Weighted, 70m, null, 10);
@@ -55,6 +78,8 @@ public sealed class WorkoutHistoryViewModelTests : IAsyncDisposable
         Assert.Equal(1, workout.ExerciseCount);
         Assert.Equal(1, workout.SetCount);
         Assert.False(string.IsNullOrWhiteSpace(group.Month));
+        Assert.False(string.IsNullOrWhiteSpace(workout.ExercisePreview));
+        Assert.False(string.IsNullOrWhiteSpace(group.Summary));
     }
 
     [Fact]
@@ -87,6 +112,8 @@ public sealed class WorkoutHistoryViewModelTests : IAsyncDisposable
         Assert.True(Assert.Single(
             Assert.Single(reloaded.Exercises).Sets,
             item => item.SetId == set.SetId).IsDeleted);
+        Assert.Equal(0, reloaded.SetCount);
+        Assert.Equal(string.Empty, reloaded.ExercisePreview);
         Assert.NotNull(reloaded.LastUndoOperationId);
         Assert.Equal(WorkoutSyncState.Pending, reloaded.SyncState);
 

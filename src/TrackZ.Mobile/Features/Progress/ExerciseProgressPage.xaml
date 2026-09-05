@@ -13,12 +13,9 @@
     Title="{Binding Text.ProgressTitle}">
     <ScrollView x:Name="ExerciseProgressScroll">
         <VerticalStackLayout Padding="{DynamicResource TrackZPageContentPadding}" Spacing="{DynamicResource TrackZSpace16}">
-            <Label Style="{DynamicResource TrackZPageTitleStyle}" Text="{Binding Text.ProgressTitle}" />
+            <Label SemanticProperties.HeadingLevel="Level1" Style="{DynamicResource TrackZCoachPageTitleStyle}" Text="{Binding Text.ProgressTitle}" />
+            <VerticalStackLayout x:Name="CoachReportHost" Spacing="16" />
             <VerticalStackLayout x:Name="ProgressSnapshotContent" IsVisible="{Binding HasAuthoritativeProgressData}" Spacing="{DynamicResource TrackZSpace16}">
-                <Border Style="{DynamicResource TrackZCardStyle}">
-                    <components:XpBar Level="{Binding Level}" LevelLabel="{Binding Text.Level}" TotalXp="{Binding TotalXp}" XpLabel="{Binding Text.Xp}" Progress="{Binding LevelProgress}" />
-                </Border>
-                <components:WeeklyStreakView AccessibilityText="{Binding Text.StreakAccessibilityText}" CompletedText="{Binding WeeklyProgressText}" CurrentWeeks="{Binding CurrentStreakWeeks}" Progress="{Binding WeeklyProgress}" Title="{Binding Text.WeeklyGoal}" />
                 <Label Style="{DynamicResource TrackZSectionTitleStyle}" Text="{Binding Text.PersonalRecords}" />
                 <VerticalStackLayout
                     x:Name="ExerciseProgressRows"

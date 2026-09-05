@@ -17,9 +17,9 @@ public sealed class SetEntryConfiguration : IEntityTypeConfiguration<SetEntry>
                 "\"Effort\" IS NULL OR \"Effort\" IN (1, 2, 3)");
             table.HasCheckConstraint(
                 "CK_set_entries_mode_measurement",
-                "(\"TrackingMode\" = 1 AND \"WeightKg\" > 0 AND \"AssistedKg\" IS NULL) OR " +
-                "(\"TrackingMode\" = 2 AND \"WeightKg\" IS NULL AND \"AssistedKg\" IS NULL) OR " +
-                "(\"TrackingMode\" = 3 AND \"WeightKg\" IS NULL AND \"AssistedKg\" > 0)");
+                "(\"TrackingMode\" = 1 AND \"AssistedKg\" IS NULL AND ((\"WeightKg\" > 0 AND \"PlateCount\" IS NULL) OR (\"WeightKg\" IS NULL AND \"PlateCount\" BETWEEN 1 AND 999))) OR " +
+                "(\"TrackingMode\" = 2 AND \"WeightKg\" IS NULL AND \"AssistedKg\" IS NULL AND \"PlateCount\" IS NULL) OR " +
+                "(\"TrackingMode\" = 3 AND \"WeightKg\" IS NULL AND ((\"AssistedKg\" > 0 AND \"PlateCount\" IS NULL) OR (\"AssistedKg\" IS NULL AND \"PlateCount\" BETWEEN 1 AND 999)))");
         });
         builder.HasKey(set => set.Id);
         builder.Property(set => set.Id).ValueGeneratedNever();
@@ -30,6 +30,7 @@ public sealed class SetEntryConfiguration : IEntityTypeConfiguration<SetEntry>
             .HasComputedColumnSql("CASE WHEN \"DeletedAt\" IS NULL THEN \"Order\" ELSE NULL END", stored: true);
         builder.Property(set => set.WeightKg).HasColumnType("numeric(8,3)");
         builder.Property(set => set.AssistedKg).HasColumnType("numeric(8,3)");
+        builder.Property(set => set.PlateCount);
         builder.Property(set => set.Reps).IsRequired();
         builder.Property(set => set.Effort);
         builder.Property(set => set.CompletedAt).IsRequired();

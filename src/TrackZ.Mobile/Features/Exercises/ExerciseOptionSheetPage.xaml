@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage
+    x:Class="TrackZ.Mobile.Features.Exercises.ExerciseOptionSheetPage"
+    x:Name="Page"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:exercises="clr-namespace:TrackZ.Mobile.Features.Exercises"
+    BackgroundColor="{DynamicResource TrackZSurface}"
+    SafeAreaEdges="All"
+    Shell.NavBarIsVisible="False">
+    <Grid Padding="0,16,0,20" RowDefinitions="Auto,*" RowSpacing="{DynamicResource TrackZSpace16}">
+        <Grid Padding="{DynamicResource TrackZPageHorizontalPadding}" ColumnDefinitions="*,Auto">
+            <Label
+                x:Name="OptionSheetTitle"
+                Style="{DynamicResource TrackZNavigationTitleStyle}"
+                Text="{Binding TitleText}"
+                VerticalOptions="Center" />
+            <ImageButton
+                x:Name="OptionSheetCloseButton"
+                Grid.Column="1"
+                Clicked="OnCloseClicked"
+                SemanticProperties.Description="{Binding CancelText}"
+                Source="close.png"
+                Style="{DynamicResource TrackZAuthBackButtonStyle}" />
+        </Grid>
+
+        <CollectionView
+            x:Name="OptionList"
+            Grid.Row="1"
+            ItemsSource="{Binding Options}"
+            Margin="20,0,20,8"
+            SelectionMode="None">
+            <CollectionView.ItemsLayout>
+                <LinearItemsLayout ItemSpacing="10" Orientation="Vertical" />
+            </CollectionView.ItemsLayout>
+            <CollectionView.ItemTemplate>
+                <DataTemplate x:DataType="exercises:ExerciseOptionSheetItem">
+                    <Button
+                        Clicked="OnOptionClicked"
+                        CommandParameter="{Binding .}"
+                        MinimumHeightRequest="52"
+                        SemanticProperties.Description="{Binding Label}"
+                        Style="{DynamicResource TrackZSecondaryButtonStyle}"
+                        Text="{Binding Label}">
+                        <Button.Triggers>
+                            <DataTrigger Binding="{Binding IsSelected}" TargetType="Button" Value="True">
+                                <Setter Property="BorderColor" Value="{DynamicResource TrackZPrimary}" />
+                                <Setter Property="BorderWidth" Value="1" />
+                                <Setter Property="TextColor" Value="{DynamicResource TrackZPrimary}" />
+                            </DataTrigger>
+                        </Button.Triggers>
+                    </Button>
+                </DataTemplate>
+            </CollectionView.ItemTemplate>
+        </CollectionView>
+    </Grid>
+</ContentPage>
