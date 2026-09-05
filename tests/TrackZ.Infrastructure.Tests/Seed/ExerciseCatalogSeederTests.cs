@@ -7,6 +7,8 @@ namespace TrackZ.Infrastructure.Tests.Seed;
 
 public sealed class ExerciseCatalogSeederTests
 {
+    private const int CatalogExerciseCount = ExerciseManifest.SystemExerciseCount;
+
     [Fact]
     public async Task Seeder_is_idempotent_and_does_not_create_artwork_before_deployment()
     {
@@ -18,7 +20,7 @@ public sealed class ExerciseCatalogSeederTests
 
         var manifest = ExerciseManifest.Load(CatalogPath);
         var exercises = await database.Db.Exercises.OrderBy(exercise => exercise.Name).ToArrayAsync();
-        Assert.Equal(48, exercises.Length);
+        Assert.Equal(CatalogExerciseCount, exercises.Length);
         Assert.Empty(await database.Db.ExerciseImages.ToArrayAsync());
         Assert.Equal(manifest.Select(item => item.Id).Order().ToArray(), exercises.Select(exercise => exercise.Id).Order().ToArray());
         Assert.All(exercises, exercise => Assert.True(exercise.IsSystem));
@@ -72,7 +74,7 @@ public sealed class ExerciseCatalogSeederTests
         await new ExerciseCatalogSeeder(database.Db, new DeployedAssets()).SeedAsync(CatalogPath, default);
 
         var images = await database.Db.ExerciseImages.OrderBy(image => image.ExerciseDefinitionId).ToArrayAsync();
-        Assert.Equal(48, images.Length);
+        Assert.Equal(CatalogExerciseCount, images.Length);
         Assert.All(images, image =>
         {
             Assert.Equal(1, image.Version);
@@ -147,7 +149,7 @@ public sealed class ExerciseCatalogSeederTests
             .OrderBy(image => image.ExerciseDefinitionId)
             .Select(image => new { image.Id, image.Version, image.MasterObjectKey, image.ThumbnailObjectKey })
             .ToArrayAsync();
-        Assert.Equal(48, after.Length);
+        Assert.Equal(CatalogExerciseCount, after.Length);
         Assert.Equal(before, after);
     }
 
@@ -175,7 +177,7 @@ public sealed class ExerciseCatalogSeederTests
         Assert.Equal(2, sameName.Length);
         Assert.Contains(sameName, exercise => exercise.Id == manifestItem.Id && exercise.OwnerId == null);
         Assert.Contains(sameName, exercise => exercise.Id == custom.Id && exercise.OwnerId == custom.OwnerId);
-        Assert.Equal(49, await database.Db.Exercises.CountAsync());
+        Assert.Equal(CatalogExerciseCount + 1, await database.Db.Exercises.CountAsync());
     }
 
     private static string CatalogPath => Path.Combine(RepositoryRoot, "assets", "exercises", "catalog.json");

@@ -8,6 +8,9 @@ namespace TrackZ.Infrastructure.Tests.Seed;
 
 public sealed class ExerciseCatalogDeploymentTests
 {
+    private const int CatalogExerciseCount = ExerciseManifest.SystemExerciseCount;
+    private const int CatalogObjectCount = CatalogExerciseCount * 2;
+
     [Fact]
     public async Task Partial_storage_failure_leaves_database_empty_and_retry_deploys_all_draft_assets()
     {
@@ -27,10 +30,10 @@ public sealed class ExerciseCatalogDeploymentTests
         storage.FailOnPut = null;
         await command.DeployAndSeedAsync(CatalogPath);
 
-        Assert.Equal(96, storage.Keys.Count);
-        Assert.Equal(48, await database.Db.Exercises.CountAsync());
+        Assert.Equal(CatalogObjectCount, storage.Keys.Count);
+        Assert.Equal(CatalogExerciseCount, await database.Db.Exercises.CountAsync());
         var images = await database.Db.ExerciseImages.ToArrayAsync();
-        Assert.Equal(48, images.Length);
+        Assert.Equal(CatalogExerciseCount, images.Length);
         Assert.All(images, image =>
         {
             Assert.Equal(ExerciseImageReviewState.Draft, image.ReviewState);
@@ -45,7 +48,7 @@ public sealed class ExerciseCatalogDeploymentTests
         await command.DeployAndSeedAsync(CatalogPath);
 
         var redeployedImages = await database.Db.ExerciseImages.AsNoTracking().ToArrayAsync();
-        Assert.Equal(48, redeployedImages.Length);
+        Assert.Equal(CatalogExerciseCount, redeployedImages.Length);
         Assert.All(redeployedImages, image => Assert.Equal(ExerciseImageReviewState.Draft, image.ReviewState));
     }
 

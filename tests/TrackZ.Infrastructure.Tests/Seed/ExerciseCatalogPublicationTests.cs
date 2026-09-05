@@ -2,6 +2,8 @@ using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
 using TrackZ.Application.Common.Interfaces;
 using TrackZ.Domain.Exercises;
+using TrackZ.Domain.Identity;
+using TrackZ.Domain.Workouts;
 using TrackZ.Infrastructure.Persistence;
 using TrackZ.Infrastructure.Persistence.Seed;
 using TrackZ.Infrastructure.Tests.Persistence;
@@ -11,12 +13,30 @@ namespace TrackZ.Infrastructure.Tests.Seed;
 [Collection(ExerciseCatalogPublicationCollection.Name)]
 public sealed class ExerciseCatalogPublicationTests(ExerciseCatalogPublicationFixture fixture)
 {
+    private const int CatalogExerciseCount = ExerciseManifest.SystemExerciseCount;
+    private const int CatalogObjectCount = CatalogExerciseCount * 2;
+    private const int ConcurrentVerificationReadCount = CatalogObjectCount * 2;
     private static readonly Guid ReviewerId = Guid.Parse("11111111-1111-1111-1111-111111111111");
     private static readonly Guid OtherReviewerId = Guid.Parse("22222222-2222-2222-2222-222222222222");
     private const string RightsReference = "local-simulator-review-2026-08-21";
+    private static readonly HashSet<string> ExpansionExerciseNames =
+    [
+        "Push-Up", "Chest Dip", "Decline Barbell Bench Press", "Smith Machine Bench Press",
+        "Dumbbell Fly", "Low-to-High Cable Fly", "High-to-Low Cable Fly",
+        "Conventional Deadlift", "T-Bar Row", "Inverted Row", "Neutral-Grip Lat Pulldown",
+        "Wide-Grip Lat Pulldown", "Single-Arm Cable Row", "Machine High Row",
+        "Arnold Press", "Dumbbell Front Raise", "Cable Front Raise", "Bent-Over Reverse Fly",
+        "Reverse Pec Deck", "Landmine Press", "Dumbbell Shrug",
+        "EZ-Bar Curl", "Incline Dumbbell Curl", "Cable Curl", "Concentration Curl", "Bench Dip",
+        "Triceps Dip", "Single-Arm Cable Pushdown",
+        "Goblet Squat", "Hack Squat", "Sumo Deadlift", "Walking Lunge", "Hip Thrust",
+        "Lying Leg Curl", "Seated Calf Raise",
+        "Plank", "Side Plank", "Dead Bug", "Bird Dog", "Russian Twist", "Bicycle Crunch",
+        "Mountain Climber"
+    ];
 
     [Fact]
-    public async Task Exact_48_drafts_publish_atomically_with_complete_review_metadata()
+    public async Task Exact_90_drafts_publish_atomically_with_complete_review_metadata()
     {
         var scenario = await fixture.PrepareAsync();
 
@@ -25,7 +45,7 @@ public sealed class ExerciseCatalogPublicationTests(ExerciseCatalogPublicationFi
         var images = await scenario.Database.ExerciseImages.AsNoTracking()
             .OrderBy(image => image.ExerciseDefinitionId)
             .ToArrayAsync();
-        Assert.Equal(48, images.Length);
+        Assert.Equal(CatalogExerciseCount, images.Length);
         Assert.All(images, image =>
         {
             Assert.Equal(ExerciseImageReviewState.Published, image.ReviewState);
@@ -39,7 +59,7 @@ public sealed class ExerciseCatalogPublicationTests(ExerciseCatalogPublicationFi
     }
 
     [Fact]
-    public async Task Concurrent_conflicting_publications_serialize_and_only_the_winner_commits()
+    public async Task Concurrent_publications_serialize_and_preserve_the_first_committed_metadata()
     {
         var scenario = await fixture.PrepareAsync();
         var barrier = new ConcurrentPublicationBarrier();
@@ -56,18 +76,14 @@ public sealed class ExerciseCatalogPublicationTests(ExerciseCatalogPublicationFi
             CapturePublicationAsync(second, secondTime, OtherReviewerId, "other-reviewed-rights"));
         await monitor;
 
-        var winner = Assert.Single(attempts, attempt => attempt.Error is null);
-        var loser = Assert.Single(attempts, attempt => attempt.Error is not null);
-        var conflict = Assert.IsType<InvalidOperationException>(loser.Error);
-        Assert.Equal(
-            "Exercise catalog publication requires either 48 exact Draft rows or 48 matching Published rows.",
-            conflict.Message);
-        Assert.Single(new[] { firstTime, secondTime }, time => time.WasRead);
+        Assert.All(attempts, attempt => Assert.Null(attempt.Error));
+        var winnerTime = Assert.Single(new[] { firstTime, secondTime }, time => time.WasRead);
+        var winner = Assert.Single(attempts, attempt => attempt.TimeProvider == winnerTime);
         await using var verificationContext = fixture.Database.CreateDbContext();
         var images = await verificationContext.ExerciseImages.AsNoTracking()
             .OrderBy(image => image.ExerciseDefinitionId)
             .ToArrayAsync();
-        Assert.Equal(48, images.Length);
+        Assert.Equal(CatalogExerciseCount, images.Length);
         Assert.All(images, image =>
         {
             Assert.Equal(ExerciseImageReviewState.Published, image.ReviewState);
@@ -78,7 +94,7 @@ public sealed class ExerciseCatalogPublicationTests(ExerciseCatalogPublicationFi
             Assert.Equal(winner.TimeProvider.GetConfiguredUtcNow(), image.ReviewedAt);
             Assert.Equal(winner.TimeProvider.GetConfiguredUtcNow(), image.PublishedAt);
         });
-        Assert.Equal(192, scenario.Storage.GetCount);
+        Assert.Equal(ConcurrentVerificationReadCount, scenario.Storage.GetCount);
         Assert.Equal(0, scenario.Storage.PutCountAfterReset);
         Assert.Equal(0, scenario.Storage.DeleteCountAfterReset);
     }
@@ -105,7 +121,7 @@ public sealed class ExerciseCatalogPublicationTests(ExerciseCatalogPublicationFi
         var winnerTime = Assert.Single(new[] { firstTime, secondTime }, time => time.WasRead);
         await using var verificationContext = fixture.Database.CreateDbContext();
         var images = await verificationContext.ExerciseImages.AsNoTracking().ToArrayAsync();
-        Assert.Equal(48, images.Length);
+        Assert.Equal(CatalogExerciseCount, images.Length);
         Assert.All(images, image =>
         {
             Assert.Equal(ExerciseImageReviewState.Published, image.ReviewState);
@@ -114,20 +130,20 @@ public sealed class ExerciseCatalogPublicationTests(ExerciseCatalogPublicationFi
             Assert.Equal(winnerTime.GetConfiguredUtcNow(), image.ReviewedAt);
             Assert.Equal(winnerTime.GetConfiguredUtcNow(), image.PublishedAt);
         });
-        Assert.Equal(192, scenario.Storage.GetCount);
+        Assert.Equal(ConcurrentVerificationReadCount, scenario.Storage.GetCount);
         Assert.Equal(0, scenario.Storage.PutCountAfterReset);
         Assert.Equal(0, scenario.Storage.DeleteCountAfterReset);
     }
 
     [Fact]
-    public async Task Verification_reads_exact_96_private_objects_without_writes()
+    public async Task Verification_reads_exact_180_private_objects_without_writes()
     {
         var scenario = await fixture.PrepareAsync();
         scenario.Storage.ResetCounters();
 
         await scenario.Deployment.VerifyExactAsync(CatalogPath);
 
-        Assert.Equal(96, scenario.Storage.GetCount);
+        Assert.Equal(CatalogObjectCount, scenario.Storage.GetCount);
         Assert.Equal(0, scenario.Storage.PutCountAfterReset);
         Assert.Equal(0, scenario.Storage.DeleteCountAfterReset);
         var expectedKeys = ExerciseManifest.Load(CatalogPath)
@@ -179,7 +195,7 @@ public sealed class ExerciseCatalogPublicationTests(ExerciseCatalogPublicationFi
     }
 
     [Fact]
-    public async Task Publication_rejects_only_47_image_rows_before_any_state_change()
+    public async Task Publication_rejects_only_89_image_rows_before_any_state_change()
     {
         var scenario = await fixture.PrepareAsync();
         var firstId = await scenario.Database.ExerciseImages.Select(image => image.Id).FirstAsync();
@@ -190,7 +206,7 @@ public sealed class ExerciseCatalogPublicationTests(ExerciseCatalogPublicationFi
             scenario.Publication.PublishAsync(CatalogPath, ReviewerId, RightsReference));
 
         var remaining = await scenario.Database.ExerciseImages.AsNoTracking().ToArrayAsync();
-        Assert.Equal(47, remaining.Length);
+        Assert.Equal(CatalogExerciseCount - 1, remaining.Length);
         Assert.All(remaining, AssertDraft);
     }
 
@@ -304,36 +320,95 @@ public sealed class ExerciseCatalogPublicationTests(ExerciseCatalogPublicationFi
     }
 
     [Fact]
-    public async Task Publication_rejects_mixed_draft_and_published_rows_without_mutation()
+    public async Task Publication_preserves_48_existing_publications_and_publishes_only_42_new_drafts()
     {
         var scenario = await fixture.PrepareAsync();
-        var first = await scenario.Database.ExerciseImages.OrderBy(image => image.Id).FirstAsync();
-        first.Review(ReviewerId, RightsReference, true, true, true, scenario.Now);
-        first.Publish(scenario.Now);
+        var manifest = ExerciseManifest.Load(CatalogPath);
+        var expansionIds = manifest
+            .Where(item => ExpansionExerciseNames.Contains(item.Name))
+            .Select(item => item.Id)
+            .ToHashSet();
+        var originalIds = manifest
+            .Where(item => !ExpansionExerciseNames.Contains(item.Name))
+            .Select(item => item.Id)
+            .ToHashSet();
+        Assert.Equal(42, expansionIds.Count);
+        Assert.Equal(48, originalIds.Count);
+
+        var originalPublishedAt = scenario.Now;
+        var originalImages = await scenario.Database.ExerciseImages
+            .Where(image => originalIds.Contains(image.ExerciseDefinitionId))
+            .ToArrayAsync();
+        foreach (var image in originalImages)
+        {
+            image.Review(ReviewerId, RightsReference, true, true, true, originalPublishedAt);
+            image.Publish(originalPublishedAt);
+        }
+
+        var owner = User.Create($"catalog-upgrade-{Guid.NewGuid():N}@example.com", "hash");
+        var custom = ExerciseDefinition.CreateCustom(owner.Id, "Owner Cable Press", BodyPart.Chest, TrackingMode.Weighted);
+        var workout = WorkoutSession.Start(owner.Id, Guid.NewGuid(), scenario.Now.AddMinutes(-10));
+        workout.AddExercise(Guid.NewGuid(), originalIds.First(), TrackingMode.Weighted, 0);
+        await scenario.Database.Users.AddAsync(owner);
+        await scenario.Database.Exercises.AddAsync(custom);
+        await scenario.Database.WorkoutSessions.AddAsync(workout);
         await scenario.Database.SaveChangesAsync();
         scenario.Database.ChangeTracker.Clear();
+        var customBefore = await scenario.Database.Exercises.AsNoTracking()
+            .SingleAsync(exercise => exercise.Id == custom.Id);
+        var workoutBefore = await scenario.Database.WorkoutSessions.AsNoTracking()
+            .SingleAsync(item => item.Id == workout.Id);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            scenario.Publication.PublishAsync(CatalogPath, ReviewerId, RightsReference));
+        scenario.Time.Advance(TimeSpan.FromDays(1));
+        const string expansionRightsReference = "trackz-expanded-catalog-2026-09-05";
+
+        await scenario.Publication.PublishAsync(
+            CatalogPath,
+            OtherReviewerId,
+            expansionRightsReference);
 
         var images = await scenario.Database.ExerciseImages.AsNoTracking().ToArrayAsync();
-        Assert.Single(images, image => image.ReviewState == ExerciseImageReviewState.Published);
-        Assert.Equal(47, images.Count(image => image.ReviewState == ExerciseImageReviewState.Draft));
+        Assert.Equal(CatalogExerciseCount, images.Length);
+        Assert.All(images.Where(image => originalIds.Contains(image.ExerciseDefinitionId)), image =>
+        {
+            Assert.Equal(ExerciseImageReviewState.Published, image.ReviewState);
+            Assert.Equal(ReviewerId, image.ReviewedByUserId);
+            Assert.Equal(RightsReference, image.RightsReference);
+            Assert.Equal(originalPublishedAt, image.PublishedAt);
+        });
+        Assert.All(images.Where(image => expansionIds.Contains(image.ExerciseDefinitionId)), image =>
+        {
+            Assert.Equal(ExerciseImageReviewState.Published, image.ReviewState);
+            Assert.Equal(OtherReviewerId, image.ReviewedByUserId);
+            Assert.Equal(expansionRightsReference, image.RightsReference);
+            Assert.Equal(scenario.Now, image.PublishedAt);
+        });
+
+        var customAfter = await scenario.Database.Exercises.AsNoTracking()
+            .SingleAsync(exercise => exercise.Id == custom.Id);
+        var workoutAfter = await scenario.Database.WorkoutSessions.AsNoTracking()
+            .SingleAsync(item => item.Id == workout.Id);
+        Assert.Equal(customBefore.Name, customAfter.Name);
+        Assert.Equal(customBefore.OwnerId, customAfter.OwnerId);
+        Assert.Equal(customBefore.IsArchived, customAfter.IsArchived);
+        Assert.Equal(workoutBefore.Status, workoutAfter.Status);
+        Assert.Equal(workoutBefore.StartedAt, workoutAfter.StartedAt);
+        Assert.Equal(workoutBefore.Version, workoutAfter.Version);
     }
 
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public async Task Published_rerun_rejects_conflicting_reviewer_or_rights(bool conflictReviewer)
+    public async Task Published_rerun_preserves_existing_metadata_when_new_arguments_differ(bool conflictReviewer)
     {
         var scenario = await fixture.PrepareAsync();
         await scenario.Publication.PublishAsync(CatalogPath, ReviewerId, RightsReference);
         scenario.Database.ChangeTracker.Clear();
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => scenario.Publication.PublishAsync(
+        await scenario.Publication.PublishAsync(
             CatalogPath,
             conflictReviewer ? OtherReviewerId : ReviewerId,
-            conflictReviewer ? RightsReference : "different-rights-reference"));
+            conflictReviewer ? RightsReference : "different-rights-reference");
 
         var images = await scenario.Database.ExerciseImages.AsNoTracking().ToArrayAsync();
         Assert.All(images, image =>
@@ -367,7 +442,7 @@ public sealed class ExerciseCatalogPublicationTests(ExerciseCatalogPublicationFi
     }
 
     [Fact]
-    public async Task Trigger_failure_on_24th_publish_update_rolls_back_all_48_rows()
+    public async Task Trigger_failure_on_24th_publish_update_rolls_back_all_90_rows()
     {
         var scenario = await fixture.PrepareAsync();
         await InstallFailureTriggerAsync(scenario.Database);
@@ -389,7 +464,7 @@ public sealed class ExerciseCatalogPublicationTests(ExerciseCatalogPublicationFi
 
             await using var verificationContext = fixture.Database.CreateDbContext();
             var images = await verificationContext.ExerciseImages.AsNoTracking().ToArrayAsync();
-            Assert.Equal(48, images.Length);
+            Assert.Equal(CatalogExerciseCount, images.Length);
             Assert.All(images, AssertDraft);
         }
         finally
@@ -439,7 +514,7 @@ public sealed class ExerciseCatalogPublicationTests(ExerciseCatalogPublicationFi
         await new ExerciseCatalogPublicationService(retryContext, scenario.Deployment, scenario.Time)
             .PublishAsync(CatalogPath, ReviewerId, RightsReference);
         var images = await retryContext.ExerciseImages.AsNoTracking().ToArrayAsync();
-        Assert.Equal(48, images.Length);
+        Assert.Equal(CatalogExerciseCount, images.Length);
         Assert.All(images, image =>
         {
             Assert.Equal(ExerciseImageReviewState.Published, image.ReviewState);
@@ -452,7 +527,7 @@ public sealed class ExerciseCatalogPublicationTests(ExerciseCatalogPublicationFi
     {
         database.ChangeTracker.Clear();
         var images = await database.ExerciseImages.AsNoTracking().ToArrayAsync();
-        Assert.Equal(48, images.Length);
+        Assert.Equal(CatalogExerciseCount, images.Length);
         Assert.All(images, AssertDraft);
     }
 

@@ -38,7 +38,8 @@ public sealed class ExerciseCatalogPublicationService(
             .ToListAsync(cancellationToken);
 
         if (definitions.Count != manifest.Count || images.Count != manifest.Count)
-            throw new InvalidOperationException("The deployed exercise catalog does not contain exactly 48 definitions and images.");
+            throw new InvalidOperationException(
+                $"The deployed exercise catalog does not contain exactly {manifest.Count} definitions and images.");
 
         var definitionsById = definitions.ToDictionary(definition => definition.Id);
         var imagesByDefinition = images
@@ -57,25 +58,26 @@ public sealed class ExerciseCatalogPublicationService(
             }
         }
 
-        var allDraft = images.All(image =>
-            image.ReviewState == ExerciseImageReviewState.Draft && HasEmptyReviewMetadata(image));
-        var allPublished = images.All(image =>
-            HasMatchingPublicationMetadata(image, reviewerId, normalizedRightsReference));
+        var draftImages = images.Where(image =>
+            image.ReviewState == ExerciseImageReviewState.Draft
+            && HasEmptyReviewMetadata(image)).ToArray();
+        var publishedImages = images.Where(HasValidPublicationMetadata).ToArray();
 
-        if (!allDraft && !allPublished)
-            throw new InvalidOperationException("Exercise catalog publication requires either 48 exact Draft rows or 48 matching Published rows.");
+        if (draftImages.Length + publishedImages.Length != images.Count)
+            throw new InvalidOperationException(
+                $"Exercise catalog publication requires every one of the {manifest.Count} exact rows to be Draft or Published.");
 
-        if (allPublished)
+        if (draftImages.Length == 0)
         {
             await transaction.CommitAsync(cancellationToken);
             return;
         }
 
         var instant = timeProvider.GetUtcNow().ToUniversalTime();
-        if (images.Any(image => image.CreatedAt > instant))
+        if (draftImages.Any(image => image.CreatedAt > instant))
             throw new InvalidOperationException("Exercise catalog artwork cannot be reviewed before it was created.");
 
-        foreach (var image in images)
+        foreach (var image in draftImages)
         {
             image.Review(
                 reviewerId,
@@ -118,13 +120,11 @@ public sealed class ExerciseCatalogPublicationService(
         && !image.RightsApproved
         && !image.IsReadyForUse;
 
-    private static bool HasMatchingPublicationMetadata(
-        ExerciseImage image,
-        Guid reviewerId,
-        string rightsReference) =>
+    private static bool HasValidPublicationMetadata(ExerciseImage image) =>
         image.ReviewState == ExerciseImageReviewState.Published
-        && image.ReviewedByUserId == reviewerId
-        && string.Equals(image.RightsReference, rightsReference, StringComparison.Ordinal)
+        && image.ReviewedByUserId is { } reviewerId
+        && reviewerId != Guid.Empty
+        && !string.IsNullOrWhiteSpace(image.RightsReference)
         && image.AnatomyApproved
         && image.MovementApproved
         && image.RightsApproved
