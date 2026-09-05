@@ -8,6 +8,7 @@ using TrackZ.Mobile.Identity;
 using TrackZ.Mobile.Features.Workout;
 using System.Net;
 using System.Text;
+using System.Text.Json;
 
 namespace TrackZ.Mobile.Tests.Exercises;
 
@@ -500,20 +501,33 @@ public sealed class ExercisePickerViewModelTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Catalog_http_client_follows_opaque_cursors_until_all_items_are_loaded()
+    public async Task Catalog_http_client_aggregates_all_90_items_across_50_and_40_item_pages()
     {
-        var firstId = Guid.Parse("55555555-5555-5555-5555-555555555555");
-        var secondId = Guid.Parse("66666666-6666-6666-6666-666666666666");
+        var exercises = Enumerable.Range(1, 90)
+            .Select(index => Summary(
+                Guid.NewGuid(),
+                $"Exercise {index}",
+                (BodyPart)(((index - 1) % 6) + 1)))
+            .ToArray();
+        var jsonOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web);
         var handler = new QueueHttpHandler(
-            Json(HttpStatusCode.OK, $$"""{"items":[{"id":"{{firstId}}","name":"First","bodyPart":1,"trackingMode":1,"thumbnailUrl":null,"lastPerformedAt":null,"lastBestSet":null,"allTimeBest":null,"isCustom":false}],"nextCursor":"opaque.cursor"}"""),
-            Json(HttpStatusCode.OK, $$"""{"items":[{"id":"{{secondId}}","name":"Second","bodyPart":2,"trackingMode":1,"thumbnailUrl":null,"lastPerformedAt":null,"lastBestSet":null,"allTimeBest":null,"isCustom":false}],"nextCursor":null}"""));
+            Json(HttpStatusCode.OK, JsonSerializer.Serialize(
+                new { items = exercises.Take(50), nextCursor = "expanded.catalog.page.2" },
+                jsonOptions)),
+            Json(HttpStatusCode.OK, JsonSerializer.Serialize(
+                new { items = exercises.Skip(50), nextCursor = (string?)null },
+                jsonOptions)));
         var client = new TrackZExerciseApiClient(new HttpClient(handler) { BaseAddress = new Uri("https://trackz.test") });
 
         var result = await client.GetAllAsync();
 
-        Assert.Equal([firstId, secondId], result.Select(item => item.Id));
+        Assert.Equal(90, result.Count);
+        Assert.Equal(90, result.Select(item => item.Id).Distinct().Count());
+        Assert.Equal(exercises.Select(item => item.Id), result.Select(item => item.Id));
         Assert.Equal("/api/v1/exercises?pageSize=50", handler.Requests[0].PathAndQuery);
-        Assert.Equal("/api/v1/exercises?pageSize=50&cursor=opaque.cursor", handler.Requests[1].PathAndQuery);
+        Assert.Equal(
+            "/api/v1/exercises?pageSize=50&cursor=expanded.catalog.page.2",
+            handler.Requests[1].PathAndQuery);
     }
 
     [Fact]

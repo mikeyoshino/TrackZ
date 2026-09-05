@@ -71,7 +71,7 @@ public sealed class ListExercisesEndpointTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Explicit_catalog_deployment_command_makes_all_48_draft_definitions_listable_without_thumbnails()
+    public async Task Explicit_catalog_deployment_command_makes_all_90_draft_definitions_listable_without_thumbnails()
     {
         var account = await AuthenticateAsync($"catalog-deployment-{Guid.NewGuid():N}@example.com");
         await using (var before = _factory!.Services.CreateAsyncScope())
@@ -82,22 +82,40 @@ public sealed class ListExercisesEndpointTests : IAsyncLifetime
         await new ExerciseCatalogDeploymentCommand(CatalogPath)
             .ExecuteAsync(_factory!.Services);
 
-        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/exercises?pageSize=50");
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", account.Token);
-        var response = await _client.SendAsync(request);
-        var page = await response.Content.ReadFromJsonAsync<JsonDocument>();
+        using var firstRequest = new HttpRequestMessage(HttpMethod.Get, "/api/v1/exercises?pageSize=50");
+        firstRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", account.Token);
+        var firstResponse = await _client.SendAsync(firstRequest);
+        var firstPage = await firstResponse.Content.ReadFromJsonAsync<JsonDocument>();
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var items = page!.RootElement.GetProperty("items").EnumerateArray().ToArray();
-        Assert.Equal(48, items.Length);
+        Assert.Equal(HttpStatusCode.OK, firstResponse.StatusCode);
+        var firstItems = firstPage!.RootElement.GetProperty("items").EnumerateArray().ToArray();
+        Assert.Equal(50, firstItems.Length);
+        var nextCursor = firstPage.RootElement.GetProperty("nextCursor").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(nextCursor));
+
+        using var secondRequest = new HttpRequestMessage(
+            HttpMethod.Get,
+            $"/api/v1/exercises?pageSize=50&cursor={Uri.EscapeDataString(nextCursor)}");
+        secondRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", account.Token);
+        var secondResponse = await _client.SendAsync(secondRequest);
+        var secondPage = await secondResponse.Content.ReadFromJsonAsync<JsonDocument>();
+
+        Assert.Equal(HttpStatusCode.OK, secondResponse.StatusCode);
+        var secondItems = secondPage!.RootElement.GetProperty("items").EnumerateArray().ToArray();
+        Assert.Equal(40, secondItems.Length);
+        Assert.Equal(JsonValueKind.Null, secondPage.RootElement.GetProperty("nextCursor").ValueKind);
+        var items = firstItems.Concat(secondItems).ToArray();
+        Assert.Equal(ExerciseManifest.SystemExerciseCount, items.Length);
+        Assert.Equal(items.Length, items.Select(item => item.GetProperty("id").GetGuid()).Distinct().Count());
         Assert.All(items, item => Assert.Equal(JsonValueKind.Null, item.GetProperty("thumbnailUrl").ValueKind));
-        Assert.Equal(JsonValueKind.Null, page.RootElement.GetProperty("nextCursor").ValueKind);
         await using var verify = _factory.Services.CreateAsyncScope();
         var database = verify.ServiceProvider.GetRequiredService<AppDbContext>();
-        Assert.Equal(48, await database.ExerciseImages.CountAsync());
+        Assert.Equal(ExerciseManifest.SystemExerciseCount, await database.ExerciseImages.CountAsync());
         Assert.All(await database.ExerciseImages.ToArrayAsync(), image =>
             Assert.Equal(ExerciseImageReviewState.Draft, image.ReviewState));
-        Assert.Equal(96, verify.ServiceProvider.GetRequiredService<FakeObjectStorage>().Count);
+        Assert.Equal(
+            ExerciseManifest.SystemExerciseCount * 2,
+            verify.ServiceProvider.GetRequiredService<FakeObjectStorage>().Count);
     }
 
     [Fact]
