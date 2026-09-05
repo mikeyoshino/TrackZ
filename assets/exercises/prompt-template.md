@@ -89,3 +89,10 @@ Use one row verbatim as the exercise-specific completion of the shared prompt. E
 | Decline Sit-Up | decline bench | feet secured, hands at chest | trunk flexes upward then lowers | rectus abdominis | hyperextending low back at bottom |
 | Reverse Crunch | mat | supine, knees bent | pelvis curls toward ribcage then lowers | rectus abdominis | swinging legs instead of posterior pelvic tilt |
 | Pallof Press | cable, single handle | side-on athletic stance, hands at sternum | hands press straight outward resisting rotation | obliques | rotating torso toward cable |
+| Plank | exercise mat | forearms parallel, elbows under shoulders, toes grounded | static straight line from head to heels | rectus abdominis and deep core | hips sagging or piking upward |
+| Side Plank | exercise mat | one forearm under shoulder, feet stacked | static straight line with hips lifted and top arm raised | obliques | hips dropping or torso rotating forward |
+| Dead Bug | exercise mat | supine, hips and knees at 90 degrees, arms vertical | opposite arm and leg extend away then return | deep abdominals | arching low back or moving same-side limbs |
+| Bird Dog | exercise mat | quadruped, wrists under shoulders, knees under hips | opposite arm and leg extend in line with torso then return | deep core and spinal stabilizers | rotating hips or extending same-side limbs |
+| Russian Twist | exercise mat, medicine ball | seated leaned back, knees bent, feet lightly raised | torso rotates ball from side to side | obliques | moving only arms or rounding low back excessively |
+| Bicycle Crunch | exercise mat | supine, hands lightly behind head | opposite elbow and knee approach as other leg extends, then alternate | rectus abdominis and obliques | pulling neck or rushing without cross-body rotation |
+| Mountain Climber | floor or exercise mat | high plank, shoulders over wrists | alternating knees drive toward chest while opposite leg extends | abdominals and hip flexors | hips bouncing high or shoulders drifting behind wrists |

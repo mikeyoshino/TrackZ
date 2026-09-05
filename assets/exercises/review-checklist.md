@@ -87,3 +87,10 @@ All fields are intentionally blank. Product owner/anatomy reviewer must complete
 | Decline Sit-Up |  |  |  |  |  |  |  |  |  |  |
 | Reverse Crunch |  |  |  |  |  |  |  |  |  |  |
 | Pallof Press |  |  |  |  |  |  |  |  |  |  |
+| Plank |  |  |  |  |  |  |  |  |  |  |
+| Side Plank |  |  |  |  |  |  |  |  |  |  |
+| Dead Bug |  |  |  |  |  |  |  |  |  |  |
+| Bird Dog |  |  |  |  |  |  |  |  |  |  |
+| Russian Twist |  |  |  |  |  |  |  |  |  |  |
+| Bicycle Crunch |  |  |  |  |  |  |  |  |  |  |
+| Mountain Climber |  |  |  |  |  |  |  |  |  |  |
