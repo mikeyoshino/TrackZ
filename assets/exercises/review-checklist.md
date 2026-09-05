@@ -12,6 +12,13 @@ All fields are intentionally blank. Product owner/anatomy reviewer must complete
 | Cable Fly |  |  |  |  |  |  |  |  |  |  |
 | Pec Deck Fly |  |  |  |  |  |  |  |  |  |  |
 | Decline Push-Up |  |  |  |  |  |  |  |  |  |  |
+| Push-Up |  |  |  |  |  |  |  |  |  |  |
+| Chest Dip |  |  |  |  |  |  |  |  |  |  |
+| Decline Barbell Bench Press |  |  |  |  |  |  |  |  |  |  |
+| Smith Machine Bench Press |  |  |  |  |  |  |  |  |  |  |
+| Dumbbell Fly |  |  |  |  |  |  |  |  |  |  |
+| Low-to-High Cable Fly |  |  |  |  |  |  |  |  |  |  |
+| High-to-Low Cable Fly |  |  |  |  |  |  |  |  |  |  |
 | Lat Pulldown |  |  |  |  |  |  |  |  |  |  |
 | Pull-Up |  |  |  |  |  |  |  |  |  |  |
 | Assisted Pull-Up |  |  |  |  |  |  |  |  |  |  |
