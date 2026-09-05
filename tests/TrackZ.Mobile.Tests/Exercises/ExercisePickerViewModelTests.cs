@@ -846,7 +846,8 @@ public sealed class ExercisePickerViewModelTests : IAsyncLifetime
             var cache = new AuthenticatedExerciseThumbnailCache(
                 new HttpClient(new AuthorizationResponseHandler(
                     SignedThumbnailUrl(clock.UtcNow.AddMinutes(1)),
-                    clock.UtcNow.AddMinutes(1))) { BaseAddress = new Uri("https://api.trackz.test") },
+                    clock.UtcNow.AddMinutes(1)))
+                { BaseAddress = new Uri("https://api.trackz.test") },
                 new HttpClient(handler),
                 new Uri("https://media.trackz.test"),
                 directory,

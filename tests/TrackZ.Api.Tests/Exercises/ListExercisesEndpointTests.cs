@@ -758,18 +758,18 @@ public sealed class ListExercisesEndpointTests : IAsyncLifetime
             Guid requestOperationId,
             string name) => await _client.SendAsync(new HttpRequestMessage(
             HttpMethod.Post, "/api/v1/exercises/custom")
-        {
-            Headers = { Authorization = new AuthenticationHeaderValue("Bearer", owner.Token) },
-            Content = JsonContent.Create(new
             {
-                exerciseId = requestExerciseId,
-                name,
-                bodyPart = 1,
-                trackingMode = 1,
-                operationId = requestOperationId,
-                libraryImageId
-            })
-        });
+                Headers = { Authorization = new AuthenticationHeaderValue("Bearer", owner.Token) },
+                Content = JsonContent.Create(new
+                {
+                    exerciseId = requestExerciseId,
+                    name,
+                    bodyPart = 1,
+                    trackingMode = 1,
+                    operationId = requestOperationId,
+                    libraryImageId
+                })
+            });
 
         var created = await CreateAsync(exerciseId, published.Id, operationId, "Library Custom Press");
         var replay = await CreateAsync(exerciseId, published.Id, operationId, "Library Custom Press");
