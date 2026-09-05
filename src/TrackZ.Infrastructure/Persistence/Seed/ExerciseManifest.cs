@@ -19,22 +19,36 @@ public static partial class ExerciseManifest
 {
     public const string Schema = "trackz.exercise-catalog";
     public const int Version = 1;
+    public const int SystemExerciseCount = 90;
+    public const int ExercisesPerBodyPart = 15;
     public const string AiGeneratedProjectOwnedDraftSourceReference = "ai-generated-project-owned-draft";
 
     private static readonly IReadOnlyDictionary<string, BodyPart> CanonicalBodyParts = new Dictionary<string, BodyPart>(StringComparer.Ordinal)
     {
         ["Barbell Bench Press"] = BodyPart.Chest, ["Incline Barbell Bench Press"] = BodyPart.Chest, ["Dumbbell Bench Press"] = BodyPart.Chest, ["Incline Dumbbell Press"] = BodyPart.Chest,
         ["Chest Press Machine"] = BodyPart.Chest, ["Cable Fly"] = BodyPart.Chest, ["Pec Deck Fly"] = BodyPart.Chest, ["Decline Push-Up"] = BodyPart.Chest,
+        ["Push-Up"] = BodyPart.Chest, ["Chest Dip"] = BodyPart.Chest, ["Decline Barbell Bench Press"] = BodyPart.Chest, ["Smith Machine Bench Press"] = BodyPart.Chest,
+        ["Dumbbell Fly"] = BodyPart.Chest, ["Low-to-High Cable Fly"] = BodyPart.Chest, ["High-to-Low Cable Fly"] = BodyPart.Chest,
         ["Lat Pulldown"] = BodyPart.Back, ["Pull-Up"] = BodyPart.Back, ["Assisted Pull-Up"] = BodyPart.Back, ["Seated Cable Row"] = BodyPart.Back,
         ["Chest-Supported Row"] = BodyPart.Back, ["Barbell Row"] = BodyPart.Back, ["One-Arm Dumbbell Row"] = BodyPart.Back, ["Straight-Arm Pulldown"] = BodyPart.Back,
+        ["Conventional Deadlift"] = BodyPart.Back, ["T-Bar Row"] = BodyPart.Back, ["Inverted Row"] = BodyPart.Back, ["Neutral-Grip Lat Pulldown"] = BodyPart.Back,
+        ["Wide-Grip Lat Pulldown"] = BodyPart.Back, ["Single-Arm Cable Row"] = BodyPart.Back, ["Machine High Row"] = BodyPart.Back,
         ["Overhead Press"] = BodyPart.Shoulders, ["Dumbbell Shoulder Press"] = BodyPart.Shoulders, ["Machine Shoulder Press"] = BodyPart.Shoulders, ["Lateral Raise"] = BodyPart.Shoulders,
         ["Cable Lateral Raise"] = BodyPart.Shoulders, ["Rear Delt Fly"] = BodyPart.Shoulders, ["Face Pull"] = BodyPart.Shoulders, ["Upright Row"] = BodyPart.Shoulders,
+        ["Arnold Press"] = BodyPart.Shoulders, ["Dumbbell Front Raise"] = BodyPart.Shoulders, ["Cable Front Raise"] = BodyPart.Shoulders, ["Bent-Over Reverse Fly"] = BodyPart.Shoulders,
+        ["Reverse Pec Deck"] = BodyPart.Shoulders, ["Landmine Press"] = BodyPart.Shoulders, ["Dumbbell Shrug"] = BodyPart.Shoulders,
         ["Barbell Curl"] = BodyPart.Arms, ["Dumbbell Curl"] = BodyPart.Arms, ["Hammer Curl"] = BodyPart.Arms, ["Preacher Curl"] = BodyPart.Arms,
         ["Triceps Pushdown"] = BodyPart.Arms, ["Overhead Triceps Extension"] = BodyPart.Arms, ["Skull Crusher"] = BodyPart.Arms, ["Close-Grip Bench Press"] = BodyPart.Arms,
+        ["EZ-Bar Curl"] = BodyPart.Arms, ["Incline Dumbbell Curl"] = BodyPart.Arms, ["Cable Curl"] = BodyPart.Arms, ["Concentration Curl"] = BodyPart.Arms,
+        ["Bench Dip"] = BodyPart.Arms, ["Triceps Dip"] = BodyPart.Arms, ["Single-Arm Cable Pushdown"] = BodyPart.Arms,
         ["Back Squat"] = BodyPart.Legs, ["Front Squat"] = BodyPart.Legs, ["Leg Press"] = BodyPart.Legs, ["Romanian Deadlift"] = BodyPart.Legs,
         ["Leg Extension"] = BodyPart.Legs, ["Seated Leg Curl"] = BodyPart.Legs, ["Bulgarian Split Squat"] = BodyPart.Legs, ["Standing Calf Raise"] = BodyPart.Legs,
+        ["Goblet Squat"] = BodyPart.Legs, ["Hack Squat"] = BodyPart.Legs, ["Sumo Deadlift"] = BodyPart.Legs, ["Walking Lunge"] = BodyPart.Legs,
+        ["Hip Thrust"] = BodyPart.Legs, ["Lying Leg Curl"] = BodyPart.Legs, ["Seated Calf Raise"] = BodyPart.Legs,
         ["Cable Crunch"] = BodyPart.Core, ["Hanging Knee Raise"] = BodyPart.Core, ["Hanging Leg Raise"] = BodyPart.Core, ["Ab Wheel Rollout"] = BodyPart.Core,
-        ["Weighted Sit-Up"] = BodyPart.Core, ["Decline Sit-Up"] = BodyPart.Core, ["Reverse Crunch"] = BodyPart.Core, ["Pallof Press"] = BodyPart.Core
+        ["Weighted Sit-Up"] = BodyPart.Core, ["Decline Sit-Up"] = BodyPart.Core, ["Reverse Crunch"] = BodyPart.Core, ["Pallof Press"] = BodyPart.Core,
+        ["Plank"] = BodyPart.Core, ["Side Plank"] = BodyPart.Core, ["Dead Bug"] = BodyPart.Core, ["Bird Dog"] = BodyPart.Core,
+        ["Russian Twist"] = BodyPart.Core, ["Bicycle Crunch"] = BodyPart.Core, ["Mountain Climber"] = BodyPart.Core
     };
 
     private static readonly JsonSerializerOptions SerializerOptions = new()
@@ -117,9 +131,9 @@ public static partial class ExerciseManifest
 
     private static void Validate(IReadOnlyList<ExerciseManifestItem> items)
     {
-        if (items.Count != 48)
+        if (items.Count != SystemExerciseCount)
         {
-            throw new InvalidDataException("Exercise catalog manifest must contain exactly 48 exercises.");
+            throw new InvalidDataException($"Exercise catalog manifest must contain exactly {SystemExerciseCount} exercises.");
         }
 
         if (items.Any(item => item.Id == Guid.Empty)
@@ -133,9 +147,9 @@ public static partial class ExerciseManifest
 
         foreach (var bodyPart in Enum.GetValues<BodyPart>())
         {
-            if (items.Count(item => item.BodyPart == bodyPart) != 8)
+            if (items.Count(item => item.BodyPart == bodyPart) != ExercisesPerBodyPart)
             {
-                throw new InvalidDataException($"Exercise catalog manifest must contain eight {bodyPart} exercises.");
+                throw new InvalidDataException($"Exercise catalog manifest must contain exactly {ExercisesPerBodyPart} {bodyPart} exercises.");
             }
         }
 
