@@ -1,7 +1,7 @@
 # Production catalog and private-media deployment
 
 The API does not seed the exercise catalog during ordinary startup. Deploy the exact checked-in
-manifest and its 48 source PNGs with the explicit one-shot command:
+manifest and its 90 source PNGs with the explicit one-shot command:
 
 ```bash
 dotnet TrackZ.Api.dll deploy-exercise-catalog \
@@ -10,15 +10,34 @@ dotnet TrackZ.Api.dll deploy-exercise-catalog \
 
 The release bundle must retain the repository-relative `assets/exercises/catalog.json` and
 `assets/exercises/images/*.png` layout. The command applies pending database migrations, strictly
-validates the schema-v1 manifest and all 48 Draft records, identifies each PNG before decoding,
+validates the schema-v1 manifest and all 90 records, identifies each PNG before decoding,
 creates deterministic PNG master/thumbnail renditions, and writes them under the deterministic
-`system/exercises/...` private-object keys. It verifies all 96 objects byte-for-byte before calling
+`system/exercises/...` private-object keys. It verifies all 180 objects byte-for-byte before calling
 the idempotent database seeder.
 
 If storage fails partway through, no catalog rows are seeded; rerunning the same command reuses
 matching objects and uploads the missing remainder. A pre-existing object with different bytes or
 content type fails closed before any new upload. The command never reviews or publishes artwork:
 all newly created image rows remain `Draft` with no reviewer, rights approval, or publication time.
+During a catalog expansion, exact existing `Published` rows remain unchanged while only missing
+definitions and their image rows are added as `Draft`. Existing custom exercises, users, and workout
+history are outside this operation.
+
+After the product owner has completed the artwork checklist and recorded rights approval, publish
+the exact deployed catalog with the separate explicit command:
+
+```bash
+dotnet TrackZ.Api.dll publish-exercise-catalog \
+  --manifest /opt/trackz/release/assets/exercises/catalog.json \
+  --reviewer-id '<approved-reviewer-guid>' \
+  --rights-reference '<approval-record-reference>'
+```
+
+Publication accepts each exact image row only when it is either a metadata-empty `Draft` or a valid
+`Published` row. It reviews and publishes only the Draft subset. Previously Published rows retain
+their original reviewer, rights reference, approvals, and timestamps; a fully Published rerun is a
+no-op. A malformed, Reviewed, mismatched, or incomplete row fails the transaction before any image
+state changes.
 
 Configure the process through the standard .NET configuration providers (environment-variable
 names shown):
