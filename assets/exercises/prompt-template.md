@@ -74,6 +74,13 @@ Use one row verbatim as the exercise-specific completion of the shared prompt. E
 | Seated Leg Curl | seated leg curl machine | ankles under pad, hips secured | knees flex down then extend controlled | hamstrings | hips lifting off seat |
 | Bulgarian Split Squat | bench, two dumbbells optional | rear foot elevated, front foot planted | rear knee lowers then front leg extends | quadriceps and gluteus maximus | front knee caving inward |
 | Standing Calf Raise | calf raise machine or step | balls of feet on platform, knees straight | heels lower then plantarflex high | gastrocnemius | bouncing without full range |
+| Goblet Squat | one dumbbell | held vertically at chest, feet shoulder-width | hips and knees flex to squat depth then extend | quadriceps and gluteus maximus | lowering dumbbell from chest or knees collapsing inward |
+| Hack Squat | 45-degree hack squat sled | back on angled pad, shoulders under pads, feet on platform | sled lowers as knees bend then presses upward | quadriceps | confusing machine path with a leg press or locking knees hard |
+| Sumo Deadlift | barbell on floor | very wide toe-out stance, hands inside knees | hips and knees extend as bar rises close to body | glutes, adductors, and hamstrings | narrowing stance or placing hands outside knees |
+| Walking Lunge | two dumbbells | long traveling stride, torso upright | rear knee lowers then body advances into next step | quadriceps and gluteus maximus | treating movement as a stationary split squat or front knee caving inward |
+| Hip Thrust | flat bench, padded barbell | upper back on bench, feet planted | hips lift to a straight shoulder-to-knee line then lower | gluteus maximus | hyperextending low back or performing a floor bridge |
+| Lying Leg Curl | prone leg curl machine | face down, ankle pad behind lower legs | knees flex heels toward glutes then extend controlled | hamstrings | hips lifting from pad or using momentum |
+| Seated Calf Raise | seated calf raise machine | knees bent under thigh pad, balls of feet on platform | heels lower then plantarflex upward | soleus and gastrocnemius | straightening knees or bouncing through partial range |
 | Cable Crunch | high cable, rope | kneeling, rope beside temples | spine flexes ribs toward pelvis then extends | rectus abdominis | hip hinge instead of spinal flexion |
 | Hanging Knee Raise | pull-up bar | overhand grip, stable torso | knees curl toward chest then lower | rectus abdominis | swinging body or hip thrust |
 | Hanging Leg Raise | pull-up bar | overhand grip, legs straight | straight legs raise toward horizontal then lower | rectus abdominis | swinging or bending knees |

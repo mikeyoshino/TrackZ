@@ -72,6 +72,13 @@ All fields are intentionally blank. Product owner/anatomy reviewer must complete
 | Seated Leg Curl |  |  |  |  |  |  |  |  |  |  |
 | Bulgarian Split Squat |  |  |  |  |  |  |  |  |  |  |
 | Standing Calf Raise |  |  |  |  |  |  |  |  |  |  |
+| Goblet Squat |  |  |  |  |  |  |  |  |  |  |
+| Hack Squat |  |  |  |  |  |  |  |  |  |  |
+| Sumo Deadlift |  |  |  |  |  |  |  |  |  |  |
+| Walking Lunge |  |  |  |  |  |  |  |  |  |  |
+| Hip Thrust |  |  |  |  |  |  |  |  |  |  |
+| Lying Leg Curl |  |  |  |  |  |  |  |  |  |  |
+| Seated Calf Raise |  |  |  |  |  |  |  |  |  |  |
 | Cable Crunch |  |  |  |  |  |  |  |  |  |  |
 | Hanging Knee Raise |  |  |  |  |  |  |  |  |  |  |
 | Hanging Leg Raise |  |  |  |  |  |  |  |  |  |  |
