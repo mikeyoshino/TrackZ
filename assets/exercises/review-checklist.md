@@ -27,6 +27,13 @@ All fields are intentionally blank. Product owner/anatomy reviewer must complete
 | Barbell Row |  |  |  |  |  |  |  |  |  |  |
 | One-Arm Dumbbell Row |  |  |  |  |  |  |  |  |  |  |
 | Straight-Arm Pulldown |  |  |  |  |  |  |  |  |  |  |
+| Conventional Deadlift |  |  |  |  |  |  |  |  |  |  |
+| T-Bar Row |  |  |  |  |  |  |  |  |  |  |
+| Inverted Row |  |  |  |  |  |  |  |  |  |  |
+| Neutral-Grip Lat Pulldown |  |  |  |  |  |  |  |  |  |  |
+| Wide-Grip Lat Pulldown |  |  |  |  |  |  |  |  |  |  |
+| Single-Arm Cable Row |  |  |  |  |  |  |  |  |  |  |
+| Machine High Row |  |  |  |  |  |  |  |  |  |  |
 | Overhead Press |  |  |  |  |  |  |  |  |  |  |
 | Dumbbell Shoulder Press |  |  |  |  |  |  |  |  |  |  |
 | Machine Shoulder Press |  |  |  |  |  |  |  |  |  |  |

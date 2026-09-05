@@ -29,6 +29,13 @@ Use one row verbatim as the exercise-specific completion of the shared prompt. E
 | Barbell Row | barbell | pronated grip, hip hinge | bar rows to lower ribs then lowers | middle back | standing upright or jerking bar |
 | One-Arm Dumbbell Row | bench, dumbbell | one hand braced, square hips | elbow rows toward hip then lowers | latissimus dorsi | rotating torso open |
 | Straight-Arm Pulldown | cable station, straight bar | overhand shoulder-width grip, slight hinge | straight arms pull bar to thighs then raise | latissimus dorsi | bending elbows into a row |
+| Conventional Deadlift | barbell on floor | double-overhand shoulder-width grip, feet hip-width | hips and knees extend as bar rises close to body | erector spinae and posterior chain | rounded spine or bar drifting away from legs |
+| T-Bar Row | landmine T-bar row, close handle | hip-width stance, neutral grip, stable hip hinge | handle rows toward lower chest then lowers | middle back | torso rising upright or jerking the load |
+| Inverted Row | fixed low bar | overhand shoulder-width grip, straight body under bar | chest pulls to bar then body lowers under control | middle back | hips sagging or chin reaching without chest movement |
+| Neutral-Grip Lat Pulldown | lat pulldown machine, parallel handle | neutral grip, thighs secured, upright torso | handle pulls to upper chest then returns overhead | latissimus dorsi | leaning far backward or pulling to abdomen |
+| Wide-Grip Lat Pulldown | lat pulldown machine, wide bar | wide pronated grip, thighs secured | bar pulls to upper chest then returns overhead | latissimus dorsi | pulling behind the neck or shrugging shoulders |
+| Single-Arm Cable Row | low cable, single handle | seated or split stance, square torso | elbow rows handle toward hip then arm extends | latissimus dorsi | rotating torso open or elevating shoulder |
+| Machine High Row | chest-supported high-row machine | neutral handles above shoulder level, chest on pad | elbows pull down and back toward ribs then extend | upper latissimus dorsi | lifting chest from pad or turning it into a shrug |
 | Overhead Press | barbell | pronated grip, standing braced | bar presses from collarbone overhead then lowers | deltoids | overextending low back |
 | Dumbbell Shoulder Press | bench, two dumbbells | seated neutral-to-pronated grip | dumbbells press from shoulders overhead | deltoids | elbows falling far behind shoulders |
 | Machine Shoulder Press | selectorized shoulder press | seated handles at ear level | handles press upward then return | deltoids | seat too low causing neck compression |
