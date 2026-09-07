@@ -1,0 +1,129 @@
+name: trackz-production
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    env_file:
+      - ${TRACKZ_CONFIG_ROOT:-/etc/trackz}/postgres.env
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    stop_grace_period: 30s
+
+  minio:
+    image: minio/minio:RELEASE.2025-07-23T15-54-02Z
+    command: server /data
+    restart: unless-stopped
+    env_file:
+      - ${TRACKZ_CONFIG_ROOT:-/etc/trackz}/minio.env
+    volumes:
+      - minio-data:/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent http://localhost:9000/minio/health/live >/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    stop_grace_period: 30s
+
+  minio-bootstrap:
+    image: minio/mc:RELEASE.2025-07-21T05-28-08Z
+    restart: "no"
+    env_file:
+      - ${TRACKZ_CONFIG_ROOT:-/etc/trackz}/minio.env
+      - ${TRACKZ_CONFIG_ROOT:-/etc/trackz}/trackz.env
+    networks:
+      - backend
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        attempt=0
+        until mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"; do
+          attempt=$$((attempt + 1))
+          test "$$attempt" -lt 20
+          sleep 1
+        done
+        mc mb --ignore-existing local/trackz-private
+        mc anonymous set none local/trackz-private
+        printf '%s' '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject","s3:PutObject","s3:DeleteObject"],"Resource":["arn:aws:s3:::trackz-private/*"]},{"Effect":"Allow","Action":["s3:GetLifecycleConfiguration","s3:PutLifecycleConfiguration"],"Resource":["arn:aws:s3:::trackz-private"]}]}' > /tmp/trackz-api.json
+        if ! mc admin policy info local trackz-api-lifecycle >/dev/null 2>&1; then
+          mc admin policy create local trackz-api-lifecycle /tmp/trackz-api.json
+        fi
+        if ! mc admin user info local "$${ObjectStorage__AccessKey}" >/dev/null 2>&1; then
+          mc admin user add local "$${ObjectStorage__AccessKey}" "$${ObjectStorage__SecretKey}"
+        fi
+        mc admin policy attach local trackz-api-lifecycle --user "$${ObjectStorage__AccessKey}"
+
+  catalog-deploy:
+    image: ${TRACKZ_IMAGE:?Set TRACKZ_IMAGE to an immutable GHCR digest}
+    restart: "no"
+    env_file:
+      - ${TRACKZ_CONFIG_ROOT:-/etc/trackz}/trackz.env
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+    command:
+      - deploy-exercise-catalog
+      - --manifest
+      - /app/assets/exercises/catalog.json
+    networks:
+      - backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-bootstrap:
+        condition: service_completed_successfully
+
+  api:
+    image: ${TRACKZ_IMAGE:?Set TRACKZ_IMAGE to an immutable GHCR digest}
+    restart: unless-stopped
+    env_file:
+      - ${TRACKZ_CONFIG_ROOT:-/etc/trackz}/trackz.env
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_HTTP_PORTS: "8080"
+      ReverseProxy__KnownProxy: 172.30.0.2
+    networks:
+      backend:
+      frontend:
+        aliases:
+          - trackz-api
+    depends_on:
+      catalog-deploy:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent http://localhost:8080/health/ready >/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+      start_period: 10s
+    stop_grace_period: 30s
+
+networks:
+  backend:
+    name: trackz-production-backend
+    internal: true
+  frontend:
+    name: toystore-production_frontend
+    external: true
+
+volumes:
+  postgres-data:
+    name: trackz-production-postgres-data
+  minio-data:
+    name: trackz-production-minio-data
