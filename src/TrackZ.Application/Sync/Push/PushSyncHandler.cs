@@ -210,8 +210,8 @@ public sealed class PushSyncHandler(
                 exercise.SetEntries.OrderBy(set => set.Order).Select(set => new SyncSetDto(
                     set.Id,
                     set.Order,
-                    set.WeightKg?.ToString(CultureInfo.InvariantCulture),
-                    set.AssistedKg?.ToString(CultureInfo.InvariantCulture),
+                    DecimalParser.Format(set.WeightKg),
+                    DecimalParser.Format(set.AssistedKg),
                     set.Reps,
                     set.CompletedAt,
                     set.UpdatedAt,
@@ -907,6 +907,9 @@ internal static class SyncMutationFailures
 
 internal static class DecimalParser
 {
+    public static string? Format(decimal? value) =>
+        value?.ToString("0.###", CultureInfo.InvariantCulture);
+
     public static decimal? Parse(string? value)
     {
         if (value is null) return null;

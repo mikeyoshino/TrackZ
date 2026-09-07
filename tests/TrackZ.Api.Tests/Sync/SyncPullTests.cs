@@ -126,6 +126,8 @@ public sealed class SyncPullTests : IAsyncLifetime
         var ratedSet = Assert.Single(Assert.Single(third.Changes).Workout.Exercises[0].Sets);
         Assert.Null(savedSet.Effort);
         Assert.Equal(SetEffortRating.Productive, ratedSet.Effort);
+        Assert.Equal("70", savedSet.WeightKg);
+        Assert.Equal("70", ratedSet.WeightKg);
         Assert.Equal(savedSet.WeightKg, ratedSet.WeightKg);
         Assert.Equal(savedSet.Reps, ratedSet.Reps);
         Assert.Equal(2, second.Changes[0].ServerVersion);
