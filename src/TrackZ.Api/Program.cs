@@ -8,6 +8,11 @@ using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Localization;
 using TrackZ.Contracts.Errors;
 using TrackZ.Api;
+using TrackZ.Api.Health;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
+using System.Net;
 
 var catalogDeploymentCommand = ExerciseCatalogDeploymentCommand.Parse(args);
 var catalogPublicationCommand = ExerciseCatalogPublicationCommand.Parse(args);
@@ -19,6 +24,24 @@ builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<TrackZ.Application.Exercises.ListExercises.ICurrentUser, HttpCurrentUser>();
 builder.Services.AddAuthorization();
+builder.Services.AddHealthChecks()
+    .AddCheck("self", () => HealthCheckResult.Healthy(), tags: ["live"])
+    .AddCheck<PostgresReadinessHealthCheck>("postgres", tags: ["ready"])
+    .AddCheck<ObjectStorageReadinessHealthCheck>("object-storage", tags: ["ready"]);
+
+var knownProxyValue = builder.Configuration["ReverseProxy:KnownProxy"];
+if (!IPAddress.TryParse(knownProxyValue, out var knownProxy))
+{
+    throw new InvalidOperationException("ReverseProxy:KnownProxy must be a single IP address.");
+}
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.ForwardLimit = 1;
+    options.KnownIPNetworks.Clear();
+    options.KnownProxies.Clear();
+    options.KnownProxies.Add(knownProxy);
+});
 builder.Services.Configure<RequestLocalizationOptions>(options =>
 {
     var english = CultureInfo.GetCultureInfo("en");
@@ -86,6 +109,7 @@ if (catalogPublicationCommand is not null)
     return;
 }
 
+app.UseForwardedHeaders();
 app.UseRequestLocalization();
 app.UseMiddleware<UnhandledExceptionMiddleware>();
 app.UseMiddleware<BusinessExceptionMiddleware>();
@@ -99,7 +123,26 @@ app.MapWorkoutEndpoints();
 app.MapSyncEndpoints();
 app.MapProgressEndpoints();
 app.MapGamificationEndpoints();
+app.MapHealthChecks("/health/live", new HealthCheckOptions
+{
+    Predicate = registration => registration.Tags.Contains("live"),
+    ResponseWriter = WriteHealthResponseAsync
+});
+app.MapHealthChecks("/health/ready", new HealthCheckOptions
+{
+    Predicate = registration => registration.Tags.Contains("ready"),
+    ResponseWriter = WriteHealthResponseAsync
+});
 
 app.Run();
+
+static Task WriteHealthResponseAsync(HttpContext context, HealthReport report)
+{
+    context.Response.ContentType = "application/json";
+    return JsonSerializer.SerializeAsync(
+        context.Response.Body,
+        new { status = report.Status.ToString() },
+        cancellationToken: context.RequestAborted);
+}
 
 public partial class Program;
