@@ -25,11 +25,10 @@ public sealed class TodayWorkoutVisualContractTests
         Assert.Equal("{Binding Text.LogNextWorkoutSet}", logNext.Attribute("Text")?.Value);
         Assert.Equal("{DynamicResource TrackZPrimaryButtonStyle}", logNext.Attribute("Style")?.Value);
 
-        var finish = page.Descendants().Single(element => Name(element) == "FinishWorkoutButton");
-        Assert.Equal("{Binding FinishWorkoutCommand}", finish.Attribute("Command")?.Value);
-        Assert.Equal("{Binding HasStarted}", finish.Attribute("IsVisible")?.Value);
-        Assert.Equal("{DynamicResource TrackZSecondaryButtonStyle}", finish.Attribute("Style")?.Value);
-        Assert.Equal("1", finish.Attribute("Grid.Column")?.Value);
+        Assert.Single(page.Descendants(), element => element.Name.LocalName == "ToolbarItem" && element.Attribute("Clicked")?.Value == "OnWorkoutMenuClicked");
+        var actions = page.Descendants().Single(element => Name(element) == "WorkoutActions");
+        Assert.Equal("Grid", actions.Elements().Single().Name.LocalName);
+        Assert.Equal("0.38*,0.62*", actions.Elements().Single().Attribute("ColumnDefinitions")?.Value);
     }
 
     [Fact]
@@ -59,27 +58,22 @@ public sealed class TodayWorkoutVisualContractTests
             element.Name.LocalName == "Label"
             && element.Attribute("Text")?.Value == "{Binding ErrorMessage}");
 
-        var root = page.Root!.Elements().Single();
+        var root = page.Root!.Elements().Single(element => element.Name.LocalName == "Grid");
         Assert.Equal("{DynamicResource TrackZSpace12}", root.Attribute("RowSpacing")?.Value);
         var actions = page.Descendants().Single(element => Name(element) == "WorkoutActions");
         Assert.Equal("3", actions.Attribute("Grid.Row")?.Value);
         Assert.Equal("0,0,0,12", actions.Attribute("Margin")?.Value);
-        var discard = page.Descendants().Single(element => Name(element) == "DiscardWorkoutButton");
-        Assert.Equal("{Binding DiscardWorkoutCommand}", discard.Attribute("Command")?.Value);
-        Assert.Equal("{Binding HasWorkoutToDiscard}", discard.Attribute("IsVisible")?.Value);
-        Assert.Equal("{DynamicResource TrackZQuietDestructiveButtonStyle}", discard.Attribute("Style")?.Value);
-        Assert.Equal("{Binding Text.DiscardWorkout}", discard.Attribute("Text")?.Value);
-
+        Assert.DoesNotContain(page.Descendants(), element => Name(element) == "DiscardWorkoutButton");
         var artwork = component.Descendants().Single(element => Name(element) == "ActiveWorkoutArtwork");
-        Assert.Equal("{DynamicResource TrackZCompactExerciseArtworkSize}", artwork.Attribute("HeightRequest")?.Value);
-        Assert.Equal("{DynamicResource TrackZCompactExerciseArtworkSize}", artwork.Attribute("WidthRequest")?.Value);
+        Assert.Equal("56", artwork.Attribute("HeightRequest")?.Value);
+        Assert.Equal("56", artwork.Attribute("WidthRequest")?.Value);
 
         var counter = component.Descendants().Single(element => Name(element) == "WorkoutExerciseSetCounter");
         Assert.Equal("2", counter.Parent?.Parent?.Attribute("Grid.Column")?.Value);
         Assert.Equal("{Binding Exercise.LoggedSetText, Source={x:Reference Root}}", counter.Attribute("Text")?.Value);
         Assert.Equal("{DynamicResource TrackZBodyStyle}", counter.Attribute("Style")?.Value);
         Assert.Equal("False", counter.Attribute("AutomationProperties.IsInAccessibleTree")?.Value);
-        Assert.NotNull(counter.Parent?.Attribute("Stroke"));
+        Assert.Equal("0", counter.Parent?.Attribute("StrokeThickness")?.Value);
 
         var status = component.Descendants().Single(element => Name(element) == "WorkoutExerciseSetStatus");
         Assert.Equal("{Binding Exercise.SetStatusText, Source={x:Reference Root}}", status.Attribute("Text")?.Value);

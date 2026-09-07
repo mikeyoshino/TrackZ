@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+ xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+ x:Class="TrackZ.Mobile.Features.Exercises.ExerciseTechniquePage"
+ x:Name="Page" SafeAreaEdges="All" Shell.NavBarIsVisible="False" Shell.TabBarIsVisible="False"
+ BackgroundColor="{DynamicResource TrackZBackground}">
+ <Grid RowDefinitions="56,*,Auto">
+  <Grid Padding="18,0" ColumnDefinitions="44,*,44">
+   <ImageButton Source="auth_back.png" Style="{DynamicResource TrackZAuthBackButtonStyle}" Clicked="OnBackClicked" />
+   <Label Grid.Column="1" Text="{Binding PageTitle}" Style="{DynamicResource TrackZNavigationTitleStyle}" FontFamily="NotoSansThaiRegular" FontAttributes="None" HorizontalTextAlignment="Center" VerticalTextAlignment="Center" />
+  </Grid>
+
+  <ScrollView Grid.Row="1">
+   <VerticalStackLayout Padding="18,12,18,28" Spacing="18">
+    <VerticalStackLayout Spacing="2">
+     <Label Text="{Binding ExerciseName}" Style="{DynamicResource TrackZSectionTitleStyle}" FontFamily="NotoSansThaiRegular" FontAttributes="None" />
+     <Label Text="{Binding ExerciseMeta}" Style="{DynamicResource TrackZSecondaryStyle}" FontFamily="NotoSansThaiRegular" />
+    </VerticalStackLayout>
+
+    <Border HeightRequest="292" BackgroundColor="#ECEEEC" Stroke="{DynamicResource TrackZHairline}" StrokeThickness="1" StrokeShape="RoundRectangle 18">
+     <Grid>
+      <Image Source="exercise_placeholder.png" WidthRequest="96" HeightRequest="96" IsVisible="{Binding ShowsArtworkPlaceholder}" HorizontalOptions="Center" VerticalOptions="Center" />
+      <Image Source="{Binding ImageUri}" IsVisible="{Binding HasArtwork}" Aspect="AspectFit" Margin="10" />
+      <Border HorizontalOptions="End" VerticalOptions="End" Margin="12" WidthRequest="44" HeightRequest="44" BackgroundColor="{DynamicResource TrackZPrimary}" StrokeThickness="0" StrokeShape="RoundRectangle 22">
+       <Border.GestureRecognizers><TapGestureRecognizer Tapped="OnOpenImageTapped" /></Border.GestureRecognizers>
+       <Image Source="technique_expand.png" WidthRequest="22" HeightRequest="22" InputTransparent="True" />
+      </Border>
+      <Grid.GestureRecognizers><TapGestureRecognizer Tapped="OnOpenImageTapped" /></Grid.GestureRecognizers>
+     </Grid>
+    </Border>
+
+    <Label Text="{Binding StepsTitle}" Style="{DynamicResource TrackZSectionTitleStyle}" FontFamily="NotoSansThaiRegular" FontAttributes="None" FontSize="18" />
+    <VerticalStackLayout Spacing="14">
+     <Grid ColumnDefinitions="36,*" ColumnSpacing="12"><Border WidthRequest="32" HeightRequest="32" BackgroundColor="{DynamicResource TrackZPrimary}" StrokeThickness="0" StrokeShape="RoundRectangle 16"><Label Text="1" TextColor="{DynamicResource TrackZPrimaryContrast}" HorizontalTextAlignment="Center" VerticalTextAlignment="Center" FontFamily="NotoSansThaiMedium" /></Border><Label Grid.Column="1" Text="{Binding Step1}" Style="{DynamicResource TrackZBodyStyle}" FontFamily="NotoSansThaiRegular" VerticalTextAlignment="Center" /></Grid>
+     <Grid ColumnDefinitions="36,*" ColumnSpacing="12"><Border WidthRequest="32" HeightRequest="32" BackgroundColor="{DynamicResource TrackZPrimary}" StrokeThickness="0" StrokeShape="RoundRectangle 16"><Label Text="2" TextColor="{DynamicResource TrackZPrimaryContrast}" HorizontalTextAlignment="Center" VerticalTextAlignment="Center" FontFamily="NotoSansThaiMedium" /></Border><Label Grid.Column="1" Text="{Binding Step2}" Style="{DynamicResource TrackZBodyStyle}" FontFamily="NotoSansThaiRegular" VerticalTextAlignment="Center" /></Grid>
+     <Grid ColumnDefinitions="36,*" ColumnSpacing="12"><Border WidthRequest="32" HeightRequest="32" BackgroundColor="{DynamicResource TrackZPrimary}" StrokeThickness="0" StrokeShape="RoundRectangle 16"><Label Text="3" TextColor="{DynamicResource TrackZPrimaryContrast}" HorizontalTextAlignment="Center" VerticalTextAlignment="Center" FontFamily="NotoSansThaiMedium" /></Border><Label Grid.Column="1" Text="{Binding Step3}" Style="{DynamicResource TrackZBodyStyle}" FontFamily="NotoSansThaiRegular" VerticalTextAlignment="Center" /></Grid>
+    </VerticalStackLayout>
+
+    <Border Padding="14" BackgroundColor="{DynamicResource TrackZSelectionSurface}" Stroke="{DynamicResource TrackZPrimary}" StrokeThickness="1" StrokeShape="RoundRectangle 14">
+     <Grid ColumnDefinitions="28,*" ColumnSpacing="10">
+      <Image Source="technique_tip.png" WidthRequest="22" HeightRequest="22" VerticalOptions="Start" />
+      <VerticalStackLayout Grid.Column="1" Spacing="2"><Label Text="{Binding TipTitle}" TextColor="{DynamicResource TrackZPrimary}" FontFamily="NotoSansThaiMedium" FontSize="14" /><Label Text="{Binding Tip}" Style="{DynamicResource TrackZBodyStyle}" FontFamily="NotoSansThaiRegular" /></VerticalStackLayout>
+     </Grid>
+    </Border>
+    <Grid ColumnDefinitions="28,*" ColumnSpacing="10">
+     <Image Source="technique_warning.png" WidthRequest="22" HeightRequest="22" VerticalOptions="Start" />
+     <Label Grid.Column="1" Text="{Binding CautionText}" TextColor="{DynamicResource TrackZWarning}" FontFamily="NotoSansThaiRegular" FontSize="13" />
+    </Grid>
+   </VerticalStackLayout>
+  </ScrollView>
+
+  <Grid Grid.Row="2" RowDefinitions="1,Auto" BackgroundColor="{DynamicResource TrackZBackground}">
+   <BoxView Color="{DynamicResource TrackZHairline}" />
+   <Button Grid.Row="1" Margin="18,12,18,14" Text="{Binding AddButtonText}" Command="{Binding AddCommand}" Style="{DynamicResource TrackZPrimaryButtonStyle}" FontFamily="NotoSansThaiMedium" />
+  </Grid>
+
+  <Grid x:Name="ImageViewer" Grid.RowSpan="3" ZIndex="20" IsVisible="False" BackgroundColor="{DynamicResource TrackZBackground}" Padding="18,8,18,20">
+   <Grid RowDefinitions="52,*,Auto">
+    <Grid ColumnDefinitions="44,*,44">
+     <Label Grid.Column="1" Text="{Binding ImageTitle}" Style="{DynamicResource TrackZNavigationTitleStyle}" FontFamily="NotoSansThaiRegular" FontAttributes="None" HorizontalTextAlignment="Center" VerticalTextAlignment="Center" />
+     <ImageButton Grid.Column="2" Source="close.png" WidthRequest="44" HeightRequest="44" BackgroundColor="Transparent" Clicked="OnCloseImageClicked" />
+    </Grid>
+    <Grid Grid.Row="1">
+     <Image x:Name="ViewerImage" Source="{Binding ImageUri}" Aspect="AspectFit">
+      <Image.GestureRecognizers>
+       <PinchGestureRecognizer PinchUpdated="OnViewerPinchUpdated" />
+       <PanGestureRecognizer PanUpdated="OnViewerPanUpdated" />
+       <TapGestureRecognizer NumberOfTapsRequired="2" Tapped="OnViewerDoubleTapped" />
+      </Image.GestureRecognizers>
+     </Image>
+    </Grid>
+    <Label Grid.Row="2" Text="{Binding ZoomHelp}" Style="{DynamicResource TrackZSecondaryStyle}" FontFamily="NotoSansThaiRegular" HorizontalTextAlignment="Center" />
+   </Grid>
+  </Grid>
+ </Grid>
+</ContentPage>

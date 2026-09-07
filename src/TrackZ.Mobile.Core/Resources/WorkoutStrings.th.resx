@@ -235,4 +235,8 @@
   <data name="AddSetNumberFormat" xml:space="preserve"><value>เพิ่มเซ็ตที่ {0}</value></data>
   <data name="WeightUnitTitle" xml:space="preserve"><value>หน่วยน้ำหนัก</value></data>
   <data name="DraftInputHelper" xml:space="preserve"><value>กรอกน้ำหนักและจำนวนครั้งเพื่อบันทึก</value></data>
+  <data name="EmptyWorkoutTitle" xml:space="preserve"><value>ยังไม่มีท่าออกกำลังกาย</value></data>
+  <data name="EmptyWorkoutHelper" xml:space="preserve"><value>เพิ่มอย่างน้อย 1 ท่าเพื่อเริ่มฝึก</value></data>
+  <data name="AddBeforeStartingTitle" xml:space="preserve"><value>เพิ่มท่าก่อนเริ่มฝึก</value></data>
+  <data name="AddBeforeStartingHelper" xml:space="preserve"><value>เลือกอย่างน้อย 1 ท่า&#10;แล้วเริ่มบันทึกการฝึกได้เลย</value></data>
 </root>

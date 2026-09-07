@@ -204,11 +204,11 @@ public sealed class LocalizationAuditTests
         Assert.Contains(AuditLiteralCopy(path, literal), error => error.Contains("Custom exercise", StringComparison.Ordinal));
 
         const string pickerPath = "Features/Exercises/ExercisePickerPage.xaml";
-        var rawEnum = XDocument.Load(Path.Combine(MobileDirectory(), pickerPath));
-        var picker = Assert.Single(
-            rawEnum.Descendants(),
-            element => element.Attribute("ItemsSource")?.Value == "{Binding BodyPartOptions}");
-        picker.SetAttributeValue("ItemsSource", "{Binding BodyParts}");
+        var rawEnum = XDocument.Parse("""
+            <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui">
+              <Picker ItemsSource="{Binding BodyParts}" />
+            </ContentPage>
+            """);
         Assert.Contains(AuditRawEnumPickers(pickerPath, rawEnum), error => error.Contains("BodyParts", StringComparison.Ordinal));
     }
 

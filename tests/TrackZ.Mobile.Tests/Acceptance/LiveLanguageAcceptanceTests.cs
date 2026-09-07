@@ -50,7 +50,7 @@ public sealed class LiveLanguageAcceptanceTests
                 }
 
                 var thaiShell = Assert.IsType<AppShell>(first.Host.Root);
-                Assert.Equal("ความก้าวหน้า", Tabs(thaiShell)[2].Title);
+                Assert.Equal("ผลการฝึก", Tabs(thaiShell)[2].Title);
                 Assert.Equal("คุณ", Tabs(thaiShell)[3].Title);
                 App.RestoreRootTabRoute(thaiShell, "you");
                 var active = (await first.Repository.GetActiveAsync())!;
@@ -88,7 +88,7 @@ public sealed class LiveLanguageAcceptanceTests
                 await profile.ChangeLanguageCommand.ExecuteAsync(AppLanguage.Thai);
 
                 var thaiShell = Assert.IsType<AppShell>(recreated.Host.Root);
-                Assert.Equal("ความก้าวหน้า", Tabs(thaiShell)[2].Title);
+                Assert.Equal("ผลการฝึก", Tabs(thaiShell)[2].Title);
                 Assert.Equal("คุณ", Tabs(thaiShell)[3].Title);
                 Assert.Equal("you", App.GetCurrentRootTabRoute(thaiShell));
                 var custom = recreated.Host.ActiveServices.GetRequiredService<CustomExerciseViewModel>();

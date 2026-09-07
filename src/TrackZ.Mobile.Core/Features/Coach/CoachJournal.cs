@@ -43,6 +43,21 @@ public sealed class CoachJournal(TrackZLocalDatabase database)
         return UpdateAsync(data => data.Warmups[setId] = warmup, token);
     }
 
+    public Task SaveControlAsync(CoachSession session, bool controlled, DateTimeOffset now, CancellationToken token = default)
+    {
+        if (session.LastSetId == Guid.Empty || session.WorkoutId == Guid.Empty || session.ExerciseId == Guid.Empty)
+            throw new ArgumentException("A recorded session is required.", nameof(session));
+        return UpdateAsync(data =>
+        {
+            var previous = data.Assessments.LastOrDefault(a => a.WorkoutId == session.WorkoutId
+                && a.ExerciseId == session.ExerciseId && a.LastSetId == session.LastSetId && a.At >= session.LastEditedAt);
+            var assessment = new CoachAssessment(session.WorkoutId, session.ExerciseId, now,
+                previous?.Effort ?? session.Effort, controlled, previous?.Pain ?? session.Pain, false, session.LastSetId);
+            data.Assessments.RemoveAll(a => a.WorkoutId == session.WorkoutId && a.ExerciseId == session.ExerciseId);
+            data.Assessments.Add(assessment);
+        }, token);
+    }
+
     public Task SaveRecoveryAsync(CoachRecovery recovery, CancellationToken token = default) => UpdateAsync(data =>
     {
         data.Recovery.RemoveAll(r => r.BodyPart == recovery.BodyPart && r.Week == recovery.Week);

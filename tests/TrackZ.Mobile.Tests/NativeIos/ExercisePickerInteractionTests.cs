@@ -44,6 +44,7 @@ public sealed class ExercisePickerInteractionTests : IDisposable
             services.AddSingleton<IConnectivityService, OfflineConnectivity>();
             services.AddSingleton<IUiDispatcher, InlineUiDispatcher>();
             services.AddSingleton<IWorkoutPreferenceStore, MemoryPreferences>();
+            services.AddSingleton<IReduceMotionPreference>(new FixedReduceMotionPreference(false));
             services.AddSingleton<IExercisePickerNavigator>(_navigator);
             services.AddSingleton<IExercisePickerWarning>(_warning);
             services.AddSingleton<ILocalExerciseImagePicker>(_imagePicker);
@@ -54,16 +55,29 @@ public sealed class ExercisePickerInteractionTests : IDisposable
         _ = _app.Services.GetRequiredService<App>();
     }
 
+    private sealed class FixedReduceMotionPreference(bool isEnabled) : IReduceMotionPreference
+    {
+        public bool IsEnabled { get; } = isEnabled;
+    }
+
     [Fact]
-    public void Body_part_filter_uses_one_native_picker_with_every_option()
+    public void Filter_trigger_opens_a_dismissible_multi_select_panel()
     {
         var page = _app.Services.GetRequiredService<ExercisePickerPage>();
-        var filter = page.FindByName<Picker>("BodyPartFilterPicker");
-        var options = Assert.IsAssignableFrom<IEnumerable<BodyPartFilterOption>>(filter.ItemsSource).ToArray();
-
-        Assert.Equal(7, options.Length);
-        Assert.Equal(WorkoutResources.Current.All, options[0].Label);
-        Assert.Equal(options[0], filter.SelectedItem);
+        page.Arrange(new Microsoft.Maui.Graphics.Rect(0, 0, 393, 852));
+        var filter = page.FindByName<Button>("BodyPartFilterBand");
+        var root = page.FindByName<Grid>("RootLayout");
+        var backgroundChildren = root.Children.OfType<VisualElement>().ToArray();
+        filter.SendClicked();
+        Assert.Equal(backgroundChildren.Length + 1, root.Children.Count);
+        Assert.All(backgroundChildren, child =>
+        {
+            Assert.True(child.IsEnabled);
+            Assert.True(child.InputTransparent);
+        });
+        var overlay = Assert.IsType<Grid>(root.Children[^1]);
+        Assert.False(overlay.InputTransparent);
+        Assert.Equal(root.RowDefinitions.Count, Grid.GetRowSpan(overlay));
     }
 
     [Fact]
@@ -88,30 +102,81 @@ public sealed class ExercisePickerInteractionTests : IDisposable
     }
 
     [Fact]
+    public async Task Opening_a_different_body_category_discards_an_unconfirmed_selection()
+    {
+        var backId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        var chestId = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+        await _app.Services.GetRequiredService<ExerciseCache>().ReplaceAllAsync([
+            new ExerciseSummaryDto(
+                backId, "Lat Pulldown", BodyPart.Back, TrackingMode.Weighted,
+                null, null, null, null, false),
+            new ExerciseSummaryDto(
+                chestId, "Bench Press", BodyPart.Chest, TrackingMode.Weighted,
+                null, null, null, null, false)
+        ], DateTimeOffset.UtcNow);
+        var page = _app.Services.GetRequiredService<ExercisePickerPage>();
+        var picker = Assert.IsType<ExercisePickerViewModel>(page.BindingContext);
+        await picker.LoadAsync(BodyPart.Back);
+        picker.Exercises.Single().ToggleSelectionCommand.Execute(null);
+
+        page.ApplyQueryAttributes(new Dictionary<string, object>
+        {
+            ["bodyPart"] = ((int)BodyPart.Chest).ToString(CultureInfo.InvariantCulture)
+        });
+
+        Assert.Empty(picker.SelectedExerciseIds);
+        Assert.Equal("Selected 0 exercises", picker.SelectedCountText);
+        Assert.False(picker.CanCompleteSelection);
+    }
+
+    [Fact]
+    public async Task Returning_from_technique_to_the_same_category_keeps_the_unconfirmed_selection()
+    {
+        var exerciseId = Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc");
+        await _app.Services.GetRequiredService<ExerciseCache>().ReplaceAllAsync([
+            new ExerciseSummaryDto(
+                exerciseId, "Lat Pulldown", BodyPart.Back, TrackingMode.Weighted,
+                null, null, null, null, false)
+        ], DateTimeOffset.UtcNow);
+        var page = _app.Services.GetRequiredService<ExercisePickerPage>();
+        var picker = Assert.IsType<ExercisePickerViewModel>(page.BindingContext);
+        var route = new Dictionary<string, object>
+        {
+            ["bodyPart"] = ((int)BodyPart.Back).ToString(CultureInfo.InvariantCulture)
+        };
+        page.ApplyQueryAttributes(route);
+        await picker.LoadAsync(BodyPart.Back);
+        picker.Exercises.Single().ToggleSelectionCommand.Execute(null);
+
+        // Shell can re-apply the parent page query when the technique page is popped.
+        page.ApplyQueryAttributes(route);
+
+        Assert.Equal([exerciseId], picker.SelectedExerciseIds);
+        Assert.True(picker.CanCompleteSelection);
+    }
+
+    [Fact]
     public void Selecting_a_body_part_from_the_native_picker_updates_the_filter_label()
     {
         var page = _app.Services.GetRequiredService<ExercisePickerPage>();
         var viewModel = Assert.IsType<ExercisePickerViewModel>(page.BindingContext);
-        var filter = page.FindByName<Picker>("BodyPartFilterPicker");
+        var filter = page.FindByName<Button>("BodyPartFilterBand");
         var option = viewModel.BodyPartOptions
             .Single(item => item.Value == BodyPart.Legs);
 
-        filter.SelectedItem = option;
+        viewModel.SelectedBodyPartOption = option;
 
         Assert.True(option.IsSelected);
         Assert.Equal(BodyPart.Legs, viewModel.SelectedBodyPart);
-        Assert.Equal("Body area: Legs", page.FindByName<Label>("BodyPartFilterLabel").Text);
+        Assert.Equal("Legs", filter.Text);
     }
 
     [Fact]
     public void Body_part_filter_keeps_a_full_native_touch_target()
     {
         var page = _app.Services.GetRequiredService<ExercisePickerPage>();
-        var filter = page.FindByName<Picker>("BodyPartFilterPicker");
-        var label = page.FindByName<Label>("BodyPartFilterLabel");
-
-        Assert.True(filter.MinimumHeightRequest >= 44);
-        Assert.Equal(LayoutOptions.Center, label.VerticalOptions);
+        var filter = page.FindByName<Button>("BodyPartFilterBand");
+        Assert.True(filter.MinimumHeightRequest >= 44 || ((Grid)filter.Parent).RowDefinitions[2].Height.Value >= 44);
     }
 
     [Fact]
@@ -119,17 +184,17 @@ public sealed class ExercisePickerInteractionTests : IDisposable
     {
         var page = _app.Services.GetRequiredService<ExercisePickerPage>();
         var viewModel = Assert.IsType<ExercisePickerViewModel>(page.BindingContext);
-        var filter = page.FindByName<Picker>("BodyPartFilterPicker");
+        var filter = page.FindByName<Button>("BodyPartFilterBand");
         var options = viewModel.BodyPartOptions;
         var all = options.Single(option => option.Value is null);
         var legs = options.Single(option => option.Value == BodyPart.Legs);
 
-        filter.SelectedItem = legs;
-        filter.SelectedItem = all;
+        viewModel.SelectedBodyPartOption = legs;
+        viewModel.SelectedBodyPartOption = all;
 
         Assert.False(legs.IsSelected);
         Assert.Null(viewModel.SelectedBodyPart);
-        Assert.Equal("Body area: All", page.FindByName<Label>("BodyPartFilterLabel").Text);
+        Assert.Equal("All muscles · All equipment", filter.Text);
     }
 
     [Fact]
@@ -296,7 +361,7 @@ public sealed class ExercisePickerInteractionTests : IDisposable
         viewModel.SearchText = "  Smith Machine Row  ";
         var createButton = Descendants(page)
             .OfType<Button>()
-            .Single(button => button.Text == viewModel.Text.CreateCustom);
+            .Single(button => button.Text == viewModel.CreateLabel);
 
         createButton.SendClicked();
 
@@ -390,6 +455,7 @@ public sealed class ExercisePickerInteractionTests : IDisposable
 
         Assert.Equal([exerciseId], committed);
         Assert.Equal(1, _navigator.ReturnCount);
+        Assert.Empty(picker.SelectedExerciseIds);
     }
 
     [Theory]
@@ -417,6 +483,20 @@ public sealed class ExercisePickerInteractionTests : IDisposable
 
         Assert.Equal(
             ["custom:CustomExercisePage?suggestedName=Smith%20%26%20Machine%20Row"],
+            host.Transitions);
+    }
+
+    [Fact]
+    public async Task Technique_navigation_opens_the_selected_exercise_detail()
+    {
+        var exerciseId = Guid.Parse("77777777-7777-7777-7777-777777777777");
+        var host = new RecordingExercisePickerNavigationHost(workoutIsPrevious: true);
+        var navigator = new MauiExercisePickerNavigator(host);
+
+        await navigator.OpenTechniqueAsync(exerciseId);
+
+        Assert.Equal(
+            [$"technique:ExerciseTechniquePage?exerciseId={exerciseId:D}"],
             host.Transitions);
     }
 
@@ -615,6 +695,7 @@ public sealed class ExercisePickerInteractionTests : IDisposable
     {
         public int ReturnCount { get; private set; }
         public List<string> SuggestedNames { get; } = [];
+        public List<Guid> TechniqueExerciseIds { get; } = [];
 
         public Task OpenCustomExerciseAsync(
             string suggestedName,
@@ -627,6 +708,12 @@ public sealed class ExercisePickerInteractionTests : IDisposable
         public Task ReturnToWorkoutAsync(CancellationToken cancellationToken = default)
         {
             ReturnCount++;
+            return Task.CompletedTask;
+        }
+
+        public Task OpenTechniqueAsync(Guid exerciseId, CancellationToken cancellationToken = default)
+        {
+            TechniqueExerciseIds.Add(exerciseId);
             return Task.CompletedTask;
         }
     }
@@ -669,6 +756,12 @@ public sealed class ExercisePickerInteractionTests : IDisposable
         public Task OpenCustomExerciseAsync(string route, CancellationToken cancellationToken)
         {
             Transitions.Add($"custom:{route}");
+            return Task.CompletedTask;
+        }
+
+        public Task OpenTechniqueAsync(string route, CancellationToken cancellationToken)
+        {
+            Transitions.Add($"technique:{route}");
             return Task.CompletedTask;
         }
     }

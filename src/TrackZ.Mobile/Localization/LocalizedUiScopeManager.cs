@@ -73,6 +73,7 @@ public sealed class LocalizedUiScopeManager
         lock (RouteGate)
         {
             Register(nameof(ExercisePickerPage), new ScopedRouteFactory<ExercisePickerPage>(this));
+            Register(nameof(ExerciseTechniquePage), new ScopedRouteFactory<ExerciseTechniquePage>(this));
             Register("active-workout", new ScopedRouteFactory<WorkoutPage>(this));
             Register(nameof(CustomExercisePage), new ScopedRouteFactory<CustomExercisePage>(this));
             Register(nameof(SetLoggerPage), new ScopedRouteFactory<SetLoggerPage>(this));

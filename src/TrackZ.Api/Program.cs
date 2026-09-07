@@ -117,6 +117,7 @@ app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapIdentityEndpoints();
+app.MapMembershipEndpoints();
 app.MapExerciseEndpoints();
 app.MapMediaEndpoints();
 app.MapWorkoutEndpoints();

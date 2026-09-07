@@ -11,6 +11,7 @@ using TrackZ.Mobile.Features.Exercises.Data;
 using TrackZ.Mobile.Features.Exercises.Models;
 using TrackZ.Mobile.Features.History;
 using TrackZ.Mobile.Features.Shared;
+using TrackZ.Mobile.Features.Train;
 using TrackZ.Mobile.Identity;
 
 namespace TrackZ.Mobile.Features.Workout;
@@ -32,7 +33,7 @@ public sealed record WorkoutExerciseDraftItem(
     public bool ShowsArtworkPlaceholder => !HasArtwork;
 }
 
-public sealed class WorkoutViewModel : INotifyPropertyChanged, IDisposable
+public sealed class WorkoutViewModel : INotifyPropertyChanged, IDisposable, IWorkoutDraftState
 {
     private readonly ActiveWorkoutCoordinator _coordinator;
     private readonly ExerciseCache _cache;
@@ -66,10 +67,10 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged, IDisposable
         _unitPreference = unitPreference;
         _thumbnailCache = thumbnailCache;
         RemoveExerciseCommand = new AsyncCommand(RemoveExerciseAsync,
-            item => !IsBusy && Id(item) != Guid.Empty && (!_hasStarted || Exercises.Count > 1));
+            item => !IsBusy && Id(item) != Guid.Empty);
         MoveUpCommand = new AsyncCommand(item => MoveAsync(item, -1), item => CanMove(item, -1));
         MoveDownCommand = new AsyncCommand(item => MoveAsync(item, 1), item => CanMove(item, 1));
-        StartWorkoutCommand = new AsyncCommand(_ => StartAsync(), _ => Exercises.Count != 0 && !_hasStarted && !IsBusy);
+        StartWorkoutCommand = new AsyncCommand(_ => StartAsync(), _ => !_hasStarted && !IsBusy);
         LogNextSetCommand = new AsyncCommand(
             _ => RequestNextSetAsync(),
             _ => _hasStarted && Exercises.Count != 0 && !IsBusy);
@@ -99,6 +100,8 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged, IDisposable
         string.Format(_text.SetsLoggedFormat, Exercises.Sum(exercise => exercise.LoggedSetCount)));
     public int CompletedExerciseCount => Exercises.Count(exercise => exercise.LoggedSetCount > 0);
     public int TotalExerciseCount => Exercises.Count;
+    public bool HasExercises => Exercises.Count > 0;
+    public bool IsEmpty => !HasExercises;
     public double WorkoutProgress => TotalExerciseCount == 0
         ? 0d
         : (double)CompletedExerciseCount / TotalExerciseCount;
@@ -159,6 +162,7 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged, IDisposable
     public event EventHandler<WorkoutExerciseDraftItem>? ExerciseLoggingRequested;
     public event EventHandler<Guid>? WorkoutFinished;
     public event EventHandler? WorkoutDiscarded;
+    public event EventHandler? EmptyWorkoutStartRequested;
 
     public async Task RestoreAsync(CancellationToken cancellationToken = default)
     {
@@ -267,7 +271,12 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged, IDisposable
 
     private async Task StartAsync()
     {
-        if (Exercises.Count == 0 || HasStarted) return;
+        if (HasStarted) return;
+        if (Exercises.Count == 0)
+        {
+            EmptyWorkoutStartRequested?.Invoke(this, EventArgs.Empty);
+            return;
+        }
         var generation = _boundary.Capture();
         IsBusy = true;
         ErrorMessage = null;
@@ -548,6 +557,8 @@ public sealed class WorkoutViewModel : INotifyPropertyChanged, IDisposable
         OnPropertyChanged(nameof(CompletedExerciseCount));
         OnPropertyChanged(nameof(TotalExerciseCount));
         OnPropertyChanged(nameof(WorkoutProgress));
+        OnPropertyChanged(nameof(HasExercises));
+        OnPropertyChanged(nameof(IsEmpty));
         OnPropertyChanged(nameof(WorkoutProgressText));
     }
 

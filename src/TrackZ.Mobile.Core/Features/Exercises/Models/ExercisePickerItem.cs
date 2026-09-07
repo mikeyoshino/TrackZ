@@ -46,6 +46,7 @@ public sealed class ExercisePickerItem : INotifyPropertyChanged
     public CachedExercise Exercise { get; }
     public Guid Id => Exercise.Id;
     public string Name => Exercise.Name;
+    public string EquipmentText => ExerciseEquipmentLabels.Identify(Exercise).Label(_text.BodyPartChest == "หน้าอก");
     public BodyPart BodyPart => Exercise.BodyPart;
     public TrackingMode TrackingMode => Exercise.TrackingMode;
     public string? ThumbnailUri => _thumbnailUri;

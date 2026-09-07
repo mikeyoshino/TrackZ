@@ -339,6 +339,40 @@ public sealed class AuthGateCoordinatorTests
     }
 
     [Fact]
+    public async Task Thai_auth_form_hides_internal_server_details_behind_an_actionable_sign_in_message()
+    {
+        var fixture = Fixture.For(SessionCase.None);
+        fixture.Identity.LoginFailure = new MobileApiException(
+            BusinessErrorCode.InternalServerError,
+            "The server returned an invalid response.");
+        var form = new AuthFormViewModel(fixture.Coordinator, AuthTextSet.Thai)
+        {
+            Email = "lift@example.com",
+            Password = "Correct-Horse-9"
+        };
+
+        await form.SubmitCommand.ExecuteAsync();
+
+        Assert.Equal("เข้าสู่ระบบไม่ได้ในขณะนี้ โปรดลองอีกครั้ง", form.FormError);
+    }
+
+    [Fact]
+    public async Task Thai_auth_form_turns_connection_failures_into_a_clear_recovery_message()
+    {
+        var fixture = Fixture.For(SessionCase.None);
+        fixture.Identity.LoginFailure = new HttpRequestException("Connection refused by 127.0.0.1:5080.");
+        var form = new AuthFormViewModel(fixture.Coordinator, AuthTextSet.Thai)
+        {
+            Email = "lift@example.com",
+            Password = "Correct-Horse-9"
+        };
+
+        await form.SubmitCommand.ExecuteAsync();
+
+        Assert.Equal("เชื่อมต่อไม่ได้ โปรดตรวจสอบอินเทอร์เน็ตแล้วลองอีกครั้ง", form.FormError);
+    }
+
+    [Fact]
     public async Task Create_account_form_validates_required_credentials_before_contacting_identity()
     {
         var fixture = Fixture.For(SessionCase.None);
@@ -385,6 +419,8 @@ public sealed class AuthGateCoordinatorTests
 
         var submit = form.SubmitCommand.ExecuteAsync();
         await fixture.Identity.LoginEntered;
+        Assert.True(form.IsSubmitting);
+        Assert.False(form.SubmitCommand.CanExecute(null));
         await fixture.Boundary.ResetAsync(_ => Task.CompletedTask);
         fixture.Identity.CancelLoginAfterGate();
         fixture.Identity.ReleaseLogin();

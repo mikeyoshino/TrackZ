@@ -3,6 +3,7 @@
     xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml">
     <Style x:Key="TrackZPageTitleStyle" TargetType="Label">
+        <Setter Property="FontFamily" Value="NotoSansThaiRegular" />
         <Setter Property="FontSize" Value="32" />
         <Setter Property="FontAttributes" Value="Bold" />
         <Setter Property="TextColor" Value="{StaticResource TrackZTextPrimary}" />
@@ -13,6 +14,11 @@
         <Setter Property="FontAttributes" Value="None" />
         <Setter Property="FontSize" Value="22" />
         <Setter Property="HorizontalTextAlignment" Value="Center" />
+    </Style>
+    <Style x:Key="TrackZProgressPageTitleStyle" TargetType="Label" BasedOn="{StaticResource TrackZCoachPageTitleStyle}">
+        <Setter Property="FontFamily" Value="NotoSansThaiMedium" />
+        <Setter Property="FontSize" Value="24" />
+        <Setter Property="HorizontalTextAlignment" Value="Start" />
     </Style>
     <Style x:Key="TrackZHistoryTitleStyle" TargetType="Label" BasedOn="{StaticResource TrackZPageTitleStyle}">
         <Setter Property="FontFamily" Value="NotoSansThaiLight" />
@@ -31,6 +37,7 @@
         <Setter Property="TextColor" Value="{DynamicResource TrackZTextPrimary}" />
     </Style>
     <Style x:Key="TrackZBrandGlyphStyle" TargetType="Label">
+        <Setter Property="FontFamily" Value="NotoSansThaiRegular" />
         <Setter Property="FontSize" Value="32" />
         <Setter Property="FontAttributes" Value="Bold" />
         <Setter Property="TextColor" Value="{StaticResource TrackZPrimaryContrast}" />
@@ -38,6 +45,7 @@
         <Setter Property="VerticalTextAlignment" Value="Center" />
     </Style>
     <Style x:Key="TrackZBrandNameStyle" TargetType="Label">
+        <Setter Property="FontFamily" Value="NotoSansThaiRegular" />
         <Setter Property="FontSize" Value="20" />
         <Setter Property="FontAttributes" Value="Bold" />
         <Setter Property="CharacterSpacing" Value="0.6" />
@@ -73,6 +81,7 @@
         <Setter Property="TextColor" Value="{StaticResource TrackZTextPrimary}" />
     </Style>
     <Style x:Key="TrackZFieldLabelStyle" TargetType="Label">
+        <Setter Property="FontFamily" Value="NotoSansThaiRegular" />
         <Setter Property="FontSize" Value="13" />
         <Setter Property="FontAttributes" Value="Bold" />
         <Setter Property="TextColor" Value="{StaticResource TrackZTextPrimary}" />
@@ -83,21 +92,25 @@
         <Setter Property="FontSize" Value="15" />
     </Style>
     <Style x:Key="TrackZNavigationTitleStyle" TargetType="Label">
+        <Setter Property="FontFamily" Value="NotoSansThaiRegular" />
         <Setter Property="FontSize" Value="17" />
         <Setter Property="FontAttributes" Value="Bold" />
         <Setter Property="TextColor" Value="{StaticResource TrackZTextPrimary}" />
     </Style>
     <Style x:Key="TrackZSectionTitleStyle" TargetType="Label">
+        <Setter Property="FontFamily" Value="NotoSansThaiRegular" />
         <Setter Property="FontSize" Value="20" />
         <Setter Property="FontAttributes" Value="Bold" />
         <Setter Property="TextColor" Value="{StaticResource TrackZTextPrimary}" />
     </Style>
     <Style x:Key="TrackZBodyStyle" TargetType="Label">
+        <Setter Property="FontFamily" Value="NotoSansThaiRegular" />
         <Setter Property="FontSize" Value="15" />
         <Setter Property="FontAttributes" Value="None" />
         <Setter Property="TextColor" Value="{StaticResource TrackZTextPrimary}" />
     </Style>
     <Style x:Key="TrackZSecondaryStyle" TargetType="Label">
+        <Setter Property="FontFamily" Value="NotoSansThaiRegular" />
         <Setter Property="FontSize" Value="13" />
         <Setter Property="FontAttributes" Value="None" />
         <Setter Property="TextColor" Value="{StaticResource TrackZTextSecondary}" />
@@ -164,17 +177,20 @@
         <Setter Property="LineHeight" Value="1.35" />
     </Style>
     <Style x:Key="TrackZFieldErrorStyle" TargetType="Label">
+        <Setter Property="FontFamily" Value="NotoSansThaiRegular" />
         <Setter Property="FontSize" Value="12" />
         <Setter Property="FontAttributes" Value="None" />
         <Setter Property="TextColor" Value="{StaticResource TrackZDanger}" />
         <Setter Property="LineBreakMode" Value="WordWrap" />
     </Style>
     <Style x:Key="TrackZPerformanceNumberStyle" TargetType="Label">
+        <Setter Property="FontFamily" Value="NotoSansThaiRegular" />
         <Setter Property="FontSize" Value="26" />
         <Setter Property="FontAttributes" Value="Bold" />
         <Setter Property="TextColor" Value="{StaticResource TrackZPrimary}" />
     </Style>
     <Style x:Key="TrackZPerformanceMetadataStyle" TargetType="Label">
+        <Setter Property="FontFamily" Value="NotoSansThaiRegular" />
         <Setter Property="FontSize" Value="13" />
         <Setter Property="FontAttributes" Value="None" />
         <Setter Property="TextColor" Value="{StaticResource TrackZTextSecondary}" />

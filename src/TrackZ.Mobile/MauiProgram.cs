@@ -44,6 +44,13 @@ public static class MauiProgram
 				fonts.AddFont("NotoSansThai-Medium.ttf", "NotoSansThaiMedium");
 				fonts.AddFont("NotoSansThai-SemiBold.ttf", "NotoSansThaiSemiBold");
 			});
+#if IOS
+		builder.ConfigureMauiHandlers(handlers =>
+		{
+			handlers.AddHandler<Button, LifecycleButtonHandler>();
+			handlers.AddHandler<Entry, TrackZEntryHandler>();
+		});
+#endif
 		builder.Services.AddSingleton<IAppLanguageStore>(appLanguageStore);
 		builder.Services.AddSingleton<App>();
 		builder.Services.AddSingleton<IApplication>(services => services.GetRequiredService<App>());
@@ -219,7 +226,8 @@ public static class MauiProgram
 			services.GetRequiredService<ActiveWorkoutCoordinator>(),
 			services.GetRequiredService<ITrainNavigator>(),
 			services.GetRequiredService<IClock>(),
-			services.GetRequiredService<TimeZoneInfo>()));
+			services.GetRequiredService<TimeZoneInfo>(),
+			() => services.GetRequiredService<WorkoutViewModel>()));
 		builder.Services.AddTransient<BodyAreaSheetPage>();
 		builder.Services.AddSingleton<IBodyAreaPicker>(services => new MauiBodyAreaPicker(
 			services.GetRequiredService<INativeSheetPresenter>(),
@@ -227,7 +235,9 @@ public static class MauiProgram
 		builder.Services.AddSingleton<ITrainNavigator, MauiTrainNavigator>();
 		builder.Services.AddSingleton<IExercisePickerNavigator, MauiExercisePickerNavigator>();
 		builder.Services.AddSingleton<IExercisePickerWarning, MauiExercisePickerWarning>();
+		builder.Services.AddSingleton<ExerciseTechniqueCatalog>();
 		builder.Services.AddScoped<ExercisePickerPage>();
+		builder.Services.AddScoped<ExerciseTechniquePage>();
 		builder.Services.AddTransient<CustomExercisePage>();
 		builder.Services.AddScoped<WorkoutPage>();
 		builder.Services.AddTransient<SetLoggerPage>();
@@ -245,6 +255,7 @@ public static class MauiProgram
 		builder.Services.AddScoped<TrainPage>();
 		builder.Services.AddTransient<AuthFormViewModel>();
 		builder.Services.AddTransient<SignInPage>();
+		builder.Services.AddTransient<WelcomePage>();
 		builder.Services.AddTransient<CreateAccountPage>();
 		builder.Services.AddScoped<AuthGatePage>();
 		builder.Services.AddScoped<AuthShell>();

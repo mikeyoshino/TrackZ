@@ -29,9 +29,19 @@ public interface ITrainDashboardSource
     Task<TrainDashboardSnapshot> LoadAsync(CancellationToken cancellationToken = default);
 }
 
+public interface IWorkoutDraftState
+{
+    bool HasExercises { get; }
+}
+
 public interface IBodyAreaPicker
 {
     Task<BodyPart?> PickAsync(CancellationToken cancellationToken = default);
+    async Task<(bool Confirmed, BodyPart? BodyPart)> PickForAddingAsync(CancellationToken cancellationToken = default)
+    {
+        var part = await PickAsync(cancellationToken);
+        return (part.HasValue, part);
+    }
 }
 
 /// <summary>

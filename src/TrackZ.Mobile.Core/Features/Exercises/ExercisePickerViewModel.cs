@@ -70,6 +70,34 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged, IDisposabl
     private IReadOnlyList<CachedExercise> _catalog = [];
     private string _searchText = string.Empty;
     private BodyPart? _selectedBodyPart;
+    private readonly HashSet<BodyPart> _bodyFilters = [];
+    private readonly HashSet<ExerciseEquipment> _equipmentFilters = [];
+    public IReadOnlyCollection<BodyPart> SelectedBodyParts => _bodyFilters;
+    public IReadOnlyCollection<ExerciseEquipment> SelectedEquipment => _equipmentFilters;
+    public bool IsThai => _text.BodyPartChest == "หน้าอก";
+    public string CompactTitle => IsThai ? "เลือกท่า" : "Choose exercises";
+    public string CreateLabel => IsThai ? "+ สร้างเอง" : "+ Create";
+    public string SearchLabel => IsThai ? "ค้นหาท่า" : "Search exercises";
+    public string AddSelectionText => IsThai ? $"เพิ่ม {_selectedIds.Count} ท่า" : $"Add {_selectedIds.Count} exercises";
+    public int FilterCount => _bodyFilters.Count + _equipmentFilters.Count;
+    public string FilterSummary => FilterCount == 0 ? (IsThai ? "ทุกส่วน · ทุกอุปกรณ์" : "All muscles · All equipment") :
+        string.Join(" · ", new[] {
+            string.Join(" + ", BodyPartOptions.Where(o => o.Value.HasValue && _bodyFilters.Contains(o.Value.Value)).Select(o => o.Label)),
+            string.Join(" + ", _equipmentFilters.Order().Select(e => e.Label(IsThai))) }.Where(s => s.Length > 0));
+
+    public void ApplyFilters(IEnumerable<BodyPart> bodyParts, IEnumerable<ExerciseEquipment> equipment)
+    {
+        var bodies = bodyParts.ToArray();
+        var devices = equipment.ToArray();
+        _bodyFilters.Clear();
+        _bodyFilters.UnionWith(bodies);
+        _equipmentFilters.Clear();
+        _equipmentFilters.UnionWith(devices);
+        _selectedBodyPart = bodies.Length == 1 ? bodies[0] : null;
+        OnPropertyChanged(nameof(FilterSummary));
+        OnPropertyChanged(nameof(FilterCount));
+        ApplyFilter();
+    }
     private bool _isRefreshing;
     private bool _isInitialLoading = true;
     private bool _hasCatalogBacking;
@@ -180,6 +208,10 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged, IDisposabl
         {
             if (_selectedBodyPart == value) return;
             _selectedBodyPart = value;
+            _bodyFilters.Clear();
+            if (value.HasValue) _bodyFilters.Add(value.Value);
+            OnPropertyChanged(nameof(FilterSummary));
+            OnPropertyChanged(nameof(FilterCount));
             OnPropertyChanged();
             OnPropertyChanged(nameof(SelectedBodyPartOption));
             OnPropertyChanged(nameof(SelectedBodyPartFilterText));
@@ -215,6 +247,10 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged, IDisposabl
         ClearRequestFailure();
         UpdatePresentation();
         _selectedBodyPart = bodyPart;
+        _bodyFilters.Clear();
+        if (bodyPart.HasValue) _bodyFilters.Add(bodyPart.Value);
+        OnPropertyChanged(nameof(FilterSummary));
+        OnPropertyChanged(nameof(FilterCount));
         OnPropertyChanged(nameof(SelectedBodyPart));
         OnPropertyChanged(nameof(SelectedBodyPartOption));
         OnPropertyChanged(nameof(SelectedBodyPartFilterText));
@@ -233,6 +269,18 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged, IDisposabl
             ? RefreshAsync(generation, cancellationToken)
             : Task.CompletedTask;
         if (!_connectivity.IsOnline) UpdatePresentation();
+    }
+
+    public void ResetSelection()
+    {
+        _selectedIds.Clear();
+        _selectedIdSet.Clear();
+        foreach (var exercise in Exercises)
+            exercise.IsSelected = false;
+        OnPropertyChanged(nameof(SelectedExerciseIds));
+        OnPropertyChanged(nameof(SelectedCountText));
+        OnPropertyChanged(nameof(AddSelectionText));
+        OnPropertyChanged(nameof(CanCompleteSelection));
     }
 
     private async Task RefreshAsync(AccountSessionGeneration generation, CancellationToken cancellationToken)
@@ -385,6 +433,7 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged, IDisposabl
             exercise.IsSelected = _selectedIdSet.Contains(id);
         OnPropertyChanged(nameof(SelectedExerciseIds));
         OnPropertyChanged(nameof(SelectedCountText));
+        OnPropertyChanged(nameof(AddSelectionText));
         OnPropertyChanged(nameof(CanCompleteSelection));
     }
 
@@ -400,7 +449,8 @@ public sealed class ExercisePickerViewModel : INotifyPropertyChanged, IDisposabl
     {
         var search = _searchText.Trim();
         var filtered = _catalog
-            .Where(exercise => !_selectedBodyPart.HasValue || exercise.BodyPart == _selectedBodyPart.Value)
+            .Where(exercise => _bodyFilters.Count == 0 || _bodyFilters.Contains(exercise.BodyPart))
+            .Where(exercise => _equipmentFilters.Count == 0 || _equipmentFilters.Contains(ExerciseEquipmentLabels.Identify(exercise)))
             .Where(exercise => search.Length == 0 || exercise.Name.Contains(search, StringComparison.CurrentCultureIgnoreCase))
             .OrderBy(exercise => exercise.Name, StringComparer.CurrentCultureIgnoreCase)
             .ThenBy(exercise => exercise.Id)

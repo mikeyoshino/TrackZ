@@ -37,7 +37,7 @@ public sealed class NativeIosExperienceAcceptanceTests
             else
             {
                 var titleStyle = relativePath == "Features/Progress/ExerciseProgressPage.xaml"
-                    ? "TrackZCoachPageTitleStyle" : relativePath == "Features/Profile/ProfilePage.xaml"
+                    ? "TrackZProgressPageTitleStyle" : relativePath == "Features/Profile/ProfilePage.xaml"
                         ? "TrackZProfileTitleStyle" : "TrackZPageTitleStyle";
                 Assert.Contains(document.Descendants(), element =>
                     element.Name.LocalName == "Label" && ResourceKey(element.Attribute("Style")?.Value) == titleStyle);

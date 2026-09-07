@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using TrackZ.Mobile.Features.Workout;
 using TrackZ.Mobile.Identity;
 #if IOS
@@ -111,7 +112,19 @@ public partial class CreateAccountPage : ContentPage
 
     private void OnSubmitClicked(object? sender, EventArgs eventArgs) => PasswordInput.Unfocus();
 
-    private async void OnSwitchModeClicked(object? sender, EventArgs eventArgs) => await Navigation.PopAsync();
+    private async void OnSwitchModeClicked(object? sender, EventArgs eventArgs)
+    {
+        if (Navigation.NavigationStack.Count >= 2 && Navigation.NavigationStack[^2] is SignInPage)
+        {
+            await Navigation.PopAsync();
+            return;
+        }
+        if (Handler?.MauiContext?.Services is { } services)
+        {
+            await Navigation.PushAsync(services.GetRequiredService<SignInPage>());
+            Navigation.RemovePage(this);
+        }
+    }
 
     private async void OnBackClicked(object? sender, EventArgs eventArgs) => await Navigation.PopAsync();
 

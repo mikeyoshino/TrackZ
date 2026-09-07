@@ -3,10 +3,11 @@
     x:Class="TrackZ.Mobile.Features.Exercises.CustomExercisePage"
     xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:components="clr-namespace:TrackZ.Mobile.Components"
     xmlns:viewModels="clr-namespace:TrackZ.Mobile.Features.Exercises;assembly=TrackZ.Mobile.Core"
     x:DataType="viewModels:CustomExerciseViewModel"
     BackgroundColor="{DynamicResource TrackZBackground}"
-    SafeAreaEdges="All"
+    SafeAreaEdges="Container"
     Shell.TabBarIsVisible="False"
     Title="{Binding Text.CustomExerciseTitle}">
     <Grid Padding="0,12,0,0" RowDefinitions="*,Auto" RowSpacing="{DynamicResource TrackZSpace12}">
@@ -129,5 +130,6 @@
             Style="{DynamicResource TrackZStickyActionContainerStyle}">
             <Button Clicked="OnSaveClicked" SemanticProperties.Description="{Binding Text.SaveExercise}" Style="{DynamicResource TrackZPrimaryButtonStyle}" Text="{Binding Text.SaveExercise}" />
         </Border>
+        <components:BusyOverlay x:Name="SavingOverlay" Grid.RowSpan="2" />
     </Grid>
 </ContentPage>

@@ -568,8 +568,6 @@ public sealed class ActiveWorkoutCoordinator(
                     item.Id == workoutExerciseId && item.DeletedAt is null)
                     ?? throw new ArgumentException(
                         "The exercise is not in the active workout.", nameof(workoutExerciseId));
-                if (active.Exercises.Count(item => item.DeletedAt is null) == 1)
-                    throw new InvalidOperationException("An active workout needs at least one exercise.");
                 var deletedAt = await NextMutationAtAsync(active, token);
                 var activeRemaining = active.Exercises
                     .Where(item => item.Id != target.Id && item.DeletedAt is null)

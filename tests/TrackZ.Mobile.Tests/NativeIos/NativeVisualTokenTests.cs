@@ -17,6 +17,26 @@ namespace TrackZ.Mobile.Tests.NativeIos;
 
 public sealed class NativeVisualTokenTests
 {
+    [Fact]
+    public void Every_text_control_uses_noto_sans_thai_by_default()
+    {
+        using var app = CreateApp();
+        var resources = Resources(app);
+        foreach (var targetType in new[]
+                 {
+                     typeof(Label), typeof(Button), typeof(Entry), typeof(Editor),
+                     typeof(Picker), typeof(SearchBar), typeof(DatePicker),
+                     typeof(TimePicker), typeof(RadioButton)
+                 })
+        {
+            var style = Assert.Single(
+                AllResources(resources).SelectMany(dictionary => dictionary.Values).OfType<Style>(),
+                candidate => candidate.TargetType == targetType
+                    && FindSetter(candidate, "VisualStateGroups") is not null);
+            Assert.Equal("NotoSansThaiRegular", FindSetter(style, "FontFamily")?.Value);
+        }
+    }
+
     [Theory]
     [InlineData("TrackZSpace4", 4d)]
     [InlineData("TrackZSpace8", 8d)]
@@ -225,8 +245,8 @@ public sealed class NativeVisualTokenTests
             Assert.Contains("TrackZExerciseArtworkSize", xaml, StringComparison.Ordinal);
         }
         var activeWorkoutRow = File.ReadAllText(Path.Combine(componentDirectory, "ActiveWorkoutExerciseRow.xaml"));
-        Assert.Contains("ColumnDefinitions=\"72", activeWorkoutRow, StringComparison.Ordinal);
-        Assert.Contains("TrackZCompactExerciseArtworkSize", activeWorkoutRow, StringComparison.Ordinal);
+        Assert.Contains("ColumnDefinitions=\"56", activeWorkoutRow, StringComparison.Ordinal);
+        Assert.Contains("TrackZCompactExerciseRowHeight", activeWorkoutRow, StringComparison.Ordinal);
 
         var skeleton = XDocument.Load(Path.Combine(componentDirectory, "ExerciseListSkeleton.xaml"));
         var loadedCards = new[] { "ExercisePerformanceCard.xaml", "ActiveWorkoutExerciseRow.xaml" }
@@ -238,7 +258,8 @@ public sealed class NativeVisualTokenTests
         {
             var style = card.Attribute("Style")?.Value;
             if (style is null || !style.Contains("TrackZListRowStyle", StringComparison.Ordinal)) continue;
-            Assert.Equal("{DynamicResource TrackZExerciseCardHeight}", card.Attribute("MinimumHeightRequest")?.Value);
+            var isCompact = card.Attribute("SemanticProperties.Description")?.Value?.Contains("Exercise.AccessibilitySummary", StringComparison.Ordinal) == true;
+            Assert.Equal(isCompact ? "{DynamicResource TrackZCompactExerciseRowHeight}" : "{DynamicResource TrackZExerciseCardHeight}", card.Attribute("MinimumHeightRequest")?.Value);
             Assert.Null(card.Attribute("StrokeShape"));
             Assert.Null(card.Attribute("CornerRadius"));
         }

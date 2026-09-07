@@ -234,7 +234,11 @@ public sealed record WorkoutTextSet(
     string NoSetsTodaySupporting,
     string AddSetNumberFormat,
     string WeightUnitTitle,
-    string DraftInputHelper);
+    string DraftInputHelper,
+    string EmptyWorkoutTitle,
+    string EmptyWorkoutHelper,
+    string AddBeforeStartingTitle,
+    string AddBeforeStartingHelper);
 
 public static class WorkoutResources
 {
@@ -405,7 +409,11 @@ public static class WorkoutResources
             Value("NoSetsTodaySupporting", culture),
             Value("AddSetNumberFormat", culture),
             Value("WeightUnitTitle", culture),
-            Value("DraftInputHelper", culture));
+            Value("DraftInputHelper", culture),
+            Value("EmptyWorkoutTitle", culture),
+            Value("EmptyWorkoutHelper", culture),
+            Value("AddBeforeStartingTitle", culture),
+            Value("AddBeforeStartingHelper", culture));
     }
 
     private static string Value(string key, CultureInfo culture) =>

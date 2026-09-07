@@ -13,7 +13,10 @@ namespace TrackZ.Mobile.Features.Coach;
 public sealed record CoachDay(DateOnly Date, bool Trained, bool IsToday, bool IsPlanned = false);
 public sealed record CoachArea(BodyPart BodyPart, int WorkingSets, int UnclassifiedSets, bool NeedsCheck, CoachRecovery? Recovery);
 public sealed record CoachExercise(Guid Id, string Name, BodyPart BodyPart, TrackingMode Mode,
-    IReadOnlyList<CoachSession> Sessions, CoachRecommendation Recommendation, bool Accepted);
+    IReadOnlyList<CoachSession> Sessions, CoachRecommendation Recommendation, bool Accepted)
+{
+    public ExerciseEquipment Equipment { get; init; } = ExerciseEquipment.Other;
+}
 public sealed record CoachReport(DateOnly Week, IReadOnlyList<CoachDay> Days,
     IReadOnlyList<CoachArea> Areas, IReadOnlyList<CoachExercise> Exercises, int UnknownSets)
 {
@@ -91,7 +94,8 @@ public sealed class TrainingCoachSource(
             var latest = sessions[0];
             var assessment = journal.Assessments.LastOrDefault(a => a.WorkoutId == latest.WorkoutId && a.ExerciseId == definition.Id);
             return new CoachExercise(definition.Id, definition.Name, definition.BodyPart, definition.TrackingMode,
-                sessions, recommendation, assessment?.Accepted == true && recommendation.IsIncrease);
+                sessions, recommendation, assessment?.Accepted == true && recommendation.IsIncrease)
+                { Equipment = ExerciseEquipmentLabels.Identify(definition) };
         }).Where(e => e is not null).Cast<CoachExercise>().OrderByDescending(e => e.Sessions[0].At).ToArray();
         return new CoachReport(week, days, areas, items, rows.Count(r => r.Date >= week && r.Date <= today && !journal.Warmups.ContainsKey(r.Set.Id)));
     }
@@ -108,6 +112,12 @@ public sealed class TrainingCoachSource(
             || s.WeightKg != last.WeightKg || s.AssistedKg != last.AssistedKg);
         return new CoachSession(workout.Id, exercise.ExerciseDefinitionId, sets.Max(s => s.CompletedAt), exercise.TrackingMode,
             last.WeightKg, last.AssistedKg, working.Length == 0 ? 0 : working.Min(s => s.Reps), working.Length,
-            assessment?.Effort ?? 0, assessment?.Controlled, assessment?.Pain ?? false, unknown);
+            assessment?.Effort ?? 0, assessment?.Controlled, assessment?.Pain ?? false, unknown)
+        {
+            IsCompleted = workout.Status == LocalWorkoutStatus.Completed && workout.CompletedAt <= now,
+            UnclassifiedSets = sets.Count(s => !data.Warmups.ContainsKey(s.Id)),
+            LastSetId = sets[^1].Id,
+            LastEditedAt = sets.Max(s => s.UpdatedAt ?? s.CompletedAt)
+        };
     }
 }

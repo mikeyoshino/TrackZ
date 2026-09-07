@@ -15,6 +15,19 @@ public partial class BodyAreaSheetPage : ContentPage
     }
 
     public WorkoutTextSet Text { get; }
+    public bool AllSelected { get; private set; }
+    private bool _isAdding;
+    public bool IsAdding
+    {
+        get => _isAdding;
+        set { _isAdding = value; OnPropertyChanged(); OnPropertyChanged(nameof(SheetTitle)); }
+    }
+    public string SheetTitle => IsAdding ? Text.AddExercise : Text.ChooseWorkout;
+    private async void OnAllClicked(object? sender, EventArgs args)
+    {
+        AllSelected = true;
+        await CompleteAsync(null);
+    }
 
     internal void SetCompletion(Func<BodyPart?, Task> completion) =>
         _completion = completion ?? throw new ArgumentNullException(nameof(completion));

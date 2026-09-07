@@ -38,7 +38,12 @@
             <Setter Property="FontAttributes" Value="None" />
             <Setter Property="TextColor" Value="{DynamicResource TrackZTextSecondary}" />
         </Style>
-        <Style x:Key="HomeSectionLinkStyle" TargetType="Button" BasedOn="{StaticResource TrackZQuietButtonStyle}">
+        <Style x:Key="HomeSectionLinkStyle" TargetType="Button">
+            <Setter Property="MinimumHeightRequest" Value="44" />
+            <Setter Property="MinimumWidthRequest" Value="44" />
+            <Setter Property="Padding" Value="12,8" />
+            <Setter Property="BackgroundColor" Value="Transparent" />
+            <Setter Property="FontSize" Value="15" />
             <Setter Property="FontFamily" Value="NotoSansThaiMedium" />
             <Setter Property="FontAttributes" Value="None" />
             <Setter Property="TextColor" Value="{DynamicResource TrackZPrimary}" />

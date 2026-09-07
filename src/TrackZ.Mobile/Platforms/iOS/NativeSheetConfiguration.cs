@@ -13,6 +13,11 @@ internal static class NativeSheetConfiguration
 
         sheet.Detents = detent switch
         {
+            NativeSheetDetent.Compact when OperatingSystem.IsIOSVersionAtLeast(16) || OperatingSystem.IsMacCatalystVersionAtLeast(16)
+                => [UISheetPresentationControllerDetent.Create("trackz-compact",
+                context => OperatingSystem.IsIOSVersionAtLeast(16) || OperatingSystem.IsMacCatalystVersionAtLeast(16)
+                    ? (System.Runtime.InteropServices.NFloat)Math.Min(320, (double)context.MaximumDetentValue)
+                    : 320)],
             NativeSheetDetent.Medium => [UISheetPresentationControllerDetent.CreateMediumDetent()],
             NativeSheetDetent.Form when OperatingSystem.IsIOSVersionAtLeast(16) || OperatingSystem.IsMacCatalystVersionAtLeast(16)
                 => [UISheetPresentationControllerDetent.Create("trackz-form",

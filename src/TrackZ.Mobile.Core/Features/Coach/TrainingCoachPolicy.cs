@@ -8,7 +8,13 @@ public enum CoachAction { Hold, AddRep, AddWeight, ChooseIncrement, CheckConsist
 public sealed record CoachSession(
     Guid WorkoutId, Guid ExerciseId, DateTimeOffset At, TrackingMode Mode,
     decimal? WeightKg, decimal? AssistedKg, int Reps, int WorkingSets,
-    int Effort, bool? Controlled, bool Pain, bool HasUnknownSets);
+    int Effort, bool? Controlled, bool Pain, bool HasUnknownSets)
+{
+    public bool IsCompleted { get; init; } = true;
+    public int UnclassifiedSets { get; init; }
+    public Guid LastSetId { get; init; }
+    public DateTimeOffset LastEditedAt { get; init; }
+}
 
 public sealed record CoachRecommendation(CoachAction Action, int? Reps = null, decimal? WeightKg = null)
 {

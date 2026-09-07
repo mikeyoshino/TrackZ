@@ -4,10 +4,11 @@
     x:Name="Page"
     xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:components="clr-namespace:TrackZ.Mobile.Components"
     xmlns:workout="clr-namespace:TrackZ.Mobile.Features.Workout;assembly=TrackZ.Mobile.Core"
     x:DataType="workout:SetLoggerViewModel"
     BackgroundColor="{DynamicResource TrackZBackground}"
-    SafeAreaEdges="All"
+    SafeAreaEdges="Container"
     Shell.TabBarIsVisible="False"
     Title="{Binding Text.SetLoggerTitle}">
     <Grid Padding="0,12,0,12" RowDefinitions="*,Auto" RowSpacing="12">
@@ -191,7 +192,6 @@
                     </VerticalStackLayout>
                 </Border>
                 <Label HorizontalTextAlignment="Center" Style="{DynamicResource TrackZInlineErrorStyle}" Text="{Binding ErrorMessage}" />
-                <ActivityIndicator IsRunning="{Binding IsBusy}" IsVisible="{Binding IsBusy}" />
             </VerticalStackLayout>
         </ScrollView>
 
@@ -201,5 +201,6 @@
                 <Button x:Name="FinishExerciseButton" Clicked="OnFinishExerciseClicked" IsVisible="{Binding HasTodaySets}" IsEnabled="{Binding CanBeginSet}" Style="{DynamicResource TrackZQuietButtonStyle}" />
             </VerticalStackLayout>
         </Border>
+        <components:BusyOverlay Grid.RowSpan="2" IsVisible="{Binding IsBusy}" />
     </Grid>
 </ContentPage>

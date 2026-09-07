@@ -19,6 +19,7 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged, IDisposable
     private readonly IWeightUnitPreference _weightUnits;
     private readonly ActiveWorkoutCoordinator? _activeWorkouts;
     private readonly ITrainNavigator? _navigator;
+    private readonly Func<IWorkoutDraftState?>? _workoutDraft;
     private readonly IClock _clock;
     private readonly TimeZoneInfo _localTimeZone;
     private bool _isBusy;
@@ -57,7 +58,8 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged, IDisposable
         ActiveWorkoutCoordinator? activeWorkouts = null,
         ITrainNavigator? navigator = null,
         IClock? clock = null,
-        TimeZoneInfo? localTimeZone = null)
+        TimeZoneInfo? localTimeZone = null,
+        Func<IWorkoutDraftState?>? workoutDraft = null)
     {
         _source = source;
         _boundary = boundary;
@@ -66,6 +68,7 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged, IDisposable
         _weightUnits = weightUnits;
         _activeWorkouts = activeWorkouts;
         _navigator = navigator;
+        _workoutDraft = workoutDraft;
         _clock = clock ?? new SystemClock();
         _localTimeZone = localTimeZone ?? TimeZoneInfo.Local;
         Text = text;
@@ -468,7 +471,35 @@ public sealed class TrainTodayViewModel : INotifyPropertyChanged, IDisposable
         var generation = _boundary.Capture();
         if (!CanMutate || _boundary.IsCancellationRequested(generation)) return;
 
-        if (ActiveWorkout is not null)
+        if (_workoutDraft?.Invoke()?.HasExercises == true)
+        {
+            await OpenActiveWorkoutWithRecoveryAsync(generation);
+            return;
+        }
+
+        if (ActiveWorkout is null)
+        {
+            try
+            {
+                using var lease = _boundary.CreateCancellationLease(generation);
+                var latest = await _source.LoadAsync(lease.Token);
+                if (!await _boundary.TryCommitAsync(generation, _ =>
+                    {
+                        ActiveWorkout = latest.Active;
+                        return Task.CompletedTask;
+                    }, lease.Token)) return;
+            }
+            catch (OperationCanceledException) when (_boundary.IsCancellationRequested(generation))
+            {
+                return;
+            }
+            catch (Exception)
+            {
+                // Starting a new workout remains available when the dashboard refresh fails.
+            }
+        }
+
+        if (ActiveWorkout is { ExerciseCount: > 0 })
         {
             await OpenActiveWorkoutWithRecoveryAsync(generation);
             return;

@@ -40,6 +40,43 @@ public sealed class TrainTodayViewModelTests
     }
 
     [Fact]
+    public async Task Hero_rechecks_for_a_prepared_workout_before_showing_the_body_area_picker()
+    {
+        var navigator = new RecordingTrainNavigator();
+        var source = new SequenceTrainDashboardSource(
+            new TrainDashboardSnapshot(null, null),
+            new TrainDashboardSnapshot(ActiveCard(), null));
+        var viewModel = CreateCommandViewModel(source, navigator);
+        await viewModel.LoadAsync();
+
+        await viewModel.HeroActionCommand.ExecuteAsync();
+
+        Assert.Equal(2, source.LoadCount);
+        Assert.Equal(["active-workout"], navigator.Events);
+    }
+
+    [Fact]
+    public async Task Hero_opens_the_exercise_list_when_the_unstarted_draft_already_has_exercises()
+    {
+        var navigator = new RecordingTrainNavigator();
+        var viewModel = new TrainTodayViewModel(
+            new RecordingTrainDashboardSource(new TrainDashboardSnapshot(null, null)),
+            new AccountSessionBoundary(),
+            WorkoutResources.English,
+            progress: null,
+            connectivity: null,
+            weightUnits: new MutableWeightPreference(),
+            gamificationText: GamificationResources.English,
+            navigator: navigator,
+            workoutDraft: () => new FixedWorkoutDraftState(true));
+        await viewModel.LoadAsync();
+
+        await viewModel.HeroActionCommand.ExecuteAsync();
+
+        Assert.Equal(["active-workout"], navigator.Events);
+    }
+
+    [Fact]
     public async Task View_all_progress_routes_only_when_recent_performance_exists()
     {
         var navigator = new RecordingTrainNavigator();
@@ -908,6 +945,20 @@ public sealed class TrainTodayViewModelTests
         }
     }
 
+    private sealed class SequenceTrainDashboardSource(params TrainDashboardSnapshot[] snapshots)
+        : ITrainDashboardSource
+    {
+        private readonly Queue<TrainDashboardSnapshot> _snapshots = new(snapshots);
+        public int LoadCount { get; private set; }
+
+        public Task<TrainDashboardSnapshot> LoadAsync(CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            LoadCount++;
+            return Task.FromResult(_snapshots.Count > 1 ? _snapshots.Dequeue() : _snapshots.Peek());
+        }
+    }
+
     private sealed class ThrowingTrainDashboardSource : ITrainDashboardSource
     {
         public Task<TrainDashboardSnapshot> LoadAsync(CancellationToken cancellationToken = default) =>
@@ -1132,6 +1183,11 @@ public sealed class TrainTodayViewModelTests
             Events.Add($"progress:{exerciseId:D}");
             return Task.CompletedTask;
         }
+    }
+
+    private sealed class FixedWorkoutDraftState(bool hasExercises) : IWorkoutDraftState
+    {
+        public bool HasExercises { get; } = hasExercises;
     }
 
     private sealed class FailOnceProgressNavigator : ITrainNavigator

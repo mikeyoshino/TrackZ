@@ -70,6 +70,8 @@ public static class DependencyInjection
         services.AddScoped<ExerciseCatalogDeploymentService>();
         services.AddScoped<ExerciseCatalogPublicationService>();
         services.AddSingleton(TimeProvider.System);
+        services.Configure<TrackZ.Infrastructure.Billing.StripeBillingOptions>(configuration.GetSection("Billing:Stripe"));
+        services.AddHttpClient<TrackZ.Infrastructure.Billing.StripeCheckoutGateway>();
         services.AddOptions<MediaAccessOptions>()
             .Bind(configuration.GetSection(MediaAccessOptions.SectionName))
             .ValidateDataAnnotations()

@@ -14,6 +14,23 @@ namespace TrackZ.Mobile.Tests.Workout;
 
 public sealed class WorkoutViewModelTests
 {
+    [Fact]
+    public async Task Starting_without_exercises_requests_help_without_starting_a_workout()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var viewModel = fixture.CreateViewModel();
+        var prompts = 0;
+        viewModel.EmptyWorkoutStartRequested += (_, _) => prompts++;
+
+        Assert.True(viewModel.StartWorkoutCommand.CanExecute(null));
+        await viewModel.StartWorkoutCommand.ExecuteAsync();
+
+        Assert.Equal(1, prompts);
+        Assert.False(viewModel.HasStarted);
+        Assert.True(viewModel.IsEmpty);
+        Assert.Empty(viewModel.Exercises);
+    }
+
     private sealed class MemoryPreferenceStore : IWorkoutPreferenceStore
     {
         private readonly Dictionary<string, string> _values = [];
@@ -128,6 +145,28 @@ public sealed class WorkoutViewModelTests
         Assert.Equal(
             [fixture.ThirdId, fixture.FirstId],
             restored.Exercises.Select(item => item.ExerciseDefinitionId));
+    }
+
+    [Fact]
+    public async Task Active_workout_can_remove_its_last_exercise_and_return_to_the_empty_state()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.Coordinator.StartAsync([
+            new WorkoutExerciseSelection(fixture.FirstId, TrackingMode.Weighted)
+        ]);
+        var viewModel = fixture.CreateViewModel();
+        await viewModel.RestoreAsync();
+        var onlyExercise = Assert.Single(viewModel.Exercises);
+
+        Assert.True(viewModel.RemoveExerciseCommand.CanExecute(onlyExercise));
+        await viewModel.RemoveExerciseCommand.ExecuteAsync(onlyExercise);
+
+        Assert.True(viewModel.HasStarted);
+        Assert.True(viewModel.IsEmpty);
+        Assert.Empty(viewModel.Exercises);
+        var restored = await fixture.Coordinator.RestoreActiveAsync();
+        Assert.NotNull(restored);
+        Assert.DoesNotContain(restored.Exercises, item => item.DeletedAt is null);
     }
 
     [Fact]

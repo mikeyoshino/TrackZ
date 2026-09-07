@@ -124,15 +124,22 @@ public partial class CustomExercisePage : ContentPage, IQueryAttributable
 
     private async void OnSaveClicked(object? sender, EventArgs eventArgs)
     {
-        if (await _viewModel.SaveAsync())
+        if (SavingOverlay.IsVisible) return;
+        CustomExerciseNameInput.Unfocus();
+        SavingOverlay.IsVisible = true;
+        try
         {
-            await Shell.Current.GoToAsync("..");
-            return;
+            if (await _viewModel.SaveAsync())
+            {
+                await Shell.Current.GoToAsync("..");
+                return;
+            }
+            var message = _viewModel.ValidationErrors.Count == 0
+                ? string.Format(CultureInfo.CurrentUICulture, _text.ExerciseSaveFailedFormat, _viewModel.LastErrorCode)
+                : string.Join(Environment.NewLine, _viewModel.ValidationErrors.Values.SelectMany(messages => messages));
+            await DisplayAlertAsync(_text.ExerciseNotSaved, message, _text.Okay);
         }
-        var message = _viewModel.ValidationErrors.Count == 0
-            ? string.Format(CultureInfo.CurrentUICulture, _text.ExerciseSaveFailedFormat, _viewModel.LastErrorCode)
-            : string.Join(Environment.NewLine, _viewModel.ValidationErrors.Values.SelectMany(messages => messages));
-        await DisplayAlertAsync(_text.ExerciseNotSaved, message, _text.Okay);
+        finally { SavingOverlay.IsVisible = false; }
     }
 
     private async Task LoadForEditAsync(Guid exerciseId)

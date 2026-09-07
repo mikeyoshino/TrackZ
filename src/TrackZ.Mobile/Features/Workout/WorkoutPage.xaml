@@ -10,12 +10,16 @@
     BackgroundColor="{DynamicResource TrackZBackground}"
     SafeAreaEdges="All"
     Shell.NavBarHasShadow="False"
+    Shell.NavBarIsVisible="True"
     Title="{Binding Text.WorkoutTitle}">
+    <ContentPage.ToolbarItems>
+        <ToolbarItem Text="⋯" Clicked="OnWorkoutMenuClicked" />
+    </ContentPage.ToolbarItems>
     <Grid Padding="0,16,0,0" RowDefinitions="Auto,*,Auto,Auto" RowSpacing="{DynamicResource TrackZSpace12}">
         <Grid Padding="{DynamicResource TrackZPageHorizontalPadding}" ColumnDefinitions="*,Auto">
             <VerticalStackLayout Spacing="8">
                 <Label x:Name="WorkoutContext" Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding WorkoutContextText}" />
-                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12" IsVisible="{Binding HasExercises}">
                     <ProgressBar x:Name="WorkoutProgress"
                                  Progress="{Binding WorkoutProgress}"
                                  ProgressColor="{DynamicResource TrackZPrimary}"
@@ -27,18 +31,17 @@
                            TextColor="{DynamicResource TrackZTextSecondary}" />
                 </Grid>
             </VerticalStackLayout>
-            <ActivityIndicator Grid.Column="1" IsRunning="{Binding IsBusy}" IsVisible="{Binding IsBusy}" />
         </Grid>
 
         <Grid Grid.Row="1" Padding="{DynamicResource TrackZPageHorizontalPadding}">
-          <CollectionView ItemsSource="{Binding Exercises}" SelectionMode="None">
+          <CollectionView ItemsSource="{Binding Exercises}" SelectionMode="None" IsVisible="{Binding HasExercises}">
             <CollectionView.EmptyView>
                 <Label HorizontalTextAlignment="Center" Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Source={x:Reference Page}, Path=BindingContext.Text.NoExercises}" VerticalTextAlignment="Center" />
             </CollectionView.EmptyView>
             <CollectionView.ItemTemplate>
                 <DataTemplate x:DataType="workout:WorkoutExerciseDraftItem">
                     <components:ActiveWorkoutExerciseRow
-                        Margin="0,0,0,12"
+                        Margin="0,0,0,4"
                         Exercise="{Binding .}"
                         MoveDownCommand="{Binding Source={x:Reference Page}, Path=BindingContext.MoveDownCommand}"
                         MoveDownText="{Binding Source={x:Reference Page}, Path=BindingContext.Text.MoveDown}"
@@ -50,6 +53,15 @@
                 </DataTemplate>
             </CollectionView.ItemTemplate>
           </CollectionView>
+          <VerticalStackLayout x:Name="EmptyWorkoutState" IsVisible="{Binding IsEmpty}"
+                               VerticalOptions="Center" HorizontalOptions="Fill" Spacing="16" Margin="0,0,0,48">
+              <Image Source="workout_empty.png" WidthRequest="56" HeightRequest="56" HorizontalOptions="Center"
+                     AutomationProperties.ExcludedWithChildren="True" />
+              <Label Text="{Binding Text.EmptyWorkoutTitle}" Style="{DynamicResource TrackZHomeEmptyTitleStyle}"
+                     HorizontalTextAlignment="Center" />
+              <Label Text="{Binding Text.EmptyWorkoutHelper}" Style="{DynamicResource TrackZSecondaryStyle}"
+                     HorizontalTextAlignment="Center" />
+          </VerticalStackLayout>
         </Grid>
 
         <components:TrackZNoticeBanner
@@ -61,43 +73,25 @@
             Severity="{Binding NoticeSeverity}"
             Text="{Binding NoticeMessage}" />
 
-        <Border x:Name="WorkoutActions" Grid.Row="3" Margin="0,0,0,12" Style="{DynamicResource TrackZStickyActionContainerStyle}">
-            <VerticalStackLayout Spacing="8">
-                <Button x:Name="StartFirstExerciseButton"
+        <Border x:Name="WorkoutActions" Grid.Row="3" Margin="0,0,0,12" Padding="18,8" StrokeThickness="0" Style="{DynamicResource TrackZStickyActionContainerStyle}">
+            <Grid ColumnDefinitions="0.38*,0.62*" ColumnSpacing="12">
+                <Button x:Name="AddExerciseButton" Clicked="OnAddExerciseClicked"
+                        Style="{DynamicResource TrackZSecondaryButtonStyle}"
+                        BackgroundColor="Transparent" BorderWidth="1"
+                        BorderColor="{DynamicResource TrackZTextSecondary}"
+                        Text="{Binding Text.AddExercise}" />
+                <Button x:Name="StartFirstExerciseButton" Grid.Column="1"
                         Command="{Binding StartWorkoutCommand}"
                         IsVisible="{Binding IsDraft}"
                         Style="{DynamicResource TrackZPrimaryButtonStyle}"
                         Text="{Binding Text.StartFirstExercise}" />
-                <Button x:Name="LogNextSetButton"
+                <Button x:Name="LogNextSetButton" Grid.Column="1"
                         Command="{Binding LogNextSetCommand}"
                         IsVisible="{Binding HasStarted}"
-                        SemanticProperties.Description="{Binding Text.LogNextWorkoutSet}"
                         Style="{DynamicResource TrackZPrimaryButtonStyle}"
                         Text="{Binding Text.LogNextWorkoutSet}" />
-                <Button Clicked="OnAddExerciseClicked"
-                        IsVisible="{Binding IsDraft}"
-                        Style="{DynamicResource TrackZSecondaryButtonStyle}"
-                        Text="{Binding Text.AddExercise}" />
-                <Grid IsVisible="{Binding HasStarted}" ColumnDefinitions="*,*" ColumnSpacing="8">
-                    <Button Clicked="OnAddExerciseClicked"
-                            Style="{DynamicResource TrackZSecondaryButtonStyle}"
-                            Text="{Binding Text.AddExercise}" />
-                    <Button x:Name="FinishWorkoutButton"
-                            Grid.Column="1"
-                            Command="{Binding FinishWorkoutCommand}"
-                            IsVisible="{Binding HasStarted}"
-                            SemanticProperties.Description="{Binding Text.FinishWorkout}"
-                            Style="{DynamicResource TrackZSecondaryButtonStyle}"
-                            Text="{Binding Text.FinishWorkout}" />
-                </Grid>
-                <Button
-                    x:Name="DiscardWorkoutButton"
-                    Command="{Binding DiscardWorkoutCommand}"
-                    IsVisible="{Binding HasWorkoutToDiscard}"
-                    SemanticProperties.Description="{Binding Text.DiscardWorkout}"
-                    Style="{DynamicResource TrackZQuietDestructiveButtonStyle}"
-                    Text="{Binding Text.DiscardWorkout}" />
-            </VerticalStackLayout>
+            </Grid>
         </Border>
+        <components:BusyOverlay Grid.RowSpan="4" IsVisible="{Binding IsBusy}" />
     </Grid>
 </ContentPage>

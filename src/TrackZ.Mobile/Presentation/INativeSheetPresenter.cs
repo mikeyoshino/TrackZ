@@ -4,7 +4,8 @@ public enum NativeSheetDetent
 {
     Medium = 1,
     Large = 2,
-    Form = 3
+    Form = 3,
+    Compact = 4
 }
 
 public interface INativeSheetPresenter

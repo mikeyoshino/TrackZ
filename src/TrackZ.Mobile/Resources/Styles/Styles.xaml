@@ -59,6 +59,7 @@
     </Style>
 
     <Style TargetType="DatePicker">
+        <Setter Property="FontFamily" Value="NotoSansThaiRegular" />
         <Setter Property="TextColor" Value="{AppThemeBinding Light={StaticResource Gray900}, Dark={StaticResource White}}" />
         <Setter Property="BackgroundColor" Value="Transparent" />
         <Setter Property="FontSize" Value="14"/>
@@ -79,6 +80,7 @@
     </Style>
 
     <Style TargetType="Editor">
+        <Setter Property="FontFamily" Value="NotoSansThaiRegular" />
         <Setter Property="TextColor" Value="{AppThemeBinding Light={StaticResource Black}, Dark={StaticResource White}}" />
         <Setter Property="BackgroundColor" Value="Transparent" />
         <Setter Property="FontSize" Value="14" />
@@ -139,6 +141,7 @@
     </Style>
 
     <Style TargetType="Label">
+        <Setter Property="FontFamily" Value="NotoSansThaiRegular" />
         <Setter Property="TextColor" Value="{AppThemeBinding Light={StaticResource Black}, Dark={StaticResource White}}" />
         <Setter Property="BackgroundColor" Value="Transparent" />
         <Setter Property="FontSize" Value="14" />
@@ -171,6 +174,7 @@
     </Style>
 
     <Style TargetType="Picker">
+        <Setter Property="FontFamily" Value="NotoSansThaiRegular" />
         <Setter Property="TextColor" Value="{AppThemeBinding Light={StaticResource Gray900}, Dark={StaticResource White}}" />
         <Setter Property="TitleColor" Value="{AppThemeBinding Light={StaticResource Gray900}, Dark={StaticResource Gray200}}" />
         <Setter Property="BackgroundColor" Value="Transparent" />
@@ -209,6 +213,7 @@
     </Style>
 
     <Style TargetType="RadioButton">
+        <Setter Property="FontFamily" Value="NotoSansThaiRegular" />
         <Setter Property="BackgroundColor" Value="Transparent"/>
         <Setter Property="TextColor" Value="{AppThemeBinding Light={StaticResource Black}, Dark={StaticResource White}}" />
         <Setter Property="FontSize" Value="14"/>
@@ -329,6 +334,7 @@
     </Style>
 
     <Style TargetType="TimePicker">
+        <Setter Property="FontFamily" Value="NotoSansThaiRegular" />
         <Setter Property="TextColor" Value="{AppThemeBinding Light={StaticResource Gray900}, Dark={StaticResource White}}" />
         <Setter Property="BackgroundColor" Value="Transparent"/>
         <Setter Property="FontSize" Value="14"/>

@@ -17,6 +17,31 @@ public sealed class ExercisePickerViewModelTests : IAsyncLifetime
     private readonly string _databasePath = Path.Combine(Path.GetTempPath(), $"trackz-picker-{Guid.NewGuid():N}.db");
     private ExerciseCache _cache = null!;
 
+    [Fact]
+    public async Task Combined_filters_union_equipment_intersect_muscles_and_preserve_selection()
+    {
+        ExerciseSummaryDto Make(string name, BodyPart part = BodyPart.Chest) =>
+            new(Guid.NewGuid(), name, part, TrackingMode.Weighted, null, null, null, null, false);
+        var dumbbell = Make("Dumbbell Bench Press");
+        var barbell = Make("Barbell Bench Press");
+        var cable = Make("Cable Fly");
+        var back = Make("Dumbbell Row", BodyPart.Back);
+        using var sut = new ExercisePickerViewModel(_cache,
+            new ImmediateCatalogApi([dumbbell, barbell, cable, back]), new StubConnectivity(true), new FixedClock());
+        await sut.LoadAsync();
+        await sut.RefreshCompletion;
+        sut.ToggleSelectionCommand.Execute(cable.Id);
+        sut.ApplyFilters([BodyPart.Chest], [ExerciseEquipment.Dumbbell, ExerciseEquipment.Barbell]);
+        Assert.Equal(new[] { barbell.Id, dumbbell.Id }, sut.Exercises.Select(e => e.Id));
+        Assert.Contains(cable.Id, sut.SelectedExerciseIds);
+        sut.SearchText = "dumbbell";
+        Assert.Equal(dumbbell.Id, Assert.Single(sut.Exercises).Id);
+        sut.SearchText = "";
+        sut.ApplyFilters([], []);
+        Assert.Equal(4, sut.Exercises.Count);
+        Assert.True(sut.Exercises.Single(e => e.Id == cable.Id).IsSelected);
+    }
+
     public Task InitializeAsync()
     {
         _cache = new ExerciseCache(_databasePath);

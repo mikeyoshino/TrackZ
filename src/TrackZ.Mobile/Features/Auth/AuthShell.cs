@@ -9,8 +9,8 @@ public sealed class AuthShell : Shell
         FlyoutBehavior = FlyoutBehavior.Disabled;
         Items.Add(new ShellContent
         {
-            Route = "sign-in",
-            ContentTemplate = new DataTemplate(() => services.GetRequiredService<SignInPage>())
+            Route = "welcome",
+            ContentTemplate = new DataTemplate(() => services.GetRequiredService<WelcomePage>())
         });
     }
 }

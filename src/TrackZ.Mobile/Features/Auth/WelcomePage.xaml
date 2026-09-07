@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="TrackZ.Mobile.Features.Auth.WelcomePage"
+             SafeAreaEdges="All" Shell.NavBarIsVisible="False"
+             BackgroundColor="{DynamicResource TrackZBackground}">
+ <Grid RowDefinitions="*,Auto" Padding="24,0">
+  <ScrollView>
+   <VerticalStackLayout Padding="0,32,0,24" Spacing="28" MaximumWidthRequest="440" HorizontalOptions="Center">
+    <VerticalStackLayout HorizontalOptions="Center" Spacing="6">
+     <Image Source="trackz_auth_logo.png" WidthRequest="72" HeightRequest="72" AutomationProperties.ExcludedWithChildren="True" />
+     <Label Text="TrackZ" FontFamily="NotoSansThaiRegular" FontSize="26" TextColor="{DynamicResource TrackZTextPrimary}" HorizontalTextAlignment="Center" />
+    </VerticalStackLayout>
+    <VerticalStackLayout Spacing="6">
+     <Label Text="{Binding Headline}" FontFamily="NotoSansThaiLight" FontSize="26" TextColor="{DynamicResource TrackZTextPrimary}" HorizontalTextAlignment="Center" />
+     <Label Text="{Binding Promise}" FontFamily="NotoSansThaiLight" FontSize="21" TextColor="{DynamicResource TrackZTextPrimary}" HorizontalTextAlignment="Center" />
+    </VerticalStackLayout>
+    <Border BackgroundColor="{DynamicResource TrackZSurface}" Stroke="{DynamicResource TrackZHairline}" StrokeShape="RoundRectangle 16" Padding="16,8">
+     <VerticalStackLayout Spacing="0">
+      <Grid ColumnDefinitions="36,*" ColumnSpacing="14" Padding="0,18">
+       <Image Source="welcome_record.png" WidthRequest="30" HeightRequest="30" AutomationProperties.ExcludedWithChildren="True" />
+       <Label Grid.Column="1" Text="{Binding RememberBenefit}" Style="{DynamicResource TrackZBodyStyle}" FontFamily="NotoSansThaiRegular" VerticalTextAlignment="Center" />
+      </Grid>
+      <BoxView HeightRequest="1" Color="{DynamicResource TrackZHairline}" />
+      <Grid ColumnDefinitions="36,*" ColumnSpacing="14" Padding="0,18">
+       <Image Source="welcome_progress.png" WidthRequest="30" HeightRequest="30" AutomationProperties.ExcludedWithChildren="True" />
+       <Label Grid.Column="1" Text="{Binding ProgressBenefit}" Style="{DynamicResource TrackZBodyStyle}" FontFamily="NotoSansThaiRegular" VerticalTextAlignment="Center" />
+      </Grid>
+      <BoxView HeightRequest="1" Color="{DynamicResource TrackZHairline}" />
+      <Grid ColumnDefinitions="36,*" ColumnSpacing="14" Padding="0,18">
+       <Image Source="welcome_guide.png" WidthRequest="30" HeightRequest="30" AutomationProperties.ExcludedWithChildren="True" />
+       <Label Grid.Column="1" Text="{Binding GuideBenefit}" Style="{DynamicResource TrackZBodyStyle}" FontFamily="NotoSansThaiRegular" VerticalTextAlignment="Center" />
+      </Grid>
+     </VerticalStackLayout>
+    </Border>
+   </VerticalStackLayout>
+  </ScrollView>
+  <VerticalStackLayout Grid.Row="1" Spacing="12" Padding="0,12,0,16">
+   <Button Text="{Binding TrialAction}" Style="{DynamicResource TrackZPrimaryButtonStyle}" FontFamily="NotoSansThaiMedium" Clicked="OnTrialClicked" />
+   <HorizontalStackLayout HorizontalOptions="Center" Spacing="4">
+    <Label Text="{Binding ExistingAccount}" Style="{DynamicResource TrackZSecondaryStyle}" VerticalTextAlignment="Center" />
+    <Button Text="{Binding SignInAction}" Style="{DynamicResource TrackZQuietButtonStyle}" TextColor="{DynamicResource TrackZPrimary}" Padding="4,0" Clicked="OnSignInClicked" />
+   </HorizontalStackLayout>
+  </VerticalStackLayout>
+ </Grid>
+</ContentPage>

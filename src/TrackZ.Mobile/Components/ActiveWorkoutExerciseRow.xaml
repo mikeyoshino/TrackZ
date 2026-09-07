@@ -6,7 +6,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
     xmlns:workout="clr-namespace:TrackZ.Mobile.Features.Workout;assembly=TrackZ.Mobile.Core"
     x:DataType="workout:WorkoutExerciseDraftItem">
-    <SwipeView>
+    <SwipeView Threshold="48">
         <SwipeView.LeftItems>
             <SwipeItems Mode="Reveal">
                 <SwipeItem
@@ -22,31 +22,42 @@
             </SwipeItems>
         </SwipeView.LeftItems>
         <SwipeView.RightItems>
-            <SwipeItems Mode="Execute">
-                <SwipeItem
-                    BackgroundColor="{DynamicResource TrackZDanger}"
+            <SwipeItems Mode="Execute" SwipeBehaviorOnInvoked="Close">
+                <SwipeItemView
                     Command="{Binding RemoveCommand, Source={x:Reference Root}}"
-                    CommandParameter="{Binding Exercise, Source={x:Reference Root}}"
-                    IsDestructive="True"
-                    Text="{Binding RemoveText, Source={x:Reference Root}}" />
+                    CommandParameter="{Binding Exercise, Source={x:Reference Root}}">
+                    <Grid
+                        BackgroundColor="{DynamicResource TrackZDanger}"
+                        MinimumHeightRequest="44"
+                        WidthRequest="72">
+                        <Label
+                            FontFamily="NotoSansThaiMedium"
+                            FontSize="14"
+                            HorizontalTextAlignment="Center"
+                            Text="{Binding RemoveText, Source={x:Reference Root}}"
+                            TextColor="{DynamicResource TrackZPrimaryContrast}"
+                            VerticalTextAlignment="Center" />
+                    </Grid>
+                </SwipeItemView>
             </SwipeItems>
         </SwipeView.RightItems>
 
         <Border
             AutomationProperties.IsInAccessibleTree="True"
-            MinimumHeightRequest="{DynamicResource TrackZExerciseCardHeight}"
-            Padding="12"
+            MinimumHeightRequest="{DynamicResource TrackZCompactExerciseRowHeight}"
+            Padding="8"
+            StrokeThickness="0"
             SemanticProperties.Description="{Binding Exercise.AccessibilitySummary, Source={x:Reference Root}}"
             Style="{DynamicResource TrackZListRowStyle}">
             <Border.GestureRecognizers>
                 <TapGestureRecognizer Command="{Binding OpenCommand, Source={x:Reference Root}}" CommandParameter="{Binding Exercise, Source={x:Reference Root}}" />
             </Border.GestureRecognizers>
             <Grid AutomationProperties.ExcludedWithChildren="True"
-                  ColumnDefinitions="72,*,Auto,Auto"
+                  ColumnDefinitions="56,*,Auto,20"
                   ColumnSpacing="{DynamicResource TrackZSpace12}">
                 <Grid x:Name="ActiveWorkoutArtwork"
-                      HeightRequest="{DynamicResource TrackZCompactExerciseArtworkSize}"
-                      WidthRequest="{DynamicResource TrackZCompactExerciseArtworkSize}">
+                      HeightRequest="56"
+                      WidthRequest="56">
                     <Image Aspect="AspectFit"
                            IsVisible="{Binding Exercise.HasArtwork, Source={x:Reference Root}}"
                            Source="{Binding Exercise.ThumbnailUri, Source={x:Reference Root}}" />
@@ -57,17 +68,20 @@
                         <Image Aspect="AspectFit" HeightRequest="42" Source="exercise_placeholder.png" WidthRequest="42" />
                     </Border>
                 </Grid>
-                <Label Grid.Column="1"
+                <VerticalStackLayout Grid.Column="1" Spacing="4" VerticalOptions="Center">
+                <Label
                        LineBreakMode="WordWrap"
                        MaxLines="2"
-                       Style="{DynamicResource TrackZNavigationTitleStyle}"
+                       Style="{DynamicResource TrackZBodyStyle}"
                        Text="{Binding Exercise.Name, Source={x:Reference Root}}"
                        VerticalOptions="Center" />
+                    <Label x:Name="WorkoutExerciseSetStatus"
+                           AutomationProperties.IsInAccessibleTree="False"
+                           Style="{DynamicResource TrackZSecondaryStyle}"
+                           Text="{Binding Exercise.SetStatusText, Source={x:Reference Root}}" />
+                </VerticalStackLayout>
                 <VerticalStackLayout Grid.Column="2" Spacing="4" VerticalOptions="Center">
-                    <Border Padding="12,4"
-                            Stroke="{DynamicResource TrackZPrimary}"
-                            StrokeShape="RoundRectangle 999"
-                            StrokeThickness="1">
+                    <Border Padding="0" StrokeThickness="0">
                         <Label x:Name="WorkoutExerciseSetCounter"
                                AutomationProperties.IsInAccessibleTree="False"
                                HorizontalTextAlignment="Center"
@@ -75,12 +89,6 @@
                                Text="{Binding Exercise.LoggedSetText, Source={x:Reference Root}}"
                                />
                     </Border>
-                    <Label x:Name="WorkoutExerciseSetStatus"
-                           AutomationProperties.IsInAccessibleTree="False"
-                           FontSize="12"
-                           HorizontalTextAlignment="Center"
-                           Text="{Binding Exercise.SetStatusText, Source={x:Reference Root}}"
-                           TextColor="{DynamicResource TrackZTextSecondary}" />
                 </VerticalStackLayout>
                 <Label x:Name="WorkoutExerciseChevron"
                        Grid.Column="3"

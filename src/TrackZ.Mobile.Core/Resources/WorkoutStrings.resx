@@ -235,4 +235,8 @@
   <data name="AddSetNumberFormat" xml:space="preserve"><value>Add set {0}</value></data>
   <data name="WeightUnitTitle" xml:space="preserve"><value>Weight unit</value></data>
   <data name="DraftInputHelper" xml:space="preserve"><value>Enter weight and reps to save</value></data>
+  <data name="EmptyWorkoutTitle" xml:space="preserve"><value>No exercises yet</value></data>
+  <data name="EmptyWorkoutHelper" xml:space="preserve"><value>Add at least 1 exercise to start training</value></data>
+  <data name="AddBeforeStartingTitle" xml:space="preserve"><value>Add an exercise first</value></data>
+  <data name="AddBeforeStartingHelper" xml:space="preserve"><value>Choose at least 1 exercise, then start logging your workout.</value></data>
 </root>

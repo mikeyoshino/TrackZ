@@ -8,9 +8,16 @@ public sealed class MauiBodyAreaPicker(
     Func<BodyAreaSheetPage> createPage) : IBodyAreaPicker
 {
     public async Task<BodyPart?> PickAsync(CancellationToken cancellationToken = default)
+        => (await PickCoreAsync(false, cancellationToken)).BodyPart;
+
+    public Task<(bool Confirmed, BodyPart? BodyPart)> PickForAddingAsync(CancellationToken cancellationToken = default)
+        => PickCoreAsync(true, cancellationToken);
+
+    private async Task<(bool Confirmed, BodyPart? BodyPart)> PickCoreAsync(bool adding, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var page = createPage();
+        page.IsAdding = adding;
         var result = new TaskCompletionSource<BodyPart?>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var completed = 0;
@@ -23,6 +30,7 @@ public sealed class MauiBodyAreaPicker(
 
         using var cancellation = cancellationToken.Register(() => _ = page.CancelAsync());
         await presenter.ShowAsync(page, NativeSheetDetent.Medium, cancellationToken);
-        return await result.Task;
+        var selected = await result.Task;
+        return (selected.HasValue || page.AllSelected, selected);
     }
 }

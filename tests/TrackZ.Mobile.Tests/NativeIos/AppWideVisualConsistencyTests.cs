@@ -529,13 +529,13 @@ public sealed class AppWideVisualConsistencyTests
     }
 
     [Fact]
-    public void Xp_surfaces_are_hidden_until_their_view_model_has_authoritative_progress_data()
+    public void Summary_xp_is_hidden_until_its_view_model_has_authoritative_progress_data()
     {
         var summary = XDocument.Load(Path.Combine(MobileDirectory(), "Features/Summary/WorkoutSummaryPage.xaml"));
         AssertAuthoritativeVisibility(summary, "SummaryXpCard");
 
-        var progress = XDocument.Load(Path.Combine(MobileDirectory(), "Features/Progress/ExerciseProgressPage.xaml"));
-        AssertAuthoritativeVisibility(progress, "ProgressSnapshotContent");
+        // Progress now shows local, comparable training evidence rather than XP/reward snapshots.
+        // Its no-data behavior is exercised by ProgressExerciseFocusTests.
     }
 
     [Fact]
@@ -607,8 +607,10 @@ public sealed class AppWideVisualConsistencyTests
         var background = root.Attribute("BackgroundColor")?.Value;
         if (background is null || !background.Contains("DynamicResource TrackZ", StringComparison.Ordinal))
             yield return "ContentPage must use a semantic dynamic page background.";
-        if (!string.Equals(root.Attribute("SafeAreaEdges")?.Value, "All", StringComparison.Ordinal))
-            yield return "ContentPage must opt into all safe-area edges.";
+        // Container keeps system bars safe while allowing iOS keyboard auto-scroll
+        // to bring the focused field into view. All delegates keyboard handling to layout.
+        if (root.Attribute("SafeAreaEdges")?.Value is not ("All" or "Container"))
+            yield return "ContentPage must protect container safe-area edges.";
 
         var pagePadding = root.DescendantsAndSelf().Attributes("Padding")
             .Where(attribute => PagePaddingKeys.Contains(ResourceKey(attribute.Value), StringComparer.Ordinal))
@@ -641,7 +643,7 @@ public sealed class AppWideVisualConsistencyTests
             {
                 "Features/Auth/SignInPage.xaml" or "Features/Auth/CreateAccountPage.xaml" => "TrackZAuthHeadlineStyle",
                 "Features/Train/TrainPage.xaml" => "HomeHeadlineStyle",
-                "Features/Progress/ExerciseProgressPage.xaml" => "TrackZCoachPageTitleStyle",
+                "Features/Progress/ExerciseProgressPage.xaml" => "TrackZProgressPageTitleStyle",
                 "Features/History/WorkoutHistoryPage.xaml" => "TrackZHistoryTitleStyle",
                 "Features/Profile/ProfilePage.xaml" => "TrackZProfileTitleStyle",
                 _ when RootTitlePages.Contains(relativePath, StringComparer.Ordinal) => "TrackZPageTitleStyle",

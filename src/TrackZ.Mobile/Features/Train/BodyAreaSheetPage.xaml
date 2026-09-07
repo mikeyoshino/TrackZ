@@ -7,12 +7,12 @@
     BackgroundColor="{DynamicResource TrackZSurface}"
     SafeAreaEdges="All"
     Shell.NavBarIsVisible="False">
-    <Grid Padding="0,16,0,20" RowDefinitions="Auto,*" RowSpacing="{DynamicResource TrackZSpace24}">
+    <Grid Padding="0,16,0,20" RowDefinitions="Auto,*,Auto" RowSpacing="{DynamicResource TrackZSpace24}">
         <Grid Padding="{DynamicResource TrackZPageHorizontalPadding}" ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" RowSpacing="{DynamicResource TrackZSpace4}">
             <Label
                 x:Name="BodyAreaTitle"
                 Style="{DynamicResource TrackZNavigationTitleStyle}"
-                Text="{Binding Text.ChooseWorkout}"
+                Text="{Binding SheetTitle}"
                 VerticalOptions="Center" />
             <ImageButton
                 x:Name="BodyAreaCloseButton"
@@ -31,12 +31,13 @@
         </Grid>
 
         <Grid Grid.Row="1" Padding="{DynamicResource TrackZPageHorizontalPadding}" ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="{DynamicResource TrackZSpace12}" RowSpacing="{DynamicResource TrackZSpace12}" VerticalOptions="Start">
-            <Button Grid.Row="0" Grid.Column="0" MinimumHeightRequest="{DynamicResource TrackZBodyAreaChoiceHeight}" CommandParameter="Chest" Clicked="OnBodyAreaClicked" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="{Binding Text.BodyPartChest}" />
-            <Button Grid.Row="0" Grid.Column="1" MinimumHeightRequest="{DynamicResource TrackZBodyAreaChoiceHeight}" CommandParameter="Back" Clicked="OnBodyAreaClicked" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="{Binding Text.BodyPartBack}" />
-            <Button Grid.Row="1" Grid.Column="0" MinimumHeightRequest="{DynamicResource TrackZBodyAreaChoiceHeight}" CommandParameter="Shoulders" Clicked="OnBodyAreaClicked" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="{Binding Text.BodyPartShoulders}" />
-            <Button Grid.Row="1" Grid.Column="1" MinimumHeightRequest="{DynamicResource TrackZBodyAreaChoiceHeight}" CommandParameter="Arms" Clicked="OnBodyAreaClicked" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="{Binding Text.BodyPartArms}" />
-            <Button Grid.Row="2" Grid.Column="0" MinimumHeightRequest="{DynamicResource TrackZBodyAreaChoiceHeight}" CommandParameter="Legs" Clicked="OnBodyAreaClicked" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="{Binding Text.BodyPartLegs}" />
-            <Button Grid.Row="2" Grid.Column="1" MinimumHeightRequest="{DynamicResource TrackZBodyAreaChoiceHeight}" CommandParameter="Core" Clicked="OnBodyAreaClicked" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="{Binding Text.BodyPartCore}" />
+            <Button Grid.Row="0" Grid.Column="0" MinimumHeightRequest="{DynamicResource TrackZBodyAreaChoiceHeight}" ImageSource="body_chest.png" ContentLayout="Top,2" Padding="4" BackgroundColor="Transparent" BorderWidth="1" BorderColor="{DynamicResource TrackZHairline}" CommandParameter="Chest" Clicked="OnBodyAreaClicked" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="{Binding Text.BodyPartChest}" />
+            <Button Grid.Row="0" Grid.Column="1" MinimumHeightRequest="{DynamicResource TrackZBodyAreaChoiceHeight}" ImageSource="body_back.png" ContentLayout="Top,2" Padding="4" BackgroundColor="Transparent" BorderWidth="1" BorderColor="{DynamicResource TrackZHairline}" CommandParameter="Back" Clicked="OnBodyAreaClicked" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="{Binding Text.BodyPartBack}" />
+            <Button Grid.Row="1" Grid.Column="0" MinimumHeightRequest="{DynamicResource TrackZBodyAreaChoiceHeight}" ImageSource="body_shoulders.png" ContentLayout="Top,2" Padding="4" BackgroundColor="Transparent" BorderWidth="1" BorderColor="{DynamicResource TrackZHairline}" CommandParameter="Shoulders" Clicked="OnBodyAreaClicked" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="{Binding Text.BodyPartShoulders}" />
+            <Button Grid.Row="1" Grid.Column="1" MinimumHeightRequest="{DynamicResource TrackZBodyAreaChoiceHeight}" ImageSource="body_arms.png" ContentLayout="Top,2" Padding="4" BackgroundColor="Transparent" BorderWidth="1" BorderColor="{DynamicResource TrackZHairline}" CommandParameter="Arms" Clicked="OnBodyAreaClicked" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="{Binding Text.BodyPartArms}" />
+            <Button Grid.Row="2" Grid.Column="0" MinimumHeightRequest="{DynamicResource TrackZBodyAreaChoiceHeight}" ImageSource="body_legs.png" ContentLayout="Top,2" Padding="4" BackgroundColor="Transparent" BorderWidth="1" BorderColor="{DynamicResource TrackZHairline}" CommandParameter="Legs" Clicked="OnBodyAreaClicked" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="{Binding Text.BodyPartLegs}" />
+            <Button Grid.Row="2" Grid.Column="1" MinimumHeightRequest="{DynamicResource TrackZBodyAreaChoiceHeight}" ImageSource="body_core.png" ContentLayout="Top,2" Padding="4" BackgroundColor="Transparent" BorderWidth="1" BorderColor="{DynamicResource TrackZHairline}" CommandParameter="Core" Clicked="OnBodyAreaClicked" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="{Binding Text.BodyPartCore}" />
         </Grid>
+        <Button x:Name="AllBodyAreasButton" Grid.Row="2" Margin="18,0" IsVisible="{Binding IsAdding}" Clicked="OnAllClicked" Style="{DynamicResource TrackZSecondaryButtonStyle}" Text="{Binding Text.All}" />
     </Grid>
 </ContentPage>
