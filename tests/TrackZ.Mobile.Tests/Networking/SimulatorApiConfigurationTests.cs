@@ -5,6 +5,15 @@ namespace TrackZ.Mobile.Tests.Networking;
 public sealed class SimulatorApiConfigurationTests
 {
     [Fact]
+    public void Release_origins_default_to_the_TrackZ_production_domain()
+    {
+        var origins = MobileEndpointOrigins.Resolve(_ => null);
+
+        Assert.Equal(new Uri("https://api.trackz.sytoys.shop/"), origins.ApiOrigin);
+        Assert.Equal(new Uri("https://api.trackz.sytoys.shop/"), origins.MediaOrigin);
+    }
+
+    [Fact]
     public void Debug_simulator_origins_default_to_the_local_development_api()
     {
         var origins = MobileEndpointOrigins.ResolveDevelopment(_ => null);

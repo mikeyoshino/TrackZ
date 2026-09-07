@@ -4,8 +4,8 @@ public sealed record MobileEndpointOriginSet(Uri ApiOrigin, Uri MediaOrigin);
 
 public static class MobileEndpointOrigins
 {
-    private static readonly Uri DefaultApiOrigin = new("https://api.trackz.app/");
-    private static readonly Uri DefaultMediaOrigin = new("https://media.trackz.app/");
+    private static readonly Uri DefaultApiOrigin = new("https://api.trackz.sytoys.shop/");
+    private static readonly Uri DefaultMediaOrigin = new("https://api.trackz.sytoys.shop/");
     private static readonly Uri DevelopmentApiOrigin = new("http://127.0.0.1:5080/");
 
     public static MobileEndpointOriginSet Resolve(Func<string, string?> readSetting)
