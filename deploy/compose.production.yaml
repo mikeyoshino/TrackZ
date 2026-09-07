@@ -59,6 +59,7 @@ services:
         done
         mc mb --ignore-existing local/trackz-private
         mc anonymous set none local/trackz-private
+        printf 'ready' | mc pipe local/trackz-private/health/readiness >/dev/null
         printf '%s' '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject","s3:PutObject","s3:DeleteObject"],"Resource":["arn:aws:s3:::trackz-private/*"]},{"Effect":"Allow","Action":["s3:GetLifecycleConfiguration","s3:PutLifecycleConfiguration"],"Resource":["arn:aws:s3:::trackz-private"]}]}' > /tmp/trackz-api.json
         if ! mc admin policy info local trackz-api-lifecycle >/dev/null 2>&1; then
           mc admin policy create local trackz-api-lifecycle /tmp/trackz-api.json

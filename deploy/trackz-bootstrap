@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+umask 027
+
+if [[ ${EUID} -ne 0 ]]; then
+  echo "trackz-bootstrap must run as root." >&2
+  exit 1
+fi
+if [[ $# -ne 0 ]]; then
+  echo "trackz-bootstrap accepts no arguments." >&2
+  exit 1
+fi
+
+compose_file=/opt/trackz/compose.production.yaml
+configuration_root=/etc/trackz
+compose_env="$configuration_root/compose.env"
+
+for command in docker openssl getent useradd groupadd install mktemp; do
+  command -v "$command" >/dev/null || {
+    echo "Required command is unavailable: $command" >&2
+    exit 1
+  }
+done
+if [[ ! -f "$compose_file" || -L "$compose_file" ]]; then
+  echo "Install the reviewed regular Compose file at $compose_file first." >&2
+  exit 1
+fi
+if ! docker network inspect toystore-production_frontend >/dev/null 2>&1; then
+  echo "Required Caddy network toystore-production_frontend does not exist." >&2
+  exit 1
+fi
+
+getent group trackz >/dev/null || groupadd --system trackz
+if ! getent passwd trackz-deploy >/dev/null; then
+  useradd --system --create-home --home-dir /home/trackz-deploy \
+    --shell /bin/bash --gid trackz trackz-deploy
+fi
+
+install -d -o root -g trackz -m 0750 /opt/trackz "$configuration_root"
+install -d -o root -g trackz -m 0750 /var/lib/trackz /var/backups/trackz
+
+environment_files=(postgres.env minio.env trackz.env compose.env)
+existing_count=0
+for name in "${environment_files[@]}"; do
+  path="$configuration_root/$name"
+  if [[ -e "$path" || -L "$path" ]]; then
+    if [[ ! -f "$path" || -L "$path" ]]; then
+      echo "Refusing unsafe environment path: $path" >&2
+      exit 1
+    fi
+    existing_count=$((existing_count + 1))
+  fi
+done
+if [[ $existing_count -gt 0 && $existing_count -ne ${#environment_files[@]} ]]; then
+  echo "TrackZ environment setup is partial; repair it manually before retrying." >&2
+  exit 1
+fi
+if [[ $existing_count -eq ${#environment_files[@]} ]]; then
+  echo "TrackZ environment files already exist; secrets were not changed."
+  exit 0
+fi
+
+postgres_password="$(openssl rand -hex 32)"
+jwt_signing_key="$(openssl rand -hex 48)"
+media_signing_key="$(openssl rand -hex 48)"
+minio_root_user="trackz-root-$(openssl rand -hex 8)"
+minio_root_password="$(openssl rand -hex 32)"
+storage_access_key="trackz-api-$(openssl rand -hex 8)"
+storage_secret_key="$(openssl rand -hex 32)"
+
+temporary_root="$(mktemp -d "$configuration_root/.bootstrap.XXXXXX")"
+cleanup() {
+  rm -f "$temporary_root/postgres.env" "$temporary_root/minio.env" \
+    "$temporary_root/trackz.env" "$temporary_root/compose.env"
+  rmdir "$temporary_root" 2>/dev/null || true
+}
+trap cleanup EXIT
+
+printf 'POSTGRES_DB=trackz\nPOSTGRES_USER=trackz\nPOSTGRES_PASSWORD=%s\n' \
+  "$postgres_password" > "$temporary_root/postgres.env"
+printf 'MINIO_ROOT_USER=%s\nMINIO_ROOT_PASSWORD=%s\n' \
+  "$minio_root_user" "$minio_root_password" > "$temporary_root/minio.env"
+cat > "$temporary_root/trackz.env" <<EOF
+ConnectionStrings__TrackZ=Host=postgres;Port=5432;Database=trackz;Username=trackz;Password=$postgres_password;Application Name=TrackZ.Production
+Jwt__Issuer=trackz-api
+Jwt__Audience=trackz-mobile
+Jwt__SigningKey=$jwt_signing_key
+Jwt__AccessTokenMinutes=15
+Jwt__RefreshTokenDays=14
+MediaAccess__PublicOrigin=https://api.trackz.sytoys.shop
+MediaAccess__SigningKey=$media_signing_key
+MediaAccess__LifetimeSeconds=60
+ObjectStorage__ServiceUrl=http://minio:9000
+ObjectStorage__Bucket=trackz-private
+ObjectStorage__AccessKey=$storage_access_key
+ObjectStorage__SecretKey=$storage_secret_key
+ObjectStorage__StagingExpirationDays=1
+Billing__Stripe__SecretKey=
+Billing__Stripe__MonthlyPriceId=
+EOF
+printf 'TRACKZ_CONFIG_ROOT=/etc/trackz\nTRACKZ_IMAGE=\n' > "$temporary_root/compose.env"
+
+chown root:root "$temporary_root/postgres.env" "$temporary_root/minio.env" "$temporary_root/trackz.env"
+chmod 0600 "$temporary_root/postgres.env" "$temporary_root/minio.env" "$temporary_root/trackz.env"
+chown root:trackz "$temporary_root/compose.env"
+chmod 0640 "$temporary_root/compose.env"
+
+mv "$temporary_root/postgres.env" "$configuration_root/postgres.env"
+mv "$temporary_root/minio.env" "$configuration_root/minio.env"
+mv "$temporary_root/trackz.env" "$configuration_root/trackz.env"
+mv "$temporary_root/compose.env" "$compose_env"
+
+TRACKZ_CONFIG_ROOT=/etc/trackz \
+TRACKZ_IMAGE="ghcr.io/bootstrap/validation@sha256:$(printf '0%.0s' {1..64})" \
+  docker compose --env-file "$compose_env" -f "$compose_file" config --quiet
+
+echo "TrackZ secrets and runtime configuration were created without printing secret values."

@@ -1,0 +1,183 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+umask 027
+
+if [[ ${EUID} -ne 0 ]]; then
+  echo "trackz-deploy must run as root." >&2
+  exit 1
+fi
+if [[ $# -ne 1 ]]; then
+  echo "Expected exactly one immutable GHCR image digest." >&2
+  exit 1
+fi
+
+next_image="$1"
+if [[ ! "$next_image" =~ ^ghcr\.io/[a-z0-9][a-z0-9._/-]*@sha256:[0-9a-f]{64}$ ]]; then
+  echo "Expected ghcr.io/owner/image@sha256:<64 lowercase hex characters>." >&2
+  exit 1
+fi
+
+compose_file=/opt/trackz/compose.production.yaml
+configuration_root=/etc/trackz
+compose_env="$configuration_root/compose.env"
+postgres_env="$configuration_root/postgres.env"
+minio_env="$configuration_root/minio.env"
+trackz_env="$configuration_root/trackz.env"
+backup_root=/var/backups/trackz
+runtime_env=""
+current_image=""
+backup_dir=""
+deployment_succeeded=false
+
+exec 9>/run/lock/trackz-deploy.lock
+if ! flock -n 9; then
+  echo "Another TrackZ deployment is already running." >&2
+  exit 1
+fi
+
+for required_path in "$compose_file" "$compose_env" "$postgres_env" "$minio_env" "$trackz_env"; do
+  if [[ ! -f "$required_path" || -L "$required_path" ]]; then
+    echo "Required regular file is missing or unsafe: $required_path" >&2
+    exit 1
+  fi
+done
+if ! docker network inspect toystore-production_frontend >/dev/null 2>&1; then
+  echo "Required Caddy network toystore-production_frontend does not exist." >&2
+  exit 1
+fi
+if ! grep -qx 'MediaAccess__PublicOrigin=https://api.trackz.sytoys.shop' "$trackz_env"; then
+  echo "TrackZ production media origin is missing or invalid." >&2
+  exit 1
+fi
+
+current_image="$(sed -n 's/^TRACKZ_IMAGE=//p' "$compose_env")"
+if [[ -n "$current_image" ]] \
+  && [[ ! "$current_image" =~ ^ghcr\.io/[a-z0-9][a-z0-9._/-]*@sha256:[0-9a-f]{64}$ ]]; then
+  echo "Existing TRACKZ_IMAGE is not an immutable GHCR digest." >&2
+  exit 1
+fi
+
+install -d -o root -g trackz -m 0750 /opt/trackz "$configuration_root" /var/lib/trackz "$backup_root"
+runtime_env="$(mktemp "$configuration_root/.compose.runtime.XXXXXX")"
+
+cleanup() {
+  [[ -n "$runtime_env" ]] && rm -f "$runtime_env"
+}
+trap cleanup EXIT
+
+write_environment() {
+  local destination="$1"
+  local image="$2"
+  printf 'TRACKZ_CONFIG_ROOT=/etc/trackz\nTRACKZ_IMAGE=%s\n' "$image" > "$destination"
+  chown root:trackz "$destination"
+  chmod 0640 "$destination"
+}
+
+write_environment "$runtime_env" "$next_image"
+compose() {
+  docker compose --env-file "$runtime_env" -f "$compose_file" "$@"
+}
+
+rollback() {
+  local exit_code=$?
+  if [[ "$deployment_succeeded" == true ]]; then
+    return
+  fi
+
+  compose logs --no-color --tail 120 api catalog-deploy minio-bootstrap postgres minio >&2 || true
+  if [[ -n "$current_image" ]]; then
+    write_environment "$runtime_env" "$current_image"
+    rollback_env="$(mktemp "$configuration_root/.compose.rollback.XXXXXX")"
+    write_environment "$rollback_env" "$current_image"
+    mv -f "$rollback_env" "$compose_env"
+    compose run --rm --no-deps minio-bootstrap || true
+    compose run --rm --no-deps catalog-deploy || true
+    compose up -d --no-deps api || true
+    echo "Deployment failed; restored the previous TrackZ application image." >&2
+    echo "Database schema and object restoration are intentionally manual." >&2
+  else
+    rollback_env="$(mktemp "$configuration_root/.compose.rollback.XXXXXX")"
+    write_environment "$rollback_env" ""
+    mv -f "$rollback_env" "$compose_env"
+    compose stop api || true
+    echo "Initial deployment failed; no previous TrackZ application image exists." >&2
+  fi
+  if [[ -n "$backup_dir" ]]; then
+    echo "Backup retained at $backup_dir." >&2
+  fi
+  exit "$exit_code"
+}
+trap rollback ERR
+
+compose pull postgres minio minio-bootstrap catalog-deploy api
+compose up -d postgres minio
+for _ in {1..30}; do
+  if compose exec -T postgres sh -eu -c \
+    'exec pg_isready --username="$POSTGRES_USER" --dbname="$POSTGRES_DB"' >/dev/null 2>&1 \
+    && compose exec -T minio curl --fail --silent http://localhost:9000/minio/health/live >/dev/null 2>&1; then
+    break
+  fi
+  sleep 2
+done
+compose exec -T postgres sh -eu -c \
+  'exec pg_isready --username="$POSTGRES_USER" --dbname="$POSTGRES_DB"' >/dev/null
+compose exec -T minio curl --fail --silent http://localhost:9000/minio/health/live >/dev/null
+compose run --rm --no-deps minio-bootstrap
+
+# Stop only TrackZ API writes so PostgreSQL and object storage form one restore point.
+compose stop api || true
+image_digest="${next_image##*@sha256:}"
+backup_id="$(date -u +%Y%m%dT%H%M%SZ)-${image_digest:0:12}"
+backup_dir="$backup_root/$backup_id"
+if ! mkdir "$backup_dir"; then
+  echo "Refusing to overwrite existing backup: $backup_dir" >&2
+  exit 1
+fi
+install -d -o root -g trackz -m 0750 "$backup_dir/objects"
+
+(
+  set -C
+  compose exec -T postgres sh -eu -c \
+    'exec pg_dump --format=custom --username="$POSTGRES_USER" --dbname="$POSTGRES_DB"' \
+    > "$backup_dir/database.dump"
+)
+
+docker run --rm --network trackz-production-backend \
+  --entrypoint /bin/sh \
+  --env-file "$minio_env" \
+  --env-file "$trackz_env" \
+  --volume "$backup_dir/objects:/backup" \
+  minio/mc:RELEASE.2025-07-21T05-28-08Z \
+  -ec 'mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null; mc stat local/trackz-private >/dev/null; mc mirror --overwrite local/trackz-private /backup'
+
+printf 'previous_image=%s\nproposed_image=%s\ncreated_at=%s\n' \
+  "$current_image" "$next_image" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  > "$backup_dir/release.env"
+chown -R root:trackz "$backup_dir"
+find "$backup_dir" -type d -exec chmod 0750 {} +
+find "$backup_dir" -type f -exec chmod 0640 {} +
+
+next_env="$(mktemp "$configuration_root/.compose.next.XXXXXX")"
+write_environment "$next_env" "$next_image"
+mv -f "$next_env" "$compose_env"
+
+compose run --rm --no-deps catalog-deploy
+compose up -d --no-deps api
+ready=false
+for _ in {1..60}; do
+  if compose exec -T api curl --fail --silent http://localhost:8080/health/ready >/dev/null 2>&1; then
+    ready=true
+    break
+  fi
+  sleep 2
+done
+if [[ "$ready" != true ]]; then
+  echo "New TrackZ image did not become ready within 120 seconds." >&2
+  false
+fi
+
+deployment_succeeded=true
+trap - ERR
+trap cleanup EXIT
+echo "TrackZ image $next_image is ready. Backup: $backup_dir"

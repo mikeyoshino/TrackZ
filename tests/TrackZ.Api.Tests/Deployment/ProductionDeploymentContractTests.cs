@@ -92,6 +92,21 @@ public sealed class ProductionDeploymentContractTests
         Assert.True(result.ExitCode == 0, result.Error);
     }
 
+    [Theory]
+    [InlineData("deploy/trackz-bootstrap")]
+    [InlineData("deploy/trackz-deploy")]
+    public async Task Production_operator_commands_refuse_non_root_execution(string relativePath)
+    {
+        if (string.Equals(Environment.UserName, "root", StringComparison.Ordinal))
+            throw SkipException.ForSkip("This behavior requires a non-root test process.");
+
+        var repositoryRoot = FindRepositoryRoot();
+        var result = await RunAsync("bash", [Path.Combine(repositoryRoot, relativePath)]);
+
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains("must run as root", result.Error, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static async Task RequireDockerComposeAsync()
     {
         var result = await RunAsync("docker", ["compose", "version"]);
