@@ -16,7 +16,10 @@ using System.Net;
 
 var catalogDeploymentCommand = ExerciseCatalogDeploymentCommand.Parse(args);
 var catalogPublicationCommand = ExerciseCatalogPublicationCommand.Parse(args);
-var startupCommand = catalogDeploymentCommand is not null || catalogPublicationCommand is not null;
+var productionCatalogPublicationCommand = ProductionExerciseCatalogPublicationCommand.Parse(args);
+var startupCommand = catalogDeploymentCommand is not null
+    || catalogPublicationCommand is not null
+    || productionCatalogPublicationCommand is not null;
 var builder = WebApplication.CreateBuilder(startupCommand ? [] : args);
 
 builder.Services.AddApplication();
@@ -106,6 +109,11 @@ if (catalogDeploymentCommand is not null)
 if (catalogPublicationCommand is not null)
 {
     await catalogPublicationCommand.ExecuteAsync(app.Services);
+    return;
+}
+if (productionCatalogPublicationCommand is not null)
+{
+    await productionCatalogPublicationCommand.ExecuteAsync(app.Services);
     return;
 }
 

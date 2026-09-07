@@ -27,5 +27,14 @@ public sealed record ExerciseCatalogDeploymentCommand(string ManifestPath)
         await database.Database.MigrateAsync(cancellationToken);
         await scope.ServiceProvider.GetRequiredService<ExerciseCatalogDeploymentService>()
             .DeployAndSeedAsync(ManifestPath, cancellationToken);
+
+        var environment = services.GetRequiredService<IHostEnvironment>();
+        if (environment.IsProduction()
+            && string.Equals(environment.EnvironmentName, Environments.Production, StringComparison.Ordinal))
+        {
+            await ProductionExerciseCatalogPublicationCommand
+                .ForApprovedRepositoryCatalog(ManifestPath)
+                .ExecuteAsync(services, cancellationToken);
+        }
     }
 }
