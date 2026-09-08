@@ -20,9 +20,9 @@ public sealed class ExerciseCatalogSeederTests
 
         var manifest = ExerciseManifest.Load(CatalogPath);
         var exercises = await database.Db.Exercises.OrderBy(exercise => exercise.Name).ToArrayAsync();
-        Assert.Equal(CatalogExerciseCount, exercises.Length);
+        Assert.Equal(CatalogExerciseCount + 1, exercises.Length);
         Assert.Empty(await database.Db.ExerciseImages.ToArrayAsync());
-        Assert.Equal(manifest.Select(item => item.Id).Order().ToArray(), exercises.Select(exercise => exercise.Id).Order().ToArray());
+        Assert.Equal(manifest.Select(item => item.Id).Append(SupplementalExercises.SeatedBarbellShoulderPressId).Order().ToArray(), exercises.Select(exercise => exercise.Id).Order().ToArray());
         Assert.All(exercises, exercise => Assert.True(exercise.IsSystem));
     }
 
@@ -177,7 +177,7 @@ public sealed class ExerciseCatalogSeederTests
         Assert.Equal(2, sameName.Length);
         Assert.Contains(sameName, exercise => exercise.Id == manifestItem.Id && exercise.OwnerId == null);
         Assert.Contains(sameName, exercise => exercise.Id == custom.Id && exercise.OwnerId == custom.OwnerId);
-        Assert.Equal(CatalogExerciseCount + 1, await database.Db.Exercises.CountAsync());
+        Assert.Equal(CatalogExerciseCount + 2, await database.Db.Exercises.CountAsync());
     }
 
     private static string CatalogPath => Path.Combine(RepositoryRoot, "assets", "exercises", "catalog.json");

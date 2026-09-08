@@ -43,6 +43,18 @@ public sealed class HypertrophyLoadGuidancePolicyTests
     }
 
     [Fact]
+    public void Exact_effort_is_used_but_pain_never_recommends_progression()
+    {
+        var exact = Weighted(70m, 10, null) with { EffortScore = 50, HasPain = false };
+        var productive = Evaluate(exact);
+        var pain = Evaluate(exact with { HasPain = true });
+
+        Assert.Equal(HypertrophyGuidanceAction.Keep, productive.Action);
+        Assert.Equal(HypertrophyGuidanceAction.None, pain.Action);
+        Assert.Equal(HypertrophyGuidanceReason.Pain, pain.Reason);
+    }
+
+    [Fact]
     public void Two_most_recent_qualifying_same_load_sets_increase_weight()
     {
         var saved = Weighted(70m, 12, SetEffortRating.Productive);

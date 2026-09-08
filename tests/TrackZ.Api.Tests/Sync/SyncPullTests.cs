@@ -89,7 +89,8 @@ public sealed class SyncPullTests : IAsyncLifetime
             {
                 workoutId, workoutExerciseId, setId, order = 0,
                 weightKg = "70", assistedKg = (string?)null, reps = 8,
-                completedAt = Utc(8).AddMinutes(1)
+                completedAt = Utc(8).AddMinutes(1), effortScore = 73,
+                isWarmup = false, hasPain = true
             }
         };
         await PushAsync(account.Token, setOperation);
@@ -125,7 +126,13 @@ public sealed class SyncPullTests : IAsyncLifetime
         var savedSet = Assert.Single(Assert.Single(second.Changes).Workout.Exercises[0].Sets);
         var ratedSet = Assert.Single(Assert.Single(third.Changes).Workout.Exercises[0].Sets);
         Assert.Null(savedSet.Effort);
+        Assert.Equal(73, savedSet.EffortScore);
+        Assert.False(savedSet.IsWarmup);
+        Assert.True(savedSet.HasPain);
         Assert.Equal(SetEffortRating.Productive, ratedSet.Effort);
+        Assert.Equal(savedSet.EffortScore, ratedSet.EffortScore);
+        Assert.Equal(savedSet.IsWarmup, ratedSet.IsWarmup);
+        Assert.Equal(savedSet.HasPain, ratedSet.HasPain);
         Assert.Equal("70", savedSet.WeightKg);
         Assert.Equal("70", ratedSet.WeightKg);
         Assert.Equal(savedSet.WeightKg, ratedSet.WeightKg);

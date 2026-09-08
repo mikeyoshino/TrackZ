@@ -16,7 +16,10 @@ public sealed record LocalSet(
     long BaseVersion,
     Guid OperationId,
     SetEffortRating? Effort = null,
-    int? PlateCount = null)
+    int? PlateCount = null,
+    int? EffortScore = null,
+    bool? IsWarmup = null,
+    bool? HasPain = null)
 {
     public LocalSet(decimal? weightKg, decimal? assistedKg, int reps)
         : this(

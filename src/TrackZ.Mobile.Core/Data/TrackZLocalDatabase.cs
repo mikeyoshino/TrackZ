@@ -4,7 +4,7 @@ namespace TrackZ.Mobile.Data;
 
 public sealed class TrackZLocalDatabase
 {
-    public const int CurrentSchemaVersion = 9;
+    public const int CurrentSchemaVersion = 10;
     private const int BusyTimeoutMilliseconds = 5_000;
     private readonly string _connectionString;
     private readonly SemaphoreSlim _schemaGate = new(1, 1);
@@ -45,7 +45,7 @@ public sealed class TrackZLocalDatabase
                 _initialized = true;
                 return;
             }
-            if (version is not (0 or 1 or 2 or 3 or 4 or 5 or 6 or 7 or 8))
+            if (version is not (0 or 1 or 2 or 3 or 4 or 5 or 6 or 7 or 8 or 9))
             {
                 throw new InvalidDataException(
                     $"Workout database schema {version} is not supported; expected {CurrentSchemaVersion}.");
@@ -63,6 +63,7 @@ public sealed class TrackZLocalDatabase
             // Some legacy databases already have this column (for example after a
             // partial older upgrade). Do not let a duplicate ALTER stop the batch.
             var needsPlateCount = version is 0 or 1 || !await HasPlateCountAsync(connection, cancellationToken);
+            var coachingUpgrade = await BuildSetCoachingUpgradeAsync(connection, cancellationToken);
             await using var transaction = connection.BeginTransaction(deferred: false);
             await using var schema = connection.CreateCommand();
             schema.Transaction = transaction;
@@ -220,7 +221,7 @@ public sealed class TrackZLocalDatabase
                 PRAGMA user_version = 7;
                 """) + (needsPlateCount ? BuildPlateCountUpgrade() : string.Empty);
             await schema.ExecuteNonQueryAsync(cancellationToken);
-            schema.CommandText = """
+            schema.CommandText = coachingUpgrade + """
                 CREATE TABLE IF NOT EXISTS CoachJournal (
                     Id INTEGER PRIMARY KEY CHECK (Id = 1),
                     Payload TEXT NOT NULL CHECK (json_valid(Payload))
@@ -229,7 +230,7 @@ public sealed class TrackZLocalDatabase
                     Id INTEGER PRIMARY KEY CHECK (Id = 1),
                     Payload TEXT NOT NULL CHECK (json_valid(Payload))
                 );
-                PRAGMA user_version = 9;
+                PRAGMA user_version = 10;
                 """;
             await schema.ExecuteNonQueryAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
@@ -335,6 +336,24 @@ public sealed class TrackZLocalDatabase
         await using var command = connection.CreateCommand();
         command.CommandText = "SELECT COUNT(*) FROM pragma_table_info('LocalSet') WHERE name = 'PlateCount'";
         return Convert.ToInt32(await command.ExecuteScalarAsync(token)) > 0;
+    }
+
+    private static async Task<string> BuildSetCoachingUpgradeAsync(
+        SqliteConnection connection, CancellationToken token)
+    {
+        var columns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "PRAGMA table_info(LocalSet);";
+        await using var reader = await command.ExecuteReaderAsync(token);
+        while (await reader.ReadAsync(token)) columns.Add(reader.GetString(1));
+        var statements = new List<string>();
+        if (!columns.Contains("EffortScore")) statements.Add(
+            "ALTER TABLE LocalSet ADD COLUMN EffortScore INTEGER NULL CHECK (EffortScore IS NULL OR EffortScore BETWEEN 0 AND 100);");
+        if (!columns.Contains("IsWarmup")) statements.Add(
+            "ALTER TABLE LocalSet ADD COLUMN IsWarmup INTEGER NULL CHECK (IsWarmup IS NULL OR IsWarmup IN (0, 1));");
+        if (!columns.Contains("HasPain")) statements.Add(
+            "ALTER TABLE LocalSet ADD COLUMN HasPain INTEGER NULL CHECK (HasPain IS NULL OR HasPain IN (0, 1));");
+        return string.Join(Environment.NewLine, statements) + Environment.NewLine;
     }
 
     private static async Task<string> BuildSyncStateUpgradeAsync(

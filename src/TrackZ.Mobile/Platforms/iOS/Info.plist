@@ -45,5 +45,9 @@
 	<string>TrackZ connects to your Mac's local development API when testing on your device.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>TrackZ uses the camera to photograph gym equipment for your custom exercises.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>TrackZ uses your photo library only when you choose an image for a custom exercise.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>TrackZ needs photo access while capturing an image for a custom exercise.</string>
 </dict>
 </plist>

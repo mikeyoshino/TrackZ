@@ -15,6 +15,8 @@ public sealed class SetEntryConfiguration : IEntityTypeConfiguration<SetEntry>
             table.HasCheckConstraint(
                 "CK_set_entries_effort",
                 "\"Effort\" IS NULL OR \"Effort\" IN (1, 2, 3)");
+            table.HasCheckConstraint("CK_set_entries_effort_score",
+                "\"EffortScore\" IS NULL OR \"EffortScore\" BETWEEN 0 AND 100");
             table.HasCheckConstraint(
                 "CK_set_entries_mode_measurement",
                 "(\"TrackingMode\" = 1 AND \"AssistedKg\" IS NULL AND ((\"WeightKg\" > 0 AND \"PlateCount\" IS NULL) OR (\"WeightKg\" IS NULL AND \"PlateCount\" BETWEEN 1 AND 999))) OR " +
@@ -33,6 +35,9 @@ public sealed class SetEntryConfiguration : IEntityTypeConfiguration<SetEntry>
         builder.Property(set => set.PlateCount);
         builder.Property(set => set.Reps).IsRequired();
         builder.Property(set => set.Effort);
+        builder.Property(set => set.EffortScore);
+        builder.Property(set => set.IsWarmup);
+        builder.Property(set => set.HasPain);
         builder.Property(set => set.CompletedAt).IsRequired();
         builder.Property(set => set.UpdatedAt);
         builder.Property(set => set.DeletedAt);

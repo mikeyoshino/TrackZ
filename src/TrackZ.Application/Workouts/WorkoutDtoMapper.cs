@@ -30,5 +30,8 @@ internal static class WorkoutDtoMapper
         set.CompletedAt,
         set.UpdatedAt,
         set.Effort,
-        set.PlateCount);
+        set.PlateCount,
+        set.EffortScore,
+        set.IsWarmup,
+        set.HasPain);
 }

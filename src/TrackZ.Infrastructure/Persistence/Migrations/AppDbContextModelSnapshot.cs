@@ -1236,6 +1236,10 @@ namespace TrackZ.Infrastructure.Persistence.Migrations
                     b.Property<int?>("Effort")
                         .HasColumnType("integer");
 
+                    b.Property<int?>("EffortScore").HasColumnType("integer");
+                    b.Property<bool?>("HasPain").HasColumnType("boolean");
+                    b.Property<bool?>("IsWarmup").HasColumnType("boolean");
+
                     b.Property<int>("Order")
                         .HasColumnType("integer");
 
@@ -1272,6 +1276,7 @@ namespace TrackZ.Infrastructure.Persistence.Migrations
                     b.ToTable("set_entries", null, t =>
                         {
                             t.HasCheckConstraint("CK_set_entries_effort", "\"Effort\" IS NULL OR \"Effort\" IN (1, 2, 3)");
+                            t.HasCheckConstraint("CK_set_entries_effort_score", "\"EffortScore\" IS NULL OR \"EffortScore\" BETWEEN 0 AND 100");
 
                             t.HasCheckConstraint("CK_set_entries_mode_measurement", "(\"TrackingMode\" = 1 AND \"AssistedKg\" IS NULL AND ((\"WeightKg\" > 0 AND \"PlateCount\" IS NULL) OR (\"WeightKg\" IS NULL AND \"PlateCount\" BETWEEN 1 AND 999))) OR (\"TrackingMode\" = 2 AND \"WeightKg\" IS NULL AND \"AssistedKg\" IS NULL AND \"PlateCount\" IS NULL) OR (\"TrackingMode\" = 3 AND \"WeightKg\" IS NULL AND ((\"AssistedKg\" > 0 AND \"PlateCount\" IS NULL) OR (\"AssistedKg\" IS NULL AND \"PlateCount\" BETWEEN 1 AND 999)))");
 

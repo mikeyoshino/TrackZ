@@ -28,7 +28,12 @@ public sealed class ActiveWorkoutCoordinatorTests : IDisposable
 
         var saved = await fixture.Coordinator.SaveSetAsync(
             _exerciseId,
-            new LocalSet(70.125m, null, 10));
+            new LocalSet(70.125m, null, 10) with
+            {
+                EffortScore = 73,
+                IsWarmup = false,
+                HasPain = true
+            });
 
         var recreated = CreateFixture();
         var restored = await recreated.Coordinator.RestoreActiveAsync();
@@ -36,6 +41,9 @@ public sealed class ActiveWorkoutCoordinatorTests : IDisposable
         Assert.Equal(saved.Id, set.Id);
         Assert.Equal(70.125m, set.WeightKg);
         Assert.Equal(10, set.Reps);
+        Assert.Equal(73, set.EffortScore);
+        Assert.False(set.IsWarmup);
+        Assert.True(set.HasPain);
         Assert.Equal(TimeSpan.Zero, set.CompletedAt.Offset);
 
         var pending = await recreated.Outbox.PendingAsync();
@@ -48,6 +56,9 @@ public sealed class ActiveWorkoutCoordinatorTests : IDisposable
         Assert.Equal("70.125", payload.WeightKg);
         Assert.Null(payload.AssistedKg);
         Assert.Equal(10, payload.Reps);
+        Assert.Equal(73, payload.EffortScore);
+        Assert.False(payload.IsWarmup);
+        Assert.True(payload.HasPain);
     }
 
     [Fact]
@@ -73,6 +84,53 @@ public sealed class ActiveWorkoutCoordinatorTests : IDisposable
         Assert.Equal(saved.Id, payload.SetId);
         Assert.Equal(7, payload.PlateCount);
         Assert.Null(payload.WeightKg);
+    }
+
+    [Fact]
+    public async Task Edit_active_set_preserves_identity_and_metadata_and_queues_one_edit()
+    {
+        var fixture = CreateFixture();
+        var workout = await fixture.Coordinator.StartAsync([
+            new WorkoutExerciseSelection(_exerciseId, TrackingMode.Weighted)
+        ]);
+        var saved = await fixture.Coordinator.SaveSetAsync(_exerciseId,
+            new LocalSet(70m, null, 8) with
+            { EffortScore = 73, IsWarmup = false, HasPain = true });
+
+        var edited = await fixture.Coordinator.EditSetAsync(
+            _exerciseId, saved.Id, new SetMeasurement(72.5m, null, 9),
+            88, true, false, true);
+
+        Assert.Equal(saved.Id, edited.Id);
+        Assert.Equal(saved.OperationId, edited.OperationId);
+        Assert.Equal(72.5m, edited.WeightKg);
+        Assert.Equal(9, edited.Reps);
+        Assert.Equal(88, edited.EffortScore);
+        Assert.True(edited.IsWarmup);
+        Assert.False(edited.HasPain);
+        var active = await CreateFixture().Coordinator.RestoreActiveAsync();
+        Assert.Equal(saved.Id, Assert.Single(Assert.Single(active!.Exercises).Sets).Id);
+        Assert.Single(await fixture.Outbox.PendingAsync(), op => op.Type == OutboxOperationType.EditSet);
+        Assert.Equal(workout.Id, active.Id);
+    }
+
+    [Fact]
+    public async Task Measurement_only_edit_preserves_unknown_legacy_coaching_metadata()
+    {
+        var fixture = CreateFixture();
+        await fixture.Coordinator.StartAsync([new WorkoutExerciseSelection(_exerciseId, TrackingMode.Weighted)]);
+        var saved = await fixture.Coordinator.SaveSetAsync(_exerciseId, new LocalSet(70m, null, 8));
+
+        var edited = await fixture.Coordinator.EditSetAsync(
+            _exerciseId, saved.Id, new SetMeasurement(72.5m, null, 9));
+
+        Assert.Null(edited.EffortScore);
+        Assert.Null(edited.IsWarmup);
+        Assert.Null(edited.HasPain);
+        var operation = Assert.Single(await fixture.Outbox.PendingAsync(), item => item.Type == OutboxOperationType.EditSet);
+        Assert.DoesNotContain("effortScore", operation.Payload, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("isWarmup", operation.Payload, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("hasPain", operation.Payload, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

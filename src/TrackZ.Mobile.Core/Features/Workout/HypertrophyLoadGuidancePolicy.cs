@@ -26,7 +26,8 @@ public enum HypertrophyGuidanceReason
     TwoQualifyingSets = 8,
     BodyweightRangeCompleted = 9,
     MissingIncrement = 10,
-    InvalidSuggestedMeasurement = 11
+    InvalidSuggestedMeasurement = 11,
+    Pain = 12
 }
 
 public sealed record HypertrophyGuidanceSet(
@@ -37,7 +38,9 @@ public sealed record HypertrophyGuidanceSet(
     int Reps,
     SetEffortRating? Effort,
     DateTimeOffset CompletedAt,
-    int Order);
+    int Order,
+    int? EffortScore = null,
+    bool? HasPain = null);
 
 public sealed record HypertrophyGuidanceRequest(
     HypertrophyGuidanceSet SavedSet,
@@ -61,7 +64,10 @@ public static class HypertrophyLoadGuidancePolicy
         ArgumentNullException.ThrowIfNull(request.PriorCandidatesNewestFirst);
         var saved = request.SavedSet;
         if (!Valid(saved)) return Result(HypertrophyGuidanceAction.None, HypertrophyGuidanceReason.InvalidInput);
-        if (saved.Effort is null) return Result(HypertrophyGuidanceAction.None, HypertrophyGuidanceReason.MissingEffort);
+        if (saved.HasPain == true) return Result(HypertrophyGuidanceAction.None, HypertrophyGuidanceReason.Pain);
+        var effectiveEffort = EffectiveEffort(saved);
+        if (effectiveEffort is null) return Result(HypertrophyGuidanceAction.None, HypertrophyGuidanceReason.MissingEffort);
+        saved = saved with { Effort = effectiveEffort };
         if (saved.TrackingMode == TrackingMode.Bodyweight)
             return Bodyweight(saved);
         if (saved.Effort == SetEffortRating.TooHeavy)
@@ -113,6 +119,7 @@ public static class HypertrophyLoadGuidancePolicy
         if (set.SetId == Guid.Empty
             || !Enum.IsDefined(set.TrackingMode)
             || set.Effort is { } effort && !Enum.IsDefined(effort)
+            || set.EffortScore is < 0 or > 100
             || set.Reps is < 1 or > 999
             || set.CompletedAt == default
             || set.Order < 0)
@@ -144,7 +151,17 @@ public static class HypertrophyLoadGuidancePolicy
 
     private static bool QualifiesForIncrease(HypertrophyGuidanceSet set) =>
         set.Reps >= 12
-        && set.Effort is SetEffortRating.Easy or SetEffortRating.Productive;
+        && EffectiveEffort(set) is SetEffortRating.Easy or SetEffortRating.Productive
+        && set.HasPain != true;
+
+    private static SetEffortRating? EffectiveEffort(HypertrophyGuidanceSet set) =>
+        set.EffortScore switch
+        {
+            <= 33 => SetEffortRating.Easy,
+            <= 79 => SetEffortRating.Productive,
+            >= 80 => SetEffortRating.TooHeavy,
+            _ => set.Effort
+        };
 
     private static HypertrophyGuidanceResult ChangeLoad(
         HypertrophyGuidanceSet saved,

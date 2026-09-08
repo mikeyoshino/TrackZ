@@ -122,6 +122,8 @@ public sealed class ActiveWorkoutCoordinator(
         if (set.Effort is not null)
             throw new ArgumentException(
                 "A new set must be saved before effort is recorded.", nameof(set));
+        if (set.EffortScore is < 0 or > 100)
+            throw new ArgumentOutOfRangeException(nameof(set), "Effort score must be between 0 and 100.");
 
         var generation = sessionBoundary.Capture();
         await _mutationGate.WaitAsync(cancellationToken);
@@ -143,6 +145,9 @@ public sealed class ActiveWorkoutCoordinator(
                         || existing.AssistedKg != set.AssistedKg
                         || existing.PlateCount != set.PlateCount
                         || existing.Reps != set.Reps
+                        || existing.EffortScore != set.EffortScore
+                        || existing.IsWarmup != set.IsWarmup
+                        || existing.HasPain != set.HasPain
                         || set.CompletedAt != default && existing.CompletedAt != Utc(set.CompletedAt))
                         throw new InvalidDataException("The set ID is already bound to a different measurement.");
                     saved = existing with { OperationId = set.OperationId };
@@ -158,6 +163,9 @@ public sealed class ActiveWorkoutCoordinator(
                         || priorPayload.WeightKg != DecimalText(existing.WeightKg)
                         || priorPayload.AssistedKg != DecimalText(existing.AssistedKg)
                         || priorPayload.PlateCount != existing.PlateCount
+                        || priorPayload.EffortScore != existing.EffortScore
+                        || priorPayload.IsWarmup != existing.IsWarmup
+                        || priorPayload.HasPain != existing.HasPain
                         || priorPayload.Reps != existing.Reps
                         || priorPayload.CompletedAt != existing.CompletedAt)
                         throw new InvalidDataException("The saved set and outbox operation contracts diverge.");
@@ -212,7 +220,10 @@ public sealed class ActiveWorkoutCoordinator(
                         DecimalText(durableSet.AssistedKg),
                         durableSet.Reps,
                         durableSet.CompletedAt,
-                        durableSet.PlateCount),
+                        durableSet.PlateCount,
+                        durableSet.EffortScore,
+                        durableSet.IsWarmup,
+                        durableSet.HasPain),
                     active.Version,
                     durableSet.CompletedAt);
                 await workouts.SaveWorkoutAndEnqueueAsync(graph, operation, token);
@@ -336,6 +347,94 @@ public sealed class ActiveWorkoutCoordinator(
         {
             _mutationGate.Release();
         }
+    }
+
+    public async Task<LocalSet> EditSetAsync(
+        Guid exerciseDefinitionId,
+        Guid setId,
+        SetMeasurement measurement,
+        int? effortScore = null,
+        bool? isWarmup = null,
+        bool? hasPain = null,
+        bool coachingMetadataSpecified = false,
+        CancellationToken cancellationToken = default)
+    {
+        if (exerciseDefinitionId == Guid.Empty) throw new ArgumentException("Exercise ID cannot be empty.", nameof(exerciseDefinitionId));
+        if (setId == Guid.Empty) throw new ArgumentException("Set ID cannot be empty.", nameof(setId));
+        ArgumentNullException.ThrowIfNull(measurement);
+        var generation = sessionBoundary.Capture();
+        await _mutationGate.WaitAsync(cancellationToken);
+        try
+        {
+            LocalSet? edited = null;
+            var committed = await sessionBoundary.TryCommitAsync(generation, async token =>
+            {
+                var active = await workouts.GetActiveAsync(token)
+                    ?? throw new InvalidOperationException("No active workout exists.");
+                var exercise = active.Exercises.SingleOrDefault(item => item.DeletedAt is null
+                    && item.ExerciseDefinitionId == exerciseDefinitionId)
+                    ?? throw new ArgumentException("The exercise is not in the active workout.", nameof(exerciseDefinitionId));
+                var set = exercise.Sets.SingleOrDefault(item => item.DeletedAt is null && item.Id == setId)
+                    ?? throw new ArgumentException("The set is not in the active exercise.", nameof(setId));
+                var valid = exercise.TrackingMode switch
+                {
+                    TrackingMode.Weighted => measurement.AssistedKg is null
+                        && (measurement.WeightKg is > 0 && measurement.PlateCount is null
+                            || measurement.WeightKg is null && measurement.PlateCount is >= 1 and <= 999),
+                    TrackingMode.Assisted => measurement.WeightKg is null
+                        && (measurement.AssistedKg is > 0 && measurement.PlateCount is null
+                            || measurement.AssistedKg is null && measurement.PlateCount is >= 1 and <= 999),
+                    TrackingMode.Bodyweight => measurement.WeightKg is null && measurement.AssistedKg is null
+                        && measurement.PlateCount is null,
+                    _ => false
+                };
+                if (!valid || measurement.Reps is < 1 or > 999)
+                    throw new ArgumentException("The set measurement is invalid.", nameof(measurement));
+                var measurementChanged = set.WeightKg != measurement.WeightKg || set.AssistedKg != measurement.AssistedKg
+                    || set.PlateCount != measurement.PlateCount || set.Reps != measurement.Reps;
+                var coachingChanged = coachingMetadataSpecified && (set.EffortScore != effortScore
+                    || set.IsWarmup != isWarmup || set.HasPain != hasPain);
+                if (!measurementChanged && !coachingChanged)
+                {
+                    edited = set;
+                    return;
+                }
+                var updatedAt = await NextMutationAtAsync(active, token);
+                var versionDelta = (measurementChanged ? 1 : 0) + (coachingChanged ? 1 : 0);
+                edited = set with
+                {
+                    WeightKg = measurement.WeightKg,
+                    AssistedKg = measurement.AssistedKg,
+                    PlateCount = measurement.PlateCount,
+                    Reps = measurement.Reps,
+                    UpdatedAt = updatedAt,
+                    EffortScore = coachingMetadataSpecified ? effortScore : set.EffortScore,
+                    IsWarmup = coachingMetadataSpecified ? isWarmup : set.IsWarmup,
+                    HasPain = coachingMetadataSpecified ? hasPain : set.HasPain,
+                    Version = set.Version + versionDelta
+                };
+                var updatedExercise = exercise with
+                {
+                    Sets = exercise.Sets.Select(item => item.Id == set.Id ? edited : item).ToArray(),
+                    Version = exercise.Version + versionDelta
+                };
+                var graph = active with
+                {
+                    Exercises = active.Exercises.Select(item => item.Id == exercise.Id ? updatedExercise : item).ToArray(),
+                    Version = active.Version + versionDelta
+                };
+                var operation = OutboxOperation.Create(Guid.NewGuid(), active.Id, OutboxOperationType.EditSet,
+                    new EditSetOutboxPayload(active.Id, exercise.Id, set.Id,
+                        DecimalText(measurement.WeightKg), DecimalText(measurement.AssistedKg),
+                        measurement.Reps, updatedAt, measurement.PlateCount, coachingMetadataSpecified,
+                        effortScore, isWarmup, hasPain), active.Version, updatedAt);
+                await workouts.SaveWorkoutAndEnqueueAsync(graph, operation, token);
+            }, cancellationToken);
+            EnsureCurrent(committed, generation, cancellationToken);
+            syncTrigger?.NotifyMutation();
+            return edited ?? throw new InvalidOperationException("The set was not edited.");
+        }
+        finally { _mutationGate.Release(); }
     }
 
     public async Task<LocalWorkout> FinishAsync(

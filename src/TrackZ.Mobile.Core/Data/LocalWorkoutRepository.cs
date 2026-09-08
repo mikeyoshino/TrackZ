@@ -447,7 +447,8 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
                 command.Transaction = transaction;
                 command.CommandText = """
                     SELECT Id, OperationId, WorkoutExerciseId, SortOrder, WeightKg, AssistedKg, Reps,
-                           Effort, CompletedAt, UpdatedAt, DeletedAt, Version, BaseVersion, PlateCount
+                           Effort, CompletedAt, UpdatedAt, DeletedAt, Version, BaseVersion, PlateCount,
+                           EffortScore, IsWarmup, HasPain
                     FROM LocalSet
                     WHERE WorkoutExerciseId = $exerciseId
                     ORDER BY SortOrder, Id;
@@ -472,7 +473,10 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
                         reader.IsDBNull(7)
                             ? null
                             : EnumValue<SetEffortRating>(reader, 7),
-                        reader.IsDBNull(13) ? null : reader.GetInt32(13)));
+                        reader.IsDBNull(13) ? null : reader.GetInt32(13),
+                        reader.IsDBNull(14) ? null : reader.GetInt32(14),
+                        reader.IsDBNull(15) ? null : reader.GetBoolean(15),
+                        reader.IsDBNull(16) ? null : reader.GetBoolean(16)));
                 }
                 hydrated.Add(exercise with { Sets = sets });
             }
@@ -568,7 +572,8 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
                 command.Transaction = transaction;
                 command.CommandText = """
                     SELECT Id, OperationId, WorkoutExerciseId, SortOrder, WeightKg, AssistedKg, Reps,
-                           Effort, CompletedAt, UpdatedAt, DeletedAt, Version, BaseVersion, PlateCount
+                           Effort, CompletedAt, UpdatedAt, DeletedAt, Version, BaseVersion, PlateCount,
+                           EffortScore, IsWarmup, HasPain
                     FROM LocalSet
                     WHERE WorkoutExerciseId = $exerciseId AND (
                         DeletedAt IS NULL OR EXISTS (
@@ -605,7 +610,10 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
                         reader.IsDBNull(7)
                             ? null
                             : EnumValue<SetEffortRating>(reader, 7),
-                        reader.IsDBNull(13) ? null : reader.GetInt32(13)));
+                        reader.IsDBNull(13) ? null : reader.GetInt32(13),
+                        reader.IsDBNull(14) ? null : reader.GetInt32(14),
+                        reader.IsDBNull(15) ? null : reader.GetBoolean(15),
+                        reader.IsDBNull(16) ? null : reader.GetBoolean(16)));
                 }
                 hydratedExercises.Add(exercise with { Sets = sets });
             }
@@ -698,10 +706,12 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
         command.CommandText = """
             INSERT INTO LocalSet
                 (Id, OperationId, WorkoutExerciseId, SortOrder, WeightKg, AssistedKg, Reps,
-                 Effort, CompletedAt, UpdatedAt, DeletedAt, Version, BaseVersion, PlateCount)
+                 Effort, CompletedAt, UpdatedAt, DeletedAt, Version, BaseVersion, PlateCount,
+                 EffortScore, IsWarmup, HasPain)
             VALUES
                 ($id, $operationId, $exerciseId, $order, $weight, $assisted, $reps,
-                 $effort, $completedAt, $updatedAt, $deletedAt, $version, $baseVersion, $plateCount)
+                 $effort, $completedAt, $updatedAt, $deletedAt, $version, $baseVersion, $plateCount,
+                 $effortScore, $isWarmup, $hasPain)
             ON CONFLICT(Id) DO UPDATE SET
                 OperationId = excluded.OperationId,
                 WorkoutExerciseId = excluded.WorkoutExerciseId,
@@ -711,6 +721,9 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
                 PlateCount = excluded.PlateCount,
                 Reps = excluded.Reps,
                 Effort = excluded.Effort,
+                EffortScore = excluded.EffortScore,
+                IsWarmup = excluded.IsWarmup,
+                HasPain = excluded.HasPain,
                 CompletedAt = excluded.CompletedAt,
                 UpdatedAt = excluded.UpdatedAt,
                 DeletedAt = excluded.DeletedAt,
@@ -727,6 +740,9 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
         Add(command, "$plateCount", set.PlateCount);
         Add(command, "$reps", set.Reps);
         Add(command, "$effort", set.Effort is null ? null : (int)set.Effort.Value);
+        Add(command, "$effortScore", set.EffortScore);
+        Add(command, "$isWarmup", set.IsWarmup);
+        Add(command, "$hasPain", set.HasPain);
         Add(command, "$completedAt", Timestamp(set.CompletedAt));
         Add(command, "$updatedAt", Timestamp(set.UpdatedAt));
         Add(command, "$deletedAt", Timestamp(set.DeletedAt));
@@ -794,7 +810,8 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
         command.Transaction = transaction;
         command.CommandText = """
             SELECT OperationId, WorkoutExerciseId, SortOrder, WeightKg, AssistedKg, Reps,
-                   Effort, CompletedAt, UpdatedAt, DeletedAt, Version, BaseVersion, PlateCount
+                   Effort, CompletedAt, UpdatedAt, DeletedAt, Version, BaseVersion, PlateCount,
+                   EffortScore, IsWarmup, HasPain
             FROM LocalSet WHERE Id = $id;
             """;
         Add(command, "$id", Id(set.Id));
@@ -814,7 +831,10 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
             && NullableString(reader, 9) == Timestamp(set.DeletedAt)
             && reader.GetInt64(10) == set.Version
             && reader.GetInt64(11) == set.BaseVersion
-            && (reader.IsDBNull(12) ? set.PlateCount is null : reader.GetInt32(12) == set.PlateCount);
+            && (reader.IsDBNull(12) ? set.PlateCount is null : reader.GetInt32(12) == set.PlateCount)
+            && (reader.IsDBNull(13) ? set.EffortScore is null : reader.GetInt32(13) == set.EffortScore)
+            && (reader.IsDBNull(14) ? set.IsWarmup is null : reader.GetBoolean(14) == set.IsWarmup)
+            && (reader.IsDBNull(15) ? set.HasPain is null : reader.GetBoolean(15) == set.HasPain);
     }
 
     private static async Task ValidateCoverageAndStageOrdersAsync(
@@ -868,7 +888,8 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
                 SELECT localSet.Id, localSet.OperationId, localSet.WorkoutExerciseId,
                        localSet.SortOrder, localSet.WeightKg, localSet.AssistedKg, localSet.Reps,
                        localSet.Effort, localSet.CompletedAt, localSet.UpdatedAt, localSet.DeletedAt,
-                       localSet.Version, localSet.BaseVersion
+                       localSet.Version, localSet.BaseVersion, localSet.EffortScore,
+                       localSet.IsWarmup, localSet.HasPain
                 FROM LocalSet AS localSet
                 INNER JOIN LocalWorkoutExercise AS exercise
                     ON exercise.Id = localSet.WorkoutExerciseId
@@ -897,7 +918,10 @@ public sealed class LocalWorkoutRepository : ILocalWorkoutRepository
                         || Timestamp(incoming.CompletedAt) != reader.GetString(8)
                         || Timestamp(incoming.UpdatedAt) != NullableString(reader, 9)
                         || Timestamp(incoming.DeletedAt) != NullableString(reader, 10)
-                        || incoming.BaseVersion != NonNegativeInt64(reader, 12)))
+                        || incoming.BaseVersion != NonNegativeInt64(reader, 12)
+                        || (reader.IsDBNull(13) ? incoming.EffortScore is not null : reader.GetInt32(13) != incoming.EffortScore)
+                        || (reader.IsDBNull(14) ? incoming.IsWarmup is not null : reader.GetBoolean(14) != incoming.IsWarmup)
+                        || (reader.IsDBNull(15) ? incoming.HasPain is not null : reader.GetBoolean(15) != incoming.HasPain)))
                     throw new InvalidDataException("A set change requires a newer local version.");
             }
         }

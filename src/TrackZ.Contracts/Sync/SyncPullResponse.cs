@@ -45,4 +45,7 @@ public sealed record SyncSetDto(
     DateTimeOffset? DeletedAt,
     long Version,
     SetEffortRating? Effort = null,
-    int? PlateCount = null);
+    int? PlateCount = null,
+    int? EffortScore = null,
+    bool? IsWarmup = null,
+    bool? HasPain = null);

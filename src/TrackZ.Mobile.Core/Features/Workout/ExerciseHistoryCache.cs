@@ -250,7 +250,10 @@ public sealed class CachedExerciseHistorySource(
                     set.CompletedAt,
                     set.UpdatedAt,
                     set.Effort,
-                    set.PlateCount))
+                    set.PlateCount,
+                    set.EffortScore,
+                    set.IsWarmup,
+                    set.HasPain))
                 .ToArray();
             if (sets.Length == 0) continue;
             return new ExerciseHistorySessionDto(

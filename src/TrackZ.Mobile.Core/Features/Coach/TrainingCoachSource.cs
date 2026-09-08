@@ -72,11 +72,11 @@ public sealed class TrainingCoachSource(
         {
             var bodyRows = rows.Where(r => r.Definition?.BodyPart == body).ToArray();
             int Count(DateOnly start) => bodyRows.Count(r => r.Date >= start && r.Date < start.AddDays(7)
-                && journal.Warmups.TryGetValue(r.Set.Id, out var warmup) && !warmup);
+                && r.Set.IsWarmup == false);
             var count = Count(week);
             var baseline = Enumerable.Range(1, 3).Select(i => Count(week.AddDays(-i * 7))).ToArray();
-            var unknown = bodyRows.Count(r => r.Date >= week && r.Date <= today && !journal.Warmups.ContainsKey(r.Set.Id));
-            var baselineUnknown = bodyRows.Any(r => r.Date >= week.AddDays(-21) && r.Date < week && !journal.Warmups.ContainsKey(r.Set.Id));
+            var unknown = bodyRows.Count(r => r.Date >= week && r.Date <= today && r.Set.IsWarmup is null);
+            var baselineUnknown = bodyRows.Any(r => r.Date >= week.AddDays(-21) && r.Date < week && r.Set.IsWarmup is null);
             return new CoachArea(body, count, unknown,
                 !baselineUnknown && TrainingCoachPolicy.NeedsRecoveryCheck(count, baseline),
                 journal.Recovery.LastOrDefault(r => r.BodyPart == body && r.Week == week));
@@ -97,27 +97,37 @@ public sealed class TrainingCoachSource(
                 sessions, recommendation, assessment?.Accepted == true && recommendation.IsIncrease)
                 { Equipment = ExerciseEquipmentLabels.Identify(definition) };
         }).Where(e => e is not null).Cast<CoachExercise>().OrderByDescending(e => e.Sessions[0].At).ToArray();
-        return new CoachReport(week, days, areas, items, rows.Count(r => r.Date >= week && r.Date <= today && !journal.Warmups.ContainsKey(r.Set.Id)));
+        return new CoachReport(week, days, areas, items,
+            rows.Count(r => r.Date >= week && r.Date <= today && r.Set.IsWarmup is null));
     }
 
     private static CoachSession? ToSession(LocalWorkout workout, LocalWorkoutExercise exercise, CoachJournalData data, DateTimeOffset now)
     {
         var sets = exercise.Sets.Where(s => s.DeletedAt is null && s.CompletedAt <= now).OrderBy(s => s.Order).ToArray();
         if (sets.Length == 0) return null;
-        var working = sets.Where(s => data.Warmups.TryGetValue(s.Id, out var warmup) && !warmup).ToArray();
+        var working = sets.Where(s => s.IsWarmup == false).ToArray();
         var last = working.LastOrDefault() ?? sets[^1];
         var assessment = data.Assessments.LastOrDefault(a => a.WorkoutId == workout.Id && a.ExerciseId == exercise.ExerciseDefinitionId
             && a.LastSetId == sets[^1].Id && a.At >= sets.Max(s => s.UpdatedAt ?? s.CompletedAt) && a.At <= now);
-        var unknown = sets.Any(s => !data.Warmups.ContainsKey(s.Id)) || working.Any(s => s.PlateCount is not null
+        var unknown = sets.Any(s => s.IsWarmup is null) || working.Any(s => s.PlateCount is not null
             || s.WeightKg != last.WeightKg || s.AssistedKg != last.AssistedKg);
         return new CoachSession(workout.Id, exercise.ExerciseDefinitionId, sets.Max(s => s.CompletedAt), exercise.TrackingMode,
             last.WeightKg, last.AssistedKg, working.Length == 0 ? 0 : working.Min(s => s.Reps), working.Length,
-            assessment?.Effort ?? 0, assessment?.Controlled, assessment?.Pain ?? false, unknown)
+            assessment?.Effort ?? ExactEffort(last.EffortScore), assessment?.Controlled,
+            last.HasPain ?? assessment?.Pain ?? false, unknown)
         {
             IsCompleted = workout.Status == LocalWorkoutStatus.Completed && workout.CompletedAt <= now,
-            UnclassifiedSets = sets.Count(s => !data.Warmups.ContainsKey(s.Id)),
+            UnclassifiedSets = sets.Count(s => s.IsWarmup is null),
             LastSetId = sets[^1].Id,
             LastEditedAt = sets.Max(s => s.UpdatedAt ?? s.CompletedAt)
         };
     }
+
+    private static int ExactEffort(int? score) => score switch
+    {
+        <= 33 => 1,
+        <= 79 => 2,
+        >= 80 => 3,
+        _ => 0
+    };
 }

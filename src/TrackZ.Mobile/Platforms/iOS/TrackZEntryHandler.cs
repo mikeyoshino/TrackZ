@@ -1,4 +1,5 @@
 using CoreGraphics;
+using Foundation;
 using Microsoft.Maui.Handlers;
 using Microsoft.Maui.Platform;
 using UIKit;
@@ -11,6 +12,7 @@ public sealed class TrackZEntryHandler : EntryHandler
 {
     private UIView? _accessory;
     private UIButton? _dismiss;
+    private NSObject? _keyboardFrameObserver;
 
     protected override MauiTextField CreatePlatformView() => new()
     {
@@ -38,12 +40,55 @@ public sealed class TrackZEntryHandler : EntryHandler
         _dismiss.TouchUpInside += DismissKeyboard;
         _accessory.AddSubview(_dismiss);
         platformView.InputAccessoryView = _accessory;
+        platformView.EditingDidBegin += OnEditingDidBegin;
+        _keyboardFrameObserver = UIKeyboard.Notifications.ObserveDidChangeFrame((_, _) => RevealFocusedInput());
     }
 
     private void DismissKeyboard(object? sender, EventArgs args) => PlatformView?.ResignFirstResponder();
 
+    private void OnEditingDidBegin(object? sender, EventArgs args) => RevealFocusedInput();
+
+    private void RevealFocusedInput()
+    {
+        // The keyboard safe-area resize can happen after editing begins. Re-evaluate
+        // on its final frame too; otherwise an already-focused field remains clipped.
+        if (VirtualView is not Entry view) return;
+        var expectedField = PlatformView;
+        view.Dispatcher.Dispatch(() =>
+        {
+            if (PlatformView is not { IsFirstResponder: true } field || field.Window is null
+                || !ReferenceEquals(field, expectedField)) return;
+            field.Window.LayoutIfNeeded();
+            for (var parent = field.Superview; parent is not null; parent = parent.Superview)
+            {
+                if (parent is not UIScrollView scroll) continue;
+                // MauiScrollView suppresses native ScrollRectToVisible while its
+                // keyboard manager is active. Move only the vertical offset;
+                // MakeVisible can also produce an unwanted horizontal offset.
+                var target = field.ConvertRectToView(field.Bounds, scroll);
+                var offset = (double)scroll.ContentOffset.Y;
+                var visibleTop = offset + (double)scroll.AdjustedContentInset.Top;
+                var visibleBottom = offset + (double)scroll.Bounds.Height
+                    - (double)scroll.AdjustedContentInset.Bottom;
+                if (target.Bottom + 16 > visibleBottom)
+                    offset += (double)target.Bottom + 16 - visibleBottom;
+                else if (target.Top - 16 < visibleTop)
+                    offset -= visibleTop - ((double)target.Top - 16);
+                var min = -(double)scroll.AdjustedContentInset.Top;
+                var max = Math.Max(min, (double)(scroll.ContentSize.Height - scroll.Bounds.Height
+                    + scroll.AdjustedContentInset.Bottom));
+                scroll.SetContentOffset(new CGPoint(scroll.ContentOffset.X, Math.Clamp(offset, min, max)),
+                    !UIAccessibility.IsReduceMotionEnabled);
+                break;
+            }
+        });
+    }
+
     protected override void DisconnectHandler(MauiTextField platformView)
     {
+        platformView.EditingDidBegin -= OnEditingDidBegin;
+        _keyboardFrameObserver?.Dispose();
+        _keyboardFrameObserver = null;
         platformView.InputAccessoryView = null;
         if (_dismiss is not null) _dismiss.TouchUpInside -= DismissKeyboard;
         _dismiss?.Dispose();

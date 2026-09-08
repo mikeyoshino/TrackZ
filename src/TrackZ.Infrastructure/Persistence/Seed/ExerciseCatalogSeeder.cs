@@ -19,6 +19,20 @@ public sealed class ExerciseCatalogSeeder(AppDbContext database, IExerciseCatalo
         var items = ExerciseManifest.Load(catalogPath);
         await using var transaction = await database.Database.BeginTransactionAsync(cancellationToken);
 
+        var supplemental = await database.Exercises.SingleOrDefaultAsync(e =>
+            e.Id == SupplementalExercises.SeatedBarbellShoulderPressId, cancellationToken);
+        if (supplemental is null)
+        {
+            if (await database.Exercises.AnyAsync(e => e.OwnerId == null &&
+                e.NormalizedName == SupplementalExercises.SeatedBarbellShoulderPressName.ToUpperInvariant(), cancellationToken))
+                throw new InvalidOperationException("Supplemental shoulder press conflicts with an existing system definition.");
+            database.Exercises.Add(ExerciseDefinition.CreateSystem(SupplementalExercises.SeatedBarbellShoulderPressId,
+                SupplementalExercises.SeatedBarbellShoulderPressName, BodyPart.Shoulders, TrackingMode.Weighted));
+        }
+        else if (!supplemental.IsSystem || supplemental.IsArchived || supplemental.Name != SupplementalExercises.SeatedBarbellShoulderPressName
+            || supplemental.BodyPart != BodyPart.Shoulders || supplemental.TrackingMode != TrackingMode.Weighted)
+            throw new InvalidOperationException("Supplemental shoulder press definition is inconsistent.");
+
         var ids = items.Select(item => item.Id).ToArray();
         var normalizedNames = items.Select(item => item.Name.ToUpperInvariant()).ToArray();
         var existingById = await database.Exercises

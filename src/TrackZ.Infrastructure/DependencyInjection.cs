@@ -51,6 +51,7 @@ public static class DependencyInjection
         services.AddScoped<IStreakStore>(provider => provider.GetRequiredService<AppDbContext>());
         services.AddScoped<IBadgeStore>(provider => provider.GetRequiredService<AppDbContext>());
         services.AddScoped<ProgressReadStore>();
+        services.AddScoped<IMuscleCoverageReadStore, MuscleCoverageReadStore>();
         services.AddScoped<IProgressReadStore>(provider => provider.GetRequiredService<ProgressReadStore>());
         services.AddScoped<IMotivationPreferenceStore>(provider => provider.GetRequiredService<ProgressReadStore>());
         services.AddScoped<IUserProgressReconciliationStore>(provider => provider.GetRequiredService<AppDbContext>());

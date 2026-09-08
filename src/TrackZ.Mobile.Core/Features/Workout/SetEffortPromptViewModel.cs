@@ -594,13 +594,13 @@ public sealed class SetEffortPromptViewModel : INotifyPropertyChanged
         TrackingMode mode,
         LocalSet set) =>
         new(set.Id, mode, set.WeightKg, set.AssistedKg, set.Reps,
-            set.Effort, set.CompletedAt, set.Order);
+            set.Effort, set.CompletedAt, set.Order, set.EffortScore, set.HasPain);
 
     private static HypertrophyGuidanceSet FromHistory(
         TrackingMode mode,
         WorkoutSetDto set) =>
         new(set.Id, mode, set.WeightKg, set.AssistedKg, set.Reps,
-            set.Effort, set.CompletedAt, set.Order);
+            set.Effort, set.CompletedAt, set.Order, set.EffortScore, set.HasPain);
 
     private void ShowIncrementValidation()
     {

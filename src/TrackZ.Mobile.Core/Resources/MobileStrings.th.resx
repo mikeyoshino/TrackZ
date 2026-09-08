@@ -28,6 +28,8 @@
   <data name="SaveExercise" xml:space="preserve"><value>บันทึกท่า</value></data>
   <data name="UnsupportedExerciseImage" xml:space="preserve"><value>กรุณาเลือกรูป JPEG, PNG หรือ WebP</value></data>
   <data name="ImageNotImported" xml:space="preserve"><value>นำเข้ารูปไม่สำเร็จ</value></data>
+  <data name="CameraUnavailable" xml:space="preserve"><value>อุปกรณ์นี้ไม่รองรับการถ่ายรูป กรุณาเลือกจากคลังแทน</value></data>
+  <data name="PhotoAccessDenied" xml:space="preserve"><value>TrackZ เปิดกล้องหรือคลังรูปไม่ได้ กรุณาอนุญาตการเข้าถึงในการตั้งค่า</value></data>
   <data name="ExerciseNotSaved" xml:space="preserve"><value>บันทึกท่าไม่สำเร็จ</value></data>
   <data name="ExerciseSaveFailedFormat" xml:space="preserve"><value>บันทึกท่าไม่สำเร็จ ({0})</value></data>
   <data name="Okay" xml:space="preserve"><value>ตกลง</value></data>

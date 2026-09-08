@@ -718,7 +718,10 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
                             set.CompletedAt,
                             set.UpdatedAt,
                             set.Effort,
-                            set.PlateCount))
+                            set.PlateCount,
+                            set.EffortScore,
+                            set.IsWarmup,
+                            set.HasPain))
                         .ToList()))
                 .ToList()))
             .ToList();

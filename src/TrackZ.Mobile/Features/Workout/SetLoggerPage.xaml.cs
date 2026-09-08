@@ -8,6 +8,9 @@ namespace TrackZ.Mobile.Features.Workout;
 
 public partial class SetLoggerPage : ContentPage, IQueryAttributable
 {
+    private void OnEffortDragStarted(object? sender, EventArgs eventArgs) =>
+        _viewModel.SelectCurrentEffort();
+
     private readonly SetLoggerViewModel _viewModel;
     private readonly MauiSetSavedFeedback _feedback;
     private readonly ISetSavedPulseDriver _pulse;

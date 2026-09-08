@@ -1368,13 +1368,18 @@ public sealed class SyncCoordinator(
                 await ExecuteAsync(connection, transaction, """
                     INSERT INTO LocalSet
                         (Id, OperationId, WorkoutExerciseId, SortOrder, WeightKg, AssistedKg,
-                         Reps, Effort, CompletedAt, UpdatedAt, DeletedAt, Version, BaseVersion, PlateCount)
+                         Reps, Effort, CompletedAt, UpdatedAt, DeletedAt, Version, BaseVersion, PlateCount,
+                         EffortScore, IsWarmup, HasPain)
                     VALUES ($id, $id, $exerciseId, $order, $weight, $assisted,
-                            $reps, $effort, $completedAt, $updatedAt, $deletedAt, $version, $version, $plateCount)
+                            $reps, $effort, $completedAt, $updatedAt, $deletedAt, $version, $version, $plateCount,
+                            $effortScore, $isWarmup, $hasPain)
                     ON CONFLICT(Id) DO UPDATE SET
                         SortOrder = excluded.SortOrder, WeightKg = excluded.WeightKg,
                         AssistedKg = excluded.AssistedKg, PlateCount = excluded.PlateCount, Reps = excluded.Reps,
                         Effort = excluded.Effort,
+                        EffortScore = excluded.EffortScore,
+                        IsWarmup = excluded.IsWarmup,
+                        HasPain = excluded.HasPain,
                         CompletedAt = excluded.CompletedAt, UpdatedAt = excluded.UpdatedAt,
                         DeletedAt = excluded.DeletedAt, Version = excluded.Version,
                         BaseVersion = excluded.BaseVersion;
@@ -1383,6 +1388,8 @@ public sealed class SyncCoordinator(
                     ("$weight", set.WeightKg), ("$assisted", set.AssistedKg), ("$reps", set.Reps),
                     ("$plateCount", set.PlateCount),
                     ("$effort", set.Effort is null ? null : (int)set.Effort.Value),
+                    ("$effortScore", set.EffortScore), ("$isWarmup", set.IsWarmup),
+                    ("$hasPain", set.HasPain),
                     ("$completedAt", Timestamp(set.CompletedAt)), ("$updatedAt", Timestamp(set.UpdatedAt)),
                     ("$deletedAt", Timestamp(set.DeletedAt)), ("$version", set.Version));
             }

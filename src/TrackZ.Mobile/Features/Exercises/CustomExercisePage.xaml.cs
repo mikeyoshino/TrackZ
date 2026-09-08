@@ -78,9 +78,20 @@ public partial class CustomExercisePage : ContentPage, IQueryAttributable
         }
         catch (Exception exception) when (exception is InvalidDataException or IOException or UnauthorizedAccessException or PermissionException or FeatureNotSupportedException)
         {
-            await DisplayAlertAsync(_text.ImageNotImported, _text.ImageNotImported, _text.Okay);
+            await DisplayAlertAsync(
+                _text.ImageNotImported,
+                ResolveImageFailureMessage(exception, _text),
+                _text.Okay);
         }
     }
+
+    internal static string ResolveImageFailureMessage(Exception exception, MobileTextSet text) =>
+        exception switch
+        {
+            FeatureNotSupportedException => text.CameraUnavailable,
+            PermissionException => text.PhotoAccessDenied,
+            _ => text.ImageNotImported
+        };
 
     internal void SetFormInputFocused(bool isFocused) =>
         CustomExerciseActions.IsVisible = !isFocused;

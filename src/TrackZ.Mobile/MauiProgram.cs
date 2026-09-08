@@ -140,6 +140,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<IRetryDelay, SystemRetryDelay>();
 		builder.Services.AddSingleton<IUiDispatcher, MauiUiDispatcher>();
 		builder.Services.AddSingleton<IFileSystem>(_ => FileSystem.Current);
+		builder.Services.AddSingleton<IMediaPicker>(_ => MediaPicker.Default);
 		builder.Services.AddSingleton<ILocalExerciseImagePicker, MauiLocalExerciseImagePicker>();
 		builder.Services.AddSingleton<ILocalExerciseImageCapture, MauiLocalExerciseImageCapture>();
 		builder.Services.AddSingleton<IExerciseFileStore, LocalExerciseFileStore>();
@@ -251,6 +252,8 @@ public static class MauiProgram
 		builder.Services.AddTransient<HistoryConflictSheetPage>();
 		builder.Services.AddTransient<WorkoutSummaryPage>();
 		builder.Services.AddScoped<ExerciseProgressPage>();
+		builder.Services.AddScoped<MuscleCoverageSource>();
+		builder.Services.AddScoped<MuscleCoveragePage>();
 		builder.Services.AddScoped<ProfilePage>();
 		builder.Services.AddScoped<TrainPage>();
 		builder.Services.AddTransient<AuthFormViewModel>();

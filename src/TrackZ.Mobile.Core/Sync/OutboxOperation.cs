@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using TrackZ.Contracts.Errors;
 
 namespace TrackZ.Mobile.Sync;
@@ -90,7 +91,10 @@ public sealed record SaveSetOutboxPayload(
     string? AssistedKg,
     int Reps,
     DateTimeOffset CompletedAt,
-    int? PlateCount = null);
+    int? PlateCount = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? EffortScore = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? IsWarmup = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? HasPain = null);
 
 public sealed record RecordSetEffortOutboxPayload(
     Guid WorkoutId,
@@ -111,7 +115,11 @@ public sealed record EditSetOutboxPayload(
     string? AssistedKg,
     int Reps,
     DateTimeOffset UpdatedAt,
-    int? PlateCount = null);
+    int? PlateCount = null,
+    bool CoachingMetadataSpecified = false,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? EffortScore = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? IsWarmup = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? HasPain = null);
 
 public sealed record DeleteSetOutboxPayload(
     Guid WorkoutId,

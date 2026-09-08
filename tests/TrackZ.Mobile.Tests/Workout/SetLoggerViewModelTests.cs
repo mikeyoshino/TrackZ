@@ -62,6 +62,123 @@ public sealed class SetLoggerViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task Effort_drag_maps_to_plain_language_and_clear_restores_unanswered_state()
+    {
+        var fixture = await CreateFixtureAsync(TrackingMode.Weighted);
+        var sut = fixture.CreateLogger(null);
+        await sut.LoadAsync(ExerciseId, "Bench Press");
+        sut.BeginSetCommand.Execute(null);
+
+        Assert.Null(sut.EffortScore);
+        Assert.Equal("Drag to describe the effort", sut.EffortDescription);
+        sut.EffortValue = 84;
+        Assert.Equal(84, sut.EffortScore);
+        Assert.Equal("Barely manageable", sut.EffortDescription);
+        Assert.StartsWith("#", sut.EffortColorHex);
+        sut.ClearEffortCommand.Execute(null);
+        Assert.Null(sut.EffortScore);
+        Assert.Equal("Drag to describe the effort", sut.EffortDescription);
+    }
+
+    [Fact]
+    public async Task Editing_and_canceling_refresh_all_effort_bindings_and_clear_availability()
+    {
+        var fixture = await CreateFixtureAsync(TrackingMode.Weighted);
+        var sut = fixture.CreateLogger(null);
+        await sut.LoadAsync(ExerciseId, "Bench Press");
+        sut.BeginSetCommand.Execute(null);
+        sut.WeightKg = 35m;
+        sut.Reps = 8;
+        sut.EffortValue = 84;
+        await sut.SaveDraftSetCommand.ExecuteAsync();
+        var row = Assert.Single(sut.TodaySets);
+        sut.ClearEffortCommand.Execute(null);
+
+        var changed = new List<string?>();
+        var clearChanged = 0;
+        sut.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+        sut.ClearEffortCommand.CanExecuteChanged += (_, _) => clearChanged++;
+        sut.EditSetCommand.Execute(row);
+
+        Assert.Contains(nameof(sut.EffortDescription), changed);
+        Assert.Contains(nameof(sut.EffortColorHex), changed);
+        Assert.True(clearChanged > 0);
+        Assert.True(sut.ClearEffortCommand.CanExecute(null));
+        Assert.Equal("Barely manageable", sut.EffortDescription);
+
+        changed.Clear();
+        clearChanged = 0;
+        sut.CancelDraftSetCommand.Execute(null);
+        sut.BeginSetCommand.Execute(null);
+        Assert.Contains(nameof(sut.EffortDescription), changed);
+        Assert.Contains(nameof(sut.EffortColorHex), changed);
+        Assert.True(clearChanged > 0);
+        Assert.False(sut.ClearEffortCommand.CanExecute(null));
+        Assert.Null(sut.EffortScore);
+    }
+
+    [Fact]
+    public async Task Inline_effort_save_publishes_guidance_and_pain_suppresses_it()
+    {
+        var fixture = await CreateFixtureAsync(TrackingMode.Weighted);
+        var sut = fixture.CreateLogger(null);
+        await sut.LoadAsync(ExerciseId, "Bench Press");
+        sut.BeginSetCommand.Execute(null);
+        sut.WeightKg = 70m;
+        sut.Reps = 10;
+        sut.EffortValue = 52;
+        await sut.SaveDraftSetCommand.ExecuteAsync();
+        Assert.True(sut.HasGuidanceRecommendation);
+
+        sut.BeginSetCommand.Execute(null);
+        sut.WeightKg = 70m;
+        sut.Reps = 10;
+        sut.EffortValue = 52;
+        sut.HasPain = true;
+        await sut.SaveDraftSetCommand.ExecuteAsync();
+        Assert.False(sut.HasGuidanceRecommendation);
+    }
+
+    [Fact]
+    public async Task Account_reset_clears_open_editor_coaching_state()
+    {
+        var fixture = await CreateFixtureAsync(TrackingMode.Weighted);
+        var sut = fixture.CreateLogger(null);
+        await sut.LoadAsync(ExerciseId, "Bench Press");
+        sut.BeginSetCommand.Execute(null);
+        sut.EffortValue = 90;
+        sut.IsWarmup = true;
+        sut.HasPain = true;
+
+        await fixture.Boundary.ResetAsync(fixture.Coordinator.ClearPrivateDataAsync);
+
+        Assert.False(sut.HasDraftSet);
+        Assert.Null(sut.EffortScore);
+        Assert.False(sut.IsWarmup);
+        Assert.False(sut.HasPain);
+        Assert.False(sut.HasGuidanceRecommendation);
+    }
+
+    [Fact]
+    public async Task Imperial_inline_guidance_converts_one_pound_increment_to_kilograms_once()
+    {
+        var fixture = await CreateFixtureAsync(TrackingMode.Weighted);
+        var units = new TestWeightPreference(WeightDisplayUnit.Pounds);
+        var sut = fixture.CreateLogger(null, unitPreference: units);
+        await sut.LoadAsync(ExerciseId, "Bench Press");
+        foreach (var reps in new[] { 12, 12 })
+        {
+            sut.BeginSetCommand.Execute(null);
+            sut.WeightKg = 70m;
+            sut.Reps = reps;
+            sut.EffortValue = 52;
+            await sut.SaveDraftSetCommand.ExecuteAsync();
+        }
+        Assert.Contains("155.32", sut.GuidanceRecommendation, StringComparison.Ordinal);
+        Assert.Contains("lb", sut.GuidanceRecommendation, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task Previous_session_without_catalog_metadata_never_masquerades_as_an_all_time_pr()
     {
         var fixture = await CreateFixtureAsync(TrackingMode.Weighted);
@@ -1838,6 +1955,13 @@ public sealed class SetLoggerViewModelTests : IDisposable
         new(id, name, BodyPart.Chest, mode, null, null, null, null, false);
 
     private static decimal? Decimal(double? value) => value is null ? null : Convert.ToDecimal(value.Value);
+
+    private sealed class TestWeightPreference(WeightDisplayUnit current) : IWeightUnitPreference
+    {
+        public WeightDisplayUnit Current { get; private set; } = current;
+        public event EventHandler? Changed;
+        public void Set(WeightDisplayUnit unit) { Current = unit; Changed?.Invoke(this, EventArgs.Empty); }
+    }
 
     private sealed record Fixture(
         TrackZLocalDatabase Database,

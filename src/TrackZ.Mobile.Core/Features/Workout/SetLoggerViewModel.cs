@@ -107,7 +107,10 @@ public sealed record SetDisplayRow(
     int Reps,
     TrackingMode TrackingMode,
     string MeasurementText,
-    int? PlateCount = null)
+    int? PlateCount = null,
+    int? EffortScore = null,
+    bool? IsWarmup = null,
+    bool? HasPain = null)
 {
     public int SetNumber => Order + 1;
 }
@@ -165,6 +168,17 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
     private ExerciseHistorySessionDto? _previousSession;
     private PreviousWorkoutReference? _previousReference;
     private bool _draftInputEdited;
+    private double _effortValue = 50;
+    private int? _effortScore;
+    private bool _isWarmup;
+    private bool _hasPain;
+    private Guid? _editingSetId;
+    private bool? _originalIsWarmup;
+    private bool? _originalHasPain;
+    private bool _warmupDirty;
+    private bool _painDirty;
+    private bool _effortDirty;
+    private string? _guidanceRecommendation;
 
     public SetLoggerViewModel(
         ActiveWorkoutCoordinator coordinator,
@@ -194,6 +208,8 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         MatchLastCommand = new RelayCommand(_ => MatchLast(), _ => CanMatchLast);
         CompleteSetCommand = new AsyncCommand(_ => CompleteSetAsync(), _ => CanCompleteSet);
         BeginSetCommand = new RelayCommand(_ => BeginSet(), _ => CanBeginSet);
+        ClearEffortCommand = new RelayCommand(_ => ClearEffort(), _ => EffortScore is not null);
+        EditSetCommand = new RelayCommand(EditSet, _ => !_disposed && !IsBusy);
         CancelDraftSetCommand = new RelayCommand(_ => CancelDraftSet(), _ => CanCancelDraftSet);
         SaveDraftSetCommand = new AsyncCommand(_ => CompleteSetAsync(), _ => CanSaveDraftSet);
         ToggleLastWorkoutCommand = new RelayCommand(_ => IsLastWorkoutExpanded = !IsLastWorkoutExpanded, _ => HasLastSets);
@@ -217,8 +233,66 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
     public ICommand MatchLastCommand { get; }
     public AsyncCommand CompleteSetCommand { get; }
     public ICommand BeginSetCommand { get; }
+    public ICommand ClearEffortCommand { get; }
+    public ICommand EditSetCommand { get; }
     public ICommand CancelDraftSetCommand { get; }
     public AsyncCommand SaveDraftSetCommand { get; }
+
+    public double EffortValue
+    {
+        get => _effortValue;
+        set
+        {
+            var normalized = Math.Clamp(value, 0, 100);
+            if (!Set(ref _effortValue, normalized)) return;
+            EffortScore = (int)Math.Round(normalized, MidpointRounding.AwayFromZero);
+        }
+    }
+
+    public int? EffortScore
+    {
+        get => _effortScore;
+        set
+        {
+            if (!Set(ref _effortScore, value)) return;
+            _effortDirty = true;
+            NotifyEffortPresentation();
+        }
+    }
+
+    private void NotifyEffortPresentation()
+    {
+        OnPropertyChanged(nameof(EffortDescription));
+        OnPropertyChanged(nameof(EffortColorHex));
+        (ClearEffortCommand as RelayCommand)?.RaiseCanExecuteChanged();
+    }
+    public string EffortDescription => EffortScore switch
+    {
+        null => _text.EffortDragPrompt,
+        <= 25 => _text.EffortComfortable,
+        <= 55 => _text.EffortGood,
+        <= 80 => _text.EffortHard,
+        _ => _text.EffortBarelyManageable
+    };
+    public string EffortColorHex => InterpolateEffortColor(EffortScore ?? 0);
+
+    public bool IsWarmup
+    {
+        get => _isWarmup;
+        set { if (Set(ref _isWarmup, value)) _warmupDirty = true; }
+    }
+
+    public bool HasPain
+    {
+        get => _hasPain;
+        set { if (Set(ref _hasPain, value)) _painDirty = true; }
+    }
+    public string? GuidanceRecommendation
+    {
+        get => _guidanceRecommendation;
+        private set { if (Set(ref _guidanceRecommendation, value)) OnPropertyChanged(nameof(HasGuidanceRecommendation)); }
+    }
+    public bool HasGuidanceRecommendation => !string.IsNullOrWhiteSpace(GuidanceRecommendation);
     public ICommand ToggleLastWorkoutCommand { get; }
     public ICommand IncrementWeightCommand { get; }
     public ICommand DecrementWeightCommand { get; }
@@ -820,7 +894,20 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
                     TrackingMode.Bodyweight => new LocalSet(null, null, Reps),
                     _ => throw new InvalidOperationException("Tracking mode is invalid.")
                 };
-                saved = await _coordinator.SaveSetAsync(exerciseId, set, token);
+                set = set with
+                {
+                    EffortScore = EffortScore,
+                    IsWarmup = IsWarmup,
+                    HasPain = HasPain
+                };
+                saved = _editingSetId is { } editingSetId
+                    ? await _coordinator.EditSetAsync(exerciseId, editingSetId,
+                        new SetMeasurement(set.WeightKg, set.AssistedKg, set.Reps, set.PlateCount),
+                        EffortScore,
+                        _warmupDirty ? IsWarmup : _originalIsWarmup,
+                        _painDirty ? HasPain : _originalHasPain,
+                        _effortDirty || _warmupDirty || _painDirty, token)
+                    : await _coordinator.SaveSetAsync(exerciseId, set, token);
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested
                 || _boundary.IsCancellationRequested(generation))
@@ -837,7 +924,14 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
 
             if (_disposed || _boundary.IsCancellationRequested(generation)) return;
             var presentation = CreateSavedPresentation(saved);
-            TodaySets.Add(Row(saved, TrackingMode));
+            if (_editingSetId is { } editedId)
+            {
+                var index = TodaySets.ToList().FindIndex(item => item.Id == editedId);
+                if (index >= 0) TodaySets[index] = Row(saved, TrackingMode);
+            }
+            else TodaySets.Add(Row(saved, TrackingMode));
+            _editingSetId = null;
+            PublishInlineGuidance(saved);
             IsLastWorkoutExpanded = false;
             HasDraftSet = false;
             OnPropertyChanged(nameof(CanMatchLast));
@@ -914,6 +1008,7 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
     private void BeginSet()
     {
         if (!CanBeginSet) return;
+        _editingSetId = null;
         var suggestion = TodaySets.Count < LastSets.Count
             ? LastSets[TodaySets.Count]
             : TodaySets.LastOrDefault();
@@ -922,10 +1017,99 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
         _draftBaselinePlateCount = suggestion?.PlateCount;
         _draftBaselineReps = suggestion?.Reps ?? 0;
         RestoreDraftBaseline();
+        _editingSetId = null;
         ErrorMessage = null;
         HasDraftSet = true;
+        EffortScore = null;
+        _effortValue = 50;
+        OnPropertyChanged(nameof(EffortValue));
+        IsWarmup = false;
+        HasPain = false;
+        _originalIsWarmup = false;
+        _originalHasPain = false;
+        _warmupDirty = _painDirty = _effortDirty = false;
         _draftInputEdited = false;
         OnPropertyChanged(nameof(ValidationMessage));
+    }
+
+    private void EditSet(object? parameter)
+    {
+        if (parameter is not SetDisplayRow row || _disposed || IsBusy) return;
+        _editingSetId = row.Id;
+        LoadMode = row.PlateCount is null ? LoadEntryMode.ExactWeight : LoadEntryMode.PlateCount;
+        WeightKg = row.WeightKg;
+        AssistedKg = row.AssistedKg;
+        PlateCount = row.PlateCount;
+        Reps = row.Reps;
+        _effortScore = row.EffortScore;
+        OnPropertyChanged(nameof(EffortScore));
+        _effortValue = row.EffortScore ?? 50;
+        OnPropertyChanged(nameof(EffortValue));
+        NotifyEffortPresentation();
+        _isWarmup = row.IsWarmup ?? false;
+        _hasPain = row.HasPain ?? false;
+        OnPropertyChanged(nameof(IsWarmup));
+        OnPropertyChanged(nameof(HasPain));
+        _originalIsWarmup = row.IsWarmup;
+        _originalHasPain = row.HasPain;
+        _warmupDirty = _painDirty = _effortDirty = false;
+        ErrorMessage = null;
+        HasDraftSet = true;
+    }
+
+    private void ClearEffort()
+    {
+        EffortScore = null;
+        _effortValue = 50;
+        OnPropertyChanged(nameof(EffortValue));
+    }
+
+    public void SelectCurrentEffort() =>
+        EffortScore = (int)Math.Round(EffortValue, MidpointRounding.AwayFromZero);
+
+    private void PublishInlineGuidance(LocalSet saved)
+    {
+        GuidanceRecommendation = null;
+        if (saved.IsWarmup != false || saved.EffortScore is null || saved.HasPain == true) return;
+        var current = new HypertrophyGuidanceSet(saved.Id, TrackingMode, saved.WeightKg,
+            saved.AssistedKg, saved.Reps, saved.Effort, saved.CompletedAt, saved.Order,
+            saved.EffortScore, saved.HasPain);
+        var prior = TodaySets.Where(row => row.Id != saved.Id && row.IsWarmup == false)
+            .OrderByDescending(row => row.Order)
+            .Select(row => new HypertrophyGuidanceSet(row.Id, TrackingMode, row.WeightKg,
+                row.AssistedKg, row.Reps, null, saved.CompletedAt, row.Order,
+                row.EffortScore, row.HasPain)).ToArray();
+        var incrementKg = DisplayUnit == WeightDisplayUnit.Kilograms
+            ? WeightStep
+            : decimal.Round(WeightStep / PoundsPerKilogram, 3, MidpointRounding.AwayFromZero);
+        var result = HypertrophyLoadGuidancePolicy.Evaluate(new(current, prior, incrementKg));
+        GuidanceRecommendation = result.Action switch
+        {
+            HypertrophyGuidanceAction.Increase when result.SuggestedWeightKg is { } weight =>
+                string.Format(CultureInfo.CurrentCulture, _text.GuidanceTryWeightNextSetFormat,
+                    MeasurementValue(weight), WeightUnitLabel),
+            HypertrophyGuidanceAction.Increase when result.SuggestedAssistedKg is { } assistance =>
+                string.Format(CultureInfo.CurrentCulture, _text.GuidanceTryAssistanceNextSetFormat,
+                    MeasurementValue(assistance), WeightUnitLabel),
+            HypertrophyGuidanceAction.IncreaseRepetitions when result.SuggestedReps is { } reps =>
+                string.Format(CultureInfo.CurrentCulture, _text.GuidanceTryRepsFormat, reps),
+            HypertrophyGuidanceAction.Keep => _text.GuidanceKeepCurrentLoad,
+            HypertrophyGuidanceAction.Reduce => _text.GuidanceReduceDifficulty,
+            _ => null
+        };
+        OnPropertyChanged(nameof(HasGuidanceRecommendation));
+    }
+
+    internal static string InterpolateEffortColor(int score)
+    {
+        score = Math.Clamp(score, 0, 100);
+        var stops = new[] { (0, 85, 200, 120), (38, 200, 255, 61), (68, 240, 163, 58), (100, 255, 105, 105) };
+        var upper = Array.FindIndex(stops, stop => stop.Item1 >= score);
+        if (upper <= 0) return "#55C878";
+        var left = stops[upper - 1]; var right = stops[upper];
+        var ratio = (double)(score - left.Item1) / (right.Item1 - left.Item1);
+        static int Mix(int a, int b, double ratio) => (int)Math.Round(a + (b - a) * ratio);
+        return $"#{Mix(left.Item2, right.Item2, ratio):X2}{Mix(left.Item3, right.Item3, ratio):X2}{Mix(left.Item4, right.Item4, ratio):X2}";
     }
 
     public bool TryApplyGuidanceToNextDraft(HypertrophyGuidanceResult result)
@@ -951,7 +1135,20 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
     {
         if (!CanCancelDraftSet) return;
         RestoreDraftBaseline();
+        _editingSetId = null;
         HasDraftSet = false;
+        _originalIsWarmup = _originalHasPain = null;
+        _warmupDirty = _painDirty = _effortDirty = false;
+        _effortScore = null;
+        _effortValue = 50;
+        _isWarmup = false;
+        _hasPain = false;
+        GuidanceRecommendation = null;
+        OnPropertyChanged(nameof(EffortScore));
+        OnPropertyChanged(nameof(EffortValue));
+        NotifyEffortPresentation();
+        OnPropertyChanged(nameof(IsWarmup));
+        OnPropertyChanged(nameof(HasPain));
         _draftInputEdited = false;
         ErrorMessage = null;
     }
@@ -1295,11 +1492,13 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
 
     private SetDisplayRow Row(WorkoutSetDto set, TrackingMode mode) =>
         new(set.Id, set.Order, set.WeightKg, set.AssistedKg, set.Reps, mode,
-            Measurement(set.WeightKg, set.AssistedKg, set.Reps, mode, set.PlateCount), set.PlateCount);
+            Measurement(set.WeightKg, set.AssistedKg, set.Reps, mode, set.PlateCount), set.PlateCount,
+            set.EffortScore, set.IsWarmup, set.HasPain);
 
     private SetDisplayRow Row(LocalSet set, TrackingMode mode) =>
         new(set.Id, set.Order, set.WeightKg, set.AssistedKg, set.Reps, mode,
-            Measurement(set.WeightKg, set.AssistedKg, set.Reps, mode, set.PlateCount), set.PlateCount);
+            Measurement(set.WeightKg, set.AssistedKg, set.Reps, mode, set.PlateCount), set.PlateCount,
+            set.EffortScore, set.IsWarmup, set.HasPain);
 
     private string Measurement(decimal? weight, decimal? assisted, int reps, TrackingMode mode, int? plateCount = null) => mode switch
     {
@@ -1473,6 +1672,22 @@ public sealed class SetLoggerViewModel : INotifyPropertyChanged
 
     private void ClearPrivateState()
     {
+        _editingSetId = null;
+        _originalIsWarmup = null;
+        _originalHasPain = null;
+        _warmupDirty = false;
+        _painDirty = false;
+        _effortDirty = false;
+        _effortScore = null;
+        _effortValue = 50;
+        _isWarmup = false;
+        _hasPain = false;
+        GuidanceRecommendation = null;
+        OnPropertyChanged(nameof(EffortScore));
+        OnPropertyChanged(nameof(EffortValue));
+        NotifyEffortPresentation();
+        OnPropertyChanged(nameof(IsWarmup));
+        OnPropertyChanged(nameof(HasPain));
         _workoutId = Guid.Empty;
         _exerciseId = Guid.Empty;
         ExerciseName = string.Empty;

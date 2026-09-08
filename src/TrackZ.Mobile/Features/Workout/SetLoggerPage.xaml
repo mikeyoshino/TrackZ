@@ -8,7 +8,7 @@
     xmlns:workout="clr-namespace:TrackZ.Mobile.Features.Workout;assembly=TrackZ.Mobile.Core"
     x:DataType="workout:SetLoggerViewModel"
     BackgroundColor="{DynamicResource TrackZBackground}"
-    SafeAreaEdges="Container"
+    SafeAreaEdges="All"
     Shell.TabBarIsVisible="False"
     Title="{Binding Text.SetLoggerTitle}">
     <Grid Padding="0,12,0,12" RowDefinitions="*,Auto" RowSpacing="12">
@@ -47,7 +47,7 @@
 
                         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                             <Label x:Name="WarmupSetLabel" Style="{DynamicResource TrackZHomeMetricLabelStyle}" VerticalTextAlignment="Center" />
-                            <Switch x:Name="WarmupSetSwitch" Grid.Column="1" IsEnabled="{Binding CanCancelDraftSet}" Style="{DynamicResource TrackZSwitchStyle}" />
+                            <Switch x:Name="WarmupSetSwitch" Grid.Column="1" IsEnabled="{Binding CanCancelDraftSet}" IsToggled="{Binding IsWarmup, Mode=TwoWay}" Style="{DynamicResource TrackZSwitchStyle}" />
                         </Grid>
 
                         <VerticalStackLayout IsVisible="{Binding UsesWeight}" Spacing="8">
@@ -105,9 +105,46 @@
 
                         <Label IsVisible="{Binding UsesPlateCount}" Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Text.PlateCountHint}" />
                         <Label IsVisible="{Binding IsAssisted}" Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding Text.LowerAssistanceProgress}" />
+                        <VerticalStackLayout Spacing="8">
+                            <Label Text="{Binding Text.EffortInlineLabel}" Style="{DynamicResource TrackZSecondaryStyle}" />
+                            <Label HorizontalTextAlignment="Center" Text="{Binding EffortDescription}" TextColor="{Binding EffortColorHex}" Style="{DynamicResource TrackZSectionTitleStyle}" />
+                            <Grid HeightRequest="44">
+                                <Border HeightRequest="8" StrokeThickness="0" VerticalOptions="Center">
+                                    <Border.Background>
+                                        <LinearGradientBrush EndPoint="1,0">
+                                            <GradientStop Color="{DynamicResource TrackZEffortEasy}" Offset="0" />
+                                            <GradientStop Color="{DynamicResource TrackZPrimary}" Offset="0.38" />
+                                            <GradientStop Color="{DynamicResource TrackZEffortOrange}" Offset="0.68" />
+                                            <GradientStop Color="{DynamicResource TrackZDanger}" Offset="1" />
+                                        </LinearGradientBrush>
+                                    </Border.Background>
+                                </Border>
+                                <Slider Minimum="0" Maximum="100" Value="{Binding EffortValue, Mode=TwoWay}" DragStarted="OnEffortDragStarted"
+                                        MinimumTrackColor="{DynamicResource TrackZTransparent}" MaximumTrackColor="{DynamicResource TrackZTransparent}"
+                                        ThumbColor="{DynamicResource TrackZTextPrimary}" SemanticProperties.Description="{Binding EffortDescription}" />
+                            </Grid>
+                            <Grid ColumnDefinitions="*,*">
+                                <Label Text="{Binding Text.EffortEasyEndpoint}" Style="{DynamicResource TrackZPerformanceMetadataStyle}" />
+                                <Label Grid.Column="1" HorizontalTextAlignment="End" Text="{Binding Text.EffortBarelyEndpoint}" Style="{DynamicResource TrackZPerformanceMetadataStyle}" />
+                            </Grid>
+                            <Button Command="{Binding ClearEffortCommand}" Text="{Binding Text.EffortClear}" Style="{DynamicResource TrackZQuietButtonStyle}" />
+                        </VerticalStackLayout>
+
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                            <Label Text="{Binding Text.PainInlineLabel}" Style="{DynamicResource TrackZHomeMetricLabelStyle}" VerticalTextAlignment="Center" />
+                            <Switch Grid.Column="1" IsToggled="{Binding HasPain, Mode=TwoWay}" Style="{DynamicResource TrackZSwitchStyle}" />
+                        </Grid>
+                        <Label IsVisible="{Binding HasPain}" Text="{Binding Text.EffortPainSafety}" Style="{DynamicResource TrackZInlineErrorStyle}" />
                         <Label x:Name="DraftInputHelper" HorizontalTextAlignment="Center" Style="{DynamicResource TrackZSecondaryStyle}" Text="{Binding DraftInputHelperText}" />
                         <Label HorizontalTextAlignment="Center" Style="{DynamicResource TrackZInlineErrorStyle}" Text="{Binding ValidationMessage}" />
                         <Button x:Name="SaveDraftSetButton" Command="{Binding SaveDraftSetCommand}" IsEnabled="{Binding CanSaveDraftSet}" IsVisible="{Binding HasDraftSet}" SemanticProperties.Description="{Binding SaveDraftSetText}" Style="{DynamicResource TrackZPrimaryButtonStyle}" Text="{Binding SaveDraftSetText}" />
+                    </VerticalStackLayout>
+                </Border>
+
+                <Border IsVisible="{Binding HasGuidanceRecommendation}" Style="{DynamicResource TrackZCardStyle}" Stroke="{DynamicResource TrackZPrimary}">
+                    <VerticalStackLayout Spacing="4">
+                        <Label Text="{Binding GuidanceRecommendation}" Style="{DynamicResource TrackZBodyStyle}" />
+                        <Label Text="{Binding Text.GuidanceSafetyQualifier}" Style="{DynamicResource TrackZSecondaryStyle}" />
                     </VerticalStackLayout>
                 </Border>
 
@@ -149,6 +186,9 @@
                         <BindableLayout.ItemTemplate>
                             <DataTemplate x:DataType="workout:SetDisplayRow">
                                 <Border Style="{DynamicResource TrackZCardStyle}">
+                                    <Border.GestureRecognizers>
+                                        <TapGestureRecognizer Command="{Binding Source={x:Reference Page}, Path=BindingContext.EditSetCommand}" CommandParameter="{Binding .}" />
+                                    </Border.GestureRecognizers>
                                     <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
                                         <Label Style="{DynamicResource TrackZPerformanceMetadataStyle}" Text="{Binding SetNumber, StringFormat='#{0}'}" VerticalTextAlignment="Center" />
                                         <Label Grid.Column="1" HorizontalTextAlignment="End" Style="{DynamicResource TrackZBodyStyle}" Text="{Binding MeasurementText}" VerticalTextAlignment="Center" />

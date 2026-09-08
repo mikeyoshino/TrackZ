@@ -40,7 +40,7 @@ public partial class AppShell : Shell
 			new ShellContent
 			{
 				Route = "progress",
-				ContentTemplate = new DataTemplate(() => services.GetRequiredService<ExerciseProgressPage>())
+				ContentTemplate = new DataTemplate(() => services.GetRequiredService<MuscleCoveragePage>())
 			}));
 		tabs.Items.Add(CreateTab(
 			gamificationText.YouTab,

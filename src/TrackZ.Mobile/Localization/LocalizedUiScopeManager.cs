@@ -5,6 +5,7 @@ using TrackZ.Mobile.Features.Exercises;
 using TrackZ.Mobile.Features.History;
 using TrackZ.Mobile.Features.Summary;
 using TrackZ.Mobile.Features.Workout;
+using TrackZ.Mobile.Features.Progress;
 using TrackZ.Mobile.Identity;
 
 namespace TrackZ.Mobile.Localization;
@@ -74,6 +75,7 @@ public sealed class LocalizedUiScopeManager
         {
             Register(nameof(ExercisePickerPage), new ScopedRouteFactory<ExercisePickerPage>(this));
             Register(nameof(ExerciseTechniquePage), new ScopedRouteFactory<ExerciseTechniquePage>(this));
+            Register(nameof(ExerciseProgressPage), new ScopedRouteFactory<ExerciseProgressPage>(this));
             Register("active-workout", new ScopedRouteFactory<WorkoutPage>(this));
             Register(nameof(CustomExercisePage), new ScopedRouteFactory<CustomExercisePage>(this));
             Register(nameof(SetLoggerPage), new ScopedRouteFactory<SetLoggerPage>(this));

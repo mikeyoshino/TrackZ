@@ -218,7 +218,10 @@ public sealed class PushSyncHandler(
                     set.DeletedAt,
                     set.Version,
                     set.Effort,
-                    set.PlateCount)).ToArray())).ToArray());
+                    set.PlateCount,
+                    set.EffortScore,
+                    set.IsWarmup,
+                    set.HasPain)).ToArray())).ToArray());
 
     private sealed record DispatchResult(SyncOperationResultDto Result, SyncMutationResult? Mutation);
 
@@ -501,7 +504,10 @@ internal sealed class SaveSetSyncHandler(
                 payload.WorkoutExerciseId,
                 payload.SetId,
                 new SetMeasurement(ParseDecimal(payload.WeightKg), ParseDecimal(payload.AssistedKg), payload.Reps, payload.PlateCount),
-                payload.CompletedAt);
+                payload.CompletedAt,
+                payload.EffortScore,
+                payload.IsWarmup,
+                payload.HasPain);
             return SyncMutationResult.Applied(workout);
         }
         catch (WorkoutRuleException exception)
@@ -595,6 +601,9 @@ internal sealed class EditSetSyncHandler(
                     payload.Reps,
                     payload.PlateCount),
                 payload.UpdatedAt);
+            if (payload.CoachingMetadataSpecified)
+                workout.EditSetCoaching(payload.WorkoutExerciseId, payload.SetId,
+                    payload.EffortScore, payload.IsWarmup, payload.HasPain, payload.UpdatedAt);
             return SyncMutationResult.Applied(workout);
         }
         catch (WorkoutRuleException exception)

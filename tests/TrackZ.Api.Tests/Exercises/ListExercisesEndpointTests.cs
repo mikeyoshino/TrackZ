@@ -71,7 +71,7 @@ public sealed class ListExercisesEndpointTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Explicit_catalog_deployment_command_makes_all_90_draft_definitions_listable_without_thumbnails()
+    public async Task Explicit_catalog_deployment_command_lists_manifest_and_supplemental_exercises_without_thumbnails()
     {
         var account = await AuthenticateAsync($"catalog-deployment-{Guid.NewGuid():N}@example.com");
         await using (var before = _factory!.Services.CreateAsyncScope())
@@ -102,10 +102,10 @@ public sealed class ListExercisesEndpointTests : IAsyncLifetime
 
         Assert.Equal(HttpStatusCode.OK, secondResponse.StatusCode);
         var secondItems = secondPage!.RootElement.GetProperty("items").EnumerateArray().ToArray();
-        Assert.Equal(40, secondItems.Length);
+        Assert.Equal(41, secondItems.Length);
         Assert.Equal(JsonValueKind.Null, secondPage.RootElement.GetProperty("nextCursor").ValueKind);
         var items = firstItems.Concat(secondItems).ToArray();
-        Assert.Equal(ExerciseManifest.SystemExerciseCount, items.Length);
+        Assert.Equal(ExerciseManifest.SystemExerciseCount + 1, items.Length);
         Assert.Equal(items.Length, items.Select(item => item.GetProperty("id").GetGuid()).Distinct().Count());
         Assert.All(items, item => Assert.Equal(JsonValueKind.Null, item.GetProperty("thumbnailUrl").ValueKind));
         await using var verify = _factory.Services.CreateAsyncScope();

@@ -8,12 +8,19 @@ namespace TrackZ.Mobile.Features.Exercises.Models;
 public sealed class CachedExercise : INotifyPropertyChanged
 {
     private bool _isSelected;
+    private string? _thumbnailUri;
 
     public required Guid Id { get; init; }
     public required string Name { get; init; }
     public required BodyPart BodyPart { get; init; }
     public required TrackingMode TrackingMode { get; init; }
-    public string? ThumbnailUri { get; init; }
+    public string? ThumbnailUri
+    {
+        get => _thumbnailUri ?? (!IsCustom && RemoteThumbnailRoute is null
+            && Id == SupplementalExercises.SeatedBarbellShoulderPressId
+                ? "seated_barbell_shoulder_press.png" : null);
+        init => _thumbnailUri = value;
+    }
     public string? RemoteThumbnailRoute { get; init; }
     public Guid? LibraryImageId { get; init; }
     public DateTimeOffset? LastPerformedAt { get; init; }

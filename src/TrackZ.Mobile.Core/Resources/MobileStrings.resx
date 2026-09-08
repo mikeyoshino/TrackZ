@@ -28,6 +28,8 @@
   <data name="SaveExercise" xml:space="preserve"><value>Save exercise</value></data>
   <data name="UnsupportedExerciseImage" xml:space="preserve"><value>Choose a JPEG, PNG, or WebP image.</value></data>
   <data name="ImageNotImported" xml:space="preserve"><value>Image not imported</value></data>
+  <data name="CameraUnavailable" xml:space="preserve"><value>This device cannot take photos. Choose one from your library instead.</value></data>
+  <data name="PhotoAccessDenied" xml:space="preserve"><value>TrackZ cannot open the camera or photo library. Allow access in Settings.</value></data>
   <data name="ExerciseNotSaved" xml:space="preserve"><value>Exercise not saved</value></data>
   <data name="ExerciseSaveFailedFormat" xml:space="preserve"><value>Could not save the exercise ({0}).</value></data>
   <data name="Okay" xml:space="preserve"><value>OK</value></data>

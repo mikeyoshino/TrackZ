@@ -171,6 +171,17 @@
   <data name="EffortTooHeavyOption" xml:space="preserve"><value>หนักเกินไป — ทำไม่ถึงเป้าหรือฟอร์มเริ่มเสีย</value></data>
   <data name="EffortSkip" xml:space="preserve"><value>ไม่แน่ใจ · ข้ามครั้งนี้</value></data>
   <data name="EffortPainSafety" xml:space="preserve"><value>ถ้ารู้สึกเจ็บหรือรักษาฟอร์มไม่ได้ ให้หยุดท่านี้</value></data>
+  <data name="EffortInlineLabel" xml:space="preserve"><value>ระดับความหนัก (ไม่บังคับ)</value></data>
+  <data name="PainInlineLabel" xml:space="preserve"><value>รู้สึกเจ็บระหว่างเซ็ตนี้</value></data>
+  <data name="EffortDragPrompt" xml:space="preserve"><value>ลากเพื่อบอกความหนัก</value></data>
+  <data name="EffortComfortable" xml:space="preserve"><value>สบาย ๆ</value></data>
+  <data name="EffortGood" xml:space="preserve"><value>กำลังดี</value></data>
+  <data name="EffortHard" xml:space="preserve"><value>หนัก</value></data>
+  <data name="EffortBarelyManageable" xml:space="preserve"><value>แทบไม่ไหว</value></data>
+  <data name="EffortEasyEndpoint" xml:space="preserve"><value>สบาย</value></data>
+  <data name="EffortBarelyEndpoint" xml:space="preserve"><value>แทบไม่ไหว</value></data>
+  <data name="EffortClear" xml:space="preserve"><value>ล้างค่าความหนัก</value></data>
+  <data name="GuidanceSafetyQualifier" xml:space="preserve"><value>เพิ่มเมื่อยังคุมท่าได้และไม่เจ็บ</value></data>
   <data name="EffortSaving" xml:space="preserve"><value>กำลังบันทึกความรู้สึก…</value></data>
   <data name="EffortSaveFailed" xml:space="preserve"><value>บันทึกความรู้สึกของเซ็ตไม่สำเร็จ</value></data>
   <data name="EffortUnavailable" xml:space="preserve"><value>ไม่สามารถบันทึกความรู้สึกของเซ็ตนี้ได้แล้ว แต่เซ็ตเดิมของคุณบันทึกไว้แล้ว</value></data>

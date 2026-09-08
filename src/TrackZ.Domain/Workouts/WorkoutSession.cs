@@ -125,7 +125,10 @@ public sealed class WorkoutSession
         Guid workoutExerciseId,
         Guid setId,
         SetMeasurement measurement,
-        DateTimeOffset completedAt)
+        DateTimeOffset completedAt,
+        int? effortScore = null,
+        bool? isWarmup = null,
+        bool? hasPain = null)
     {
         EnsureActive();
         EnsureNotEmpty(workoutExerciseId, nameof(workoutExerciseId));
@@ -138,7 +141,7 @@ public sealed class WorkoutSession
 
         var normalizedCompletedAt = NormalizeTimestamp(completedAt, nameof(completedAt));
         EnsureNotBeforeStart(normalizedCompletedAt, nameof(completedAt));
-        exercise.AddSet(setId, measurement, normalizedCompletedAt);
+        exercise.AddSet(setId, measurement, normalizedCompletedAt, effortScore, isWarmup, hasPain);
         Version++;
     }
 
@@ -159,6 +162,15 @@ public sealed class WorkoutSession
         {
             Version++;
         }
+    }
+
+    public void EditSetCoaching(Guid workoutExerciseId, Guid setId, int? effortScore,
+        bool? isWarmup, bool? hasPain, DateTimeOffset updatedAt)
+    {
+        EnsureNotDeleted();
+        var exercise = FindActiveExercise(workoutExerciseId);
+        var normalized = NormalizeTimestamp(updatedAt, nameof(updatedAt));
+        if (exercise.EditSetCoaching(setId, effortScore, isWarmup, hasPain, normalized)) Version++;
     }
 
     public void RecordSetEffort(

@@ -6,6 +6,15 @@ namespace TrackZ.Mobile.Tests.Exercises;
 
 public sealed class ExerciseTechniqueCatalogTests
 {
+    [Fact]
+    public void Seated_barbell_press_has_specific_barbell_guidance()
+    {
+        var guidance = new ExerciseTechniqueCatalog().Get("Seated Barbell Shoulder Press", BodyPart.Shoulders,
+            false, CultureInfo.GetCultureInfo("th-TH"));
+        Assert.True(guidance.IsSpecific);
+        Assert.Contains(guidance.Steps, step => step.Contains("บาร์"));
+        Assert.DoesNotContain(guidance.Steps, step => step.Contains("ดัมเบล"));
+    }
     private static readonly string[] SystemExerciseNames =
     [
         "Barbell Bench Press", "Incline Barbell Bench Press", "Dumbbell Bench Press", "Incline Dumbbell Press", "Chest Press Machine",

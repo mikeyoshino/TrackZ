@@ -50,4 +50,7 @@ public sealed record WorkoutSetReadRow(
     DateTimeOffset CompletedAt,
     DateTimeOffset? UpdatedAt,
     SetEffortRating? Effort = null,
-    int? PlateCount = null);
+    int? PlateCount = null,
+    int? EffortScore = null,
+    bool? IsWarmup = null,
+    bool? HasPain = null);

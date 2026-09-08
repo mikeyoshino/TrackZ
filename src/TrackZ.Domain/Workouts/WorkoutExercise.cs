@@ -69,11 +69,13 @@ public sealed class WorkoutExercise
         };
     }
 
-    internal SetEntry AddSet(Guid setId, SetMeasurement measurement, DateTimeOffset completedAt)
+    internal SetEntry AddSet(Guid setId, SetMeasurement measurement, DateTimeOffset completedAt,
+        int? effortScore = null, bool? isWarmup = null, bool? hasPain = null)
     {
         EnsureNotDeleted();
         ValidateMeasurement(measurement);
-        var set = SetEntry.Create(setId, Id, TrackingMode, Sets.Count, measurement, completedAt);
+        var set = SetEntry.Create(setId, Id, TrackingMode, Sets.Count, measurement, completedAt,
+            effortScore, isWarmup, hasPain);
         _sets.Add(set);
         Version++;
         return set;
@@ -90,6 +92,13 @@ public sealed class WorkoutExercise
             Version++;
         }
 
+        return changed;
+    }
+
+    internal bool EditSetCoaching(Guid setId, int? effortScore, bool? isWarmup, bool? hasPain, DateTimeOffset updatedAt)
+    {
+        var changed = FindSet(setId).EditCoaching(effortScore, isWarmup, hasPain, updatedAt);
+        if (changed) Version++;
         return changed;
     }
 

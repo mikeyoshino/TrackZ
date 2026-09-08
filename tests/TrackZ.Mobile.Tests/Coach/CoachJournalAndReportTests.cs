@@ -36,8 +36,8 @@ public sealed class CoachJournalAndReportTests
     [Fact]
     public void Report_deduplicates_days_and_excludes_warmups_and_deleted_sets()
     {
-        var first = Workout(Now.AddHours(-2));
-        var second = Workout(Now.AddHours(-1));
+        var first = Workout(Now.AddHours(-2), false);
+        var second = Workout(Now.AddHours(-1), true);
         var journal = CoachJournalData.Empty();
         journal.Warmups[first.Exercises[0].Sets[0].Id] = false;
         journal.Warmups[second.Exercises[0].Sets[0].Id] = true;
@@ -62,8 +62,8 @@ public sealed class CoachJournalAndReportTests
     [Fact]
     public void New_or_edited_sets_invalidate_old_form_assessment()
     {
-        var first = Workout(Now.AddDays(-4));
-        var last = Workout(Now.AddHours(-1));
+        var first = Workout(Now.AddDays(-4), false);
+        var last = Workout(Now.AddHours(-1), false);
         var data = CoachJournalData.Empty();
         foreach (var workout in new[] { first, last })
         {
@@ -79,11 +79,11 @@ public sealed class CoachJournalAndReportTests
     private static CoachReport Report(IReadOnlyList<LocalWorkout> workouts, CoachJournalData journal) =>
         TrainingCoachSource.BuildReport(workouts, [new CachedExercise { Id = ExerciseId, Name = "Curl", BodyPart = BodyPart.Arms, TrackingMode = TrackingMode.Weighted }], journal, Now, TimeZoneInfo.Utc, _ => null);
 
-    private static LocalWorkout Workout(DateTimeOffset at)
+    private static LocalWorkout Workout(DateTimeOffset at, bool? isWarmup = null)
     {
         var workoutId = Guid.NewGuid(); var workoutExerciseId = Guid.NewGuid();
         return new(workoutId, LocalWorkoutStatus.Completed, at.AddHours(-1), at, null, 1, 0,
             [new(workoutExerciseId, workoutId, ExerciseId, TrackingMode.Weighted, 0, null, 1, 0,
-                [new LocalSet(5m, null, 10) with { WorkoutExerciseId = workoutExerciseId, CompletedAt = at }])]);
+                [new LocalSet(5m, null, 10) with { WorkoutExerciseId = workoutExerciseId, CompletedAt = at, IsWarmup = isWarmup }])]);
     }
 }

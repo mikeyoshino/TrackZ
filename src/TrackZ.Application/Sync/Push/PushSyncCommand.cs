@@ -88,7 +88,10 @@ internal sealed record SaveSetSyncPayload(
     string? AssistedKg,
     int Reps,
     DateTimeOffset CompletedAt,
-    int? PlateCount = null);
+    int? PlateCount = null,
+    int? EffortScore = null,
+    bool? IsWarmup = null,
+    bool? HasPain = null);
 
 internal sealed record CompleteWorkoutSyncPayload(
     Guid WorkoutId,
@@ -102,7 +105,11 @@ internal sealed record EditSetSyncPayload(
     string? AssistedKg,
     int Reps,
     DateTimeOffset UpdatedAt,
-    int? PlateCount = null);
+    int? PlateCount = null,
+    bool CoachingMetadataSpecified = false,
+    int? EffortScore = null,
+    bool? IsWarmup = null,
+    bool? HasPain = null);
 
 internal sealed record RecordSetEffortSyncPayload(
     Guid WorkoutId,

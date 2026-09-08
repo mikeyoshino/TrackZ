@@ -163,6 +163,35 @@ public sealed class WorkoutSessionTests
         { TrackingMode.Assisted, new SetMeasurement(null, null, 10, 7) }
     };
 
+    [Fact]
+    public void Complete_set_preserves_exact_optional_coaching_metadata()
+    {
+        var workout = StartWorkout();
+        var item = AddExercise(workout, TrackingMode.Weighted);
+
+        workout.CompleteSet(item.Id, _setId, new SetMeasurement(70m, null, 8),
+            _startedAt.AddMinutes(1), effortScore: 73, isWarmup: false, hasPain: true);
+
+        var set = Assert.Single(item.Sets);
+        Assert.Equal(73, set.EffortScore);
+        Assert.False(set.IsWarmup);
+        Assert.True(set.HasPain);
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(101)]
+    public void Complete_set_rejects_effort_score_outside_inclusive_scale(int effortScore)
+    {
+        var workout = StartWorkout();
+        var item = AddExercise(workout, TrackingMode.Weighted);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => workout.CompleteSet(
+            item.Id, _setId, new SetMeasurement(70m, null, 8),
+            _startedAt.AddMinutes(1), effortScore, false, false));
+        Assert.Empty(item.Sets);
+    }
+
     [Theory]
     [MemberData(nameof(InvalidMeasurements))]
     public void Invalid_set_measurement_raises_domain_owned_reason_and_does_not_mutate(

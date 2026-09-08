@@ -26,6 +26,12 @@ public sealed class SetEntry
 
     public SetEffortRating? Effort { get; private set; }
 
+    public int? EffortScore { get; private set; }
+
+    public bool? IsWarmup { get; private set; }
+
+    public bool? HasPain { get; private set; }
+
     public DateTimeOffset CompletedAt { get; private set; }
 
     public DateTimeOffset? UpdatedAt { get; private set; }
@@ -63,8 +69,13 @@ public sealed class SetEntry
         TrackingMode trackingMode,
         int order,
         SetMeasurement measurement,
-        DateTimeOffset completedAt)
+        DateTimeOffset completedAt,
+        int? effortScore = null,
+        bool? isWarmup = null,
+        bool? hasPain = null)
     {
+        if (effortScore is < 0 or > 100)
+            throw new ArgumentOutOfRangeException(nameof(effortScore));
         return new SetEntry
         {
             Id = id,
@@ -75,6 +86,9 @@ public sealed class SetEntry
             AssistedKg = measurement.AssistedKg,
             PlateCount = measurement.PlateCount,
             Reps = measurement.Reps,
+            EffortScore = effortScore,
+            IsWarmup = isWarmup,
+            HasPain = hasPain,
             CompletedAt = completedAt,
             Version = 1
         };
@@ -103,6 +117,20 @@ public sealed class SetEntry
         AssistedKg = measurement.AssistedKg;
         PlateCount = measurement.PlateCount;
         Reps = measurement.Reps;
+        UpdatedAt = updatedAt;
+        Version++;
+        return true;
+    }
+
+    internal bool EditCoaching(int? effortScore, bool? isWarmup, bool? hasPain, DateTimeOffset updatedAt)
+    {
+        if (IsDeleted) throw new InvalidOperationException("A deleted set cannot be edited.");
+        if (updatedAt < LastMutationAt) throw new ArgumentException("The update timestamp cannot precede an earlier set mutation.", nameof(updatedAt));
+        if (effortScore is < 0 or > 100) throw new ArgumentOutOfRangeException(nameof(effortScore));
+        if (EffortScore == effortScore && IsWarmup == isWarmup && HasPain == hasPain) return false;
+        EffortScore = effortScore;
+        IsWarmup = isWarmup;
+        HasPain = hasPain;
         UpdatedAt = updatedAt;
         Version++;
         return true;

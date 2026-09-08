@@ -25,7 +25,7 @@ public sealed class MauiUiDispatcher : IUiDispatcher
     public Task InvokeAsync(Action action) => MainThread.InvokeOnMainThreadAsync(action);
 }
 
-public sealed class MauiLocalExerciseImagePicker : ILocalExerciseImagePicker
+public sealed class MauiLocalExerciseImagePicker(IMediaPicker mediaPicker) : ILocalExerciseImagePicker
 {
     public async Task<LocalExerciseImageSelection?> PickAsync(
         string pickerTitle,
@@ -33,23 +33,35 @@ public sealed class MauiLocalExerciseImagePicker : ILocalExerciseImagePicker
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(pickerTitle);
         cancellationToken.ThrowIfCancellationRequested();
-        var selected = await FilePicker.Default.PickAsync(new PickOptions
+        var selected = (await mediaPicker.PickPhotosAsync(new MediaPickerOptions
         {
-            PickerTitle = pickerTitle,
-            FileTypes = FilePickerFileType.Images
-        });
+            Title = pickerTitle,
+            SelectionLimit = 1,
+            MaximumWidth = 2048,
+            MaximumHeight = 2048,
+            CompressionQuality = 88,
+            RotateImage = true,
+            PreserveMetaData = false
+        })).FirstOrDefault();
         return selected is null ? null : MauiExerciseImageSelection.From(selected);
     }
 }
 
-public sealed class MauiLocalExerciseImageCapture : ILocalExerciseImageCapture
+public sealed class MauiLocalExerciseImageCapture(IMediaPicker mediaPicker) : ILocalExerciseImageCapture
 {
     public async Task<LocalExerciseImageSelection?> CaptureAsync(
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (!MediaPicker.Default.IsCaptureSupported) return null;
-        var selected = await MediaPicker.Default.CapturePhotoAsync();
+        if (!mediaPicker.IsCaptureSupported) throw new FeatureNotSupportedException();
+        var selected = await mediaPicker.CapturePhotoAsync(new MediaPickerOptions
+        {
+            MaximumWidth = 2048,
+            MaximumHeight = 2048,
+            CompressionQuality = 88,
+            RotateImage = true,
+            PreserveMetaData = false
+        });
         cancellationToken.ThrowIfCancellationRequested();
         return selected is null ? null : MauiExerciseImageSelection.From(selected);
     }

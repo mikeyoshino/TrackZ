@@ -123,6 +123,12 @@ public sealed class ExerciseTechniqueCatalog
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentNullException.ThrowIfNull(culture);
         var thai = culture.TwoLetterISOLanguageName.Equals("th", StringComparison.OrdinalIgnoreCase);
+        if (!isCustom && name.Trim().Equals("Seated Barbell Shoulder Press", StringComparison.OrdinalIgnoreCase))
+            return (thai
+                ? Guide("นั่งพิงพนัก วางเท้าให้มั่นคง", "ดันบาร์ขึ้นโดยไม่แอ่นหลัง", "ค่อย ๆ ลดบาร์กลับด้านหน้า ระดับที่ไหล่สบาย",
+                    "ใช้ที่วางบาร์และน้ำหนักที่ควบคุมได้", "อย่าฝืนยกเมื่อเจ็บไหล่")
+                : Guide("Sit against the backrest with feet planted", "Press the bar up without arching your back", "Lower the bar in front to a comfortable shoulder height",
+                    "Use a rack and a load you can control", "Stop if your shoulder hurts")) with { IsSpecific = true };
         if (!isCustom && Movements.TryGetValue(name.Trim(), out var movement))
             return Guidance(movement, thai) with { IsSpecific = true };
         return Fallback(bodyPart, thai);
